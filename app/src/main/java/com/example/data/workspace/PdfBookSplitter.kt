@@ -141,6 +141,12 @@ class PdfBookSplitter(private val context: Context) {
         val sourcePdf = File(pdfInfo.storedPdfPath)
         require(sourcePdf.exists()) { "ملف PDF الأصلي غير موجود" }
 
+        val partKey = inferPartKeyFromFileName(pdfInfo.fileName)
+        val partAssignmentEvidence = if (partKey == "UNKNOWN") {
+            "No reliable P01/P02 marker found in source filename; manual review is required."
+        } else {
+            "Filename suggests $partKey, but the part assignment is provisional and requires review."
+        }
         val sourceCopy = File(bookDir, "source.pdf")
         sourcePdf.copyTo(sourceCopy, overwrite = true)
         val warnings = mutableListOf<String>()
@@ -161,6 +167,9 @@ class PdfBookSplitter(private val context: Context) {
             put("sourcePdf", "source.pdf")
             put("sourceSha256", pdfInfo.sha256)
             put("totalPages", pdfInfo.totalPages)
+            put("partKey", partKey)
+            put("assignmentStatus", "need_review")
+            put("assignmentEvidence", partAssignmentEvidence)
             if (coverSaved) {
                 put("cover", "cover.png")
             }
@@ -175,8 +184,9 @@ class PdfBookSplitter(private val context: Context) {
                 add(buildJsonObject {
                     put("unitKey", unitKey)
                     put("title", unitTitle)
-                    put("partKey", "P01")
-                    put("assignmentStatus", "assigned")
+                    put("partKey", partKey)
+                    put("assignmentStatus", "need_review")
+                    put("assignmentEvidence", partAssignmentEvidence)
                     put("lessons", buildJsonArray {
                         unitSplits.forEachIndexed { idx, split ->
                             val lessonKey = split.lessonKey.ifBlank {
@@ -191,7 +201,7 @@ class PdfBookSplitter(private val context: Context) {
                                 put("pdfPageStart", split.startPage)
                                 put("pdfPageEnd", split.endPage)
                                 val lessonNum = extractTrailingNumber(lessonKey, idx + 1)
-                                put("sourceTextPath", "P01/units/$unitKey/lesson_${lessonNum.toString().padStart(2, '0')}.txt")
+                                put("sourceTextPath", "$partKey/units/$unitKey/lesson_${lessonNum.toString().padStart(2, '0')}.txt")
                             })
                         }
                     })
@@ -211,7 +221,8 @@ class PdfBookSplitter(private val context: Context) {
         val splitFailureMessages = splitPdfIntoLessons(
             sourcePdf = sourcePdf,
             bookDir = bookDir,
-            groupedUnits = groupedUnits
+            groupedUnits = groupedUnits,
+            partKey = partKey
         )
         warnings.addAll(splitFailureMessages)
 
@@ -222,7 +233,7 @@ class PdfBookSplitter(private val context: Context) {
                     "lesson_${(idx + 1).toString().padStart(2, '0')}"
                 }
                 val num = extractTrailingNumber(lessonKey, idx + 1)
-                val relPdf = "P01/units/$unitKey/lesson_${num.toString().padStart(2, '0')}.pdf"
+                val relPdf = "$partKey/units/$unitKey/lesson_${num.toString().padStart(2, '0')}.pdf"
                 val lessonPdf = File(bookDir, relPdf)
                 val lessonBase = relPdf.removeSuffix(".pdf")
                 filesCount += listOf(
@@ -278,7 +289,8 @@ class PdfBookSplitter(private val context: Context) {
     private fun splitPdfIntoLessons(
         sourcePdf: File,
         bookDir: File,
-        groupedUnits: Map<String, List<LessonSplitDraft>>
+        groupedUnits: Map<String, List<LessonSplitDraft>>,
+        partKey: String
     ): List<String> {
         val warnings = mutableListOf<String>()
         runCatching {
@@ -290,7 +302,7 @@ class PdfBookSplitter(private val context: Context) {
                         "lesson_${(idx + 1).toString().padStart(2, '0')}"
                     }
                     val num = extractTrailingNumber(lessonKey, idx + 1)
-                    val base = "P01/units/$unitKey/lesson_${num.toString().padStart(2, '0')}"
+                    val base = "$partKey/units/$unitKey/lesson_${num.toString().padStart(2, '0')}"
                     val outFile = File(bookDir, "$base.pdf")
                     val textFile = File(bookDir, "$base.txt")
                     outFile.parentFile?.mkdirs()
@@ -379,6 +391,16 @@ class PdfBookSplitter(private val context: Context) {
                     } else null
                 }
         }.getOrNull()
+    }
+
+    private fun inferPartKeyFromFileName(fileName: String): String {
+        val match = Regex("(?:^|[^a-z0-9])(?:part|p)[ _.-]*0?([12])(?:[^0-9]|$)", RegexOption.IGNORE_CASE)
+            .find(fileName)
+        return when (match?.groupValues?.getOrNull(1)) {
+            "1" -> "P01"
+            "2" -> "P02"
+            else -> "UNKNOWN"
+        }
     }
 
     private fun extractTrailingNumber(key: String, fallback: Int): Int {
