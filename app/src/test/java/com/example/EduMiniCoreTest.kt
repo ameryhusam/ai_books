@@ -8,8 +8,10 @@ import com.example.data.local.LessonProgressEntity
 import com.example.data.packageimport.InteractivePackageImporter
 import com.example.data.repository.EduMiniRepository
 import com.example.data.repository.MilestoneBadgeEngine
+import com.example.data.repository.QuestionBankEngine
 import com.example.data.security.ProviderStorage
 import com.example.data.workspace.PdfBookSplitter
+import com.example.data.workspace.WorkspaceExporter
 import com.example.data.workspace.WorkspaceImporter
 import com.example.model.BookRef
 import com.example.model.ImportedWorkspace
@@ -17,9 +19,12 @@ import com.example.model.LearningNodeStatus
 import com.example.model.LessonRef
 import com.example.model.PackageKind
 import com.example.model.PdfBookInfo
+import com.example.model.QuestionDifficulty
+import com.example.model.QuestionType
 import com.example.model.SecuritySeverity
 import com.example.model.TaskType
 import com.example.ui.components.LearningProgressCalculator
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -444,6 +449,178 @@ class EduMiniCoreTest {
         assertEquals(80, snapshot.overallCompletionPercent)
         assertEquals(67, snapshot.books[0].completionPercent)
         assertEquals(100, snapshot.books[1].completionPercent)
+    }
+
+    @Test
+    fun questionBankEngineParsesJsonAndArabicTextDetectsDuplicatesAndGradesQuiz() {
+        val lesson = sampleLesson()
+
+        val jsonInput = """
+            ```json
+            [
+              {
+                "type": "mcq",
+                "prompt": "ما عاصمة المملكة العربية السعودية؟",
+                "options": ["الرياض", "جدة", "الدمام", "مكة"],
+                "correctAnswer": "الرياض",
+                "rationale": "الرياض هي العاصمة الإدارية والسياسية.",
+                "difficulty": "easy"
+              },
+              {
+                "type": "true_false",
+                "prompt": "تدور الأرض حول الشمس مرة كل سنة.",
+                "options": ["صح", "خطأ"],
+                "correctAnswer": "صح",
+                "difficulty": "medium"
+              }
+            ]
+            ```
+        """.trimIndent()
+
+        val jsonQuestions = QuestionBankEngine.parseQuestionsFromText(jsonInput, "ws-test", lesson)
+        assertEquals(2, jsonQuestions.size)
+        assertEquals(QuestionType.MCQ, jsonQuestions[0].type)
+        assertEquals("الرياض", jsonQuestions[0].correctAnswer)
+        assertEquals(QuestionDifficulty.EASY, jsonQuestions[0].difficulty)
+        assertEquals(QuestionType.TRUE_FALSE, jsonQuestions[1].type)
+
+        val arabicTextInput = """
+            1. ما ناتج جمع 4 + 5؟
+            أ) 8
+            ب) 9
+            ج) 10
+            الإجابة: ب
+            التفسير: 4 + 5 يساوي 9.
+            الصعوبة: سهل
+
+            2. ما عاصمة المملكة العربية السعودية؟!
+            أ) جدة
+            ب) الرياض
+            الإجابة: الرياض
+            الصعوبة: صعب
+        """.trimIndent()
+
+        val textQuestions = QuestionBankEngine.parseQuestionsFromText(arabicTextInput, "ws-test", lesson)
+        assertEquals(2, textQuestions.size)
+        assertEquals("9", textQuestions[0].correctAnswer)
+        assertEquals(QuestionDifficulty.EASY, textQuestions[0].difficulty)
+        assertEquals(QuestionDifficulty.HARD, textQuestions[1].difficulty)
+
+        // Check duplicate detection across the combined list (same normalized prompt ignoring punctuation)
+        val combined = QuestionBankEngine.markDuplicates(jsonQuestions + textQuestions)
+        assertTrue(combined[0].isDuplicate)
+        assertFalse(combined[1].isDuplicate)
+        assertFalse(combined[2].isDuplicate)
+        assertTrue(combined[3].isDuplicate)
+
+        // Grade interactive quiz
+        val selected = mapOf(
+            jsonQuestions[0].id to "الرياض",
+            jsonQuestions[1].id to "خطأ"
+        )
+        val summary = QuestionBankEngine.gradeQuiz(jsonQuestions, selected)
+        assertEquals(2, summary.totalQuestions)
+        assertEquals(1, summary.correctCount)
+        assertEquals(50, summary.scorePercent)
+        assertEquals(15, summary.earnedXp)
+    }
+
+    @Test
+    fun repositoryQuestionBankCrudAndWorkspaceExporterIndexer2Zip() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val db = EduMiniDatabase.getInstance(context)
+        val repo = EduMiniRepository(
+            dao = db.eduMiniDao(),
+            providerStorage = ProviderStorage(context),
+            workspaceImporter = WorkspaceImporter(context),
+            aiGenerationService = AiGenerationService(),
+            pdfBookSplitter = PdfBookSplitter(context),
+            interactivePackageImporter = InteractivePackageImporter(context)
+        )
+
+        val lesson = sampleLesson()
+        val ws = ImportedWorkspace(
+            workspaceId = "ws-qb-export",
+            gradeKey = "G04",
+            rootPath = "/tmp/ws-qb-export",
+            title = "G04 • لغتي العربية",
+            books = listOf(
+                BookRef(
+                    bookKey = "ARAB",
+                    title = "لغتي العربية",
+                    subjectKey = "ARAB",
+                    relativePath = "workspace/G04/ARAB",
+                    lessonsCount = 1
+                )
+            ),
+            lessons = listOf(lesson),
+            filesCount = 2,
+            warnings = emptyList()
+        )
+        repo.saveImportedWorkspace(ws)
+
+        val draft = repo.persistDraft(
+            workspaceId = ws.workspaceId,
+            lesson = lesson,
+            task = TaskType.QUESTIONS,
+            providerLabel = "Gemini",
+            model = "gemini-2.5-flash",
+            text = "1. كم عدد أركان الإسلام؟\nأ) 4\nب) 5\nالإجابة: ب",
+            title = lesson.title,
+            sourceText = "نص الدرس"
+        )
+        assertEquals("ws-qb-export", draft.workspaceId)
+
+        val savedFromDraft = repo.saveQuestionsFromDraftText(ws.workspaceId, lesson, draft.content)
+        assertEquals(1, savedFromDraft.size)
+
+        val manual = repo.addManualQuestion(
+            workspaceId = ws.workspaceId,
+            lesson = lesson,
+            type = QuestionType.TRUE_FALSE,
+            prompt = "الماء سائل في درجة حرارة الغرفة.",
+            options = listOf("صح", "خطأ"),
+            correctAnswer = "صح",
+            rationale = "حقيقة علمية.",
+            difficulty = QuestionDifficulty.EASY
+        )
+
+        var current = repo.observeQuestionsForWorkspace(ws.workspaceId).first()
+        assertEquals(2, current.size)
+
+        repo.toggleQuestionReviewed(savedFromDraft.first().id, false)
+        current = repo.observeQuestionsForWorkspace(ws.workspaceId).first()
+        assertTrue(current.first { it.id == savedFromDraft.first().id }.reviewed)
+
+        val baos = ByteArrayOutputStream()
+        val receipt = repo.exportIndexer2Zip(baos, ws)
+        assertTrue(receipt.entriesCount >= 4)
+        assertEquals(1, receipt.draftsCount)
+        assertEquals(2, receipt.questionsCount)
+
+        val zipNames = mutableListOf<String>()
+        var manifestContent = ""
+        java.util.zip.ZipInputStream(ByteArrayInputStream(baos.toByteArray())).use { zis ->
+            var entry = zis.nextEntry
+            while (entry != null) {
+                zipNames.add(entry.name)
+                if (entry.name == "manifest.json") {
+                    manifestContent = zis.readBytes().toString(Charsets.UTF_8)
+                }
+                zis.closeEntry()
+                entry = zis.nextEntry
+            }
+        }
+
+        assertTrue(zipNames.contains("manifest.json"))
+        assertTrue(zipNames.contains("questions/unit_01/lesson_01/ai_generated.json"))
+        assertTrue(zipNames.any { it.startsWith("edu_mini_generated/unit_01/lesson_01/") })
+        assertTrue(manifestContent.contains("sha256"))
+        assertTrue(manifestContent.contains("edu-mini-indexer2-1.0"))
+
+        repo.deleteQuestion(manual.id)
+        current = repo.observeQuestionsForWorkspace(ws.workspaceId).first()
+        assertEquals(1, current.size)
     }
 
     private fun sampleLesson() = LessonRef(

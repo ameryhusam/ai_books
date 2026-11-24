@@ -29,16 +29,25 @@ import androidx.compose.material.icons.outlined.FolderZip
 import androidx.compose.material.icons.outlined.MenuBook
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.FileDownload
 import androidx.compose.material.icons.rounded.PictureAsPdf
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -56,11 +65,13 @@ import com.example.model.BookProgressSummary
 import com.example.model.BookRef
 import com.example.model.ImportedWorkspace
 import com.example.model.LessonRef
+import com.example.model.LibraryPartFilter
 import com.example.model.WorkspaceSummary
 import com.example.ui.components.EduPanel
 import com.example.ui.components.EduPill
 import com.example.ui.components.EduYellowButton
 import com.example.ui.components.LearningProgress
+import com.example.ui.theme.EduFieldBg
 import com.example.ui.theme.EduGreen
 import com.example.ui.theme.EduGreenDark
 import com.example.ui.theme.EduHeroKicker
@@ -88,10 +99,28 @@ fun LibraryScreen(
     onSelectWorkspace: (String) -> Unit,
     onSelectBook: (String) -> Unit,
     onOpenLesson: (LessonRef) -> Unit,
+    onExportWorkspace: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val filteredLessons = remember(workspace, selectedBookKey) {
-        workspace?.lessons?.filter { it.bookKey == selectedBookKey }.orEmpty()
+    var searchQuery by remember { mutableStateOf("") }
+    var partFilter by remember { mutableStateOf(LibraryPartFilter.ALL) }
+
+    val filteredLessons = remember(workspace, selectedBookKey, searchQuery, partFilter) {
+        val q = searchQuery.trim()
+        workspace?.lessons?.filter { lesson ->
+            val matchesBook = lesson.bookKey == selectedBookKey
+            val matchesPart = when (partFilter) {
+                LibraryPartFilter.ALL -> true
+                LibraryPartFilter.P01 -> lesson.partKey.equals("P01", ignoreCase = true)
+                LibraryPartFilter.P02 -> lesson.partKey.equals("P02", ignoreCase = true)
+                LibraryPartFilter.WITH_PDF -> !lesson.pdfPath.isNullOrBlank()
+            }
+            val matchesQuery = q.isEmpty() ||
+                lesson.title.contains(q, ignoreCase = true) ||
+                lesson.unitTitle.contains(q, ignoreCase = true) ||
+                lesson.lessonKey.contains(q, ignoreCase = true)
+            matchesBook && matchesPart && matchesQuery
+        }.orEmpty()
     }
 
     Box(
@@ -213,6 +242,28 @@ fun LibraryScreen(
                                 }
                             }
                         }
+                        OutlinedButton(
+                            onClick = onExportWorkspace,
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, EduGreen),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .minimumInteractiveComponentSize()
+                                .testTag("export_workspace_zip_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.FileDownload,
+                                contentDescription = null,
+                                tint = EduGreenDark,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "تصدير حزمة متوافقة مع indexer2 (ZIP)",
+                                color = EduGreenDark,
+                                style = MaterialTheme.typography.labelLarge
+                            )
+                        }
                     }
                 }
             }
@@ -267,6 +318,49 @@ fun LibraryScreen(
                     color = EduInk,
                     modifier = Modifier.padding(top = 4.dp)
                 )
+            }
+
+            if (workspace != null && workspace.lessons.isNotEmpty()) {
+                item(key = "lessons_search_filter") {
+                    EduPanel(modifier = Modifier.fillMaxWidth()) {
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            leadingIcon = {
+                                Icon(imageVector = Icons.Rounded.Search, contentDescription = null, tint = EduMuted)
+                            },
+                            placeholder = {
+                                Text("ابحث عن درس أو وحدة...", style = MaterialTheme.typography.bodyMedium, color = EduMuted)
+                            },
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedContainerColor = EduFieldBg,
+                                unfocusedContainerColor = EduFieldBg,
+                                focusedBorderColor = EduGreen,
+                                unfocusedBorderColor = EduLine,
+                                focusedTextColor = EduInk,
+                                unfocusedTextColor = EduInk
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("library_lesson_search")
+                        )
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(7.dp),
+                            verticalArrangement = Arrangement.spacedBy(7.dp)
+                        ) {
+                            LibraryPartFilter.entries.forEach { filter ->
+                                EduPill(
+                                    text = filter.labelAr,
+                                    active = partFilter == filter,
+                                    onClick = { partFilter = filter },
+                                    testTag = "library_filter_${filter.name.lowercase()}"
+                                )
+                            }
+                        }
+                    }
+                }
             }
 
             if (filteredLessons.isNotEmpty()) {

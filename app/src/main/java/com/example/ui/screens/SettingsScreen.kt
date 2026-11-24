@@ -23,6 +23,8 @@ import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -74,10 +76,12 @@ fun SettingsScreen(
     onSelectProviderType: (ProviderType) -> Unit,
     onLabelChange: (String) -> Unit,
     onModelChange: (String) -> Unit,
+    onFallbackModelsChange: (String) -> Unit,
     onBaseUrlChange: (String) -> Unit,
     onApiKeyChange: (String) -> Unit,
     onAddProvider: () -> Unit,
     onToggleProvider: (String) -> Unit,
+    onMoveProvider: (String, Int) -> Unit,
     onDeleteProvider: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -191,6 +195,35 @@ fun SettingsScreen(
                         onValueChange = onModelChange,
                         testTag = "provider_model_input"
                     )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        val presets = if (form.provider == ProviderType.GEMINI) {
+                            listOf("gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite")
+                        } else {
+                            listOf("gpt-4o-mini", "gpt-4.1-mini", "deepseek-chat")
+                        }
+                        presets.forEach { preset ->
+                            EduPill(
+                                text = preset,
+                                active = form.model == preset,
+                                onClick = { onModelChange(preset) }
+                            )
+                        }
+                    }
+
+                    Text(
+                        text = "النماذج الاحتياطية (Fallback مفصولة بفاصلة)",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = EduInk,
+                        modifier = Modifier.padding(top = 6.dp)
+                    )
+                    SettingsField(
+                        value = form.fallbackModels,
+                        onValueChange = onFallbackModelsChange,
+                        testTag = "provider_fallback_input"
+                    )
 
                     if (form.provider == ProviderType.OPENAI_COMPATIBLE) {
                         Text(
@@ -274,22 +307,48 @@ fun SettingsScreen(
                 items = providers,
                 key = { it.id }
             ) { profile ->
+                val idx = providers.indexOfFirst { it.id == profile.id }
                 EduPanel(modifier = Modifier.fillMaxWidth()) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = profile.label,
+                                text = "#${idx + 1} • ${profile.label}",
                                 style = MaterialTheme.typography.titleSmall,
                                 color = EduInk
                             )
+                            val fallbackSuffix = if (profile.fallbackModels.isNotEmpty()) {
+                                " • احتياطي: ${profile.fallbackModels.joinToString(", ")}"
+                            } else ""
                             Text(
-                                text = "${profile.provider.id} • ${profile.model} • ${stringResource(R.string.settings_key_hidden)}",
+                                text = "${profile.provider.id} • ${profile.model}$fallbackSuffix • ${stringResource(R.string.settings_key_hidden)}",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = EduMuted
+                            )
+                        }
+                        IconButton(
+                            onClick = { onMoveProvider(profile.id, -1) },
+                            enabled = idx > 0,
+                            modifier = Modifier.minimumInteractiveComponentSize()
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.KeyboardArrowUp,
+                                contentDescription = "رفع الأولوية",
+                                tint = if (idx > 0) EduGreenDark else EduLine
+                            )
+                        }
+                        IconButton(
+                            onClick = { onMoveProvider(profile.id, 1) },
+                            enabled = idx in 0 until providers.lastIndex,
+                            modifier = Modifier.minimumInteractiveComponentSize()
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.KeyboardArrowDown,
+                                contentDescription = "خفض الأولوية",
+                                tint = if (idx in 0 until providers.lastIndex) EduGreenDark else EduLine
                             )
                         }
                         EduPill(

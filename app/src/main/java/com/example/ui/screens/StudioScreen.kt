@@ -29,6 +29,7 @@ import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Preview
+import androidx.compose.material.icons.outlined.Quiz
 import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Publish
@@ -61,6 +62,7 @@ import com.example.model.DraftRecord
 import com.example.model.DraftStatus
 import com.example.model.InteractivePackageRecord
 import com.example.model.LessonRef
+import com.example.model.QuestionDifficulty
 import com.example.model.TaskType
 import com.example.ui.components.EduPanel
 import com.example.ui.components.EduPill
@@ -86,6 +88,8 @@ fun StudioScreen(
     selectedLesson: LessonRef?,
     task: TaskType,
     questionCount: Int,
+    questionStyle: String,
+    questionDifficulty: QuestionDifficulty,
     attachPdfPages: Boolean,
     sourceText: String,
     extraInstructions: String,
@@ -97,6 +101,8 @@ fun StudioScreen(
     onBackToLibrary: () -> Unit,
     onSelectTask: (TaskType) -> Unit,
     onQuestionCountChange: (Int) -> Unit,
+    onQuestionStyleChange: (String) -> Unit,
+    onQuestionDifficultyChange: (QuestionDifficulty) -> Unit,
     onToggleAttachPdfPages: () -> Unit,
     onSourceChange: (String) -> Unit,
     onExtraChange: (String) -> Unit,
@@ -104,6 +110,7 @@ fun StudioScreen(
     onPackageSourcePagesChange: (String) -> Unit,
     onGenerate: () -> Unit,
     onSaveEditedDraft: () -> Unit,
+    onSaveToQuestionBank: () -> Unit,
     onApproveDraft: (String) -> Unit,
     onLoadDraft: (DraftRecord) -> Unit,
     onDeleteDraft: (String) -> Unit,
@@ -144,6 +151,8 @@ fun StudioScreen(
                     showBackLink = false,
                     task = task,
                     questionCount = questionCount,
+                    questionStyle = questionStyle,
+                    questionDifficulty = questionDifficulty,
                     attachPdfPages = attachPdfPages,
                     sourceText = sourceText,
                     extraInstructions = extraInstructions,
@@ -155,6 +164,8 @@ fun StudioScreen(
                     onBackToLibrary = onBackToLibrary,
                     onSelectTask = onSelectTask,
                     onQuestionCountChange = onQuestionCountChange,
+                    onQuestionStyleChange = onQuestionStyleChange,
+                    onQuestionDifficultyChange = onQuestionDifficultyChange,
                     onToggleAttachPdfPages = onToggleAttachPdfPages,
                     onSourceChange = onSourceChange,
                     onExtraChange = onExtraChange,
@@ -162,6 +173,7 @@ fun StudioScreen(
                     onPackageSourcePagesChange = onPackageSourcePagesChange,
                     onGenerate = onGenerate,
                     onSaveEditedDraft = onSaveEditedDraft,
+                    onSaveToQuestionBank = onSaveToQuestionBank,
                     onApproveDraft = onApproveDraft,
                     onLoadDraft = onLoadDraft,
                     onDeleteDraft = onDeleteDraft,
@@ -183,6 +195,8 @@ fun StudioScreen(
                     showBackLink = true,
                     task = task,
                     questionCount = questionCount,
+                    questionStyle = questionStyle,
+                    questionDifficulty = questionDifficulty,
                     attachPdfPages = attachPdfPages,
                     sourceText = sourceText,
                     extraInstructions = extraInstructions,
@@ -194,6 +208,8 @@ fun StudioScreen(
                     onBackToLibrary = onBackToLibrary,
                     onSelectTask = onSelectTask,
                     onQuestionCountChange = onQuestionCountChange,
+                    onQuestionStyleChange = onQuestionStyleChange,
+                    onQuestionDifficultyChange = onQuestionDifficultyChange,
                     onToggleAttachPdfPages = onToggleAttachPdfPages,
                     onSourceChange = onSourceChange,
                     onExtraChange = onExtraChange,
@@ -201,6 +217,7 @@ fun StudioScreen(
                     onPackageSourcePagesChange = onPackageSourcePagesChange,
                     onGenerate = onGenerate,
                     onSaveEditedDraft = onSaveEditedDraft,
+                    onSaveToQuestionBank = onSaveToQuestionBank,
                     onApproveDraft = onApproveDraft,
                     onLoadDraft = onLoadDraft,
                     onDeleteDraft = onDeleteDraft,
@@ -223,6 +240,8 @@ private fun StudioMainList(
     showBackLink: Boolean,
     task: TaskType,
     questionCount: Int,
+    questionStyle: String,
+    questionDifficulty: QuestionDifficulty,
     attachPdfPages: Boolean,
     sourceText: String,
     extraInstructions: String,
@@ -234,6 +253,8 @@ private fun StudioMainList(
     onBackToLibrary: () -> Unit,
     onSelectTask: (TaskType) -> Unit,
     onQuestionCountChange: (Int) -> Unit,
+    onQuestionStyleChange: (String) -> Unit,
+    onQuestionDifficultyChange: (QuestionDifficulty) -> Unit,
     onToggleAttachPdfPages: () -> Unit,
     onSourceChange: (String) -> Unit,
     onExtraChange: (String) -> Unit,
@@ -241,6 +262,7 @@ private fun StudioMainList(
     onPackageSourcePagesChange: (String) -> Unit,
     onGenerate: () -> Unit,
     onSaveEditedDraft: () -> Unit,
+    onSaveToQuestionBank: () -> Unit,
     onApproveDraft: (String) -> Unit,
     onLoadDraft: (DraftRecord) -> Unit,
     onDeleteDraft: (String) -> Unit,
@@ -350,6 +372,39 @@ private fun StudioMainList(
                                 active = questionCount == count,
                                 onClick = { onQuestionCountChange(count) },
                                 testTag = "question_count_$count"
+                            )
+                        }
+                    }
+                }
+
+                if (task == TaskType.QUESTIONS) {
+                    Text(
+                        text = "نمط الأسئلة والمستوى",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = EduInk,
+                        modifier = Modifier.padding(top = 6.dp)
+                    )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(7.dp),
+                        verticalArrangement = Arrangement.spacedBy(7.dp)
+                    ) {
+                        listOf("متنوعة", "اختيار من متعدد", "صح أم خطأ", "إجابة قصيرة").forEach { style ->
+                            EduPill(
+                                text = style,
+                                active = questionStyle == style,
+                                onClick = { onQuestionStyleChange(style) }
+                            )
+                        }
+                    }
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(7.dp),
+                        verticalArrangement = Arrangement.spacedBy(7.dp)
+                    ) {
+                        QuestionDifficulty.entries.forEach { diff ->
+                            EduPill(
+                                text = diff.labelAr,
+                                active = questionDifficulty == diff,
+                                onClick = { onQuestionDifficultyChange(diff) }
                             )
                         }
                     }
@@ -517,6 +572,28 @@ private fun StudioMainList(
                             .fillMaxWidth()
                             .testTag("editable_draft_output")
                     )
+                    OutlinedButton(
+                        onClick = onSaveToQuestionBank,
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, EduGreen),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .minimumInteractiveComponentSize()
+                            .testTag("save_to_question_bank_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Quiz,
+                            contentDescription = null,
+                            tint = EduGreenDark,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "استخراج وحفظ في بنك الأسئلة",
+                            color = EduGreenDark,
+                            style = MaterialTheme.typography.labelLarge
+                        )
+                    }
                 }
             }
         }

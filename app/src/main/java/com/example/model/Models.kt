@@ -294,9 +294,62 @@ data class DashboardSummary(
     val nextRecommendedLesson: LessonRef? = null
 )
 
+enum class QuestionType(val id: String, val labelAr: String) {
+    MCQ("mcq", "اختيار من متعدد"),
+    TRUE_FALSE("true_false", "صح أم خطأ"),
+    SHORT_ANSWER("short_answer", "إجابة قصيرة");
+
+    companion object {
+        fun fromId(id: String): QuestionType = entries.firstOrNull {
+            it.id.equals(id.trim(), ignoreCase = true)
+        } ?: MCQ
+    }
+}
+
+enum class QuestionDifficulty(val id: String, val labelAr: String) {
+    EASY("easy", "سهل"),
+    MEDIUM("medium", "متوسط"),
+    HARD("hard", "متقدم");
+
+    companion object {
+        fun fromId(id: String): QuestionDifficulty = entries.firstOrNull {
+            it.id.equals(id.trim(), ignoreCase = true)
+        } ?: MEDIUM
+    }
+}
+
+data class QuestionItem(
+    val id: String,
+    val workspaceId: String,
+    val gradeKey: String,
+    val bookKey: String,
+    val unitKey: String,
+    val lessonKey: String,
+    val lessonTitle: String,
+    val type: QuestionType,
+    val prompt: String,
+    val options: List<String>,
+    val correctAnswer: String,
+    val rationale: String,
+    val difficulty: QuestionDifficulty,
+    val sourcePages: String? = null,
+    val fingerprint: String = "",
+    val reviewed: Boolean = false,
+    val createdAt: String = "",
+    val isDuplicate: Boolean = false
+)
+
+enum class LibraryPartFilter(val labelAr: String) {
+    ALL("الكل"),
+    P01("الفصل الأول P01"),
+    P02("الفصل الثاني P02"),
+    WITH_PDF("PDF متاح")
+}
+
 enum class AppPage {
     DASHBOARD,
     LIBRARY,
     STUDIO,
+    QUIZ_BANK,
     SETTINGS
 }

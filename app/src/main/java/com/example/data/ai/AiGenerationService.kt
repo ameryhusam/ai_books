@@ -53,12 +53,14 @@ class AiGenerationService(
         source: String,
         extra: String,
         questionCount: Int = 5,
-        attachedPdfPagesCount: Int = 0
+        attachedPdfPagesCount: Int = 0,
+        questionStyleHint: String = "",
+        difficultyHint: String = ""
     ): String {
         val safeCount = questionCount.coerceIn(1, 30)
         val taskInstruction = when (task) {
             TaskType.QUESTIONS ->
-                "بنك أسئلة مكوّن من $safeCount أسئلة متنوعة مع الخيارات والإجابة الصحيحة والتفسير وربط كل سؤال بالصفحة المرجعية"
+                "بنك أسئلة مكوّن من $safeCount أسئلة مع الخيارات والإجابة الصحيحة والتفسير ومستوى الصعوبة وربط كل سؤال بالصفحة المرجعية"
             TaskType.INTERACTIVE ->
                 "درس تفاعلي منظم يتضمن شرحاً قصيراً وأمثلة واضحة مع $safeCount نقاط تحقق تفاعلية"
             TaskType.SUMMARY ->
@@ -88,6 +90,13 @@ class AiGenerationService(
             append("التزم بالمصدر ولا تخترع معلومات أو صفحات. اجعل المحتوى منظمًا وقابلاً للتحرير.\n")
             if (task == TaskType.QUESTIONS) {
                 append("عدد الأسئلة المطلوب بدقة: $safeCount.\n")
+                if (questionStyleHint.isNotBlank()) {
+                    append("نمط الأسئلة المطلوب: $questionStyleHint.\n")
+                }
+                if (difficultyHint.isNotBlank()) {
+                    append("مستوى الصعوبة المستهدف: $difficultyHint.\n")
+                }
+                append("نسّق كل سؤال بوضوح: رقم السؤال، ثم الخيارات (أ/ب/ج/د أو صح/خطأ)، ثم سطر 'الإجابة:'، ثم سطر 'التفسير:'، ثم سطر 'الصعوبة:'.\n")
             }
             if (attachedPdfPagesCount > 0) {
                 append("ملاحظة: مرفق مع هذا الطلب $attachedPdfPagesCount صفحة مصورة من ملف PDF الخاص بالدرس لاستخراج المحتوى والاعتماد عليها.\n")
@@ -146,6 +155,8 @@ class AiGenerationService(
         providers: List<ProviderConfig>,
         questionCount: Int = 5,
         pdfPageImagesBase64: List<String> = emptyList(),
+        questionStyleHint: String = "",
+        difficultyHint: String = "",
         onAttemptFinished: (suspend (providerLabel: String, model: String, success: Boolean, error: String?) -> Unit)? = null
     ): GeneratedResult = withContext(Dispatchers.IO) {
         val active = providers
@@ -162,7 +173,9 @@ class AiGenerationService(
             source = source,
             extra = extra,
             questionCount = questionCount,
-            attachedPdfPagesCount = pdfPageImagesBase64.size
+            attachedPdfPagesCount = pdfPageImagesBase64.size,
+            questionStyleHint = questionStyleHint,
+            difficultyHint = difficultyHint
         )
         val errors = mutableListOf<String>()
 

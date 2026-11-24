@@ -158,6 +158,35 @@ data class StudyDayEntity(
     @ColumnInfo(name = "last_updated_at") val lastUpdatedAt: String
 )
 
+@Entity(
+    tableName = "questions",
+    indices = [
+        Index(
+            name = "idx_questions_workspace_lesson",
+            value = ["workspace_id", "book_key", "unit_key", "lesson_key"]
+        )
+    ]
+)
+data class QuestionEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "workspace_id") val workspaceId: String,
+    @ColumnInfo(name = "grade_key") val gradeKey: String,
+    @ColumnInfo(name = "book_key") val bookKey: String,
+    @ColumnInfo(name = "unit_key") val unitKey: String,
+    @ColumnInfo(name = "lesson_key") val lessonKey: String,
+    @ColumnInfo(name = "lesson_title") val lessonTitle: String,
+    @ColumnInfo(name = "type") val type: String,
+    @ColumnInfo(name = "prompt") val prompt: String,
+    @ColumnInfo(name = "options_json") val optionsJson: String,
+    @ColumnInfo(name = "correct_answer") val correctAnswer: String,
+    @ColumnInfo(name = "rationale") val rationale: String,
+    @ColumnInfo(name = "difficulty") val difficulty: String,
+    @ColumnInfo(name = "source_pages") val sourcePages: String?,
+    @ColumnInfo(name = "fingerprint") val fingerprint: String,
+    @ColumnInfo(name = "reviewed") val reviewed: Boolean = false,
+    @ColumnInfo(name = "created_at") val createdAt: String
+)
+
 @Dao
 interface EduMiniDao {
     @Query("SELECT * FROM workspaces ORDER BY importedAt DESC LIMIT 1")
@@ -354,6 +383,18 @@ interface EduMiniDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertStudyDay(studyDay: StudyDayEntity)
+
+    @Query("SELECT * FROM questions WHERE workspace_id = :workspaceId ORDER BY created_at DESC")
+    fun observeQuestionsForWorkspace(workspaceId: String): Flow<List<QuestionEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertQuestions(questions: List<QuestionEntity>)
+
+    @Query("UPDATE questions SET reviewed = :reviewed WHERE id = :questionId")
+    suspend fun updateQuestionReviewed(questionId: String, reviewed: Boolean)
+
+    @Query("DELETE FROM questions WHERE id = :questionId")
+    suspend fun deleteQuestionById(questionId: String)
 }
 
 @Database(
@@ -365,9 +406,10 @@ interface EduMiniDao {
         InteractivePackageEntity::class,
         GenerationRunEntity::class,
         LessonProgressEntity::class,
-        StudyDayEntity::class
+        StudyDayEntity::class,
+        QuestionEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class EduMiniDatabase : RoomDatabase() {
@@ -467,6 +509,40 @@ abstract class EduMiniDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS questions (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        workspace_id TEXT NOT NULL,
+                        grade_key TEXT NOT NULL,
+                        book_key TEXT NOT NULL,
+                        unit_key TEXT NOT NULL,
+                        lesson_key TEXT NOT NULL,
+                        lesson_title TEXT NOT NULL,
+                        type TEXT NOT NULL,
+                        prompt TEXT NOT NULL,
+                        options_json TEXT NOT NULL,
+                        correct_answer TEXT NOT NULL,
+                        rationale TEXT NOT NULL,
+                        difficulty TEXT NOT NULL,
+                        source_pages TEXT,
+                        fingerprint TEXT NOT NULL,
+                        reviewed INTEGER NOT NULL DEFAULT 0,
+                        created_at TEXT NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_questions_workspace_lesson
+                    ON questions (workspace_id, book_key, unit_key, lesson_key)
+                    """.trimIndent()
+                )
+            }
+        }
+
         fun getInstance(context: Context): EduMiniDatabase {
             return instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -474,7 +550,7 @@ abstract class EduMiniDatabase : RoomDatabase() {
                     EduMiniDatabase::class.java,
                     "edu-mini-local.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                     .build()
                     .also { instance = it }
             }

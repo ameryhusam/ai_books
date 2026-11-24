@@ -25,10 +25,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Dashboard
 import androidx.compose.material.icons.outlined.LibraryBooks
+import androidx.compose.material.icons.outlined.Quiz
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Dashboard
 import androidx.compose.material.icons.rounded.LibraryBooks
+import androidx.compose.material.icons.rounded.Quiz
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -66,6 +68,7 @@ import com.example.ui.components.InteractivePackagePreviewDialog
 import com.example.ui.components.PdfBookSplitterDialog
 import com.example.ui.screens.DashboardScreen
 import com.example.ui.screens.LibraryScreen
+import com.example.ui.screens.QuestionBankScreen
 import com.example.ui.screens.SettingsScreen
 import com.example.ui.screens.StudioScreen
 import com.example.ui.theme.EduBg
@@ -86,12 +89,21 @@ fun EduMiniApp(
     val lessonDrafts by viewModel.lessonDrafts.collectAsStateWithLifecycle()
     val lessonPackages by viewModel.lessonPackages.collectAsStateWithLifecycle()
     val dashboardSummary by viewModel.dashboardSummary.collectAsStateWithLifecycle()
+    val workspaceQuestions by viewModel.workspaceQuestions.collectAsStateWithLifecycle()
 
     val zipPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         if (uri != null) {
             viewModel.importWorkspaceZip(uri)
+        }
+    }
+
+    val exportZipLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/zip")
+    ) { uri: Uri? ->
+        if (uri != null) {
+            viewModel.exportIndexer2Zip(uri)
         }
     }
 
@@ -209,13 +221,19 @@ fun EduMiniApp(
                                         },
                                         onSelectWorkspace = viewModel::selectWorkspace,
                                         onSelectBook = viewModel::selectBook,
-                                        onOpenLesson = viewModel::selectLessonAndOpenStudio
+                                        onOpenLesson = viewModel::selectLessonAndOpenStudio,
+                                        onExportWorkspace = {
+                                            val grade = state.workspace?.gradeKey ?: "workspace"
+                                            exportZipLauncher.launch("edu-mini-$grade-indexer2.zip")
+                                        }
                                     )
 
                                     AppPage.STUDIO -> StudioScreen(
                                         selectedLesson = state.selectedLesson,
                                         task = state.task,
                                         questionCount = state.questionCount,
+                                        questionStyle = state.questionStyle,
+                                        questionDifficulty = state.questionDifficulty,
                                         attachPdfPages = state.attachPdfPages,
                                         sourceText = state.sourceText,
                                         extraInstructions = state.extraInstructions,
@@ -227,6 +245,8 @@ fun EduMiniApp(
                                         onBackToLibrary = { viewModel.navigateTo(AppPage.LIBRARY) },
                                         onSelectTask = viewModel::selectTask,
                                         onQuestionCountChange = viewModel::updateQuestionCount,
+                                        onQuestionStyleChange = viewModel::updateQuestionStyle,
+                                        onQuestionDifficultyChange = viewModel::updateQuestionDifficulty,
                                         onToggleAttachPdfPages = viewModel::toggleAttachPdfPages,
                                         onSourceChange = viewModel::updateSourceText,
                                         onExtraChange = viewModel::updateExtraInstructions,
@@ -234,6 +254,7 @@ fun EduMiniApp(
                                         onPackageSourcePagesChange = viewModel::updatePackageSourcePages,
                                         onGenerate = viewModel::generateContent,
                                         onSaveEditedDraft = viewModel::saveEditedDraftVersion,
+                                        onSaveToQuestionBank = viewModel::saveGeneratedDraftToQuestionBank,
                                         onApproveDraft = viewModel::approveDraft,
                                         onLoadDraft = viewModel::loadDraftIntoEditor,
                                         onDeleteDraft = viewModel::deleteDraft,
@@ -253,6 +274,17 @@ fun EduMiniApp(
                                         onDeletePackage = viewModel::deletePackage
                                     )
 
+                                    AppPage.QUIZ_BANK -> QuestionBankScreen(
+                                        questions = workspaceQuestions,
+                                        selectedLesson = state.selectedLesson,
+                                        hasWorkspace = state.workspace != null,
+                                        onAddManualQuestion = viewModel::addManualQuestion,
+                                        onToggleReviewed = viewModel::toggleQuestionReviewed,
+                                        onDeleteQuestion = viewModel::deleteQuestion,
+                                        onQuizCompleted = viewModel::recordQuizCompleted,
+                                        onOpenStudio = { viewModel.navigateTo(AppPage.STUDIO) }
+                                    )
+
                                     AppPage.SETTINGS -> SettingsScreen(
                                         form = state.providerForm,
                                         providers = state.providers,
@@ -261,10 +293,12 @@ fun EduMiniApp(
                                         onSelectProviderType = viewModel::updateProviderType,
                                         onLabelChange = viewModel::updateFormLabel,
                                         onModelChange = viewModel::updateFormModel,
+                                        onFallbackModelsChange = viewModel::updateFormFallbackModels,
                                         onBaseUrlChange = viewModel::updateFormBaseUrl,
                                         onApiKeyChange = viewModel::updateFormApiKey,
                                         onAddProvider = viewModel::addProvider,
                                         onToggleProvider = viewModel::toggleProvider,
+                                        onMoveProvider = viewModel::moveProviderPriority,
                                         onDeleteProvider = viewModel::deleteProvider
                                     )
                                 }
@@ -491,6 +525,34 @@ private fun EduBottomNavigationBar(
                 modifier = Modifier.testTag("nav_studio")
             )
             NavigationBarItem(
+                selected = currentPage == AppPage.QUIZ_BANK,
+                onClick = { onSelectPage(AppPage.QUIZ_BANK) },
+                icon = {
+                    Icon(
+                        imageVector = if (currentPage == AppPage.QUIZ_BANK) {
+                            Icons.Rounded.Quiz
+                        } else {
+                            Icons.Outlined.Quiz
+                        },
+                        contentDescription = stringResource(R.string.nav_quiz_bank)
+                    )
+                },
+                label = {
+                    Text(
+                        text = stringResource(R.string.nav_quiz_bank),
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                },
+                colors = NavigationBarItemDefaults.colors(
+                    selectedIconColor = EduGreenDark,
+                    selectedTextColor = EduGreenDark,
+                    indicatorColor = EduMint,
+                    unselectedIconColor = EduMuted,
+                    unselectedTextColor = EduMuted
+                ),
+                modifier = Modifier.testTag("nav_quiz_bank")
+            )
+            NavigationBarItem(
                 selected = currentPage == AppPage.SETTINGS,
                 onClick = { onSelectPage(AppPage.SETTINGS) },
                 icon = {
@@ -590,6 +652,28 @@ private fun EduNavigationRail(
                 )
             },
             label = { Text(stringResource(R.string.nav_studio)) },
+            colors = NavigationRailItemDefaults.colors(
+                selectedIconColor = EduGreenDark,
+                selectedTextColor = EduGreenDark,
+                indicatorColor = EduMint,
+                unselectedIconColor = EduMuted,
+                unselectedTextColor = EduMuted
+            )
+        )
+        NavigationRailItem(
+            selected = currentPage == AppPage.QUIZ_BANK,
+            onClick = { onSelectPage(AppPage.QUIZ_BANK) },
+            icon = {
+                Icon(
+                    imageVector = if (currentPage == AppPage.QUIZ_BANK) {
+                        Icons.Rounded.Quiz
+                    } else {
+                        Icons.Outlined.Quiz
+                    },
+                    contentDescription = stringResource(R.string.nav_quiz_bank)
+                )
+            },
+            label = { Text(stringResource(R.string.nav_quiz_bank)) },
             colors = NavigationRailItemDefaults.colors(
                 selectedIconColor = EduGreenDark,
                 selectedTextColor = EduGreenDark,

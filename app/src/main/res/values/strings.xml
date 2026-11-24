@@ -5,6 +5,8 @@
     <string name="nav_dashboard">لوحة الإنجاز</string>
     <string name="nav_library">المكتبة</string>
     <string name="nav_studio">Studio</string>
+    <string name="nav_quiz_bank">بنك الأسئلة</string>
+    <string name="quiz_bank_title">بنك الأسئلة والتقييم الذاتي</string>
     <string name="nav_settings">الإعدادات</string>
     <string name="dashboard_hero_title">لوحة الإنجاز ومسار التعلم</string>
     <string name="dashboard_books_progress_heading">نسب إنجاز الكتب والمواد</string>

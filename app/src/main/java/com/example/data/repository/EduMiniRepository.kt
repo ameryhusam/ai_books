@@ -9,13 +9,15 @@ import com.example.data.local.GenerationRunEntity
 import com.example.data.local.InteractivePackageEntity
 import com.example.data.local.LessonEntity
 import com.example.data.local.LessonProgressEntity
+import com.example.data.local.QuestionEntity
 import com.example.data.local.StudyDayEntity
 import com.example.data.local.WorkspaceEntity
 import com.example.data.packageimport.InteractivePackageImporter
 import com.example.data.security.ProviderStorage
+import com.example.data.workspace.ExportReceipt
 import com.example.data.workspace.PdfBookSplitter
+import com.example.data.workspace.WorkspaceExporter
 import com.example.data.workspace.WorkspaceImporter
-import com.example.model.AchievementBadge
 import com.example.model.BookProgressSummary
 import com.example.model.BookRef
 import com.example.model.DashboardSummary
@@ -34,17 +36,24 @@ import com.example.model.LessonSplitDraft
 import com.example.model.PackageKind
 import com.example.model.PdfBookInfo
 import com.example.model.ProviderConfig
+import com.example.model.QuestionDifficulty
+import com.example.model.QuestionItem
+import com.example.model.QuestionType
 import com.example.model.TaskType
 import com.example.model.WorkspaceSummary
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
+import java.io.OutputStream
 import java.security.MessageDigest
 import java.time.Instant
 import java.time.LocalDate
@@ -211,7 +220,9 @@ class EduMiniRepository(
         extra: String,
         providers: List<ProviderConfig>,
         questionCount: Int,
-        attachPdfPages: Boolean
+        attachPdfPages: Boolean,
+        questionStyleHint: String = "",
+        difficultyHint: String = ""
     ): GeneratedResult {
         val pageImages = if (attachPdfPages) {
             aiGenerationService.extractLessonPdfPageImagesBase64(lesson.pdfPath)
@@ -226,6 +237,8 @@ class EduMiniRepository(
             providers = providers,
             questionCount = questionCount,
             pdfPageImagesBase64 = pageImages,
+            questionStyleHint = questionStyleHint,
+            difficultyHint = difficultyHint,
             onAttemptFinished = { providerLabel, model, success, error ->
                 dao.insertGenerationRun(
                     GenerationRunEntity(
@@ -728,6 +741,127 @@ class EduMiniRepository(
             nextRecommendedLesson = nextRecommended
         )
     }
+
+    fun observeQuestionsForWorkspace(workspaceId: String): Flow<List<QuestionItem>> {
+        if (workspaceId.isBlank()) return kotlinx.coroutines.flow.flowOf(emptyList())
+        return dao.observeQuestionsForWorkspace(workspaceId).map { entities ->
+            val mapped = entities.map { it.toModel() }
+            QuestionBankEngine.markDuplicates(mapped)
+        }
+    }
+
+    suspend fun saveQuestionsFromDraftText(
+        workspaceId: String,
+        lesson: LessonRef,
+        rawText: String
+    ): List<QuestionItem> {
+        val parsed = QuestionBankEngine.parseQuestionsFromText(rawText, workspaceId, lesson)
+        if (parsed.isNotEmpty()) {
+            dao.insertQuestions(parsed.map { it.toEntity() })
+            recordStudyActivity()
+        }
+        return parsed
+    }
+
+    suspend fun addManualQuestion(
+        workspaceId: String,
+        lesson: LessonRef,
+        type: QuestionType,
+        prompt: String,
+        options: List<String>,
+        correctAnswer: String,
+        rationale: String,
+        difficulty: QuestionDifficulty
+    ): QuestionItem {
+        val canonicalWs = workspaceId.ifBlank { lesson.workspaceId }.ifBlank { lesson.rootPath }
+        val item = QuestionItem(
+            id = "q-${System.currentTimeMillis()}-${UUID.randomUUID().toString().take(6)}",
+            workspaceId = canonicalWs,
+            gradeKey = lesson.grade,
+            bookKey = lesson.bookKey,
+            unitKey = lesson.unitKey,
+            lessonKey = lesson.lessonKey,
+            lessonTitle = lesson.title,
+            type = type,
+            prompt = prompt.trim(),
+            options = options.map { it.trim() }.filter { it.isNotBlank() },
+            correctAnswer = correctAnswer.trim(),
+            rationale = rationale.trim(),
+            difficulty = difficulty,
+            sourcePages = lesson.pageRange,
+            fingerprint = QuestionBankEngine.computeFingerprint(prompt),
+            reviewed = true,
+            createdAt = Instant.now().toString()
+        )
+        dao.insertQuestions(listOf(item.toEntity()))
+        recordStudyActivity()
+        return item
+    }
+
+    suspend fun toggleQuestionReviewed(questionId: String, reviewed: Boolean) {
+        dao.updateQuestionReviewed(questionId, !reviewed)
+    }
+
+    suspend fun deleteQuestion(questionId: String) {
+        dao.deleteQuestionById(questionId)
+    }
+
+    suspend fun exportIndexer2Zip(
+        outputStream: OutputStream,
+        workspace: ImportedWorkspace
+    ): ExportReceipt = withContext(Dispatchers.IO) {
+        val drafts = dao.observeDraftsForWorkspace(workspace.workspaceId, workspace.rootPath).first()
+        val questions = dao.observeQuestionsForWorkspace(workspace.workspaceId).first().map { it.toModel() }
+        WorkspaceExporter.exportIndexer2CompatibleZip(
+            outputStream = outputStream,
+            workspace = workspace,
+            drafts = drafts,
+            questions = questions
+        )
+    }
+
+    private fun QuestionEntity.toModel(): QuestionItem {
+        val opts = runCatching { json.decodeFromString<List<String>>(optionsJson) }.getOrDefault(emptyList())
+        return QuestionItem(
+            id = id,
+            workspaceId = workspaceId,
+            gradeKey = gradeKey,
+            bookKey = bookKey,
+            unitKey = unitKey,
+            lessonKey = lessonKey,
+            lessonTitle = lessonTitle,
+            type = QuestionType.fromId(type),
+            prompt = prompt,
+            options = opts,
+            correctAnswer = correctAnswer,
+            rationale = rationale,
+            difficulty = QuestionDifficulty.fromId(difficulty),
+            sourcePages = sourcePages,
+            fingerprint = fingerprint,
+            reviewed = reviewed,
+            createdAt = createdAt
+        )
+    }
+
+    private fun QuestionItem.toEntity() = QuestionEntity(
+        id = id,
+        workspaceId = workspaceId,
+        gradeKey = gradeKey,
+        bookKey = bookKey,
+        unitKey = unitKey,
+        lessonKey = lessonKey,
+        lessonTitle = lessonTitle,
+        type = type.id,
+        prompt = prompt,
+        optionsJson = json.encodeToString(options),
+        correctAnswer = correctAnswer,
+        rationale = rationale,
+        difficulty = difficulty.id,
+        sourcePages = sourcePages,
+        fingerprint = fingerprint,
+        reviewed = reviewed,
+        createdAt = createdAt
+    )
 
     private fun sha256Short(text: String): String? {
         if (text.isBlank()) return null
