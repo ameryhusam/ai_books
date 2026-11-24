@@ -24,11 +24,16 @@ class ProviderStorage(context: Context) {
     suspend fun loadProviders(): List<ProviderConfig> = withContext(Dispatchers.IO) {
         val raw = prefs.getString(KEY_PROFILES, null) ?: return@withContext emptyList()
         val decrypted = decrypt(raw)
-        try {
+        val profiles = try {
             json.decodeFromString<List<ProviderConfig>>(decrypted)
         } catch (e: Exception) {
             throw IllegalStateException("تعذر قراءة إعدادات مزودي AI المحفوظة؛ لم يتم تجاهل البيانات أو استبدالها.", e)
         }
+        if (raw.startsWith(PREFIX_PLAIN)) {
+            // Migrate legacy Base64-only storage to authenticated AES-GCM immediately.
+            prefs.edit().putString(KEY_PROFILES, encrypt(decrypted)).apply()
+        }
+        profiles
     }
 
     suspend fun saveProviders(items: List<ProviderConfig>) = withContext(Dispatchers.IO) {
@@ -75,7 +80,7 @@ class ProviderStorage(context: Context) {
         if (payload.startsWith(PREFIX_GCM)) {
             val body = payload.removePrefix(PREFIX_GCM)
             val parts = body.split(":", limit = 2)
-            if (parts.size != 2) return "[]"
+            require(parts.size == 2) { "بيانات تشفير مزود AI تالفة؛ لم يتم استبدالها." }
             val iv = Base64.decode(parts[0], Base64.NO_WRAP)
             val encryptedBytes = Base64.decode(parts[1], Base64.NO_WRAP)
             val secretKey = getOrCreateSecretKey()
