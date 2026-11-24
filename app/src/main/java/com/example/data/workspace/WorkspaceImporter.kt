@@ -530,16 +530,16 @@ class WorkspaceImporter(private val context: Context) {
 
     private fun safePath(rawPath: String): String {
         val normalized = rawPath.replace('\\', '/')
-        val hasParentSegment = normalized.split('/').any { it == ".." }
+        val hasUnsafeSegment = normalized.split('/').any { it == ".." || it == "." }
         if (normalized.startsWith("/") ||
             DRIVE_PREFIX_REGEX.containsMatchIn(normalized) ||
-            hasParentSegment ||
+            hasUnsafeSegment ||
             normalized.contains('\u0000') ||
             normalized.length > 420
         ) {
             throw IllegalArgumentException("ZIP يحتوي مساراً غير آمن: $rawPath")
         }
-        return normalized.replace("./", "")
+        return normalized
     }
 
     private fun lessonNumber(key: String): Int {
