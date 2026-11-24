@@ -3,7 +3,6 @@ package com.example.data.workspace
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
-import android.graphics.pdf.PdfDocument
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.ParcelFileDescriptor
@@ -22,6 +21,8 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.io.File
 import java.io.FileOutputStream
+import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
+import com.tom_roush.pdfbox.pdmodel.PDDocument
 import java.security.MessageDigest
 import java.time.Instant
 
@@ -188,9 +189,11 @@ class PdfBookSplitter(private val context: Context) {
             }
         }
         val indexJson = buildJsonObject {
-            put("schemaVersion", 1)
+            put("schemaVersion", "edu.book_index.v2")
             put("gradeKey", cleanGrade)
             put("subjectKey", cleanSubject)
+            put("sourceSha256", pdfInfo.sha256)
+            put("sourceLayout", "single_part_pdf")
             put("units", unitsArray)
         }
         File(bookDir, "index.json").writeText(json.encodeToString(indexJson))
@@ -265,61 +268,47 @@ class PdfBookSplitter(private val context: Context) {
         groupedUnits: Map<String, List<LessonSplitDraft>>
     ): List<String> {
         val warnings = mutableListOf<String>()
-        runCatching {
-            val pfd = ParcelFileDescriptor.open(sourcePdf, ParcelFileDescriptor.MODE_READ_ONLY)
-            pfd.use { descriptor ->
-                PdfRenderer(descriptor).use { renderer ->
-                    groupedUnits.forEach { (unitKey, unitSplits) ->
-                        unitSplits.forEachIndexed { idx, split ->
-                            val lessonKey = split.lessonKey.ifBlank {
-                                "lesson_${(idx + 1).toString().padStart(2, '0')}"
-                            }
-                            val num = extractTrailingNumber(lessonKey, idx + 1)
-                            val outFile = File(
-                                bookDir,
-                                "P01/units/$unitKey/lesson_${num.toString().padStart(2, '0')}.pdf"
-                            )
-                            outFile.parentFile?.mkdirs()
-
-                            runCatching {
-                                val outDoc = PdfDocument()
-                                try {
-                                    for (pageNum in split.startPage..split.endPage) {
-                                        val pageIndex = pageNum - 1
-                                        if (pageIndex < 0 || pageIndex >= renderer.pageCount) continue
-                                        renderer.openPage(pageIndex).use { srcPage ->
-                                            val width = srcPage.width.coerceAtLeast(300)
-                                            val height = srcPage.height.coerceAtLeast(400)
-                                            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-                                            bitmap.eraseColor(Color.WHITE)
-                                            srcPage.render(
-                                                bitmap,
-                                                null,
-                                                null,
-                                                PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY
-                                            )
-                                            val pageInfo = PdfDocument.PageInfo.Builder(width, height, pageNum).create()
-                                            val outPage = outDoc.startPage(pageInfo)
-                                            outPage.canvas.drawBitmap(bitmap, 0f, 0f, null)
-                                            outDoc.finishPage(outPage)
-                                            bitmap.recycle()
-                                        }
-                                    }
-                                    FileOutputStream(outFile).use { fos ->
-                                        outDoc.writeTo(fos)
-                                    }
-                                } finally {
-                                    outDoc.close()
-                                }
-                            }.onFailure { err ->
-                                warnings.add("تعذر فصل PDF للدرس ${split.title}: ${err.message}")
-                            }
+        PDFBoxResourceLoader.init(context.applicationContext)
+        PDDocument.load(sourcePdf).use { sourceDocument ->
+            groupedUnits.forEach { (unitKey, unitSplits) ->
+                unitSplits.forEachIndexed { idx, split ->
+                    val lessonKey = split.lessonKey.ifBlank {
+                        "lesson_${(idx + 1).toString().padStart(2, '0')}"
+                    }
+                    val num = extractTrailingNumber(lessonKey, idx + 1)
+                    val base = "P01/units/$unitKey/lesson_${num.toString().padStart(2, '0')}"
+                    val outFile = File(bookDir, "$base.pdf")
+                    val textFile = File(bookDir, "$base.txt")
+                    outFile.parentFile?.mkdirs()
+                    try {
+                        require(split.endPage <= sourceDocument.numberOfPages) {
+                            "نطاق صفحات الدرس ${split.title} يتجاوز عدد صفحات المصدر"
                         }
+                        PDDocument().use { lessonDocument ->
+                            for (pageNumber in split.startPage..split.endPage) {
+                                lessonDocument.importPage(sourceDocument.getPage(pageNumber - 1))
+                            }
+                            lessonDocument.save(outFile)
+                        }
+                        val extracted = PdfTextExtractor(context).extract(
+                            pdfFile = sourcePdf,
+                            startPage = split.startPage,
+                            endPage = split.endPage
+                        )
+                        textFile.writeText(extracted.text, Charsets.UTF_8)
+                        val extractionMeta = buildJsonObject {
+                            put("method", extracted.method)
+                            put("ocrPages", extracted.ocrPages)
+                            put("warning", extracted.warning ?: "")
+                        }
+                        File(bookDir, "$base.extraction.json").writeText(json.encodeToString(extractionMeta))
+                        if (extracted.warning != null) warnings.add("${split.title}: ${extracted.warning}")
+                        if (extracted.text.isBlank()) warnings.add("${split.title}: لم يتم استخراج نص؛ راجع صفحات PDF يدوياً.")
+                    } catch (error: Exception) {
+                        warnings.add("تعذر تجهيز الدرس ${split.title}: ${error.message ?: "خطأ غير معروف"}")
                     }
                 }
             }
-        }.onFailure { err ->
-            warnings.add("تعذر تشغيل قارئ PDF لفصل الصفحات: ${err.message ?: "غير مدعوم"}")
         }
         return warnings
     }
