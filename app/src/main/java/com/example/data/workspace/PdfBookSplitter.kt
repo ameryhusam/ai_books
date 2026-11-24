@@ -150,6 +150,7 @@ class PdfBookSplitter(private val context: Context) {
         val sourceCopy = File(bookDir, "source.pdf")
         sourcePdf.copyTo(sourceCopy, overwrite = true)
         val warnings = mutableListOf<String>()
+        warnings.add("حدود الصفحات المقترحة لا تمثل اكتشافاً مؤكداً لبداية الدروس؛ راجعها مقابل فهرس الكتاب قبل الاعتماد.")
         val lessons = mutableListOf<LessonRef>()
         var filesCount = 3 // book_manifest.json + index.json + original source PDF
 
@@ -196,6 +197,8 @@ class PdfBookSplitter(private val context: Context) {
                                 put("lessonKey", lessonKey)
                                 put("title", split.title.trim())
                                 put("contentType", "lesson")
+                                put("segmentationStatus", "need_review")
+                                put("segmentationEvidence", "Suggested by fixed page count; verify against the printed table of contents.")
                                 put("printedPageStart", null as String?)
                                 put("printedPageEnd", null as String?)
                                 put("pdfPageStart", split.startPage)
@@ -214,6 +217,8 @@ class PdfBookSplitter(private val context: Context) {
             put("subjectKey", cleanSubject)
             put("sourceSha256", pdfInfo.sha256)
             put("sourceLayout", "single_part_pdf")
+            put("segmentationStrategy", "fixed_page_chunk_suggestion")
+            put("segmentationStatus", "need_review")
             put("units", unitsArray)
         }
         File(bookDir, "index.json").writeText(json.encodeToString(indexJson))
