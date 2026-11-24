@@ -140,9 +140,11 @@ class PdfBookSplitter(private val context: Context) {
         val sourcePdf = File(pdfInfo.storedPdfPath)
         require(sourcePdf.exists()) { "ملف PDF الأصلي غير موجود" }
 
+        val sourceCopy = File(bookDir, "source.pdf")
+        sourcePdf.copyTo(sourceCopy, overwrite = true)
         val warnings = mutableListOf<String>()
         val lessons = mutableListOf<LessonRef>()
-        var filesCount = 2 // book_manifest.json + index.json
+        var filesCount = 3 // book_manifest.json + index.json + original source PDF
 
         val coverFile = File(bookDir, "cover.png")
         val coverSaved = renderCoverPng(sourcePdf, coverFile)
@@ -155,6 +157,7 @@ class PdfBookSplitter(private val context: Context) {
             put("gradeKey", cleanGrade)
             put("subjectKey", cleanSubject)
             put("sourceFile", pdfInfo.fileName)
+            put("sourcePdf", "source.pdf")
             put("sourceSha256", pdfInfo.sha256)
             put("totalPages", pdfInfo.totalPages)
             if (coverSaved) {
@@ -180,8 +183,13 @@ class PdfBookSplitter(private val context: Context) {
                             add(buildJsonObject {
                                 put("lessonKey", lessonKey)
                                 put("title", split.title.trim())
+                                put("contentType", "lesson")
+                                put("printedPageStart", null as String?)
+                                put("printedPageEnd", null as String?)
                                 put("pdfPageStart", split.startPage)
                                 put("pdfPageEnd", split.endPage)
+                                val lessonNum = extractTrailingNumber(lessonKey, idx + 1)
+                                put("sourceTextPath", "P01/units/$unitKey/lesson_${lessonNum.toString().padStart(2, '0')}.txt")
                             })
                         }
                     })
@@ -246,7 +254,7 @@ class PdfBookSplitter(private val context: Context) {
             relativePath = bookRel,
             lessonsCount = lessons.size,
             coverPath = coverFile.takeIf { coverSaved && it.exists() }?.absolutePath,
-            sourcePdfPath = sourcePdf.absolutePath
+            sourcePdfPath = sourceCopy.absolutePath
         )
 
         ImportedWorkspace(
