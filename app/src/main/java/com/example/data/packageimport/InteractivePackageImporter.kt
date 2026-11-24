@@ -372,7 +372,8 @@ class InteractivePackageImporter(private val context: Context) {
         content: String,
         findings: MutableList<SecurityFinding>
     ) {
-        if (Regex("<\\s*(iframe|object|embed|base)\\b", RegexOption.IGNORE_CASE).containsMatchIn(content)) {
+        val isMarkupFile = fileName.substringAfterLast('.', "").lowercase() in setOf("html", "htm", "svg")
+        if (isMarkupFile && Regex("<\\s*(iframe|object|embed|base)\\b", RegexOption.IGNORE_CASE).containsMatchIn(content)) {
             findings.add(
                 SecurityFinding(
                     severity = SecuritySeverity.BLOCKER,
@@ -381,7 +382,7 @@ class InteractivePackageImporter(private val context: Context) {
                 )
             )
         }
-        if (Regex("\\bon[a-z]+\\s*=", RegexOption.IGNORE_CASE).containsMatchIn(content)) {
+        if (isMarkupFile && Regex("<[^>]+\\bon[a-z]+\\s*=", RegexOption.IGNORE_CASE).containsMatchIn(content)) {
             findings.add(
                 SecurityFinding(
                     severity = SecuritySeverity.BLOCKER,
