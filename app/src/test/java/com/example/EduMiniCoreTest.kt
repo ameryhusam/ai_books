@@ -495,6 +495,12 @@ class EduMiniCoreTest {
 
         val missingAnswer = """[{"type":"mcq","prompt":"سؤال بلا إجابة","options":["أ","ب","ج","د"]}]"""
         assertTrue(QuestionBankEngine.parseQuestionsFromText(missingAnswer, "ws-test", lesson).isEmpty())
+        val missingTextAnswer = """
+            1. اختر الإجابة الصحيحة؟
+            أ) خيار أول
+            ب) خيار ثان
+        """.trimIndent()
+        assertTrue(QuestionBankEngine.parseQuestionsFromText(missingTextAnswer, "ws-test", lesson).isEmpty())
 
         val arabicTextInput = """
             1. ما ناتج جمع 4 + 5؟
