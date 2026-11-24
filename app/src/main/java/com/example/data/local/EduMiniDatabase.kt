@@ -151,6 +151,13 @@ data class LessonProgressEntity(
     @ColumnInfo(name = "completed_at") val completedAt: String? = null
 )
 
+@Entity(tableName = "study_days")
+data class StudyDayEntity(
+    @PrimaryKey @ColumnInfo(name = "activity_date") val activityDate: String,
+    @ColumnInfo(name = "actions_count") val actionsCount: Int = 1,
+    @ColumnInfo(name = "last_updated_at") val lastUpdatedAt: String
+)
+
 @Dao
 interface EduMiniDao {
     @Query("SELECT * FROM workspaces ORDER BY importedAt DESC LIMIT 1")
@@ -338,6 +345,15 @@ interface EduMiniDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertLessonProgress(progress: LessonProgressEntity)
+
+    @Query("SELECT * FROM study_days ORDER BY activity_date DESC")
+    fun observeStudyDays(): Flow<List<StudyDayEntity>>
+
+    @Query("SELECT * FROM study_days WHERE activity_date = :dateIso LIMIT 1")
+    suspend fun getStudyDay(dateIso: String): StudyDayEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertStudyDay(studyDay: StudyDayEntity)
 }
 
 @Database(
@@ -348,9 +364,10 @@ interface EduMiniDao {
         DraftEntity::class,
         InteractivePackageEntity::class,
         GenerationRunEntity::class,
-        LessonProgressEntity::class
+        LessonProgressEntity::class,
+        StudyDayEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class EduMiniDatabase : RoomDatabase() {
@@ -436,6 +453,20 @@ abstract class EduMiniDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS study_days (
+                        activity_date TEXT NOT NULL PRIMARY KEY,
+                        actions_count INTEGER NOT NULL DEFAULT 1,
+                        last_updated_at TEXT NOT NULL
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
         fun getInstance(context: Context): EduMiniDatabase {
             return instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -443,7 +474,7 @@ abstract class EduMiniDatabase : RoomDatabase() {
                     EduMiniDatabase::class.java,
                     "edu-mini-local.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                     .build()
                     .also { instance = it }
             }

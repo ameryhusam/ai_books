@@ -9,6 +9,7 @@ import com.example.data.local.GenerationRunEntity
 import com.example.data.local.InteractivePackageEntity
 import com.example.data.local.LessonEntity
 import com.example.data.local.LessonProgressEntity
+import com.example.data.local.StudyDayEntity
 import com.example.data.local.WorkspaceEntity
 import com.example.data.packageimport.InteractivePackageImporter
 import com.example.data.security.ProviderStorage
@@ -46,6 +47,7 @@ import kotlinx.serialization.json.Json
 import java.io.File
 import java.security.MessageDigest
 import java.time.Instant
+import java.time.LocalDate
 import java.util.UUID
 
 class EduMiniRepository(
@@ -192,6 +194,7 @@ class EduMiniRepository(
             )
         }
         dao.saveWorkspaceGraph(workspaceEntity, bookEntities, lessonEntities)
+        recordStudyActivity()
     }
 
     suspend fun loadProviders(): List<ProviderConfig> = providerStorage.loadProviders()
@@ -302,6 +305,7 @@ class EduMiniRepository(
                 sourceHash = record.sourceHash
             )
         )
+        recordStudyActivity()
         return record
     }
 
@@ -405,6 +409,7 @@ class EduMiniRepository(
                 createdAt = record.createdAt
             )
         )
+        recordStudyActivity()
         return record
     }
 
@@ -477,14 +482,48 @@ class EduMiniRepository(
 
     fun observeDashboardSummary(workspace: ImportedWorkspace?): Flow<DashboardSummary> {
         if (workspace == null) {
-            return flowOf(DashboardSummary(hasWorkspace = false))
+            return dao.observeStudyDays().map { studyDays ->
+                val activityDates = MilestoneBadgeEngine.collectActivityDates(
+                    studyDayStrings = studyDays.map { it.activityDate },
+                    drafts = emptyList(),
+                    packages = emptyList(),
+                    progressRows = emptyList()
+                )
+                val streak = MilestoneBadgeEngine.computeStudyStreak(activityDates)
+                val badges = MilestoneBadgeEngine.evaluateBadges(
+                    totalLessons = 0,
+                    completedLessons = 0,
+                    overallCompletionPercent = 0,
+                    draftsCount = 0,
+                    approvedDraftsCount = 0,
+                    packagesCount = 0,
+                    publishedPackagesCount = 0,
+                    bookProgress = emptyList(),
+                    unitPaths = emptyList(),
+                    streak = streak
+                )
+                DashboardSummary(
+                    hasWorkspace = false,
+                    currentStreakDays = streak.currentStreakDays,
+                    longestStreakDays = streak.longestStreakDays,
+                    unlockedBadgesCount = badges.count { it.unlocked },
+                    badges = badges
+                )
+            }
         }
         return combine(
             dao.observeDraftsForWorkspace(workspace.workspaceId, workspace.rootPath),
             dao.observePackagesForWorkspace(workspace.workspaceId),
-            dao.observeProgressForWorkspace(workspace.workspaceId)
-        ) { drafts, packages, progressRows ->
-            computeDashboardSummary(workspace, drafts, packages, progressRows)
+            dao.observeProgressForWorkspace(workspace.workspaceId),
+            dao.observeStudyDays()
+        ) { drafts, packages, progressRows, studyDays ->
+            computeDashboardSummary(
+                workspace = workspace,
+                drafts = drafts,
+                packages = packages,
+                progressRows = progressRows,
+                studyDayStrings = studyDays.map { it.activityDate }
+            )
         }
     }
 
@@ -506,13 +545,30 @@ class EduMiniRepository(
                 completedAt = if (nextCompleted) Instant.now().toString() else null
             )
         )
+        if (nextCompleted) {
+            recordStudyActivity()
+        }
+    }
+
+    suspend fun recordStudyActivity(date: LocalDate = LocalDate.now()) {
+        val dateIso = date.toString()
+        val existing = dao.getStudyDay(dateIso)
+        dao.upsertStudyDay(
+            StudyDayEntity(
+                activityDate = dateIso,
+                actionsCount = (existing?.actionsCount ?: 0) + 1,
+                lastUpdatedAt = Instant.now().toString()
+            )
+        )
     }
 
     fun computeDashboardSummary(
         workspace: ImportedWorkspace,
         drafts: List<DraftEntity>,
         packages: List<InteractivePackageEntity>,
-        progressRows: List<LessonProgressEntity>
+        progressRows: List<LessonProgressEntity>,
+        studyDayStrings: List<String> = emptyList(),
+        today: LocalDate = LocalDate.now()
     ): DashboardSummary {
         val draftsByLesson = drafts.groupBy { Triple(it.bookKey, it.unitKey, it.lessonKey) }
         val pkgsByLesson = packages.groupBy { Triple(it.bookKey, it.unitKey, it.lessonKey) }
@@ -607,43 +663,29 @@ class EduMiniRepository(
                 )
             }
 
-        val firstUnitCompleted = unitPaths.any { it.totalCount > 0 && it.completedCount == it.totalCount }
-        val badges = listOf(
-            AchievementBadge(
-                id = "badge_workspace",
-                title = "انطلاقة المسار",
-                subtitle = "إعداد مساحة عمل تعليمية",
-                unlocked = totalLessons > 0,
-                pointsBonus = 25
-            ),
-            AchievementBadge(
-                id = "badge_ai_author",
-                title = "مؤلف ذكي",
-                subtitle = "توليد أو اعتماد محتوى AI",
-                unlocked = drafts.isNotEmpty(),
-                pointsBonus = 30
-            ),
-            AchievementBadge(
-                id = "badge_3d_creator",
-                title = "رائد التفاعلية",
-                subtitle = "رفع أو نشر حزمة HTML/3D",
-                unlocked = packages.isNotEmpty(),
-                pointsBonus = 35
-            ),
-            AchievementBadge(
-                id = "badge_halfway",
-                title = "نصف الطريق",
-                subtitle = "إتمام 50% من الدروس",
-                unlocked = overallCompletionPercent >= 50 && totalLessons > 0,
-                pointsBonus = 50
-            ),
-            AchievementBadge(
-                id = "badge_unit_master",
-                title = "إتقان وحدة",
-                subtitle = "إكمال وحدة دراسية كاملة",
-                unlocked = firstUnitCompleted,
-                pointsBonus = 60
-            )
+        val activityDates = MilestoneBadgeEngine.collectActivityDates(
+            studyDayStrings = studyDayStrings,
+            drafts = drafts,
+            packages = packages,
+            progressRows = progressRows
+        )
+        val streak = MilestoneBadgeEngine.computeStudyStreak(
+            activityDates = activityDates,
+            today = today
+        )
+        val approvedDraftsCount = drafts.count { it.status == DraftStatus.APPROVED.id }
+        val publishedPackagesCount = packages.count { it.publishedForStudents }
+        val badges = MilestoneBadgeEngine.evaluateBadges(
+            totalLessons = totalLessons,
+            completedLessons = completedLessons,
+            overallCompletionPercent = overallCompletionPercent,
+            draftsCount = drafts.size,
+            approvedDraftsCount = approvedDraftsCount,
+            packagesCount = packages.size,
+            publishedPackagesCount = publishedPackagesCount,
+            bookProgress = bookProgress,
+            unitPaths = unitPaths,
+            streak = streak
         )
 
         val lessonPointsSum = nodes.sumOf { it.pointsEarned }
@@ -677,6 +719,9 @@ class EduMiniRepository(
             levelTitle = levelTitle,
             pointsIntoLevel = pointsIntoLevel,
             pointsPerLevel = pointsPerLevel,
+            currentStreakDays = streak.currentStreakDays,
+            longestStreakDays = streak.longestStreakDays,
+            unlockedBadgesCount = badges.count { it.unlocked },
             bookProgress = bookProgress,
             unitPaths = unitPaths,
             badges = badges,

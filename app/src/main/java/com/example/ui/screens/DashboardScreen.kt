@@ -25,8 +25,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -36,11 +34,13 @@ import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.LocalFireDepartment
 import androidx.compose.material.icons.rounded.MenuBook
 import androidx.compose.material.icons.rounded.PictureAsPdf
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Route
 import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -48,9 +48,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -71,11 +75,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.R
 import com.example.model.AchievementBadge
+import com.example.model.BadgeCategory
 import com.example.model.DashboardSummary
 import com.example.model.LearningLessonNode
 import com.example.model.LearningNodeStatus
 import com.example.model.LessonRef
 import com.example.ui.components.EduPanel
+import com.example.ui.components.EduPill
 import com.example.ui.components.EduYellowButton
 import com.example.ui.components.LearningProgress
 import com.example.ui.theme.EduBg
@@ -104,6 +110,9 @@ fun DashboardScreen(
     onOpenLibrary: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var selectedBadge by remember { mutableStateOf<AchievementBadge?>(null) }
+    var selectedCategory by remember { mutableStateOf<BadgeCategory?>(null) }
+
     Box(
         modifier = modifier.fillMaxSize(),
         contentAlignment = Alignment.TopCenter
@@ -126,6 +135,24 @@ fun DashboardScreen(
                         onPickZip = onPickZip,
                         onOpenLibrary = onOpenLibrary
                     )
+                }
+
+                if (summary.badges.isNotEmpty()) {
+                    item(key = "study_streak_empty") {
+                        StudyStreakCard(
+                            currentStreakDays = summary.currentStreakDays,
+                            longestStreakDays = summary.longestStreakDays
+                        )
+                    }
+                    item(key = "badges_section_empty") {
+                        BadgesAndMilestonesSection(
+                            badges = summary.badges,
+                            unlockedCount = summary.unlockedBadgesCount,
+                            selectedCategory = selectedCategory,
+                            onSelectCategory = { selectedCategory = it },
+                            onBadgeClick = { selectedBadge = it }
+                        )
+                    }
                 }
             } else {
                 summary.nextRecommendedLesson?.let { nextLesson ->
@@ -155,26 +182,21 @@ fun DashboardScreen(
                     }
                 }
 
-                item(key = "badges_heading") {
-                    Text(
-                        text = stringResource(R.string.dashboard_badges_heading),
-                        style = MaterialTheme.typography.titleMedium,
-                        color = EduInk,
-                        modifier = Modifier.padding(top = 4.dp)
+                item(key = "study_streak_card") {
+                    StudyStreakCard(
+                        currentStreakDays = summary.currentStreakDays,
+                        longestStreakDays = summary.longestStreakDays
                     )
                 }
-                item(key = "badges_row") {
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        contentPadding = PaddingValues(vertical = 2.dp)
-                    ) {
-                        items(
-                            items = summary.badges,
-                            key = { it.id }
-                        ) { badge ->
-                            AchievementBadgeCard(badge = badge)
-                        }
-                    }
+
+                item(key = "badges_section") {
+                    BadgesAndMilestonesSection(
+                        badges = summary.badges,
+                        unlockedCount = summary.unlockedBadgesCount,
+                        selectedCategory = selectedCategory,
+                        onSelectCategory = { selectedCategory = it },
+                        onBadgeClick = { selectedBadge = it }
+                    )
                 }
 
                 item(key = "learning_path_heading") {
@@ -235,6 +257,13 @@ fun DashboardScreen(
                     }
                 }
             }
+        }
+
+        selectedBadge?.let { badge ->
+            BadgeDetailDialog(
+                badge = badge,
+                onDismiss = { selectedBadge = null }
+            )
         }
     }
 }
@@ -632,12 +661,248 @@ private fun NextRecommendedStepCard(
 }
 
 @Composable
-private fun AchievementBadgeCard(badge: AchievementBadge) {
+private fun StudyStreakCard(
+    currentStreakDays: Int,
+    longestStreakDays: Int
+) {
+    val goalDays = 5
+    val goalReached = maxOf(currentStreakDays, longestStreakDays) >= goalDays
+    val filledDays = currentStreakDays.coerceIn(0, goalDays)
+
+    EduPanel(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("dashboard_study_streak_card"),
+        containerColor = if (goalReached) EduMint.copy(alpha = 0.45f) else EduWhite,
+        borderColor = if (goalReached) EduGreen else EduOrange.copy(alpha = 0.45f)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Surface(
+                shape = CircleShape,
+                color = if (currentStreakDays > 0) EduOrange.copy(alpha = 0.16f) else EduBg,
+                modifier = Modifier.size(44.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Rounded.LocalFireDepartment,
+                        contentDescription = null,
+                        tint = if (currentStreakDays > 0) EduOrange else EduMuted,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "سلسلة الدراسة المتواصلة",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = EduInk
+                )
+                Text(
+                    text = if (goalReached) {
+                        "أنجزت هدف الـ 5 أيام! (+75 XP مفتوحة)"
+                    } else {
+                        "تبقّى ${goalDays - filledDays} أيام لفتح شارة مثابرة 5 أيام"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = EduMuted
+                )
+            }
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = EduOrange.copy(alpha = 0.14f)
+            ) {
+                Text(
+                    text = "$currentStreakDays / $goalDays أيام",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = EduInk,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                )
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            for (day in 1..goalDays) {
+                val active = day <= filledDays
+                Surface(
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(10.dp),
+                    color = if (active) EduOrange.copy(alpha = 0.18f) else EduBg,
+                    border = BorderStroke(1.dp, if (active) EduOrange else EduLine)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(vertical = 7.dp, horizontal = 4.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = if (active) Icons.Rounded.Check else Icons.Rounded.LocalFireDepartment,
+                            contentDescription = null,
+                            tint = if (active) EduOrange else EduMuted,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(3.dp))
+                        Text(
+                            text = "يوم $day",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (active) EduInk else EduMuted
+                        )
+                    }
+                }
+            }
+        }
+
+        Text(
+            text = "السلسلة الحالية: $currentStreakDays يوم • أطول سلسلة: $longestStreakDays يوم",
+            style = MaterialTheme.typography.labelSmall,
+            color = EduMuted
+        )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun BadgesAndMilestonesSection(
+    badges: List<AchievementBadge>,
+    unlockedCount: Int,
+    selectedCategory: BadgeCategory?,
+    onSelectCategory: (BadgeCategory?) -> Unit,
+    onBadgeClick: (AchievementBadge) -> Unit
+) {
+    val filteredBadges = remember(badges, selectedCategory) {
+        val list = if (selectedCategory == null) badges else badges.filter { it.category == selectedCategory }
+        list.sortedByDescending { it.unlocked }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("dashboard_badges_section"),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.EmojiEvents,
+                    contentDescription = null,
+                    tint = EduOrange,
+                    modifier = Modifier.size(20.dp)
+                )
+                Text(
+                    text = stringResource(R.string.dashboard_badges_heading),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = EduInk
+                )
+            }
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = EduYellow.copy(alpha = 0.28f)
+            ) {
+                Text(
+                    text = "$unlockedCount / ${badges.size} مفتوحة",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = EduInk,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                )
+            }
+        }
+
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+            verticalArrangement = Arrangement.spacedBy(7.dp)
+        ) {
+            EduPill(
+                text = "الكل (${badges.size})",
+                active = selectedCategory == null,
+                onClick = { onSelectCategory(null) },
+                testTag = "badge_filter_all"
+            )
+            BadgeCategory.entries.forEach { cat ->
+                val count = badges.count { it.category == cat }
+                EduPill(
+                    text = "${cat.labelAr} ($count)",
+                    active = selectedCategory == cat,
+                    onClick = { onSelectCategory(cat) },
+                    testTag = "badge_filter_${cat.name.lowercase()}"
+                )
+            }
+        }
+
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+            val columns = if (maxWidth >= 700.dp) 4 else 2
+            val rows = filteredBadges.chunked(columns)
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                rows.forEach { rowBadges ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        rowBadges.forEach { badge ->
+                            AchievementBadgeCard(
+                                badge = badge,
+                                onClick = { onBadgeClick(badge) },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                        repeat(columns - rowBadges.size) {
+                            Spacer(modifier = Modifier.weight(1f))
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AchievementBadgeCard(
+    badge: AchievementBadge,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val shape = RoundedCornerShape(16.dp)
+    val progressRatio = (badge.currentProgress.toFloat() / badge.targetProgress.coerceAtLeast(1)).coerceIn(0f, 1f)
+    val badgeIcon = when {
+        !badge.unlocked -> Icons.Outlined.Lock
+        badge.category == BadgeCategory.STREAK -> Icons.Rounded.LocalFireDepartment
+        badge.category == BadgeCategory.CREATION -> Icons.Rounded.AutoAwesome
+        badge.category == BadgeCategory.MILESTONE -> Icons.Rounded.Star
+        else -> Icons.Outlined.EmojiEvents
+    }
+    val accent = when (badge.category) {
+        BadgeCategory.STREAK -> EduOrange
+        BadgeCategory.CREATION -> EduPurple
+        BadgeCategory.MILESTONE -> EduGreen
+        BadgeCategory.MASTERY -> EduBlue
+    }
+
     Surface(
-        modifier = Modifier.width(156.dp),
-        shape = RoundedCornerShape(16.dp),
+        modifier = modifier
+            .clip(shape)
+            .minimumInteractiveComponentSize()
+            .clickable(onClick = onClick)
+            .testTag("badge_card_${badge.id}"),
+        shape = shape,
         color = if (badge.unlocked) EduWhite else EduFieldSurfaceMuted(),
-        border = BorderStroke(1.dp, if (badge.unlocked) EduYellow else EduLine)
+        border = BorderStroke(1.2.dp, if (badge.unlocked) EduYellow else EduLine)
     ) {
         Column(
             modifier = Modifier.padding(12.dp),
@@ -650,23 +915,30 @@ private fun AchievementBadgeCard(badge: AchievementBadge) {
             ) {
                 Surface(
                     shape = CircleShape,
-                    color = if (badge.unlocked) EduYellow.copy(alpha = 0.25f) else EduLine,
-                    modifier = Modifier.size(32.dp)
+                    color = if (badge.unlocked) accent.copy(alpha = 0.18f) else EduLine,
+                    modifier = Modifier.size(34.dp)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
-                            imageVector = if (badge.unlocked) Icons.Outlined.EmojiEvents else Icons.Outlined.Lock,
-                            contentDescription = null,
-                            tint = if (badge.unlocked) EduInk else EduMuted,
-                            modifier = Modifier.size(17.dp)
+                            imageVector = badgeIcon,
+                            contentDescription = if (badge.unlocked) "${badge.title} مفتوحة" else "${badge.title} مقفلة",
+                            tint = if (badge.unlocked) accent else EduMuted,
+                            modifier = Modifier.size(18.dp)
                         )
                     }
                 }
-                Text(
-                    text = "+${badge.pointsBonus} XP",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (badge.unlocked) EduGreenDark else EduMuted
-                )
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = if (badge.unlocked) EduMint else EduBg
+                ) {
+                    Text(
+                        text = if (badge.unlocked) "+${badge.pointsBonus} XP ✓" else "+${badge.pointsBonus} XP",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (badge.unlocked) EduGreenDark else EduMuted,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                    )
+                }
             }
             Text(
                 text = badge.title,
@@ -682,8 +954,105 @@ private fun AchievementBadgeCard(badge: AchievementBadge) {
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Canvas(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(5.dp)
+                ) {
+                    drawRoundRect(
+                        color = EduLine,
+                        cornerRadius = CornerRadius(6f, 6f),
+                        size = size
+                    )
+                    if (progressRatio > 0f) {
+                        drawRoundRect(
+                            color = if (badge.unlocked) EduGreen else accent.copy(alpha = 0.7f),
+                            cornerRadius = CornerRadius(6f, 6f),
+                            size = Size(width = size.width * progressRatio, height = size.height)
+                        )
+                    }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = badge.category.labelAr,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (badge.unlocked) accent else EduMuted
+                    )
+                    Text(
+                        text = "${badge.currentProgress}/${badge.targetProgress}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (badge.unlocked) EduGreenDark else EduMuted
+                    )
+                }
+            }
         }
     }
+}
+
+@Composable
+private fun BadgeDetailDialog(
+    badge: AchievementBadge,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = EduWhite,
+        title = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    imageVector = if (badge.unlocked) Icons.Outlined.EmojiEvents else Icons.Outlined.Lock,
+                    contentDescription = null,
+                    tint = if (badge.unlocked) EduOrange else EduMuted
+                )
+                Text(
+                    text = badge.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = EduInk
+                )
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = if (badge.unlocked) EduMint else EduBg
+                ) {
+                    Text(
+                        text = if (badge.unlocked) "شارة مفتوحة ✓ • +${badge.pointsBonus} XP" else "شارة مقفلة • المكافأة +${badge.pointsBonus} XP",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (badge.unlocked) EduGreenDark else EduMuted,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                    )
+                }
+                Text(
+                    text = badge.requirementLabel,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = EduInk
+                )
+                Text(
+                    text = "التقدّم الحالي: ${badge.currentProgress} من ${badge.targetProgress}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = EduMuted
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(
+                    text = stringResource(R.string.alert_ok),
+                    color = EduGreenDark,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+    )
 }
 
 @Composable

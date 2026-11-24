@@ -7,6 +7,7 @@ import com.example.data.local.EduMiniDatabase
 import com.example.data.local.LessonProgressEntity
 import com.example.data.packageimport.InteractivePackageImporter
 import com.example.data.repository.EduMiniRepository
+import com.example.data.repository.MilestoneBadgeEngine
 import com.example.data.security.ProviderStorage
 import com.example.data.workspace.PdfBookSplitter
 import com.example.data.workspace.WorkspaceImporter
@@ -33,6 +34,7 @@ import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
+import java.time.LocalDate
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
@@ -292,10 +294,105 @@ class EduMiniCoreTest {
         assertEquals(1, summary.unitPaths.size)
         assertEquals(LearningNodeStatus.COMPLETED, summary.unitPaths[0].nodes[0].status)
         assertEquals(LearningNodeStatus.NOT_STARTED, summary.unitPaths[0].nodes[1].status)
-        // 50 (completed) + 20 (approved draft) + 25 (workspace badge) + 30 (ai author badge) + 50 (halfway badge) = 175 XP
-        assertEquals(175, summary.totalPoints)
+        // 50 (completed) + 20 (approved draft) + 40 (first lesson badge) + 25 (workspace badge) + 30 (ai author badge) + 50 (halfway badge) = 215 XP
+        assertEquals(215, summary.totalPoints)
         assertEquals(2, summary.level)
+        assertEquals(4, summary.unlockedBadgesCount)
+        assertTrue(summary.badges.first { it.id == "badge_first_lesson" }.unlocked)
+        assertFalse(summary.badges.first { it.id == "badge_5_day_streak" }.unlocked)
         assertEquals(lesson2.lessonKey, summary.nextRecommendedLesson?.lessonKey)
+    }
+
+    @Test
+    fun milestoneBadgeSystemUnlocksFirstLessonFiveDayStreakAndBookCompletion() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val db = EduMiniDatabase.getInstance(context)
+        val repo = EduMiniRepository(
+            dao = db.eduMiniDao(),
+            providerStorage = ProviderStorage(context),
+            workspaceImporter = WorkspaceImporter(context),
+            aiGenerationService = AiGenerationService(),
+            pdfBookSplitter = PdfBookSplitter(context),
+            interactivePackageImporter = InteractivePackageImporter(context)
+        )
+
+        val today = LocalDate.of(2026, 11, 24)
+        val fourDayDates = setOf(
+            today.minusDays(3),
+            today.minusDays(2),
+            today.minusDays(1),
+            today
+        )
+        val fourDayStreak = MilestoneBadgeEngine.computeStudyStreak(fourDayDates, today = today)
+        assertEquals(4, fourDayStreak.currentStreakDays)
+        assertEquals(4, fourDayStreak.longestStreakDays)
+
+        val fiveDayDates = fourDayDates + today.minusDays(4)
+        val fiveDayStreak = MilestoneBadgeEngine.computeStudyStreak(fiveDayDates, today = today)
+        assertEquals(5, fiveDayStreak.currentStreakDays)
+        assertEquals(5, fiveDayStreak.longestStreakDays)
+
+        // Yesterday-grace rule: streak active yesterday still counts as 5-day streak today before first session
+        val yesterdayFiveStreak = MilestoneBadgeEngine.computeStudyStreak(
+            activityDates = (1L..5L).map { today.minusDays(it) }.toSet(),
+            today = today
+        )
+        assertEquals(5, yesterdayFiveStreak.currentStreakDays)
+
+        val lesson1 = sampleLesson()
+        val lesson2 = lesson1.copy(lessonKey = "lesson_02", title = "الدرس الثاني")
+        val ws = ImportedWorkspace(
+            workspaceId = "ws-streak",
+            gradeKey = "G04",
+            rootPath = "/tmp/ws-streak",
+            title = "G04 • لغتي العربية",
+            books = listOf(
+                BookRef(
+                    bookKey = "ARAB",
+                    title = "لغتي العربية",
+                    subjectKey = "ARAB",
+                    relativePath = "workspace/G04/ARAB",
+                    lessonsCount = 2
+                )
+            ),
+            lessons = listOf(lesson1, lesson2),
+            filesCount = 4,
+            warnings = emptyList()
+        )
+
+        val lockedSummary = repo.computeDashboardSummary(
+            workspace = ws,
+            drafts = emptyList(),
+            packages = emptyList(),
+            progressRows = emptyList(),
+            studyDayStrings = fourDayDates.map { it.toString() },
+            today = today
+        )
+        assertFalse(lockedSummary.badges.first { it.id == "badge_first_lesson" }.unlocked)
+        assertFalse(lockedSummary.badges.first { it.id == "badge_5_day_streak" }.unlocked)
+        assertEquals(4, lockedSummary.badges.first { it.id == "badge_5_day_streak" }.currentProgress)
+
+        val fullProgress = listOf(
+            LessonProgressEntity("ws-streak", "ARAB", "unit_01", "lesson_01", completed = true, pointsEarned = 50, completedAt = today.toString()),
+            LessonProgressEntity("ws-streak", "ARAB", "unit_01", "lesson_02", completed = true, pointsEarned = 50, completedAt = today.toString())
+        )
+        val unlockedSummary = repo.computeDashboardSummary(
+            workspace = ws,
+            drafts = emptyList(),
+            packages = emptyList(),
+            progressRows = fullProgress,
+            studyDayStrings = fiveDayDates.map { it.toString() },
+            today = today
+        )
+        assertEquals(5, unlockedSummary.currentStreakDays)
+        assertTrue(unlockedSummary.badges.first { it.id == "badge_first_lesson" }.unlocked)
+        assertTrue(unlockedSummary.badges.first { it.id == "badge_5_day_streak" }.unlocked)
+        assertTrue(unlockedSummary.badges.first { it.id == "badge_unit_master" }.unlocked)
+        assertTrue(unlockedSummary.badges.first { it.id == "badge_book_champion" }.unlocked)
+
+        // Verify Room study_days persistence
+        repo.recordStudyActivity(today)
+        assertNotNull(db.eduMiniDao().getStudyDay(today.toString()))
     }
 
     @Test

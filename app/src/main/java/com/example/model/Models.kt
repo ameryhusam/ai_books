@@ -251,12 +251,23 @@ data class BookProgressSummary(
     val earnedPoints: Int
 )
 
+enum class BadgeCategory(val labelAr: String) {
+    MILESTONE("إنجاز التعلّم"),
+    STREAK("الاستمرارية"),
+    CREATION("الإنتاج الذكي"),
+    MASTERY("الإتقان")
+}
+
 data class AchievementBadge(
     val id: String,
     val title: String,
     val subtitle: String,
     val unlocked: Boolean,
-    val pointsBonus: Int
+    val pointsBonus: Int,
+    val category: BadgeCategory = BadgeCategory.MILESTONE,
+    val currentProgress: Int = if (unlocked) 1 else 0,
+    val targetProgress: Int = 1,
+    val requirementLabel: String = subtitle
 )
 
 data class DashboardSummary(
@@ -274,6 +285,9 @@ data class DashboardSummary(
     val levelTitle: String = "مستكشف المعرفة",
     val pointsIntoLevel: Int = 0,
     val pointsPerLevel: Int = 150,
+    val currentStreakDays: Int = 0,
+    val longestStreakDays: Int = 0,
+    val unlockedBadgesCount: Int = 0,
     val bookProgress: List<BookProgressSummary> = emptyList(),
     val unitPaths: List<LearningUnitPath> = emptyList(),
     val badges: List<AchievementBadge> = emptyList(),
