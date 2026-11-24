@@ -285,7 +285,7 @@ object Indexer2PromptRegistry {
             append("المخطط المرجعي (indexer2): ${blueprint.sourcePath}\n")
             append("معيار المخرجات: ${blueprint.outputContract}.\n")
             if (promptTemplate.isNotBlank()) {
-                append("\nتعليمات المهمة المرجعية من ملف \${blueprint.sourcePath}:\n")
+                append("\nتعليمات المهمة المرجعية من ملف ${blueprint.sourcePath}:\n")
                 append(promptTemplate.trim())
                 append("\n")
             }
