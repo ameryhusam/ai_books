@@ -223,9 +223,12 @@ class PdfBookSplitter(private val context: Context) {
                 val num = extractTrailingNumber(lessonKey, idx + 1)
                 val relPdf = "P01/units/$unitKey/lesson_${num.toString().padStart(2, '0')}.pdf"
                 val lessonPdf = File(bookDir, relPdf)
-                if (lessonPdf.exists()) {
-                    filesCount++
-                }
+                val lessonBase = relPdf.removeSuffix(".pdf")
+                filesCount += listOf(
+                    lessonPdf,
+                    File(bookDir, "$lessonBase.txt"),
+                    File(bookDir, "$lessonBase.extraction.json")
+                ).count { it.isFile }
                 lessons.add(
                     LessonRef(
                         grade = cleanGrade,
