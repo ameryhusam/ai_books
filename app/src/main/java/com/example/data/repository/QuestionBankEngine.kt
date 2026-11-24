@@ -118,16 +118,10 @@ object QuestionBankEngine {
             val answerIdx = (obj["correctIndex"] as? JsonPrimitive)?.intOrNull
                 ?: (obj["answerIndex"] as? JsonPrimitive)?.intOrNull
             val rawAns = firstStr(obj, "correctAnswer", "answer", "correct")
-            val resolvedAnswer = when {
-                rawAns.isNotBlank() -> rawAns
-                answerIdx != null && answerIdx in opts.indices -> opts[answerIdx]
-                opts.isNotEmpty() -> opts.first()
-                else -> ""
-            }
             val typeStr = firstStr(obj, "type", "questionType")
             val type = when {
                 typeStr.isNotBlank() -> QuestionType.fromId(typeStr)
-                opts.size == 2 && opts.any { it == "صح" || it == "True" } -> QuestionType.TRUE_FALSE
+                opts.size == 2 && opts.any { it == "صح" || it.equals("True", ignoreCase = true) } -> QuestionType.TRUE_FALSE
                 opts.isEmpty() -> QuestionType.SHORT_ANSWER
                 else -> QuestionType.MCQ
             }
@@ -136,6 +130,24 @@ object QuestionBankEngine {
             } else {
                 opts
             }
+            val resolvedAnswer = when {
+                rawAns.isNotBlank() -> resolveAnswerLetterToOption(rawAns, finalOpts)
+                answerIdx != null && answerIdx in finalOpts.indices -> finalOpts[answerIdx]
+                else -> ""
+            }.trim()
+            val normalizedAnswer = when {
+                type == QuestionType.TRUE_FALSE && resolvedAnswer.equals("true", ignoreCase = true) -> "صح"
+                type == QuestionType.TRUE_FALSE && resolvedAnswer.equals("false", ignoreCase = true) -> "خطأ"
+                else -> resolvedAnswer
+            }
+            val answerIsValid = when (type) {
+                QuestionType.MCQ, QuestionType.TRUE_FALSE -> normalizedAnswer.isNotBlank() &&
+                    finalOpts.any { it.equals(normalizedAnswer, ignoreCase = true) }
+                else -> normalizedAnswer.isNotBlank()
+            }
+            // Never manufacture a correct answer. Invalid AI items are excluded from
+            // persistence and must be regenerated or corrected by the author.
+            if (!answerIsValid) return@mapNotNull null
 
             QuestionItem(
                 id = "q-${System.currentTimeMillis()}-${UUID.randomUUID().toString().take(6)}",
@@ -148,7 +160,7 @@ object QuestionBankEngine {
                 type = type,
                 prompt = prompt,
                 options = finalOpts,
-                correctAnswer = resolvedAnswer,
+                correctAnswer = normalizedAnswer,
                 rationale = firstStr(obj, "rationale", "explanation", "feedback"),
                 difficulty = QuestionDifficulty.fromId(firstStr(obj, "difficulty", "level")),
                 sourcePages = firstStr(obj, "sourcePages", "sourcePage", "page").ifBlank { lesson.pageRange },
