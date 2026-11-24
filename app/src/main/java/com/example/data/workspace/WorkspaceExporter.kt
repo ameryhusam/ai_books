@@ -166,7 +166,7 @@ object WorkspaceExporter {
         require(workspaceRoot.isDirectory) { "Workspace source directory is missing: ${workspace.rootPath}" }
         val rootPath = workspaceRoot.toPath()
         workspaceRoot.walkTopDown().filter { it.isFile }.forEach { file ->
-            val relative = rootPath.relativize(file.toPath()).toString().replace('\\\\', '/')
+            val relative = rootPath.relativize(file.toPath()).toString().replace('\\', '/')
             require(!relative.startsWith("../") && !relative.startsWith("/")) { "Unsafe workspace path: $relative" }
             entriesMap[relative] = file.readBytes()
         }
