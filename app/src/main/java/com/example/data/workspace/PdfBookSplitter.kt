@@ -320,7 +320,7 @@ class PdfBookSplitter(private val context: Context) {
                                 val sourcePage = sourceDocument.getPage(pageNumber - 1)
                                 val importedPage = lessonDocument.importPage(sourcePage)
                                 // PDFBox does not automatically copy inherited page resources.
-                                sourcePage.resources?.let(importedPage::setResources)
+                                sourcePage.resources?.let { resources -> importedPage.setResources(resources) }
                             }
                             lessonDocument.save(outFile)
                         }
