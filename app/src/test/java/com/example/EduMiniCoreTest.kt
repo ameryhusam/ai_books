@@ -994,11 +994,15 @@ class EduMiniCoreTest {
 
     @Test
     fun indexer2PromptRegistryCoversAllTasksAndStandardSchemas() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         TaskType.entries.forEach { task ->
             val blueprint = Indexer2PromptRegistry.blueprintFor(task)
             assertEquals(task, blueprint.task)
             assertTrue(blueprint.sourcePath.startsWith("prompts/indexer2/"))
             assertTrue(blueprint.outputContract.isNotBlank())
+            context.assets.open(blueprint.sourcePath).use { asset ->
+                assertTrue(asset.readBytes().isNotEmpty())
+            }
         }
 
         assertEquals(5, Indexer2PromptRegistry.schemas.size)
