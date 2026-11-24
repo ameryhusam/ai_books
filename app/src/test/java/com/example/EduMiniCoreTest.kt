@@ -488,6 +488,9 @@ class EduMiniCoreTest {
         assertEquals(QuestionDifficulty.EASY, jsonQuestions[0].difficulty)
         assertEquals(QuestionType.TRUE_FALSE, jsonQuestions[1].type)
 
+        val missingAnswer = """[{"type":"mcq","prompt":"سؤال بلا إجابة","options":["أ","ب","ج","د"]}]"""
+        assertTrue(QuestionBankEngine.parseQuestionsFromText(missingAnswer, "ws-test", lesson).isEmpty())
+
         val arabicTextInput = """
             1. ما ناتج جمع 4 + 5؟
             أ) 8
@@ -543,10 +546,19 @@ class EduMiniCoreTest {
         )
 
         val lesson = sampleLesson()
+        val workspaceRoot = File(context.cacheDir, "ws-qb-export").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        val bookRoot = File(workspaceRoot, "workspace/G04/ARAB").apply { mkdirs() }
+        File(bookRoot, "index.json").writeText(
+            """{"schemaVersion":"edu.book_index.v2","gradeKey":"G04","subjectKey":"ARAB","units":[{"unitKey":"unit_01","title":"الوحدة الأولى","partKey":"P01","assignmentStatus":"assigned","lessons":[{"lessonKey":"lesson_01","title":"الدرس الأول","pdfPageStart":1,"pdfPageEnd":2}]}]}"""
+        )
+        File(bookRoot, "book_manifest.json").writeText("""{"title":"لغتي العربية","sourceSha256":"test"}""")
         val ws = ImportedWorkspace(
             workspaceId = "ws-qb-export",
             gradeKey = "G04",
-            rootPath = "/tmp/ws-qb-export",
+            rootPath = workspaceRoot.absolutePath,
             title = "G04 • لغتي العربية",
             books = listOf(
                 BookRef(
@@ -617,8 +629,8 @@ class EduMiniCoreTest {
         }
 
         assertTrue(zipNames.contains("manifest.json"))
-        assertTrue(zipNames.contains("questions/unit_01/lesson_01/ai_generated.json"))
-        assertTrue(zipNames.any { it.startsWith("edu_mini_generated/unit_01/lesson_01/") })
+        assertTrue(zipNames.contains("questions/ARAB/unit_01/lesson_01/ai_generated.json"))
+        assertTrue(zipNames.any { it.startsWith("edu_mini_generated/ARAB/unit_01/lesson_01/") })
         assertTrue(manifestContent.contains("sha256"))
         assertTrue(manifestContent.contains("edu-mini-indexer2-1.0"))
 
