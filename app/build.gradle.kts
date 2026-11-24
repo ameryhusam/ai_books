@@ -74,7 +74,7 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.okhttp)
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
-    implementation("cz.adaptech.tesseract4android:tesseract4android:4.7.0")
+    implementation("cz.adaptech.tesseract4android:tesseract4android:4.9.0")
 
     debugImplementation(libs.androidx.ui.tooling)
 
