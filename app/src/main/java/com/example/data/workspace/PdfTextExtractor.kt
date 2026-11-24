@@ -104,7 +104,7 @@ class PdfTextExtractor(private val context: Context) {
                                 bitmap.eraseColor(Color.WHITE)
                                 page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_PRINT)
                                 api.setImage(bitmap)
-                                val pageText = api.utF8Text.orEmpty().trim()
+                                val pageText = api.getUTF8Text().orEmpty().trim()
                                 if (pageText.isNotBlank()) {
                                     output.append("\n\n[PDF page ${pageNumber}]\n")
                                     output.append(pageText)
