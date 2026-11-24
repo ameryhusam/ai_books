@@ -294,7 +294,7 @@ class EduMiniRepository(
         val effectiveSource = listOf(source.trim(), extractedText)
             .filter { it.isNotBlank() }
             .distinct()
-            .joinToString("\\n\\n")
+            .joinToString("\n\n")
         val pageImages = if (attachPdfPages) {
             aiGenerationService.extractLessonPdfPageImagesBase64(lesson.pdfPath)
         } else {
