@@ -299,7 +299,10 @@ class PdfBookSplitter(private val context: Context) {
                         }
                         PDDocument().use { lessonDocument ->
                             for (pageNumber in split.startPage..split.endPage) {
-                                lessonDocument.importPage(sourceDocument.getPage(pageNumber - 1))
+                                val sourcePage = sourceDocument.getPage(pageNumber - 1)
+                                val importedPage = lessonDocument.importPage(sourcePage)
+                                // PDFBox does not automatically copy inherited page resources.
+                                sourcePage.resources?.let(importedPage::setResources)
                             }
                             lessonDocument.save(outFile)
                         }
