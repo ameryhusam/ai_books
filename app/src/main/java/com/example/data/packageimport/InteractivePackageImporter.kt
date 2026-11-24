@@ -256,7 +256,7 @@ class InteractivePackageImporter(private val context: Context) {
 
         // Scan HTML/CSS/JS files for external URLs, local references, and unsafe JS constructs
         val inspectableFiles = allFiles.filter {
-            it.extension.lowercase() in setOf("html", "htm", "js", "mjs", "css")
+            it.extension.lowercase() in setOf("html", "htm", "js", "mjs", "css", "svg")
         }
 
         for (file in inspectableFiles) {
@@ -270,7 +270,17 @@ class InteractivePackageImporter(private val context: Context) {
                     if (isRelativeLocalReference(ref)) {
                         val cleanRef = ref.substringBefore('?').substringBefore('#')
                         val resolved = File(entryDir, cleanRef)
-                        if (!resolved.exists()) {
+                        val canonicalResolved = runCatching { resolved.canonicalPath }.getOrDefault("")
+                        val canonicalRoot = versionDir.canonicalPath + File.separator
+                        if (!canonicalResolved.startsWith(canonicalRoot)) {
+                            findings.add(
+                                SecurityFinding(
+                                    severity = SecuritySeverity.BLOCKER,
+                                    code = "LOCAL_REFERENCE_PATH_ESCAPE",
+                                    message = "مرجع مورد محلي يخرج عن مجلد الحزمة: $cleanRef"
+                                )
+                            )
+                        } else if (!resolved.exists()) {
                             missingAssets.add(cleanRef)
                         }
                     }
@@ -478,16 +488,17 @@ class InteractivePackageImporter(private val context: Context) {
     }
 
     private fun safeZipPath(rawPath: String): String {
-        val normalized = rawPath.replace('\\', '/').trimStart('/')
+        val normalized = rawPath.replace('\\', '/')
         if (normalized.isBlank() ||
-            normalized.split('/').any { it == ".." } ||
+            normalized.startsWith('/') ||
+            normalized.split('/').any { it == ".." || it == "." } ||
             Regex("^[A-Za-z]:").containsMatchIn(normalized) ||
             normalized.contains('\u0000') ||
             normalized.length > 350
         ) {
             throw IllegalArgumentException("مسار غير آمن داخل ZIP: $rawPath")
         }
-        return normalized.replace("./", "")
+        return normalized
     }
 
     private fun readBounded(input: InputStream, maxBytes: Long): ByteArray {
