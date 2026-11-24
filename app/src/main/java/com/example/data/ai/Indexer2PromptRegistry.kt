@@ -297,13 +297,13 @@ object Indexer2PromptRegistry {
                 if (difficultyHint.isNotBlank()) {
                     append("مستوى الصعوبة المستهدف: $difficultyHint.\n")
                 }
-                append("أخرج JSON صالحاً فقط دون Markdown أو نص خارج JSON. استخدم كائن الجذر {\\\"questions\\\":[...]}، ولا تنتج سؤالاً بلا إجابة صحيحة صريحة.\\n")
+                append("أخرج JSON صالحاً فقط دون Markdown أو نص خارج JSON. استخدم كائن الجذر {\"questions\":[...]}، ولا تنتج سؤالاً بلا إجابة صحيحة صريحة.\n")
                 append(blueprint.schemaSnippet)
-                append("\\n")
+                append("\n")
             } else if (task == TaskType.INTERACTIVE) {
-                append("أخرج JSON صالحاً فقط دون HTML أو JavaScript أو Markdown، والتزم بمخطط النشاط التفاعلي.\\n")
+                append("أخرج JSON صالحاً فقط دون HTML أو JavaScript أو Markdown، والتزم بمخطط النشاط التفاعلي.\n")
                 append(blueprint.schemaSnippet)
-                append("\\n")
+                append("\n")
             }
             if (attachedPdfPagesCount > 0) {
                 append("ملاحظة: مرفق مع هذا الطلب $attachedPdfPagesCount صفحة مصورة من ملف PDF الخاص بالدرس لاستخراج المحتوى والاعتماد عليها.\n")
