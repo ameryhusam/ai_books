@@ -246,7 +246,13 @@ object QuestionBankEngine {
             } else {
                 options
             }
-            val finalAnswer = resolveAnswerLetterToOption(correctAnswer, finalOpts)
+            val finalAnswer = resolveAnswerLetterToOption(correctAnswer, finalOpts).trim()
+            val answerIsValid = when (type) {
+                QuestionType.MCQ, QuestionType.TRUE_FALSE -> finalAnswer.isNotBlank() &&
+                    finalOpts.any { it.equals(finalAnswer, ignoreCase = true) }
+                else -> finalAnswer.isNotBlank()
+            }
+            if (!answerIsValid) return@mapNotNull null
 
             QuestionItem(
                 id = "q-${System.currentTimeMillis()}-${UUID.randomUUID().toString().take(6)}",
@@ -281,7 +287,7 @@ object QuestionBankEngine {
             'د', 'D' -> 3
             else -> -1
         }
-        return if (mappedIdx in options.indices) options[mappedIdx] else rawAnswer.ifBlank { options.first() }
+        return if (mappedIdx in options.indices) options[mappedIdx] else rawAnswer
     }
 
     fun gradeQuiz(
