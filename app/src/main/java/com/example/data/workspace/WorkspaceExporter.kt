@@ -182,31 +182,56 @@ object WorkspaceExporter {
             val bookKey = identity.getOrElse(1) { "book" }
             val unitKey = identity.getOrElse(2) { "unit" }
             val lessonKey = identity.getOrElse(3) { "lesson" }
-            val latest = list.maxByOrNull { it.version } ?: list.first()
-            val fileName = when (latest.task) {
-                "interactive" -> "interactive-lesson-draft.json"
-                "questions" -> "ai-question-drafts.json"
-                else -> "${latest.task.replace('_', '-')}-draft.json"
-            }
-            val draftPayload = buildJsonObject {
-                put("workspaceId", workspace.workspaceId)
-                put("gradeKey", workspace.gradeKey)
-                put("bookKey", bookKey)
-                put("unitKey", unitKey)
-                put("lessonKey", lessonKey)
-                put("task", latest.task)
-                put("version", latest.version)
-                put("status", latest.status)
-                put("provider", latest.provider)
-                put("model", latest.model)
-                put("sourcePages", latest.sourcePages.orEmpty())
-                put("sourceHash", latest.sourceHash.orEmpty())
-                put("createdAt", latest.createdAt)
-                put("content", latest.content)
-            }.toString().toByteArray(Charsets.UTF_8)
+            val orderedDrafts = list.sortedWith(compareBy<DraftEntity> { it.task }.thenBy { it.version })
+            orderedDrafts.forEach { draft ->
+                val fileName = "${draft.task.replace('_', '-')}-v${draft.version}.json"
+                val draftPayload = buildJsonObject {
+                    put("workspaceId", workspace.workspaceId)
+                    put("gradeKey", workspace.gradeKey)
+                    put("bookKey", bookKey)
+                    put("unitKey", unitKey)
+                    put("lessonKey", lessonKey)
+                    put("task", draft.task)
+                    put("version", draft.version)
+                    put("status", draft.status)
+                    put("provider", draft.provider)
+                    put("model", draft.model)
+                    put("sourcePages", draft.sourcePages.orEmpty())
+                    put("sourceHash", draft.sourceHash.orEmpty())
+                    put("createdAt", draft.createdAt)
+                    put("content", draft.content)
+                }.toString().toByteArray(Charsets.UTF_8)
 
-            entriesMap["edu_mini_generated/$bookKey/$unitKey/$lessonKey/$fileName"] = draftPayload
-            entriesMap["ai_content/$bookKey/$unitKey/$lessonKey/${latest.task}_v${latest.version}.json"] = draftPayload
+                entriesMap["edu_mini_generated/$bookKey/$unitKey/$lessonKey/$fileName"] = draftPayload
+                entriesMap["ai_content/$bookKey/$unitKey/$lessonKey/$fileName"] = draftPayload
+            }
+            val latestByTask = orderedDrafts.groupBy { it.task }.mapValues { (_, versions) ->
+                versions.maxByOrNull { it.version }!!
+            }
+            latestByTask.forEach { (_, latest) ->
+                val legacyName = when (latest.task) {
+                    "interactive" -> "interactive-lesson-draft.json"
+                    "questions" -> "ai-question-drafts.json"
+                    else -> "${latest.task.replace('_', '-')}-draft.json"
+                }
+                val payload = buildJsonObject {
+                    put("workspaceId", workspace.workspaceId)
+                    put("gradeKey", workspace.gradeKey)
+                    put("bookKey", bookKey)
+                    put("unitKey", unitKey)
+                    put("lessonKey", lessonKey)
+                    put("task", latest.task)
+                    put("version", latest.version)
+                    put("status", latest.status)
+                    put("provider", latest.provider)
+                    put("model", latest.model)
+                    put("sourcePages", latest.sourcePages.orEmpty())
+                    put("sourceHash", latest.sourceHash.orEmpty())
+                    put("createdAt", latest.createdAt)
+                    put("content", latest.content)
+                }.toString().toByteArray(Charsets.UTF_8)
+                entriesMap["edu_mini_generated/$bookKey/$unitKey/$lessonKey/$legacyName"] = payload
+            }
         }
 
         // 2. Export canonical questions/<unitKey>/<lessonKey>/ai_generated.json
