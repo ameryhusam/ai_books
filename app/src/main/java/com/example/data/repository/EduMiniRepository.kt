@@ -62,6 +62,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
 import java.io.OutputStream
 import java.security.MessageDigest
@@ -286,12 +288,28 @@ class EduMiniRepository(
         questionStyleHint: String = "",
         difficultyHint: String = ""
     ): GeneratedResult {
-        val extractedText = if (!lesson.pdfPath.isNullOrBlank()) {
+        val extractionMethod = if (!lesson.pdfPath.isNullOrBlank()) {
+            val pdf = File(lesson.pdfPath)
+            val metaFile = File(pdf.parentFile, pdf.nameWithoutExtension + ".extraction.json")
+            runCatching {
+                json.parseToJsonElement(metaFile.readText(Charsets.UTF_8))
+                    .jsonObject["method"]?.jsonPrimitive?.content
+            }.getOrNull()
+        } else null
+        val extractedText = if (!lesson.pdfPath.isNullOrBlank() &&
+            extractionMethod !in setOf("OCR_LOW_CONFIDENCE", "OCR_REQUIRED")
+        ) {
             val pdf = File(lesson.pdfPath)
             val textFile = File(pdf.parentFile, pdf.nameWithoutExtension + ".txt")
             if (textFile.isFile) textFile.readText(Charsets.UTF_8).trim() else ""
         } else ""
-        val effectiveSource = listOf(source.trim(), extractedText)
+        val extractionNotice = if (extractionMethod == "TESSERACT_ARA_ENG") {
+            "تنبيه: النص التالي مستخرج بتقنية OCR وقد يحتوي أخطاء؛ طابق الأجزاء الملتبسة مع صفحات PDF المرفقة."
+        } else ""
+        val effectiveSource = listOf(
+            source.trim(),
+            listOf(extractionNotice, extractedText).filter { it.isNotBlank() }.joinToString("\n")
+        )
             .filter { it.isNotBlank() }
             .distinct()
             .joinToString("\n\n")
