@@ -284,6 +284,11 @@ object Indexer2PromptRegistry {
             append("التزم بالمصدر ولا تخترع معلومات أو صفحات. اجعل المحتوى منظمًا وقابلاً للتحرير.\n")
             append("المخطط المرجعي (indexer2): ${blueprint.sourcePath}\n")
             append("معيار المخرجات: ${blueprint.outputContract}.\n")
+            if (promptTemplate.isNotBlank()) {
+                append("\\nتعليمات المهمة المرجعية من ملف ${blueprint.sourcePath}:\\n")
+                append(promptTemplate.trim())
+                append("\\n")
+            }
             if (task == TaskType.QUESTIONS) {
                 append("عدد الأسئلة المطلوب بدقة: $safeCount.\n")
                 if (questionStyleHint.isNotBlank()) {
