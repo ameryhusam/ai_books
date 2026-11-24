@@ -155,9 +155,24 @@ object WorkspaceExporter {
         workspace: ImportedWorkspace,
         drafts: List<DraftEntity>,
         questions: List<QuestionItem>,
-        assessments: List<AssessmentEntity> = emptyList()
+        assessments: List<AssessmentEntity> = emptyList(),
+        fullBackupJson: String? = null
     ): ExportReceipt {
         val entriesMap = linkedMapOf<String, ByteArray>()
+
+        // Include the canonical source workspace (index, manifests, original PDFs,
+        // lesson PDFs and assets). Generated artifacts alone are not importable.
+        val workspaceRoot = File(workspace.rootPath)
+        require(workspaceRoot.isDirectory) { "Workspace source directory is missing: ${workspace.rootPath}" }
+        val rootPath = workspaceRoot.toPath()
+        workspaceRoot.walkTopDown().filter { it.isFile }.forEach { file ->
+            val relative = rootPath.relativize(file.toPath()).toString().replace('\\\\', '/')
+            require(!relative.startsWith("../") && !relative.startsWith("/")) { "Unsafe workspace path: $relative" }
+            entriesMap[relative] = file.readBytes()
+        }
+        if (!fullBackupJson.isNullOrBlank()) {
+            entriesMap["full_backup.json"] = fullBackupJson.toByteArray(Charsets.UTF_8)
+        }
 
         // 1. Export drafts per lesson under edu_mini_generated/<unitKey>/<lessonKey>/ + ai_content/
         val draftsByLesson = drafts.groupBy { listOf(it.workspaceId, it.bookKey, it.unitKey, it.lessonKey).joinToString("|") }
