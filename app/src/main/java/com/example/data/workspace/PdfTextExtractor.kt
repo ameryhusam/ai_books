@@ -8,6 +8,7 @@ import android.os.ParcelFileDescriptor
 import com.googlecode.tesseract.android.TessBaseAPI
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.pdmodel.PDDocument
+import com.tom_roush.pdfbox.io.MemoryUsageSetting
 import com.tom_roush.pdfbox.text.PDFTextStripper
 import java.io.File
 import java.io.FileOutputStream
@@ -35,7 +36,7 @@ class PdfTextExtractor(private val context: Context) {
 
         val nativeText = runCatching {
             PDFBoxResourceLoader.init(context.applicationContext)
-            PDDocument.load(pdfFile).use { document ->
+            PDDocument.load(pdfFile, MemoryUsageSetting.setupTempFileOnly()).use { document ->
                 require(endPage <= document.numberOfPages) { "نطاق الصفحات يتجاوز عدد صفحات PDF" }
                 PDFTextStripper().apply {
                     setStartPage(startPage)
