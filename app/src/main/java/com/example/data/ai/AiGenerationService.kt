@@ -61,10 +61,11 @@ class AiGenerationService(
     ): String {
         val blueprint = Indexer2PromptRegistry.blueprintFor(task)
         val promptTemplate = context?.let { appContext ->
-            runCatching {
-                appContext.assets.open(blueprint.sourcePath).bufferedReader(Charsets.UTF_8).use { it.readText() }
-            }.getOrDefault("")
+            appContext.assets.open(blueprint.sourcePath).bufferedReader(Charsets.UTF_8).use { it.readText() }
         }.orEmpty()
+        require(context == null || promptTemplate.isNotBlank()) {
+            "ملف قالب المهمة غير موجود أو فارغ: ${blueprint.sourcePath}"
+        }
         return Indexer2PromptRegistry.assemblePrompt(
         lesson = lesson,
         task = task,
