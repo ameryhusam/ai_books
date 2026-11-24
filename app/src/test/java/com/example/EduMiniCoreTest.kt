@@ -633,6 +633,20 @@ class EduMiniCoreTest {
         assertTrue(zipNames.any { it.startsWith("edu_mini_generated/ARAB/unit_01/lesson_01/") })
         assertTrue(manifestContent.contains("sha256"))
         assertTrue(manifestContent.contains("edu-mini-indexer2-1.0"))
+        assertTrue(zipNames.contains("workspace/G04/ARAB/index.json"))
+        assertTrue(zipNames.contains("full_backup.json"))
+
+        // Exercise the complete ZIP round-trip: checksum verification, canonical
+        // workspace import, then restore of generated records without ID collisions.
+        val workspaceImporter = WorkspaceImporter(context)
+        val staged = workspaceImporter.inspectZipFromStream(ByteArrayInputStream(baos.toByteArray()))
+        val imported = workspaceImporter.commitStagedGrades(staged, listOf("G04")).first()
+        repo.saveImportedWorkspace(imported)
+        val backupFile = File(imported.rootPath, "full_backup.json")
+        assertTrue(backupFile.isFile)
+        repo.importFullBackupJson(backupFile.readText(Charsets.UTF_8), imported.workspaceId)
+        assertEquals(2, repo.observeQuestionsForWorkspace(imported.workspaceId).first().size)
+        assertEquals(2, repo.observeQuestionsForWorkspace(ws.workspaceId).first().size)
 
         repo.deleteQuestion(manual.id)
         current = repo.observeQuestionsForWorkspace(ws.workspaceId).first()
