@@ -372,6 +372,35 @@ class InteractivePackageImporter(private val context: Context) {
         content: String,
         findings: MutableList<SecurityFinding>
     ) {
+        if (Regex("<\\s*(iframe|object|embed|base)\\b", RegexOption.IGNORE_CASE).containsMatchIn(content)) {
+            findings.add(
+                SecurityFinding(
+                    severity = SecuritySeverity.BLOCKER,
+                    code = "UNSANDBOXED_EMBED_OR_BASE",
+                    message = "تم رصد iframe/object/embed/base داخل $fileName؛ يجب إزالة التضمين قبل الاعتماد."
+                )
+            )
+        }
+        if (Regex("\\bon[a-z]+\\s*=", RegexOption.IGNORE_CASE).containsMatchIn(content)) {
+            findings.add(
+                SecurityFinding(
+                    severity = SecuritySeverity.BLOCKER,
+                    code = "INLINE_EVENT_HANDLER",
+                    message = "تم رصد معالج JavaScript مضمّن داخل HTML/SVG في $fileName."
+                )
+            )
+        }
+        if (fileName.endsWith(".svg", ignoreCase = true) &&
+            Regex("<\\s*(script|foreignObject)\\b|javascript\\s*:", RegexOption.IGNORE_CASE).containsMatchIn(content)
+        ) {
+            findings.add(
+                SecurityFinding(
+                    severity = SecuritySeverity.BLOCKER,
+                    code = "ACTIVE_SVG_CONTENT",
+                    message = "ملف SVG يحتوي محتوى تنفيذياً غير مسموح: $fileName."
+                )
+            )
+        }
         if (Regex("\\beval\\s*\\(|new\\s+Function\\s*\\(").containsMatchIn(content)) {
             findings.add(
                 SecurityFinding(
