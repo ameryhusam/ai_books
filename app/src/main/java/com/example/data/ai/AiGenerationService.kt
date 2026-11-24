@@ -1,5 +1,6 @@
 package com.example.data.ai
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.pdf.PdfRenderer
@@ -35,6 +36,7 @@ import java.time.Instant
 import java.util.concurrent.TimeUnit
 
 class AiGenerationService(
+    private val context: Context? = null,
     private val client: OkHttpClient = defaultClient(),
     private val geminiEndpointBase: String = "https://generativelanguage.googleapis.com/v1beta/models"
 ) {
@@ -56,7 +58,14 @@ class AiGenerationService(
         attachedPdfPagesCount: Int = 0,
         questionStyleHint: String = "",
         difficultyHint: String = ""
-    ): String = Indexer2PromptRegistry.assemblePrompt(
+    ): String {
+        val blueprint = Indexer2PromptRegistry.blueprintFor(task)
+        val promptTemplate = context?.let { appContext ->
+            runCatching {
+                appContext.assets.open(blueprint.sourcePath).bufferedReader(Charsets.UTF_8).use { it.readText() }
+            }.getOrDefault("")
+        }.orEmpty()
+        return Indexer2PromptRegistry.assemblePrompt(
         lesson = lesson,
         task = task,
         source = source,
@@ -64,8 +73,10 @@ class AiGenerationService(
         questionCount = questionCount,
         attachedPdfPagesCount = attachedPdfPagesCount,
         questionStyleHint = questionStyleHint,
-        difficultyHint = difficultyHint
-    )
+        difficultyHint = difficultyHint,
+        promptTemplate = promptTemplate
+        )
+    }
 
     suspend fun extractLessonPdfPageImagesBase64(
         pdfPath: String?,
