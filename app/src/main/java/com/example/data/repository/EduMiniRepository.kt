@@ -373,10 +373,19 @@ class EduMiniRepository(
         val createdAt = Instant.now().toString()
         val extractedPdfText = lesson.pdfPath?.let { path ->
             val pdf = File(path)
-            File(pdf.parentFile, pdf.nameWithoutExtension + ".txt")
-                .takeIf { it.isFile }
-                ?.readText(Charsets.UTF_8)
-                .orEmpty()
+            val metaFile = File(pdf.parentFile, pdf.nameWithoutExtension + ".extraction.json")
+            val extractionMethod = runCatching {
+                json.parseToJsonElement(metaFile.readText(Charsets.UTF_8))
+                    .jsonObject["method"]?.jsonPrimitive?.content
+            }.getOrNull()
+            if (extractionMethod in setOf("OCR_LOW_CONFIDENCE", "OCR_REQUIRED")) {
+                ""
+            } else {
+                File(pdf.parentFile, pdf.nameWithoutExtension + ".txt")
+                    .takeIf { it.isFile }
+                    ?.readText(Charsets.UTF_8)
+                    .orEmpty()
+            }
         }.orEmpty()
         val provenanceSource = listOf(sourceText.trim(), extractedPdfText.trim())
             .filter { it.isNotBlank() }
