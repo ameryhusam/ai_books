@@ -119,7 +119,8 @@ class EduMiniCoreTest {
 
     @Test
     fun promptBuilderIncludesLessonMetadataTaskAndQuestionCount() {
-        val service = AiGenerationService()
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val service = AiGenerationService(context)
         val lesson = sampleLesson()
         val prompt = service.buildPrompt(
             lesson = lesson,
@@ -134,6 +135,7 @@ class EduMiniCoreTest {
         assertTrue(prompt.contains("الدرس الأول"))
         assertTrue(prompt.contains("نص تجريبي"))
         assertTrue(prompt.contains("2 صفحة مصورة"))
+        assertTrue(prompt.contains("يجب أن تكون الإجابة الصحيحة صريحة ومسنودة بالمصدر."))
     }
 
     @Test
@@ -173,8 +175,11 @@ class EduMiniCoreTest {
         val manifestFile = File(workspace.rootPath, "workspace/G05/SCI/book_manifest.json")
         assertTrue(indexFile.exists())
         assertTrue(manifestFile.exists())
+        assertTrue(indexFile.readText().contains("edu.book_index.v2"))
+        assertTrue(indexFile.readText().contains("assignmentStatus"))
         assertTrue(indexFile.readText().contains("lesson_01"))
         assertTrue(manifestFile.readText().contains("العلوم"))
+        assertTrue(File(workspace.books.first().sourcePdfPath!!).isFile)
     }
 
     @Test
