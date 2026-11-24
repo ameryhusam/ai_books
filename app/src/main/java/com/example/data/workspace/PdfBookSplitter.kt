@@ -139,7 +139,23 @@ class PdfBookSplitter(private val context: Context) {
         val bookDir = File(destDir, bookRel).apply { mkdirs() }
 
         val sourcePdf = File(pdfInfo.storedPdfPath)
-        require(sourcePdf.exists()) { "ملف PDF الأصلي غير موجود" }
+        require(sourcePdf.isFile) { "ملف PDF الأصلي غير موجود" }
+        PDFBoxResourceLoader.init(context.applicationContext)
+        val actualPageCount = runCatching {
+            PDDocument.load(sourcePdf, MemoryUsageSetting.setupTempFileOnly()).use { it.numberOfPages }
+        }.getOrElse { error ->
+            throw IllegalArgumentException("ملف PDF غير صالح أو غير قابل للقراءة: ${error.message ?: "خطأ غير معروف"}", error)
+        }
+        require(actualPageCount > 0) { "ملف PDF لا يحتوي صفحات" }
+        require(actualPageCount == pdfInfo.totalPages) {
+            "عدد صفحات PDF لا يطابق بيانات الملف: المتوقع ${pdfInfo.totalPages}، الفعلي $actualPageCount"
+        }
+        require(splits.isNotEmpty()) { "لم يتم تحديد أي حدود للدروس" }
+        splits.forEach { split ->
+            require(split.startPage >= 1 && split.endPage >= split.startPage && split.endPage <= actualPageCount) {
+                "نطاق صفحات غير صالح للدرس ${split.title}: ${split.startPage}–${split.endPage}"
+            }
+        }
 
         val partKey = inferPartKeyFromFileName(pdfInfo.fileName)
         val partAssignmentEvidence = if (partKey == "UNKNOWN") {
