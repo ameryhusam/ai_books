@@ -955,10 +955,15 @@ class EduMiniRepository(
     ): String = withContext(Dispatchers.IO) {
         val bundle = WorkspaceExporter.parseFullBackup(rawJson)
         val wsId = targetWorkspaceId.ifBlank { bundle.workspaceId }
+        val remapIds = wsId != bundle.workspaceId
+        val draftIdMap = bundle.drafts.associate { it.id to if (remapIds) "draft-import-${UUID.randomUUID()}" else it.id }
+        val questionIdMap = bundle.questions.associate { it.id to if (remapIds) "q-import-${UUID.randomUUID()}" else it.id }
+        val assessmentIdMap = bundle.assessments.associate { it.id to if (remapIds) "assessment-import-${UUID.randomUUID()}" else it.id }
+        val attemptIdMap = bundle.attempts.associate { it.id to if (remapIds) "attempt-import-${UUID.randomUUID()}" else it.id }
         bundle.drafts.forEach { d ->
             dao.insertDraft(
                 DraftEntity(
-                    id = d.id,
+                    id = draftIdMap[d.id] ?: d.id,
                     workspaceId = wsId.ifBlank { d.workspaceId },
                     gradeKey = d.gradeKey,
                     bookKey = d.bookKey,
@@ -981,7 +986,7 @@ class EduMiniRepository(
             dao.insertQuestions(
                 bundle.questions.map { q ->
                     QuestionEntity(
-                        id = q.id,
+                        id = questionIdMap[q.id] ?: q.id,
                         workspaceId = wsId.ifBlank { q.workspaceId },
                         gradeKey = q.gradeKey,
                         bookKey = q.bookKey,
@@ -1005,11 +1010,16 @@ class EduMiniRepository(
         bundle.assessments.forEach { a ->
             dao.insertAssessment(
                 AssessmentEntity(
-                    id = a.id,
+                    id = assessmentIdMap[a.id] ?: a.id,
                     workspaceId = wsId.ifBlank { a.workspaceId },
                     title = a.title,
                     kind = a.kind,
-                    questionIdsJson = a.questionIdsJson,
+                    questionIdsJson = runCatching {
+                        json.encodeToString(
+                            json.decodeFromString<List<String>>(a.questionIdsJson)
+                                .map { questionIdMap[it] ?: it }
+                        )
+                    }.getOrDefault(a.questionIdsJson),
                     timeLimitMinutes = a.timeLimitMinutes,
                     passScorePercent = a.passScorePercent,
                     createdAt = a.createdAt
@@ -1019,8 +1029,8 @@ class EduMiniRepository(
         bundle.attempts.forEach { at ->
             dao.insertAssessmentAttempt(
                 AssessmentAttemptEntity(
-                    id = at.id,
-                    assessmentId = at.assessmentId,
+                    id = attemptIdMap[at.id] ?: at.id,
+                    assessmentId = assessmentIdMap[at.assessmentId] ?: at.assessmentId,
                     assessmentTitle = at.assessmentTitle,
                     workspaceId = wsId.ifBlank { at.workspaceId },
                     correctCount = at.correctCount,
