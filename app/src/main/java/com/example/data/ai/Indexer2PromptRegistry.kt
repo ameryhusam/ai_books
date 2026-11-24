@@ -251,7 +251,8 @@ object Indexer2PromptRegistry {
         questionCount: Int = 5,
         attachedPdfPagesCount: Int = 0,
         questionStyleHint: String = "",
-        difficultyHint: String = ""
+        difficultyHint: String = "",
+        promptTemplate: String = ""
     ): String {
         val safeCount = questionCount.coerceIn(1, 30)
         val blueprint = blueprintFor(task)
