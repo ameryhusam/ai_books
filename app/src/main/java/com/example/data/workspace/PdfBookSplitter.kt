@@ -23,6 +23,7 @@ import java.io.File
 import java.io.FileOutputStream
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.pdmodel.PDDocument
+import com.tom_roush.pdfbox.io.MemoryUsageSetting
 import java.security.MessageDigest
 import java.time.Instant
 
@@ -282,7 +283,7 @@ class PdfBookSplitter(private val context: Context) {
         val warnings = mutableListOf<String>()
         runCatching {
             PDFBoxResourceLoader.init(context.applicationContext)
-            PDDocument.load(sourcePdf).use { sourceDocument ->
+            PDDocument.load(sourcePdf, MemoryUsageSetting.setupTempFileOnly()).use { sourceDocument ->
             groupedUnits.forEach { (unitKey, unitSplits) ->
                 unitSplits.forEachIndexed { idx, split ->
                     val lessonKey = split.lessonKey.ifBlank {
