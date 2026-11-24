@@ -149,11 +149,11 @@ class EduMiniCoreTest {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val splitter = PdfBookSplitter(context)
 
-        val pdfFile = File(context.cacheDir, "sample_book.pdf")
+        val pdfFile = File(context.cacheDir, "sample_book_part1.pdf")
         createSamplePdf(pdfFile, pageCount = 6)
 
         val info = PdfBookInfo(
-            fileName = "sample_book.pdf",
+            fileName = "sample_book_part1.pdf",
             storedPdfPath = pdfFile.absolutePath,
             totalPages = 6,
             sha256 = "abcdef1234567890"
@@ -183,6 +183,7 @@ class EduMiniCoreTest {
         assertTrue(manifestFile.exists())
         assertTrue(indexFile.readText().contains("edu.book_index.v2"))
         assertTrue(indexFile.readText().contains("assignmentStatus"))
+        assertTrue(indexFile.readText().contains("need_review"))
         assertTrue(indexFile.readText().contains("lesson_01"))
         assertTrue(manifestFile.readText().contains("العلوم"))
         assertTrue(File(workspace.books.first().sourcePdfPath!!).isFile)
