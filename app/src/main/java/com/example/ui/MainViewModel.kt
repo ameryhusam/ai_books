@@ -127,7 +127,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         dao = EduMiniDatabase.getInstance(application).eduMiniDao(),
         providerStorage = ProviderStorage(application),
         workspaceImporter = WorkspaceImporter(application),
-        aiGenerationService = AiGenerationService(),
+        aiGenerationService = AiGenerationService(application),
         pdfBookSplitter = PdfBookSplitter(application),
         interactivePackageImporter = InteractivePackageImporter(application)
     )
