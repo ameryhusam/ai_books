@@ -65,15 +65,13 @@ class ProviderStorage(context: Context) {
 
     private fun encrypt(plainText: String): String {
         val secretKey = getOrCreateSecretKey()
-        run {
-            val cipher = Cipher.getInstance(TRANSFORMATION)
-            cipher.init(Cipher.ENCRYPT_MODE, secretKey)
-            val iv = cipher.iv
-            val encryptedBytes = cipher.doFinal(plainText.toByteArray(StandardCharsets.UTF_8))
-            val ivEncoded = Base64.encodeToString(iv, Base64.NO_WRAP)
-            val dataEncoded = Base64.encodeToString(encryptedBytes, Base64.NO_WRAP)
-            return "$PREFIX_GCM$ivEncoded:$dataEncoded"
-        }
+        val cipher = Cipher.getInstance(TRANSFORMATION)
+        cipher.init(Cipher.ENCRYPT_MODE, secretKey)
+        val iv = cipher.iv
+        val encryptedBytes = cipher.doFinal(plainText.toByteArray(StandardCharsets.UTF_8))
+        val ivEncoded = Base64.encodeToString(iv, Base64.NO_WRAP)
+        val dataEncoded = Base64.encodeToString(encryptedBytes, Base64.NO_WRAP)
+        return "$PREFIX_GCM$ivEncoded:$dataEncoded"
     }
 
     private fun decrypt(payload: String): String {
