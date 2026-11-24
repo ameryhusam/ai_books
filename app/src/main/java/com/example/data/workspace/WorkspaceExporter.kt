@@ -160,10 +160,12 @@ object WorkspaceExporter {
         val entriesMap = linkedMapOf<String, ByteArray>()
 
         // 1. Export drafts per lesson under edu_mini_generated/<unitKey>/<lessonKey>/ + ai_content/
-        val draftsByLesson = drafts.groupBy { Triple(it.bookKey, it.unitKey, it.lessonKey) }
+        val draftsByLesson = drafts.groupBy { listOf(it.workspaceId, it.bookKey, it.unitKey, it.lessonKey).joinToString("|") }
         draftsByLesson.forEach { (key, list) ->
-            val unitKey = key.second
-            val lessonKey = key.third
+            val identity = key.split("|")
+            val bookKey = identity.getOrElse(1) { "book" }
+            val unitKey = identity.getOrElse(2) { "unit" }
+            val lessonKey = identity.getOrElse(3) { "lesson" }
             val latest = list.maxByOrNull { it.version } ?: list.first()
             val fileName = when (latest.task) {
                 "interactive" -> "interactive-lesson-draft.json"
@@ -173,7 +175,7 @@ object WorkspaceExporter {
             val draftPayload = buildJsonObject {
                 put("workspaceId", workspace.workspaceId)
                 put("gradeKey", workspace.gradeKey)
-                put("bookKey", key.first)
+                put("bookKey", bookKey)
                 put("unitKey", unitKey)
                 put("lessonKey", lessonKey)
                 put("task", latest.task)
@@ -187,16 +189,22 @@ object WorkspaceExporter {
                 put("content", latest.content)
             }.toString().toByteArray(Charsets.UTF_8)
 
-            entriesMap["edu_mini_generated/$unitKey/$lessonKey/$fileName"] = draftPayload
-            entriesMap["ai_content/${key.first}/$unitKey/$lessonKey/${latest.task}_v${latest.version}.json"] = draftPayload
+            entriesMap["edu_mini_generated/$bookKey/$unitKey/$lessonKey/$fileName"] = draftPayload
+            entriesMap["ai_content/$bookKey/$unitKey/$lessonKey/${latest.task}_v${latest.version}.json"] = draftPayload
         }
 
         // 2. Export canonical questions/<unitKey>/<lessonKey>/ai_generated.json
-        val questionsByLesson = questions.groupBy { it.unitKey to it.lessonKey }
+        val questionsByLesson = questions.groupBy { listOf(it.workspaceId, it.bookKey, it.unitKey, it.lessonKey).joinToString("|") }
         questionsByLesson.forEach { (key, qList) ->
+            val identity = key.split("|")
+            val bookKey = identity.getOrElse(1) { "book" }
+            val unitKey = identity.getOrElse(2) { "unit" }
+            val lessonKey = identity.getOrElse(3) { "lesson" }
             val qPayload = buildJsonObject {
-                put("unitKey", key.first)
-                put("lessonKey", key.second)
+                put("workspaceId", identity.firstOrNull().orEmpty())
+                put("bookKey", bookKey)
+                put("unitKey", unitKey)
+                put("lessonKey", lessonKey)
                 put("count", qList.size)
                 put("questions", buildJsonArray {
                     qList.forEach { q ->
@@ -217,7 +225,7 @@ object WorkspaceExporter {
                     }
                 })
             }.toString().toByteArray(Charsets.UTF_8)
-            entriesMap["questions/${key.first}/${key.second}/ai_generated.json"] = qPayload
+            entriesMap["questions/$bookKey/$unitKey/$lessonKey/ai_generated.json"] = qPayload
         }
 
         // 3. Export assessments if present
