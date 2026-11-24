@@ -256,6 +256,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 .onSuccess { loaded ->
                     _uiState.update { it.copy(providers = loaded) }
                 }
+                .onFailure { error ->
+                    _uiState.update {
+                        it.copy(
+                            alert = AlertMessage(
+                                title = "تعذر تحميل إعدادات مزودي AI",
+                                message = error.message ?: "تعذر فك تشفير الإعدادات المحفوظة. لم يتم حذفها."
+                            )
+                        )
+                    }
+                }
         }
         viewModelScope.launch {
             repository.allWorkspaces.collect { list ->
