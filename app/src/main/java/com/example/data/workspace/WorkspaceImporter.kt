@@ -404,8 +404,16 @@ class WorkspaceImporter(private val context: Context) {
             if (expectedBytes != null) {
                 require(file.length() == expectedBytes) { "حجم الملف لا يطابق manifest: $relative" }
             }
-            val actualHash = MessageDigest.getInstance("SHA-256").digest(file.readBytes())
-                .joinToString("") { "%02x".format(it) }
+            val digest = MessageDigest.getInstance("SHA-256")
+            file.inputStream().buffered().use { input ->
+                val buffer = ByteArray(32 * 1024)
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    digest.update(buffer, 0, count)
+                }
+            }
+            val actualHash = digest.digest().joinToString("") { "%02x".format(it) }
             require(actualHash == expectedHash) { "فشل التحقق من SHA-256 للملف: $relative" }
         }
     }
