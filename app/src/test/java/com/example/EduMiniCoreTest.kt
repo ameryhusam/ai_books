@@ -4,6 +4,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.example.data.ai.AiGenerationService
 import com.example.data.ai.Indexer2PromptRegistry
 import com.example.data.local.DraftEntity
+import com.example.data.local.GenerationRunEntity
 import com.example.data.local.EduMiniDatabase
 import com.example.data.local.LessonProgressEntity
 import com.example.data.packageimport.InteractivePackageImporter
@@ -662,6 +663,23 @@ class EduMiniCoreTest {
         repo.deleteQuestion(manual.id)
         current = repo.observeQuestionsForWorkspace(ws.workspaceId).first()
         assertEquals(1, current.size)
+
+        db.eduMiniDao().insertGenerationRun(
+            GenerationRunEntity(
+                id = "run-workspace-delete",
+                workspaceId = ws.workspaceId,
+                lessonKey = lesson.lessonKey,
+                task = TaskType.QUESTIONS.id,
+                providerLabel = "test",
+                model = "test-model",
+                status = "SUCCESS",
+                errorSummary = null,
+                createdAt = java.time.Instant.now().toString()
+            )
+        )
+        assertTrue(repo.recentRuns.first().any { it.workspaceId == ws.workspaceId })
+        repo.deleteWorkspace(ws.workspaceId, ws.rootPath)
+        assertFalse(repo.recentRuns.first().any { it.workspaceId == ws.workspaceId })
     }
 
     @Test
