@@ -457,6 +457,9 @@ interface EduMiniDao {
     @Query("DELETE FROM generation_runs")
     suspend fun clearGenerationRuns()
 
+    @Query("DELETE FROM generation_runs WHERE workspace_id = :workspaceId")
+    suspend fun deleteGenerationRunsByWorkspace(workspaceId: String)
+
     @Query("SELECT * FROM assessments WHERE workspace_id = :workspaceId ORDER BY created_at DESC")
     fun observeAssessmentsForWorkspace(workspaceId: String): Flow<List<AssessmentEntity>>
 
@@ -546,6 +549,7 @@ interface EduMiniDao {
         deleteAssessmentsByWorkspace(workspaceId)
         deleteAttemptsByWorkspace(workspaceId)
         deleteNotesByWorkspace(workspaceId)
+        deleteGenerationRunsByWorkspace(workspaceId)
     }
 }
 
