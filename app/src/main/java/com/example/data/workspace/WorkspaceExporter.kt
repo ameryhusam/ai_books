@@ -1,10 +1,19 @@
 package com.example.data.workspace
 
+import com.example.data.local.AssessmentAttemptEntity
+import com.example.data.local.AssessmentEntity
 import com.example.data.local.DraftEntity
+import com.example.data.local.LessonProgressEntity
+import com.example.data.local.PromptTemplateEntity
+import com.example.data.local.QuestionEntity
+import com.example.data.local.StudyDayEntity
+import com.example.data.local.TeacherNoteEntity
 import com.example.model.ImportedWorkspace
 import com.example.model.QuestionItem
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -20,6 +29,120 @@ data class ExportReceipt(
     val questionsCount: Int
 )
 
+@Serializable
+data class BackupDraftDto(
+    val id: String,
+    val workspaceId: String,
+    val gradeKey: String,
+    val bookKey: String,
+    val unitKey: String,
+    val lessonKey: String,
+    val task: String,
+    val title: String,
+    val provider: String,
+    val model: String,
+    val createdAt: String,
+    val content: String,
+    val status: String,
+    val version: Int,
+    val sourcePages: String? = null,
+    val sourceHash: String? = null
+)
+
+@Serializable
+data class BackupQuestionDto(
+    val id: String,
+    val workspaceId: String,
+    val gradeKey: String,
+    val bookKey: String,
+    val unitKey: String,
+    val lessonKey: String,
+    val lessonTitle: String,
+    val type: String,
+    val prompt: String,
+    val optionsJson: String,
+    val correctAnswer: String,
+    val rationale: String,
+    val difficulty: String,
+    val sourcePages: String? = null,
+    val fingerprint: String,
+    val reviewed: Boolean,
+    val createdAt: String
+)
+
+@Serializable
+data class BackupAssessmentDto(
+    val id: String,
+    val workspaceId: String,
+    val title: String,
+    val kind: String,
+    val questionIdsJson: String,
+    val timeLimitMinutes: Int,
+    val passScorePercent: Int,
+    val createdAt: String
+)
+
+@Serializable
+data class BackupAttemptDto(
+    val id: String,
+    val assessmentId: String,
+    val assessmentTitle: String,
+    val workspaceId: String,
+    val correctCount: Int,
+    val totalQuestions: Int,
+    val scorePercent: Int,
+    val passed: Boolean,
+    val durationSeconds: Int,
+    val earnedXp: Int,
+    val completedAt: String
+)
+
+@Serializable
+data class BackupProgressDto(
+    val workspaceId: String,
+    val bookKey: String,
+    val unitKey: String,
+    val lessonKey: String,
+    val completed: Boolean,
+    val pointsEarned: Int,
+    val completedAt: String? = null
+)
+
+@Serializable
+data class BackupNoteDto(
+    val workspaceId: String,
+    val bookKey: String,
+    val unitKey: String,
+    val lessonKey: String,
+    val noteText: String,
+    val bookmarked: Boolean,
+    val updatedAt: String
+)
+
+@Serializable
+data class BackupPromptTemplateDto(
+    val id: String,
+    val title: String,
+    val task: String,
+    val instructions: String,
+    val createdAt: String
+)
+
+@Serializable
+data class EduMiniBackupBundle(
+    val formatVersion: String = "edu-mini-backup-1.0",
+    val exportedAt: String = "",
+    val workspaceId: String = "",
+    val drafts: List<BackupDraftDto> = emptyList(),
+    val questions: List<BackupQuestionDto> = emptyList(),
+    val assessments: List<BackupAssessmentDto> = emptyList(),
+    val attempts: List<BackupAttemptDto> = emptyList(),
+    val progress: List<BackupProgressDto> = emptyList(),
+    val teacherNotes: List<BackupNoteDto> = emptyList(),
+    val studyDays: List<String> = emptyList(),
+    val promptTemplates: List<BackupPromptTemplateDto> = emptyList()
+)
+
 object WorkspaceExporter {
 
     private val json = Json {
@@ -31,7 +154,8 @@ object WorkspaceExporter {
         outputStream: OutputStream,
         workspace: ImportedWorkspace,
         drafts: List<DraftEntity>,
-        questions: List<QuestionItem>
+        questions: List<QuestionItem>,
+        assessments: List<AssessmentEntity> = emptyList()
     ): ExportReceipt {
         val entriesMap = linkedMapOf<String, ByteArray>()
 
@@ -44,7 +168,7 @@ object WorkspaceExporter {
             val fileName = when (latest.task) {
                 "interactive" -> "interactive-lesson-draft.json"
                 "questions" -> "ai-question-drafts.json"
-                else -> "lesson-explanation-draft.json"
+                else -> "${latest.task.replace('_', '-')}-draft.json"
             }
             val draftPayload = buildJsonObject {
                 put("workspaceId", workspace.workspaceId)
@@ -81,7 +205,7 @@ object WorkspaceExporter {
                             put("type", q.type.id)
                             put("prompt", q.prompt)
                             put("options", buildJsonArray {
-                                q.options.forEach { add(kotlinx.serialization.json.JsonPrimitive(it)) }
+                                q.options.forEach { add(JsonPrimitive(it)) }
                             })
                             put("correctAnswer", q.correctAnswer)
                             put("rationale", q.rationale)
@@ -96,7 +220,29 @@ object WorkspaceExporter {
             entriesMap["questions/${key.first}/${key.second}/ai_generated.json"] = qPayload
         }
 
-        // 3. Export manifest.json with SHA-256 checksums for every exported artifact
+        // 3. Export assessments if present
+        if (assessments.isNotEmpty()) {
+            val assessmentsPayload = buildJsonObject {
+                put("workspaceId", workspace.workspaceId)
+                put("count", assessments.size)
+                put("assessments", buildJsonArray {
+                    assessments.forEach { a ->
+                        add(buildJsonObject {
+                            put("id", a.id)
+                            put("title", a.title)
+                            put("kind", a.kind)
+                            put("questionIdsJson", a.questionIdsJson)
+                            put("timeLimitMinutes", a.timeLimitMinutes)
+                            put("passScorePercent", a.passScorePercent)
+                            put("createdAt", a.createdAt)
+                        })
+                    }
+                })
+            }.toString().toByteArray(Charsets.UTF_8)
+            entriesMap["assessments/assessments.json"] = assessmentsPayload
+        }
+
+        // 4. Export manifest.json with SHA-256 checksums for every exported artifact
         val manifestPayload = buildJsonObject {
             put("formatVersion", "edu-mini-indexer2-1.0")
             put("exportedAt", Instant.now().toString())
@@ -107,6 +253,7 @@ object WorkspaceExporter {
             put("lessonsCount", workspace.lessons.size)
             put("draftsCount", drafts.size)
             put("questionsCount", questions.size)
+            put("assessmentsCount", assessments.size)
             put("artifacts", buildJsonArray {
                 entriesMap.forEach { (path, bytes) ->
                     add(buildJsonObject {
@@ -132,6 +279,128 @@ object WorkspaceExporter {
             draftsCount = drafts.size,
             questionsCount = questions.size
         )
+    }
+
+    fun serializeFullBackup(
+        workspaceId: String,
+        drafts: List<DraftEntity>,
+        questions: List<QuestionEntity>,
+        assessments: List<AssessmentEntity>,
+        attempts: List<AssessmentAttemptEntity>,
+        progress: List<LessonProgressEntity>,
+        notes: List<TeacherNoteEntity>,
+        studyDays: List<StudyDayEntity>,
+        templates: List<PromptTemplateEntity>
+    ): String {
+        val bundle = EduMiniBackupBundle(
+            exportedAt = Instant.now().toString(),
+            workspaceId = workspaceId,
+            drafts = drafts.map {
+                BackupDraftDto(
+                    id = it.id,
+                    workspaceId = it.workspaceId,
+                    gradeKey = it.gradeKey,
+                    bookKey = it.bookKey,
+                    unitKey = it.unitKey,
+                    lessonKey = it.lessonKey,
+                    task = it.task,
+                    title = it.title,
+                    provider = it.provider,
+                    model = it.model,
+                    createdAt = it.createdAt,
+                    content = it.content,
+                    status = it.status,
+                    version = it.version,
+                    sourcePages = it.sourcePages,
+                    sourceHash = it.sourceHash
+                )
+            },
+            questions = questions.map {
+                BackupQuestionDto(
+                    id = it.id,
+                    workspaceId = it.workspaceId,
+                    gradeKey = it.gradeKey,
+                    bookKey = it.bookKey,
+                    unitKey = it.unitKey,
+                    lessonKey = it.lessonKey,
+                    lessonTitle = it.lessonTitle,
+                    type = it.type,
+                    prompt = it.prompt,
+                    optionsJson = it.optionsJson,
+                    correctAnswer = it.correctAnswer,
+                    rationale = it.rationale,
+                    difficulty = it.difficulty,
+                    sourcePages = it.sourcePages,
+                    fingerprint = it.fingerprint,
+                    reviewed = it.reviewed,
+                    createdAt = it.createdAt
+                )
+            },
+            assessments = assessments.map {
+                BackupAssessmentDto(
+                    id = it.id,
+                    workspaceId = it.workspaceId,
+                    title = it.title,
+                    kind = it.kind,
+                    questionIdsJson = it.questionIdsJson,
+                    timeLimitMinutes = it.timeLimitMinutes,
+                    passScorePercent = it.passScorePercent,
+                    createdAt = it.createdAt
+                )
+            },
+            attempts = attempts.map {
+                BackupAttemptDto(
+                    id = it.id,
+                    assessmentId = it.assessmentId,
+                    assessmentTitle = it.assessmentTitle,
+                    workspaceId = it.workspaceId,
+                    correctCount = it.correctCount,
+                    totalQuestions = it.totalQuestions,
+                    scorePercent = it.scorePercent,
+                    passed = it.passed,
+                    durationSeconds = it.durationSeconds,
+                    earnedXp = it.earnedXp,
+                    completedAt = it.completedAt
+                )
+            },
+            progress = progress.map {
+                BackupProgressDto(
+                    workspaceId = it.workspaceId,
+                    bookKey = it.bookKey,
+                    unitKey = it.unitKey,
+                    lessonKey = it.lessonKey,
+                    completed = it.completed,
+                    pointsEarned = it.pointsEarned,
+                    completedAt = it.completedAt
+                )
+            },
+            teacherNotes = notes.map {
+                BackupNoteDto(
+                    workspaceId = it.workspaceId,
+                    bookKey = it.bookKey,
+                    unitKey = it.unitKey,
+                    lessonKey = it.lessonKey,
+                    noteText = it.noteText,
+                    bookmarked = it.bookmarked,
+                    updatedAt = it.updatedAt
+                )
+            },
+            studyDays = studyDays.map { it.activityDate },
+            promptTemplates = templates.map {
+                BackupPromptTemplateDto(
+                    id = it.id,
+                    title = it.title,
+                    task = it.task,
+                    instructions = it.instructions,
+                    createdAt = it.createdAt
+                )
+            }
+        )
+        return json.encodeToString(bundle)
+    }
+
+    fun parseFullBackup(rawJson: String): EduMiniBackupBundle {
+        return json.decodeFromString<EduMiniBackupBundle>(rawJson)
     }
 
     private fun sha256(bytes: ByteArray): String {

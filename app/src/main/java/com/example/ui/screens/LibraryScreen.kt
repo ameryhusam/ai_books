@@ -24,24 +24,32 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.FolderZip
 import androidx.compose.material.icons.outlined.MenuBook
+import androidx.compose.material.icons.outlined.Preview
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Backup
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.FileDownload
 import androidx.compose.material.icons.rounded.PictureAsPdf
+import androidx.compose.material.icons.rounded.Restore
+import androidx.compose.material.icons.rounded.School
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.WarningAmber
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -52,7 +60,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -67,6 +77,7 @@ import com.example.model.ImportedWorkspace
 import com.example.model.LessonRef
 import com.example.model.LibraryPartFilter
 import com.example.model.WorkspaceSummary
+import com.example.ui.components.BookCoverImage
 import com.example.ui.components.EduPanel
 import com.example.ui.components.EduPill
 import com.example.ui.components.EduYellowButton
@@ -83,6 +94,7 @@ import com.example.ui.theme.EduMint
 import com.example.ui.theme.EduMuted
 import com.example.ui.theme.EduOrange
 import com.example.ui.theme.EduPurple
+import com.example.ui.theme.EduRed
 import com.example.ui.theme.EduWhite
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -93,17 +105,28 @@ fun LibraryScreen(
     selectedBookKey: String,
     selectedLesson: LessonRef?,
     activeProvidersCount: Int,
+    diskUsageBytes: Long = 0L,
     bookProgress: List<BookProgressSummary> = emptyList(),
     onPickZip: () -> Unit,
     onPickBookPdf: () -> Unit,
+    onPickStandalonePdf: () -> Unit = {},
     onSelectWorkspace: (String) -> Unit,
+    onDeleteWorkspace: (String, String) -> Unit = { _, _ -> },
     onSelectBook: (String) -> Unit,
+    onPreviewBookCover: (BookRef) -> Unit = {},
     onOpenLesson: (LessonRef) -> Unit,
+    onOpenStudentStudy: (LessonRef) -> Unit = {},
+    onPreviewPdf: (String, String, String?) -> Unit = { _, _, _ -> },
+    onOpenGlobalSearch: () -> Unit = {},
     onExportWorkspace: () -> Unit = {},
+    onExportBackupJson: () -> Unit = {},
+    onRestoreBackupJson: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val haptic = LocalHapticFeedback.current
     var searchQuery by remember { mutableStateOf("") }
     var partFilter by remember { mutableStateOf(LibraryPartFilter.ALL) }
+    var confirmDeleteWorkspace by remember { mutableStateOf(false) }
 
     val filteredLessons = remember(workspace, selectedBookKey, searchQuery, partFilter) {
         val q = searchQuery.trim()
@@ -137,7 +160,8 @@ fun LibraryScreen(
             item(key = "hero") {
                 LibraryHeroCard(
                     onPickZip = onPickZip,
-                    onPickBookPdf = onPickBookPdf
+                    onPickBookPdf = onPickBookPdf,
+                    onPickStandalonePdf = onPickStandalonePdf
                 )
             }
 
@@ -201,22 +225,60 @@ fun LibraryScreen(
 
             if (workspace != null) {
                 item(key = "workspace_summary") {
+                    val diskLabel = remember(diskUsageBytes) {
+                        val mb = diskUsageBytes / (1024.0 * 1024.0)
+                        if (mb >= 1.0) String.format("%.1f MB", mb) else "${(diskUsageBytes / 1024L).coerceAtLeast(1L)} KB"
+                    }
                     EduPanel(modifier = Modifier.fillMaxWidth()) {
-                        Text(
-                            text = stringResource(R.string.current_workspace_heading),
-                            style = MaterialTheme.typography.titleMedium,
-                            color = EduInk
-                        )
-                        Text(
-                            text = workspace.title,
-                            style = MaterialTheme.typography.titleSmall,
-                            color = EduInk
-                        )
-                        Text(
-                            text = "${workspace.gradeKey} • ${workspace.filesCount} ملف",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = EduMuted
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = stringResource(R.string.current_workspace_heading),
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = EduInk
+                                )
+                                Text(
+                                    text = workspace.title,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = EduInk
+                                )
+                                Text(
+                                    text = "${workspace.gradeKey} • ${workspace.filesCount} ملف • الحجم على القرص: $diskLabel",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = EduMuted
+                                )
+                            }
+                            Row {
+                                IconButton(
+                                    onClick = onOpenGlobalSearch,
+                                    modifier = Modifier
+                                        .minimumInteractiveComponentSize()
+                                        .testTag("library_global_search_button")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Search,
+                                        contentDescription = "بحث شامل",
+                                        tint = EduGreenDark
+                                    )
+                                }
+                                IconButton(
+                                    onClick = { confirmDeleteWorkspace = true },
+                                    modifier = Modifier
+                                        .minimumInteractiveComponentSize()
+                                        .testTag("delete_workspace_button")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.DeleteOutline,
+                                        contentDescription = "حذف مساحة العمل",
+                                        tint = EduRed
+                                    )
+                                }
+                            }
+                        }
                         if (workspace.warnings.isNotEmpty()) {
                             Surface(
                                 shape = RoundedCornerShape(10.dp),
@@ -264,6 +326,47 @@ fun LibraryScreen(
                                 style = MaterialTheme.typography.labelLarge
                             )
                         }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = onExportBackupJson,
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, EduLine),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .minimumInteractiveComponentSize()
+                                    .testTag("export_backup_json_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Backup,
+                                    contentDescription = null,
+                                    tint = EduInk,
+                                    modifier = Modifier.size(17.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("نسخ احتياطي JSON", color = EduInk, style = MaterialTheme.typography.labelMedium)
+                            }
+                            OutlinedButton(
+                                onClick = onRestoreBackupJson,
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, EduLine),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .minimumInteractiveComponentSize()
+                                    .testTag("restore_backup_json_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Restore,
+                                    contentDescription = null,
+                                    tint = EduGreenDark,
+                                    modifier = Modifier.size(17.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("استعادة JSON", color = EduGreenDark, style = MaterialTheme.typography.labelMedium)
+                            }
+                        }
                     }
                 }
             }
@@ -285,7 +388,14 @@ fun LibraryScreen(
                     BookItemCard(
                         book = book,
                         isSelected = selectedBookKey == book.bookKey,
-                        onClick = { onSelectBook(book.bookKey) }
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            onSelectBook(book.bookKey)
+                        },
+                        onPreviewCover = { onPreviewBookCover(book) },
+                        onOpenSourcePdf = book.sourcePdfPath?.let { pdf ->
+                            { onPreviewPdf(pdf, book.title, "${book.subjectKey} • الكتاب الكامل") }
+                        }
                     )
                 }
             } else {
@@ -373,7 +483,18 @@ fun LibraryScreen(
                         isSelected = selectedLesson?.bookKey == item.bookKey &&
                             selectedLesson.unitKey == item.unitKey &&
                             selectedLesson.lessonKey == item.lessonKey,
-                        onClick = { onOpenLesson(item) }
+                        onClick = { onOpenLesson(item) },
+                        onOpenStudentStudy = { onOpenStudentStudy(item) },
+                        onPreviewPdf = item.pdfPath?.takeIf { it.isNotBlank() }?.let { pdf ->
+                            {
+                                val metaSubtitle = listOfNotNull(
+                                    item.bookTitle,
+                                    item.unitTitle,
+                                    item.pageRange?.let { "ص $it" }
+                                ).joinToString(" • ")
+                                onPreviewPdf(pdf, item.title, metaSubtitle)
+                            }
+                        }
                     )
                 }
             } else {
@@ -400,12 +521,45 @@ fun LibraryScreen(
             }
         }
     }
+
+    if (confirmDeleteWorkspace && workspace != null) {
+        AlertDialog(
+            onDismissRequest = { confirmDeleteWorkspace = false },
+            containerColor = EduWhite,
+            title = {
+                Text("حذف مساحة العمل؟", style = MaterialTheme.typography.titleMedium, color = EduInk)
+            },
+            text = {
+                Text(
+                    text = "سيتم حذف «${workspace.title}» وجميع المسودات والأسئلة والملفات المحلية الخاصة بها نهائياً.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = EduInk
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmDeleteWorkspace = false
+                        onDeleteWorkspace(workspace.workspaceId, workspace.rootPath)
+                    }
+                ) {
+                    Text("حذف نهائي", color = EduRed, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDeleteWorkspace = false }) {
+                    Text("إلغاء", color = EduMuted)
+                }
+            }
+        )
+    }
 }
 
 @Composable
 private fun LibraryHeroCard(
     onPickZip: () -> Unit,
-    onPickBookPdf: () -> Unit
+    onPickBookPdf: () -> Unit,
+    onPickStandalonePdf: () -> Unit
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -460,29 +614,59 @@ private fun LibraryHeroCard(
                     icon = Icons.Rounded.PictureAsPdf,
                     testTag = "split_book_pdf_button"
                 )
-                Button(
-                    onClick = onPickZip,
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = EduWhite.copy(alpha = 0.18f),
-                        contentColor = EduWhite
-                    ),
-                    border = BorderStroke(1.dp, EduWhite.copy(alpha = 0.45f)),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("import_zip_button")
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Add,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = stringResource(R.string.import_zip_cta),
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Button(
+                        onClick = onPickZip,
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = EduWhite.copy(alpha = 0.18f),
+                            contentColor = EduWhite
+                        ),
+                        border = BorderStroke(1.dp, EduWhite.copy(alpha = 0.45f)),
+                        modifier = Modifier
+                            .weight(1f)
+                            .minimumInteractiveComponentSize()
+                            .testTag("import_zip_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Add,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = stringResource(R.string.import_zip_cta),
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    OutlinedButton(
+                        onClick = onPickStandalonePdf,
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, EduWhite.copy(alpha = 0.55f)),
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("open_standalone_pdf_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.PictureAsPdf,
+                            contentDescription = "عرض ملف PDF محلي",
+                            tint = EduWhite,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(5.dp))
+                        Text(
+                            text = "عرض PDF",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = EduWhite,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
         }
@@ -520,11 +704,14 @@ private fun StatCard(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun BookItemCard(
     book: BookRef,
     isSelected: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onPreviewCover: () -> Unit,
+    onOpenSourcePdf: (() -> Unit)?
 ) {
     val shape = RoundedCornerShape(14.dp)
     Surface(
@@ -540,11 +727,25 @@ private fun BookItemCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp),
+                .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Column(modifier = Modifier.weight(1f)) {
+            BookCoverImage(
+                coverPath = book.coverPath,
+                bookTitle = book.title,
+                subjectKey = book.subjectKey,
+                cornerRadius = 10.dp,
+                targetWidthPx = 220,
+                modifier = Modifier
+                    .size(width = 56.dp, height = 76.dp)
+                    .clickable(onClick = onPreviewCover)
+                    .testTag("book_cover_${book.bookKey}")
+            )
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
                 Text(
                     text = book.title,
                     style = MaterialTheme.typography.titleSmall,
@@ -565,11 +766,59 @@ private fun BookItemCard(
                     style = MaterialTheme.typography.bodySmall,
                     color = EduMuted
                 )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    if (book.coverPath != null) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = EduMint,
+                            modifier = Modifier.clickable(onClick = onPreviewCover)
+                        ) {
+                            Text(
+                                text = "cover.png",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = EduGreenDark,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                    if (onOpenSourcePdf != null) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = EduLilac,
+                            modifier = Modifier.clickable(onClick = onOpenSourcePdf)
+                        ) {
+                            Text(
+                                text = "PDF الكتاب",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = EduPurple,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                }
+            }
+            IconButton(
+                onClick = onPreviewCover,
+                modifier = Modifier
+                    .minimumInteractiveComponentSize()
+                    .testTag("book_preview_cover_${book.bookKey}")
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Preview,
+                    contentDescription = "معاينة غلاف الكتاب",
+                    tint = EduGreenDark,
+                    modifier = Modifier.size(20.dp)
+                )
             }
             if (isSelected) {
                 Icon(
                     imageVector = Icons.Rounded.Check,
-                    contentDescription = null,
+                    contentDescription = "الكتاب المختار",
                     tint = EduGreenDark,
                     modifier = Modifier.size(20.dp)
                 )
@@ -589,7 +838,9 @@ private fun BookItemCard(
 private fun LessonItemCard(
     lesson: LessonRef,
     isSelected: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onOpenStudentStudy: () -> Unit,
+    onPreviewPdf: (() -> Unit)?
 ) {
     val shape = RoundedCornerShape(14.dp)
     Surface(
@@ -607,7 +858,7 @@ private fun LessonItemCard(
                 .fillMaxWidth()
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Surface(
                 modifier = Modifier.size(40.dp),
@@ -663,6 +914,32 @@ private fun LessonItemCard(
                         color = EduMuted
                     )
                 }
+            }
+            if (onPreviewPdf != null) {
+                IconButton(
+                    onClick = onPreviewPdf,
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .testTag("lesson_pdf_${lesson.lessonKey}")
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.PictureAsPdf,
+                        contentDescription = "عرض ملف PDF للدرس",
+                        tint = EduPurple,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+            IconButton(
+                onClick = onOpenStudentStudy,
+                modifier = Modifier.minimumInteractiveComponentSize()
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.School,
+                    contentDescription = "معاينة وضع الطالب",
+                    tint = EduGreenDark,
+                    modifier = Modifier.size(20.dp)
+                )
             }
             Icon(
                 imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,

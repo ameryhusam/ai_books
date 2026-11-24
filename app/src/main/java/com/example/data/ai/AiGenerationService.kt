@@ -56,63 +56,16 @@ class AiGenerationService(
         attachedPdfPagesCount: Int = 0,
         questionStyleHint: String = "",
         difficultyHint: String = ""
-    ): String {
-        val safeCount = questionCount.coerceIn(1, 30)
-        val taskInstruction = when (task) {
-            TaskType.QUESTIONS ->
-                "بنك أسئلة مكوّن من $safeCount أسئلة مع الخيارات والإجابة الصحيحة والتفسير ومستوى الصعوبة وربط كل سؤال بالصفحة المرجعية"
-            TaskType.INTERACTIVE ->
-                "درس تفاعلي منظم يتضمن شرحاً قصيراً وأمثلة واضحة مع $safeCount نقاط تحقق تفاعلية"
-            TaskType.SUMMARY ->
-                "ملخص مركز ومنظم لأهم أفكار ومفاهيم الدرس في نقاط واضحة"
-            TaskType.OBJECTIVES ->
-                "أهداف تعلم سلوكية قابلة للقياس ومفردات مفتاحية مع تعريفاتها"
-            TaskType.EXPLANATION ->
-                "شرح مبسط ومنظم مع أمثلة محلولة وملخص ختامي"
-        }
-        return buildString {
-            append("أنت مساعد إعداد محتوى تعليمي. أنشئ ")
-            append(taskInstruction)
-            append(" للصف ")
-            append(lesson.grade)
-            append("، الكتاب ")
-            append(lesson.bookTitle)
-            append("، الوحدة ")
-            append(lesson.unitTitle)
-            append("، الدرس ")
-            append(lesson.title)
-            if (!lesson.pageRange.isNullOrBlank()) {
-                append(" (الصفحات المرجعية: ")
-                append(lesson.pageRange)
-                append(")")
-            }
-            append(".\n")
-            append("التزم بالمصدر ولا تخترع معلومات أو صفحات. اجعل المحتوى منظمًا وقابلاً للتحرير.\n")
-            if (task == TaskType.QUESTIONS) {
-                append("عدد الأسئلة المطلوب بدقة: $safeCount.\n")
-                if (questionStyleHint.isNotBlank()) {
-                    append("نمط الأسئلة المطلوب: $questionStyleHint.\n")
-                }
-                if (difficultyHint.isNotBlank()) {
-                    append("مستوى الصعوبة المستهدف: $difficultyHint.\n")
-                }
-                append("نسّق كل سؤال بوضوح: رقم السؤال، ثم الخيارات (أ/ب/ج/د أو صح/خطأ)، ثم سطر 'الإجابة:'، ثم سطر 'التفسير:'، ثم سطر 'الصعوبة:'.\n")
-            }
-            if (attachedPdfPagesCount > 0) {
-                append("ملاحظة: مرفق مع هذا الطلب $attachedPdfPagesCount صفحة مصورة من ملف PDF الخاص بالدرس لاستخراج المحتوى والاعتماد عليها.\n")
-            }
-            if (source.isNotBlank()) {
-                append("المصدر النصي:\n")
-                append(source)
-            } else {
-                append("المصدر النصي: اعتمد على صفحات PDF المرفقة وبيانات الدرس.\n")
-            }
-            if (extra.isNotBlank()) {
-                append("\nتوجيهات إضافية:\n")
-                append(extra)
-            }
-        }
-    }
+    ): String = Indexer2PromptRegistry.assemblePrompt(
+        lesson = lesson,
+        task = task,
+        source = source,
+        extra = extra,
+        questionCount = questionCount,
+        attachedPdfPagesCount = attachedPdfPagesCount,
+        questionStyleHint = questionStyleHint,
+        difficultyHint = difficultyHint
+    )
 
     suspend fun extractLessonPdfPageImagesBase64(
         pdfPath: String?,
@@ -180,9 +133,13 @@ class AiGenerationService(
         val errors = mutableListOf<String>()
 
         for (profile in active) {
-            val modelCandidates = (listOf(profile.model.trim()) + profile.fallbackModels.map { it.trim() })
-                .filter { it.isNotBlank() }
-                .distinct()
+            val modelCandidates = if (profile.strictModel) {
+                listOf(profile.model.trim())
+            } else {
+                (listOf(profile.model.trim()) + profile.fallbackModels.map { it.trim() })
+                    .filter { it.isNotBlank() }
+                    .distinct()
+            }
 
             for (modelName in modelCandidates) {
                 val candidateProfile = profile.copy(model = modelName)
@@ -226,6 +183,20 @@ class AiGenerationService(
         }
 
         throw IllegalStateException("تعذر التوليد من المزودات: ${errors.joinToString(" | ")}")
+    }
+
+    suspend fun testProviderConnection(profile: ProviderConfig): String = withContext(Dispatchers.IO) {
+        if (profile.apiKey.isBlank() || profile.model.isBlank()) {
+            throw IllegalArgumentException("أدخل النموذج ومفتاح API أولاً")
+        }
+        val started = System.currentTimeMillis()
+        val reply = callProvider(
+            profile = profile,
+            prompt = "أجب بكلمة واحدة فقط: جاهز",
+            pdfPageImagesBase64 = emptyList()
+        )
+        val elapsed = (System.currentTimeMillis() - started).coerceAtLeast(1L)
+        "اتصال ناجح بـ ${profile.model} (${elapsed}ms): ${reply.trim().take(40)}"
     }
 
     private fun callProvider(

@@ -40,7 +40,9 @@ data class BookEntity(
     val subjectKey: String,
     val componentKey: String?,
     val relativePath: String,
-    val lessonsCount: Int
+    val lessonsCount: Int,
+    val coverPath: String? = null,
+    val sourcePdfPath: String? = null
 )
 
 @Entity(
@@ -184,6 +186,62 @@ data class QuestionEntity(
     @ColumnInfo(name = "source_pages") val sourcePages: String?,
     @ColumnInfo(name = "fingerprint") val fingerprint: String,
     @ColumnInfo(name = "reviewed") val reviewed: Boolean = false,
+    @ColumnInfo(name = "created_at") val createdAt: String
+)
+
+@Entity(
+    tableName = "assessments",
+    indices = [Index(name = "idx_assessments_ws", value = ["workspace_id"])]
+)
+data class AssessmentEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "workspace_id") val workspaceId: String,
+    @ColumnInfo(name = "title") val title: String,
+    @ColumnInfo(name = "kind") val kind: String,
+    @ColumnInfo(name = "question_ids_json") val questionIdsJson: String,
+    @ColumnInfo(name = "time_limit_minutes") val timeLimitMinutes: Int,
+    @ColumnInfo(name = "pass_score_percent") val passScorePercent: Int,
+    @ColumnInfo(name = "created_at") val createdAt: String
+)
+
+@Entity(
+    tableName = "assessment_attempts",
+    indices = [Index(name = "idx_attempts_ws", value = ["workspace_id", "completed_at"])]
+)
+data class AssessmentAttemptEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "assessment_id") val assessmentId: String,
+    @ColumnInfo(name = "assessment_title") val assessmentTitle: String,
+    @ColumnInfo(name = "workspace_id") val workspaceId: String,
+    @ColumnInfo(name = "correct_count") val correctCount: Int,
+    @ColumnInfo(name = "total_questions") val totalQuestions: Int,
+    @ColumnInfo(name = "score_percent") val scorePercent: Int,
+    @ColumnInfo(name = "passed") val passed: Boolean,
+    @ColumnInfo(name = "duration_seconds") val durationSeconds: Int,
+    @ColumnInfo(name = "earned_xp") val earnedXp: Int,
+    @ColumnInfo(name = "completed_at") val completedAt: String
+)
+
+@Entity(
+    tableName = "teacher_notes",
+    primaryKeys = ["workspace_id", "book_key", "unit_key", "lesson_key"]
+)
+data class TeacherNoteEntity(
+    @ColumnInfo(name = "workspace_id") val workspaceId: String,
+    @ColumnInfo(name = "book_key") val bookKey: String,
+    @ColumnInfo(name = "unit_key") val unitKey: String,
+    @ColumnInfo(name = "lesson_key") val lessonKey: String,
+    @ColumnInfo(name = "note_text") val noteText: String,
+    @ColumnInfo(name = "bookmarked") val bookmarked: Boolean,
+    @ColumnInfo(name = "updated_at") val updatedAt: String
+)
+
+@Entity(tableName = "prompt_templates")
+data class PromptTemplateEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "title") val title: String,
+    @ColumnInfo(name = "task") val task: String,
+    @ColumnInfo(name = "instructions") val instructions: String,
     @ColumnInfo(name = "created_at") val createdAt: String
 )
 
@@ -395,6 +453,100 @@ interface EduMiniDao {
 
     @Query("DELETE FROM questions WHERE id = :questionId")
     suspend fun deleteQuestionById(questionId: String)
+
+    @Query("DELETE FROM generation_runs")
+    suspend fun clearGenerationRuns()
+
+    @Query("SELECT * FROM assessments WHERE workspace_id = :workspaceId ORDER BY created_at DESC")
+    fun observeAssessmentsForWorkspace(workspaceId: String): Flow<List<AssessmentEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAssessment(assessment: AssessmentEntity)
+
+    @Query("DELETE FROM assessments WHERE id = :assessmentId")
+    suspend fun deleteAssessmentById(assessmentId: String)
+
+    @Query("SELECT * FROM assessment_attempts WHERE workspace_id = :workspaceId ORDER BY completed_at DESC LIMIT 30")
+    fun observeAssessmentAttempts(workspaceId: String): Flow<List<AssessmentAttemptEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAssessmentAttempt(attempt: AssessmentAttemptEntity)
+
+    @Query(
+        """
+        SELECT * FROM teacher_notes
+        WHERE workspace_id = :workspaceId
+          AND book_key = :bookKey
+          AND unit_key = :unitKey
+          AND lesson_key = :lessonKey
+        LIMIT 1
+        """
+    )
+    fun observeTeacherNote(
+        workspaceId: String,
+        bookKey: String,
+        unitKey: String,
+        lessonKey: String
+    ): Flow<TeacherNoteEntity?>
+
+    @Query("SELECT * FROM teacher_notes WHERE workspace_id = :workspaceId")
+    fun observeTeacherNotesForWorkspace(workspaceId: String): Flow<List<TeacherNoteEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertTeacherNote(note: TeacherNoteEntity)
+
+    @Query("SELECT * FROM prompt_templates ORDER BY created_at DESC")
+    fun observePromptTemplates(): Flow<List<PromptTemplateEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertPromptTemplate(template: PromptTemplateEntity)
+
+    @Query("DELETE FROM prompt_templates WHERE id = :templateId")
+    suspend fun deletePromptTemplateById(templateId: String)
+
+    @Query("DELETE FROM workspaces WHERE workspaceId = :workspaceId")
+    suspend fun deleteWorkspaceById(workspaceId: String)
+
+    @Query("DELETE FROM books WHERE workspaceId = :workspaceId")
+    suspend fun deleteBooksByWorkspace(workspaceId: String)
+
+    @Query("DELETE FROM lessons WHERE workspaceId = :workspaceId")
+    suspend fun deleteLessonsByWorkspace(workspaceId: String)
+
+    @Query("DELETE FROM generation_drafts WHERE workspace_id = :workspaceId")
+    suspend fun deleteDraftsByWorkspace(workspaceId: String)
+
+    @Query("DELETE FROM interactive_packages WHERE workspace_id = :workspaceId")
+    suspend fun deletePackagesByWorkspace(workspaceId: String)
+
+    @Query("DELETE FROM lesson_progress WHERE workspace_id = :workspaceId")
+    suspend fun deleteProgressByWorkspace(workspaceId: String)
+
+    @Query("DELETE FROM questions WHERE workspace_id = :workspaceId")
+    suspend fun deleteQuestionsByWorkspace(workspaceId: String)
+
+    @Query("DELETE FROM assessments WHERE workspace_id = :workspaceId")
+    suspend fun deleteAssessmentsByWorkspace(workspaceId: String)
+
+    @Query("DELETE FROM assessment_attempts WHERE workspace_id = :workspaceId")
+    suspend fun deleteAttemptsByWorkspace(workspaceId: String)
+
+    @Query("DELETE FROM teacher_notes WHERE workspace_id = :workspaceId")
+    suspend fun deleteNotesByWorkspace(workspaceId: String)
+
+    @Transaction
+    suspend fun deleteWorkspaceGraph(workspaceId: String) {
+        deleteWorkspaceById(workspaceId)
+        deleteBooksByWorkspace(workspaceId)
+        deleteLessonsByWorkspace(workspaceId)
+        deleteDraftsByWorkspace(workspaceId)
+        deletePackagesByWorkspace(workspaceId)
+        deleteProgressByWorkspace(workspaceId)
+        deleteQuestionsByWorkspace(workspaceId)
+        deleteAssessmentsByWorkspace(workspaceId)
+        deleteAttemptsByWorkspace(workspaceId)
+        deleteNotesByWorkspace(workspaceId)
+    }
 }
 
 @Database(
@@ -407,9 +559,13 @@ interface EduMiniDao {
         GenerationRunEntity::class,
         LessonProgressEntity::class,
         StudyDayEntity::class,
-        QuestionEntity::class
+        QuestionEntity::class,
+        AssessmentEntity::class,
+        AssessmentAttemptEntity::class,
+        TeacherNoteEntity::class,
+        PromptTemplateEntity::class
     ],
-    version = 5,
+    version = 7,
     exportSchema = false
 )
 abstract class EduMiniDatabase : RoomDatabase() {
@@ -543,6 +699,79 @@ abstract class EduMiniDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS assessments (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        workspace_id TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        kind TEXT NOT NULL,
+                        question_ids_json TEXT NOT NULL,
+                        time_limit_minutes INTEGER NOT NULL,
+                        pass_score_percent INTEGER NOT NULL,
+                        created_at TEXT NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS idx_assessments_ws ON assessments (workspace_id)")
+
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS assessment_attempts (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        assessment_id TEXT NOT NULL,
+                        assessment_title TEXT NOT NULL,
+                        workspace_id TEXT NOT NULL,
+                        correct_count INTEGER NOT NULL,
+                        total_questions INTEGER NOT NULL,
+                        score_percent INTEGER NOT NULL,
+                        passed INTEGER NOT NULL,
+                        duration_seconds INTEGER NOT NULL,
+                        earned_xp INTEGER NOT NULL,
+                        completed_at TEXT NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS idx_attempts_ws ON assessment_attempts (workspace_id, completed_at)")
+
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS teacher_notes (
+                        workspace_id TEXT NOT NULL,
+                        book_key TEXT NOT NULL,
+                        unit_key TEXT NOT NULL,
+                        lesson_key TEXT NOT NULL,
+                        note_text TEXT NOT NULL,
+                        bookmarked INTEGER NOT NULL DEFAULT 0,
+                        updated_at TEXT NOT NULL,
+                        PRIMARY KEY (workspace_id, book_key, unit_key, lesson_key)
+                    )
+                    """.trimIndent()
+                )
+
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS prompt_templates (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        title TEXT NOT NULL,
+                        task TEXT NOT NULL,
+                        instructions TEXT NOT NULL,
+                        created_at TEXT NOT NULL
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE books ADD COLUMN coverPath TEXT")
+                db.execSQL("ALTER TABLE books ADD COLUMN sourcePdfPath TEXT")
+            }
+        }
+
         fun getInstance(context: Context): EduMiniDatabase {
             return instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -550,7 +779,14 @@ abstract class EduMiniDatabase : RoomDatabase() {
                     EduMiniDatabase::class.java,
                     "edu-mini-local.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                    .addMigrations(
+                        MIGRATION_1_2,
+                        MIGRATION_2_3,
+                        MIGRATION_3_4,
+                        MIGRATION_4_5,
+                        MIGRATION_5_6,
+                        MIGRATION_6_7
+                    )
                     .build()
                     .also { instance = it }
             }

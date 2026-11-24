@@ -2,6 +2,8 @@ package com.example.data.repository
 
 import android.net.Uri
 import com.example.data.ai.AiGenerationService
+import com.example.data.local.AssessmentAttemptEntity
+import com.example.data.local.AssessmentEntity
 import com.example.data.local.BookEntity
 import com.example.data.local.DraftEntity
 import com.example.data.local.EduMiniDao
@@ -9,8 +11,10 @@ import com.example.data.local.GenerationRunEntity
 import com.example.data.local.InteractivePackageEntity
 import com.example.data.local.LessonEntity
 import com.example.data.local.LessonProgressEntity
+import com.example.data.local.PromptTemplateEntity
 import com.example.data.local.QuestionEntity
 import com.example.data.local.StudyDayEntity
+import com.example.data.local.TeacherNoteEntity
 import com.example.data.local.WorkspaceEntity
 import com.example.data.packageimport.InteractivePackageImporter
 import com.example.data.security.ProviderStorage
@@ -18,6 +22,9 @@ import com.example.data.workspace.ExportReceipt
 import com.example.data.workspace.PdfBookSplitter
 import com.example.data.workspace.WorkspaceExporter
 import com.example.data.workspace.WorkspaceImporter
+import com.example.model.AssessmentAttemptRecord
+import com.example.model.AssessmentKind
+import com.example.model.AssessmentRecord
 import com.example.model.BookProgressSummary
 import com.example.model.BookRef
 import com.example.model.DashboardSummary
@@ -35,11 +42,14 @@ import com.example.model.LessonRef
 import com.example.model.LessonSplitDraft
 import com.example.model.PackageKind
 import com.example.model.PdfBookInfo
+import com.example.model.PromptTemplateRecord
 import com.example.model.ProviderConfig
 import com.example.model.QuestionDifficulty
 import com.example.model.QuestionItem
 import com.example.model.QuestionType
+import com.example.model.StagedWorkspacePreview
 import com.example.model.TaskType
+import com.example.model.TeacherNoteRecord
 import com.example.model.WorkspaceSummary
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -133,10 +143,45 @@ class EduMiniRepository(
         }
     }
 
+    suspend fun inspectWorkspaceZip(uri: Uri): StagedWorkspacePreview {
+        return workspaceImporter.inspectZipFromUri(uri)
+    }
+
+    suspend fun commitStagedWorkspaces(
+        preview: StagedWorkspacePreview,
+        selectedGrades: List<String>
+    ): List<ImportedWorkspace> {
+        val committed = workspaceImporter.commitStagedGrades(preview, selectedGrades)
+        committed.forEach { saveImportedWorkspace(it) }
+        return committed
+    }
+
+    fun discardStagedPreview(preview: StagedWorkspacePreview) {
+        workspaceImporter.discardStagedPreview(preview)
+    }
+
     suspend fun importWorkspaceZip(uri: Uri): ImportedWorkspace {
         val imported = workspaceImporter.importFromUri(uri)
         saveImportedWorkspace(imported)
         return imported
+    }
+
+    suspend fun deleteWorkspace(workspaceId: String, rootPath: String) = withContext(Dispatchers.IO) {
+        dao.deleteWorkspaceGraph(workspaceId)
+        if (rootPath.isNotBlank()) {
+            val dir = File(rootPath)
+            val normalized = dir.canonicalPath.replace('\\', '/')
+            if (normalized.contains("/edumini/workspaces/")) {
+                runCatching { dir.deleteRecursively() }
+            }
+        }
+    }
+
+    suspend fun computeWorkspaceDiskBytes(rootPath: String): Long = withContext(Dispatchers.IO) {
+        if (rootPath.isBlank()) return@withContext 0L
+        val dir = File(rootPath)
+        if (!dir.exists()) return@withContext 0L
+        dir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
     }
 
     suspend fun ingestBookPdf(uri: Uri): PdfBookInfo = pdfBookSplitter.ingestBookPdf(uri)
@@ -181,7 +226,9 @@ class EduMiniRepository(
                 subjectKey = book.subjectKey,
                 componentKey = book.componentKey,
                 relativePath = book.relativePath,
-                lessonsCount = book.lessonsCount
+                lessonsCount = book.lessonsCount,
+                coverPath = book.coverPath,
+                sourcePdfPath = book.sourcePdfPath
             )
         }
         val lessonEntities = imported.lessons.map { lesson ->
@@ -210,6 +257,14 @@ class EduMiniRepository(
 
     suspend fun saveProviders(providers: List<ProviderConfig>) {
         providerStorage.saveProviders(providers)
+    }
+
+    suspend fun testProviderConnection(profile: ProviderConfig): String {
+        return aiGenerationService.testProviderConnection(profile)
+    }
+
+    suspend fun clearGenerationRuns() {
+        dao.clearGenerationRuns()
     }
 
     suspend fun generateContent(
@@ -355,6 +410,13 @@ class EduMiniRepository(
                     sourceHash = entity.sourceHash
                 )
             }
+        }
+    }
+
+    fun observeDraftsForWorkspace(workspaceId: String, legacyRootPath: String): Flow<List<DraftRecord>> {
+        if (workspaceId.isBlank()) return flowOf(emptyList())
+        return dao.observeDraftsForWorkspace(workspaceId, legacyRootPath).map { list ->
+            list.map { it.toDraftRecord() }.sortedByDescending { it.createdAt }
         }
     }
 
@@ -812,13 +874,402 @@ class EduMiniRepository(
     ): ExportReceipt = withContext(Dispatchers.IO) {
         val drafts = dao.observeDraftsForWorkspace(workspace.workspaceId, workspace.rootPath).first()
         val questions = dao.observeQuestionsForWorkspace(workspace.workspaceId).first().map { it.toModel() }
+        val assessments = dao.observeAssessmentsForWorkspace(workspace.workspaceId).first()
         WorkspaceExporter.exportIndexer2CompatibleZip(
             outputStream = outputStream,
             workspace = workspace,
             drafts = drafts,
-            questions = questions
+            questions = questions,
+            assessments = assessments
         )
     }
+
+    suspend fun exportFullBackupJson(
+        outputStream: OutputStream,
+        workspace: ImportedWorkspace
+    ): Int = withContext(Dispatchers.IO) {
+        val drafts = dao.observeDraftsForWorkspace(workspace.workspaceId, workspace.rootPath).first()
+        val questions = dao.observeQuestionsForWorkspace(workspace.workspaceId).first()
+        val assessments = dao.observeAssessmentsForWorkspace(workspace.workspaceId).first()
+        val attempts = dao.observeAssessmentAttempts(workspace.workspaceId).first()
+        val progress = dao.observeProgressForWorkspace(workspace.workspaceId).first()
+        val notes = dao.observeTeacherNotesForWorkspace(workspace.workspaceId).first()
+        val studyDays = dao.observeStudyDays().first()
+        val templates = dao.observePromptTemplates().first()
+        val payload = WorkspaceExporter.serializeFullBackup(
+            workspaceId = workspace.workspaceId,
+            drafts = drafts,
+            questions = questions,
+            assessments = assessments,
+            attempts = attempts,
+            progress = progress,
+            notes = notes,
+            studyDays = studyDays,
+            templates = templates
+        )
+        outputStream.writer(Charsets.UTF_8).use { writer ->
+            writer.write(payload)
+        }
+        drafts.size + questions.size + assessments.size + notes.size
+    }
+
+    suspend fun importFullBackupJson(
+        rawJson: String,
+        targetWorkspaceId: String
+    ): String = withContext(Dispatchers.IO) {
+        val bundle = WorkspaceExporter.parseFullBackup(rawJson)
+        val wsId = targetWorkspaceId.ifBlank { bundle.workspaceId }
+        bundle.drafts.forEach { d ->
+            dao.insertDraft(
+                DraftEntity(
+                    id = d.id,
+                    workspaceId = wsId.ifBlank { d.workspaceId },
+                    gradeKey = d.gradeKey,
+                    bookKey = d.bookKey,
+                    unitKey = d.unitKey,
+                    lessonKey = d.lessonKey,
+                    task = d.task,
+                    title = d.title,
+                    provider = d.provider,
+                    model = d.model,
+                    createdAt = d.createdAt,
+                    content = d.content,
+                    status = d.status,
+                    version = d.version,
+                    sourcePages = d.sourcePages,
+                    sourceHash = d.sourceHash
+                )
+            )
+        }
+        if (bundle.questions.isNotEmpty()) {
+            dao.insertQuestions(
+                bundle.questions.map { q ->
+                    QuestionEntity(
+                        id = q.id,
+                        workspaceId = wsId.ifBlank { q.workspaceId },
+                        gradeKey = q.gradeKey,
+                        bookKey = q.bookKey,
+                        unitKey = q.unitKey,
+                        lessonKey = q.lessonKey,
+                        lessonTitle = q.lessonTitle,
+                        type = q.type,
+                        prompt = q.prompt,
+                        optionsJson = q.optionsJson,
+                        correctAnswer = q.correctAnswer,
+                        rationale = q.rationale,
+                        difficulty = q.difficulty,
+                        sourcePages = q.sourcePages,
+                        fingerprint = q.fingerprint,
+                        reviewed = q.reviewed,
+                        createdAt = q.createdAt
+                    )
+                }
+            )
+        }
+        bundle.assessments.forEach { a ->
+            dao.insertAssessment(
+                AssessmentEntity(
+                    id = a.id,
+                    workspaceId = wsId.ifBlank { a.workspaceId },
+                    title = a.title,
+                    kind = a.kind,
+                    questionIdsJson = a.questionIdsJson,
+                    timeLimitMinutes = a.timeLimitMinutes,
+                    passScorePercent = a.passScorePercent,
+                    createdAt = a.createdAt
+                )
+            )
+        }
+        bundle.attempts.forEach { at ->
+            dao.insertAssessmentAttempt(
+                AssessmentAttemptEntity(
+                    id = at.id,
+                    assessmentId = at.assessmentId,
+                    assessmentTitle = at.assessmentTitle,
+                    workspaceId = wsId.ifBlank { at.workspaceId },
+                    correctCount = at.correctCount,
+                    totalQuestions = at.totalQuestions,
+                    scorePercent = at.scorePercent,
+                    passed = at.passed,
+                    durationSeconds = at.durationSeconds,
+                    earnedXp = at.earnedXp,
+                    completedAt = at.completedAt
+                )
+            )
+        }
+        bundle.progress.forEach { p ->
+            dao.upsertLessonProgress(
+                LessonProgressEntity(
+                    workspaceId = wsId.ifBlank { p.workspaceId },
+                    bookKey = p.bookKey,
+                    unitKey = p.unitKey,
+                    lessonKey = p.lessonKey,
+                    completed = p.completed,
+                    pointsEarned = p.pointsEarned,
+                    completedAt = p.completedAt
+                )
+            )
+        }
+        bundle.teacherNotes.forEach { n ->
+            dao.upsertTeacherNote(
+                TeacherNoteEntity(
+                    workspaceId = wsId.ifBlank { n.workspaceId },
+                    bookKey = n.bookKey,
+                    unitKey = n.unitKey,
+                    lessonKey = n.lessonKey,
+                    noteText = n.noteText,
+                    bookmarked = n.bookmarked,
+                    updatedAt = n.updatedAt
+                )
+            )
+        }
+        bundle.studyDays.forEach { dateIso ->
+            if (dateIso.isNotBlank() && dao.getStudyDay(dateIso) == null) {
+                dao.upsertStudyDay(
+                    StudyDayEntity(
+                        activityDate = dateIso,
+                        actionsCount = 1,
+                        lastUpdatedAt = Instant.now().toString()
+                    )
+                )
+            }
+        }
+        bundle.promptTemplates.forEach { t ->
+            dao.insertPromptTemplate(
+                PromptTemplateEntity(
+                    id = t.id,
+                    title = t.title,
+                    task = t.task,
+                    instructions = t.instructions,
+                    createdAt = t.createdAt
+                )
+            )
+        }
+        recordStudyActivity()
+        "تمت استعادة ${bundle.drafts.size} مسودة، ${bundle.questions.size} سؤال، ${bundle.assessments.size} تقييم، و${bundle.teacherNotes.size} ملاحظة بنجاح."
+    }
+
+    fun observeAssessmentsForWorkspace(workspaceId: String): Flow<List<AssessmentRecord>> {
+        if (workspaceId.isBlank()) return flowOf(emptyList())
+        return dao.observeAssessmentsForWorkspace(workspaceId).map { list ->
+            list.map { e ->
+                val ids = runCatching { json.decodeFromString<List<String>>(e.questionIdsJson) }.getOrDefault(emptyList())
+                AssessmentRecord(
+                    id = e.id,
+                    workspaceId = e.workspaceId,
+                    title = e.title,
+                    kind = AssessmentKind.fromId(e.kind),
+                    questionIds = ids,
+                    timeLimitMinutes = e.timeLimitMinutes,
+                    passScorePercent = e.passScorePercent,
+                    createdAt = e.createdAt
+                )
+            }
+        }
+    }
+
+    suspend fun createAssessment(
+        workspaceId: String,
+        title: String,
+        kind: AssessmentKind,
+        questionIds: List<String>,
+        timeLimitMinutes: Int,
+        passScorePercent: Int
+    ): AssessmentRecord {
+        val record = AssessmentRecord(
+            id = "asm-${System.currentTimeMillis()}-${UUID.randomUUID().toString().take(6)}",
+            workspaceId = workspaceId,
+            title = title.trim(),
+            kind = kind,
+            questionIds = questionIds.distinct(),
+            timeLimitMinutes = timeLimitMinutes.coerceIn(0, 180),
+            passScorePercent = passScorePercent.coerceIn(10, 100),
+            createdAt = Instant.now().toString()
+        )
+        dao.insertAssessment(
+            AssessmentEntity(
+                id = record.id,
+                workspaceId = record.workspaceId,
+                title = record.title,
+                kind = record.kind.id,
+                questionIdsJson = json.encodeToString(record.questionIds),
+                timeLimitMinutes = record.timeLimitMinutes,
+                passScorePercent = record.passScorePercent,
+                createdAt = record.createdAt
+            )
+        )
+        recordStudyActivity()
+        return record
+    }
+
+    suspend fun deleteAssessment(assessmentId: String) {
+        dao.deleteAssessmentById(assessmentId)
+    }
+
+    fun observeAssessmentAttempts(workspaceId: String): Flow<List<AssessmentAttemptRecord>> {
+        if (workspaceId.isBlank()) return flowOf(emptyList())
+        return dao.observeAssessmentAttempts(workspaceId).map { list ->
+            list.map { e ->
+                AssessmentAttemptRecord(
+                    id = e.id,
+                    assessmentId = e.assessmentId,
+                    assessmentTitle = e.assessmentTitle,
+                    workspaceId = e.workspaceId,
+                    correctCount = e.correctCount,
+                    totalQuestions = e.totalQuestions,
+                    scorePercent = e.scorePercent,
+                    passed = e.passed,
+                    durationSeconds = e.durationSeconds,
+                    earnedXp = e.earnedXp,
+                    completedAt = e.completedAt
+                )
+            }
+        }
+    }
+
+    suspend fun recordAssessmentAttempt(
+        assessment: AssessmentRecord,
+        correctCount: Int,
+        totalQuestions: Int,
+        scorePercent: Int,
+        durationSeconds: Int,
+        earnedXp: Int
+    ): AssessmentAttemptRecord {
+        val passed = scorePercent >= assessment.passScorePercent
+        val record = AssessmentAttemptRecord(
+            id = "att-${System.currentTimeMillis()}-${UUID.randomUUID().toString().take(6)}",
+            assessmentId = assessment.id,
+            assessmentTitle = assessment.title,
+            workspaceId = assessment.workspaceId,
+            correctCount = correctCount,
+            totalQuestions = totalQuestions,
+            scorePercent = scorePercent,
+            passed = passed,
+            durationSeconds = durationSeconds,
+            earnedXp = earnedXp,
+            completedAt = Instant.now().toString()
+        )
+        dao.insertAssessmentAttempt(
+            AssessmentAttemptEntity(
+                id = record.id,
+                assessmentId = record.assessmentId,
+                assessmentTitle = record.assessmentTitle,
+                workspaceId = record.workspaceId,
+                correctCount = record.correctCount,
+                totalQuestions = record.totalQuestions,
+                scorePercent = record.scorePercent,
+                passed = record.passed,
+                durationSeconds = record.durationSeconds,
+                earnedXp = record.earnedXp,
+                completedAt = record.completedAt
+            )
+        )
+        recordStudyActivity()
+        return record
+    }
+
+    fun observeTeacherNote(workspaceId: String, lesson: LessonRef): Flow<TeacherNoteRecord?> {
+        val canonicalWs = workspaceId.ifBlank { lesson.workspaceId }.ifBlank { lesson.rootPath }
+        return dao.observeTeacherNote(canonicalWs, lesson.bookKey, lesson.unitKey, lesson.lessonKey).map { e ->
+            e?.let {
+                TeacherNoteRecord(
+                    workspaceId = it.workspaceId,
+                    bookKey = it.bookKey,
+                    unitKey = it.unitKey,
+                    lessonKey = it.lessonKey,
+                    noteText = it.noteText,
+                    bookmarked = it.bookmarked,
+                    updatedAt = it.updatedAt
+                )
+            }
+        }
+    }
+
+    fun observeTeacherNotesForWorkspace(workspaceId: String): Flow<List<TeacherNoteRecord>> {
+        if (workspaceId.isBlank()) return flowOf(emptyList())
+        return dao.observeTeacherNotesForWorkspace(workspaceId).map { list ->
+            list.map { e ->
+                TeacherNoteRecord(
+                    workspaceId = e.workspaceId,
+                    bookKey = e.bookKey,
+                    unitKey = e.unitKey,
+                    lessonKey = e.lessonKey,
+                    noteText = e.noteText,
+                    bookmarked = e.bookmarked,
+                    updatedAt = e.updatedAt
+                )
+            }
+        }
+    }
+
+    suspend fun saveTeacherNote(
+        workspaceId: String,
+        lesson: LessonRef,
+        noteText: String,
+        bookmarked: Boolean
+    ) {
+        val canonicalWs = workspaceId.ifBlank { lesson.workspaceId }.ifBlank { lesson.rootPath }
+        dao.upsertTeacherNote(
+            TeacherNoteEntity(
+                workspaceId = canonicalWs,
+                bookKey = lesson.bookKey,
+                unitKey = lesson.unitKey,
+                lessonKey = lesson.lessonKey,
+                noteText = noteText.trim(),
+                bookmarked = bookmarked,
+                updatedAt = Instant.now().toString()
+            )
+        )
+    }
+
+    fun observePromptTemplates(): Flow<List<PromptTemplateRecord>> {
+        return dao.observePromptTemplates().map { custom ->
+            DEFAULT_PROMPT_TEMPLATES + custom.map { e ->
+                PromptTemplateRecord(
+                    id = e.id,
+                    title = e.title,
+                    task = TaskType.fromId(e.task),
+                    instructions = e.instructions,
+                    isBuiltIn = false
+                )
+            }
+        }
+    }
+
+    suspend fun savePromptTemplate(title: String, task: TaskType, instructions: String) {
+        dao.insertPromptTemplate(
+            PromptTemplateEntity(
+                id = "tpl-${System.currentTimeMillis()}-${UUID.randomUUID().toString().take(5)}",
+                title = title.trim(),
+                task = task.id,
+                instructions = instructions.trim(),
+                createdAt = Instant.now().toString()
+            )
+        )
+    }
+
+    suspend fun deletePromptTemplate(id: String) {
+        dao.deletePromptTemplateById(id)
+    }
+
+    private fun DraftEntity.toDraftRecord() = DraftRecord(
+        id = id,
+        workspaceId = workspaceId,
+        grade = gradeKey,
+        bookKey = bookKey,
+        unitKey = unitKey,
+        lessonKey = lessonKey,
+        task = TaskType.fromId(task),
+        title = title,
+        provider = provider,
+        model = model,
+        createdAt = createdAt,
+        content = content,
+        status = status,
+        version = version,
+        sourcePages = sourcePages,
+        sourceHash = sourceHash
+    )
 
     private fun QuestionEntity.toModel(): QuestionItem {
         val opts = runCatching { json.decodeFromString<List<String>>(optionsJson) }.getOrDefault(emptyList())
@@ -876,7 +1327,9 @@ class EduMiniRepository(
         subjectKey = subjectKey,
         componentKey = componentKey,
         relativePath = relativePath,
-        lessonsCount = lessonsCount
+        lessonsCount = lessonsCount,
+        coverPath = coverPath,
+        sourcePdfPath = sourcePdfPath
     )
 
     private fun LessonEntity.toModel(wsId: String) = LessonRef(
@@ -903,5 +1356,36 @@ class EduMiniRepository(
         const val POINTS_PUBLISHED_PACKAGE = 25
         const val POINTS_PACKAGE_UPLOADED = 15
         const val POINTS_MAX_PER_LESSON = POINTS_LESSON_COMPLETED + POINTS_APPROVED_DRAFT + POINTS_PUBLISHED_PACKAGE
+
+        val DEFAULT_PROMPT_TEMPLATES = listOf(
+            PromptTemplateRecord(
+                id = "builtin_scaffolding",
+                title = "شرح مبسط مع مثال حياتي",
+                task = TaskType.EXPLANATION,
+                instructions = "قسّم الشرح إلى 3 خطوات واضحة، أضف مثالاً من الحياة اليومية، واختم بقاعدة ذهبية للحفظ.",
+                isBuiltIn = true
+            ),
+            PromptTemplateRecord(
+                id = "builtin_vocab_cards",
+                title = "مسرد مصطلحات سياقي",
+                task = TaskType.VOCABULARY,
+                instructions = "استخرج أهم المصطلحات في جدول منظم: المصطلح، المعنى المبسط، ومثال من سياق الدرس.",
+                isBuiltIn = true
+            ),
+            PromptTemplateRecord(
+                id = "builtin_bloom_questions",
+                title = "أسئلة متدرجة (تذكر/فهم/تطبيق)",
+                task = TaskType.QUESTIONS,
+                instructions = "وزّع الأسئلة بين مستويات بلوم: سؤال تذكر مباشر، سؤال فهم واستنتاج، وسؤال تطبيقي مع الإجابة والتفسير.",
+                isBuiltIn = true
+            ),
+            PromptTemplateRecord(
+                id = "builtin_interactive_steps",
+                title = "محطات تعلم JSON تفاعلية",
+                task = TaskType.INTERACTIVE,
+                instructions = "أنشئ 3 محطات تفاعلية مع نقطة تحقق اختيار من متعدد لكل محطة ومهمة ترتيب نهائية بصيغة JSON.",
+                isBuiltIn = true
+            )
+        )
     }
 }

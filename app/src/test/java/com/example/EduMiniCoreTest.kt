@@ -2,17 +2,20 @@ package com.example
 
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.ai.AiGenerationService
+import com.example.data.ai.Indexer2PromptRegistry
 import com.example.data.local.DraftEntity
 import com.example.data.local.EduMiniDatabase
 import com.example.data.local.LessonProgressEntity
 import com.example.data.packageimport.InteractivePackageImporter
 import com.example.data.repository.EduMiniRepository
+import com.example.data.repository.InteractiveActivityParser
 import com.example.data.repository.MilestoneBadgeEngine
 import com.example.data.repository.QuestionBankEngine
 import com.example.data.security.ProviderStorage
 import com.example.data.workspace.PdfBookSplitter
 import com.example.data.workspace.WorkspaceExporter
 import com.example.data.workspace.WorkspaceImporter
+import com.example.model.AssessmentKind
 import com.example.model.BookRef
 import com.example.model.ImportedWorkspace
 import com.example.model.LearningNodeStatus
@@ -20,6 +23,7 @@ import com.example.model.LessonRef
 import com.example.model.PackageKind
 import com.example.model.PdfBookInfo
 import com.example.model.QuestionDifficulty
+import com.example.model.QuestionItem
 import com.example.model.QuestionType
 import com.example.model.SecuritySeverity
 import com.example.model.TaskType
@@ -621,6 +625,335 @@ class EduMiniCoreTest {
         repo.deleteQuestion(manual.id)
         current = repo.observeQuestionsForWorkspace(ws.workspaceId).first()
         assertEquals(1, current.size)
+    }
+
+    @Test
+    fun questionBankSupportsFillBlankOrderingMatchingAndAssessmentMarkdown() {
+        val fillBlank = QuestionItem(
+            id = "q-fb",
+            workspaceId = "ws",
+            gradeKey = "G04",
+            bookKey = "SCI",
+            unitKey = "unit_01",
+            lessonKey = "lesson_01",
+            lessonTitle = "الدرس الأول",
+            type = QuestionType.FILL_BLANK,
+            prompt = "تُسمى عملية تحول الماء إلى بخار ___.",
+            options = emptyList(),
+            correctAnswer = "التبخر",
+            rationale = "التبخر هو تحول السائل إلى غاز.",
+            difficulty = QuestionDifficulty.EASY
+        )
+        assertTrue(QuestionBankEngine.isAnswerCorrect(fillBlank, "التبخر!"))
+        assertFalse(QuestionBankEngine.isAnswerCorrect(fillBlank, "التكثف"))
+
+        val ordering = QuestionItem(
+            id = "q-ord",
+            workspaceId = "ws",
+            gradeKey = "G04",
+            bookKey = "SCI",
+            unitKey = "unit_01",
+            lessonKey = "lesson_01",
+            lessonTitle = "الدرس الأول",
+            type = QuestionType.ORDERING,
+            prompt = "رتب مراحل دورة الماء:",
+            options = listOf("التكثف", "الهطول", "التبخر"),
+            correctAnswer = "التبخر | التكثف | الهطول",
+            rationale = "",
+            difficulty = QuestionDifficulty.MEDIUM
+        )
+        assertTrue(QuestionBankEngine.isAnswerCorrect(ordering, "التبخر -> التكثف -> الهطول"))
+        assertFalse(QuestionBankEngine.isAnswerCorrect(ordering, "التكثف | التبخر | الهطول"))
+
+        val matching = QuestionItem(
+            id = "q-mat",
+            workspaceId = "ws",
+            gradeKey = "G04",
+            bookKey = "SCI",
+            unitKey = "unit_01",
+            lessonKey = "lesson_01",
+            lessonTitle = "الدرس الأول",
+            type = QuestionType.MATCHING,
+            prompt = "طابق الكوكب بوصفه:",
+            options = listOf("المريخ -> الكوكب الأحمر", "زحل -> كوكب الحلقات"),
+            correctAnswer = "المريخ=الكوكب الأحمر;زحل=كوكب الحلقات",
+            rationale = "",
+            difficulty = QuestionDifficulty.MEDIUM
+        )
+        assertTrue(QuestionBankEngine.isAnswerCorrect(matching, "زحل=كوكب الحلقات;المريخ=الكوكب الأحمر"))
+        assertFalse(QuestionBankEngine.isAnswerCorrect(matching, "المريخ=كوكب الحلقات;زحل=الكوكب الأحمر"))
+
+        val assessment = com.example.model.AssessmentRecord(
+            id = "asm-1",
+            workspaceId = "ws",
+            title = "اختبار العلوم التكويني",
+            kind = AssessmentKind.FORMATIVE,
+            questionIds = listOf("q-fb", "q-ord", "q-mat"),
+            timeLimitMinutes = 15,
+            passScorePercent = 70,
+            createdAt = "2026-11-24T00:00:00Z"
+        )
+        val md = QuestionBankEngine.exportAssessmentMarkdown(assessment, listOf(fillBlank, ordering, matching))
+        assertTrue(md.contains("# اختبار العلوم التكويني"))
+        assertTrue(md.contains("15 دقيقة"))
+        assertTrue(md.contains("70%"))
+        assertTrue(md.contains("التبخر"))
+    }
+
+    @Test
+    fun interactiveActivityParserParsesDeclarativeJsonAndTextFallback() {
+        val jsonActivity = """
+            ```json
+            {
+              "title": "رحلة الجهاز الهضمي",
+              "objective": "تتبع مسار الطعام في جسم الإنسان",
+              "steps": [
+                {
+                  "title": "المحطة الأولى: الفم",
+                  "body": "يبدأ الهضم الميكانيكي والكيميائي في الفم.",
+                  "checkpoint": {
+                    "question": "أين يبدأ هضم النشويات؟",
+                    "options": ["الفم", "المعدة", "الأمعاء"],
+                    "answer": "الفم"
+                  }
+                }
+              ],
+              "ordering": ["الفم", "المريء", "المعدة"],
+              "matching": [
+                {"left": "اللعاب", "right": "إنزيم الأميليز"}
+              ]
+            }
+            ```
+        """.trimIndent()
+
+        val parsed = InteractiveActivityParser.parse(jsonActivity)
+        assertNotNull(parsed)
+        assertEquals("رحلة الجهاز الهضمي", parsed!!.title)
+        assertEquals(1, parsed.steps.size)
+        assertEquals("الفم", parsed.steps[0].checkpointAnswer)
+        assertEquals(listOf("الفم", "المريء", "المعدة"), parsed.orderingItems)
+        assertEquals(1, parsed.matchingPairs.size)
+
+        val fallbackText = """
+            1. التمهيد
+            فكرة رئيسية حول الطاقة الشمسية.
+            2. التطبيق
+            استخدام الخلايا الكهروضوئية.
+        """.trimIndent()
+        val parsedText = InteractiveActivityParser.parse(fallbackText, "نشاط الطاقة")
+        assertNotNull(parsedText)
+        assertEquals("نشاط الطاقة", parsedText!!.title)
+        assertEquals(2, parsedText.steps.size)
+        assertEquals("التمهيد", parsedText.steps[0].title)
+    }
+
+    @Test
+    fun multiGradeZipStagedPreviewInspectsGradesAndCommitsOnlySelected() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val importer = WorkspaceImporter(context)
+
+        val zipBytes = createTestZip(
+            mapOf(
+                "workspace/G04/ARAB/book_manifest.json" to """{"title":"العربية 4"}""",
+                "workspace/G04/ARAB/index.json" to """{"units":[{"unitKey":"u1","title":"و1","lessons":[{"lessonKey":"l1","title":"درس 4"}]}]}""",
+                "workspace/G05/SCI/book_manifest.json" to """{"title":"العلوم 5"}""",
+                "workspace/G05/SCI/index.json" to """{"units":[{"unitKey":"u1","title":"و1","lessons":[{"lessonKey":"l1","title":"درس 5"}]}]}"""
+            )
+        )
+
+        val staged = importer.inspectZipFromStream(ByteArrayInputStream(zipBytes), zipBytes.size.toLong())
+        assertEquals(2, staged.grades.size)
+        assertTrue(File(staged.tempDirPath).exists())
+
+        val committed = importer.commitStagedGrades(staged, listOf("G05"))
+        assertEquals(1, committed.size)
+        assertEquals("G05", committed.first().gradeKey)
+        assertEquals("العلوم 5", committed.first().books.first().title)
+        assertFalse(File(staged.tempDirPath).exists())
+    }
+
+    @Test
+    fun repositoryAssessmentsNotesTemplatesAndFullBackupRoundtrip() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val db = EduMiniDatabase.getInstance(context)
+        val repo = EduMiniRepository(
+            dao = db.eduMiniDao(),
+            providerStorage = ProviderStorage(context),
+            workspaceImporter = WorkspaceImporter(context),
+            aiGenerationService = AiGenerationService(),
+            pdfBookSplitter = PdfBookSplitter(context),
+            interactivePackageImporter = InteractivePackageImporter(context)
+        )
+
+        val lesson = sampleLesson().copy(workspaceId = "ws-v6-test")
+        val ws = ImportedWorkspace(
+            workspaceId = "ws-v6-test",
+            gradeKey = "G04",
+            rootPath = File(context.filesDir, "edumini/workspaces/ws-v6-test").absolutePath,
+            title = "G04 • اختبار شامل",
+            books = listOf(
+                BookRef(
+                    bookKey = "ARAB",
+                    title = "لغتي العربية",
+                    subjectKey = "ARAB",
+                    relativePath = "workspace/G04/ARAB",
+                    lessonsCount = 1
+                )
+            ),
+            lessons = listOf(lesson),
+            filesCount = 2,
+            warnings = emptyList()
+        )
+        repo.saveImportedWorkspace(ws)
+
+        val q = repo.addManualQuestion(
+            workspaceId = ws.workspaceId,
+            lesson = lesson,
+            type = QuestionType.FILL_BLANK,
+            prompt = "عاصمة مصر هي ___.",
+            options = emptyList(),
+            correctAnswer = "القاهرة",
+            rationale = "",
+            difficulty = QuestionDifficulty.EASY
+        )
+        val asm = repo.createAssessment(
+            workspaceId = ws.workspaceId,
+            title = "اختبار تشخيصي",
+            kind = AssessmentKind.DIAGNOSTIC,
+            questionIds = listOf(q.id),
+            timeLimitMinutes = 10,
+            passScorePercent = 60
+        )
+        repo.recordAssessmentAttempt(asm, 1, 1, 100, 42, 30)
+        repo.saveTeacherNote(ws.workspaceId, lesson, "مراجعة القاعدة النحوية أولاً", bookmarked = true)
+        repo.savePromptTemplate("خريطة مفاهيم", TaskType.LESSON_REVIEW, "لخّص المفاهيم في نقاط هرمية")
+
+        val backupStream = ByteArrayOutputStream()
+        val exportedCount = repo.exportFullBackupJson(backupStream, ws)
+        assertTrue(exportedCount >= 3)
+        val backupJson = backupStream.toString(Charsets.UTF_8.name())
+        assertFalse(backupJson.contains("apiKey"))
+
+        repo.deleteWorkspace(ws.workspaceId, ws.rootPath)
+        assertTrue(repo.observeAssessmentsForWorkspace(ws.workspaceId).first().isEmpty())
+
+        repo.saveImportedWorkspace(ws)
+        val restoreMsg = repo.importFullBackupJson(backupJson, ws.workspaceId)
+        assertTrue(restoreMsg.contains("تمت استعادة"))
+
+        val restoredAssessments = repo.observeAssessmentsForWorkspace(ws.workspaceId).first()
+        assertEquals(1, restoredAssessments.size)
+        assertEquals("اختبار تشخيصي", restoredAssessments.first().title)
+
+        val restoredNote = repo.observeTeacherNote(ws.workspaceId, lesson).first()
+        assertNotNull(restoredNote)
+        assertTrue(restoredNote!!.bookmarked)
+        assertEquals("مراجعة القاعدة النحوية أولاً", restoredNote.noteText)
+
+        val templates = repo.observePromptTemplates().first()
+        assertTrue(templates.any { it.title == "خريطة مفاهيم" && !it.isBuiltIn })
+    }
+
+    @Test
+    fun promptBuilderCoversExtendedTaskTypesAndInteractiveJsonSchema() {
+        val service = AiGenerationService()
+        val lesson = sampleLesson()
+
+        val vocabPrompt = service.buildPrompt(lesson, TaskType.VOCABULARY, "نص", "", questionCount = 4)
+        assertTrue(vocabPrompt.contains("مفردات ومصطلحات"))
+
+        val workedPrompt = service.buildPrompt(lesson, TaskType.WORKED_EXAMPLES, "نص", "", questionCount = 4)
+        assertTrue(workedPrompt.contains("أمثلة محلولة"))
+
+        val reviewPrompt = service.buildPrompt(lesson, TaskType.LESSON_REVIEW, "نص", "", questionCount = 4)
+        assertTrue(reviewPrompt.contains("مراجعة شاملة"))
+
+        val adapterPrompt = service.buildPrompt(lesson, TaskType.DIFFICULTY_ADAPTER, "نص", "", questionCount = 4)
+        assertTrue(adapterPrompt.contains("ثلاثة مستويات"))
+
+        val interactivePrompt = service.buildPrompt(lesson, TaskType.INTERACTIVE, "نص", "", questionCount = 3)
+        assertTrue(interactivePrompt.contains("\"steps\""))
+        assertTrue(interactivePrompt.contains("\"ordering\""))
+    }
+
+    @Test
+    fun importerDetectsBookCoverPngAndSourcePdfAndPersistsInRoom() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val importer = WorkspaceImporter(context)
+        val db = EduMiniDatabase.getInstance(context)
+        val repo = EduMiniRepository(
+            dao = db.eduMiniDao(),
+            providerStorage = ProviderStorage(context),
+            workspaceImporter = importer,
+            aiGenerationService = AiGenerationService(),
+            pdfBookSplitter = PdfBookSplitter(context),
+            interactivePackageImporter = InteractivePackageImporter(context)
+        )
+
+        val zipBytes = createTestZip(
+            mapOf(
+                "workspace/G06/MATH/book_manifest.json" to """{"title":"الرياضيات","cover":"cover.png"}""",
+                "workspace/G06/MATH/cover.png" to "PNG-MOCK-DATA",
+                "workspace/G06/MATH/book.pdf" to "%PDF-1.4 full-book",
+                "workspace/G06/MATH/index.json" to """
+                    {
+                      "units": [
+                        {
+                          "unitKey": "unit_01",
+                          "title": "الجبر",
+                          "partKey": "P01",
+                          "lessons": [
+                            {"lessonKey": "lesson_01", "title": "المعادلات", "pdfPageStart": 4, "pdfPageEnd": 9}
+                          ]
+                        }
+                      ]
+                    }
+                """.trimIndent(),
+                "workspace/G06/MATH/P01/units/unit_01/lesson_01.pdf" to "%PDF-1.4 lesson"
+            )
+        )
+
+        val imported = importer.importFromStream(ByteArrayInputStream(zipBytes), zipBytes.size.toLong())
+        assertEquals(1, imported.books.size)
+        val book = imported.books.first()
+        assertNotNull(book.coverPath)
+        assertTrue(File(book.coverPath!!).exists())
+        assertNotNull(book.sourcePdfPath)
+        assertTrue(File(book.sourcePdfPath!!).exists())
+
+        repo.saveImportedWorkspace(imported)
+        val observed = repo.observeWorkspace(imported.workspaceId).first()
+        assertNotNull(observed)
+        assertEquals(book.coverPath, observed!!.books.first().coverPath)
+        assertEquals(book.sourcePdfPath, observed.books.first().sourcePdfPath)
+    }
+
+    @Test
+    fun indexer2PromptRegistryCoversAllTasksAndStandardSchemas() {
+        TaskType.entries.forEach { task ->
+            val blueprint = Indexer2PromptRegistry.blueprintFor(task)
+            assertEquals(task, blueprint.task)
+            assertTrue(blueprint.sourcePath.startsWith("prompts/indexer2/"))
+            assertTrue(blueprint.outputContract.isNotBlank())
+        }
+
+        assertEquals(5, Indexer2PromptRegistry.schemas.size)
+        assertTrue(Indexer2PromptRegistry.schemas.any { it.fileName.contains("index.json") })
+        assertTrue(Indexer2PromptRegistry.schemas.any { it.fileName.contains("book_manifest.json") })
+        assertTrue(Indexer2PromptRegistry.schemas.any { it.fileName.contains("interactive.json") })
+        assertTrue(Indexer2PromptRegistry.schemas.any { it.fileName == "manifest.json" })
+
+        val prompt = Indexer2PromptRegistry.assemblePrompt(
+            lesson = sampleLesson(),
+            task = TaskType.EXPLANATION,
+            source = "مفهوم القسمة المطولة",
+            extra = "تبسيط الخطوات",
+            questionCount = 5,
+            attachedPdfPagesCount = 1
+        )
+        assertTrue(prompt.contains("prompts/indexer2/lesson_explanation.prompt.md"))
+        assertTrue(prompt.contains("مفهوم القسمة المطولة"))
+        assertTrue(prompt.contains("1 صفحة مصورة"))
     }
 
     private fun sampleLesson() = LessonRef(

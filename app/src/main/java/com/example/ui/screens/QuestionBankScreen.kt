@@ -24,10 +24,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Quiz
 import androidx.compose.material.icons.outlined.Style
+import androidx.compose.material.icons.outlined.Timer
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.ArrowDownward
+import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Search
@@ -35,6 +40,8 @@ import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -47,8 +54,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -56,12 +65,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.R
 import com.example.data.repository.QuestionBankEngine
+import com.example.model.AssessmentAttemptRecord
+import com.example.model.AssessmentKind
+import com.example.model.AssessmentRecord
 import com.example.model.LessonRef
 import com.example.model.QuestionDifficulty
 import com.example.model.QuestionItem
@@ -86,20 +100,28 @@ import com.example.ui.theme.EduOrange
 import com.example.ui.theme.EduPurple
 import com.example.ui.theme.EduRed
 import com.example.ui.theme.EduWhite
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun QuestionBankScreen(
     questions: List<QuestionItem>,
+    assessments: List<AssessmentRecord> = emptyList(),
+    attempts: List<AssessmentAttemptRecord> = emptyList(),
     selectedLesson: LessonRef?,
     hasWorkspace: Boolean,
     onAddManualQuestion: (QuestionType, String, List<String>, String, String, QuestionDifficulty) -> Unit,
     onToggleReviewed: (String, Boolean) -> Unit,
     onDeleteQuestion: (String) -> Unit,
     onQuizCompleted: (Int, Int, Int) -> Unit,
+    onCreateAssessment: (String, AssessmentKind, List<String>, Int, Int) -> Unit = { _, _, _, _, _ -> },
+    onDeleteAssessment: (String) -> Unit = {},
+    onRecordAssessmentAttempt: (AssessmentRecord, Int, Int, Int, Int, Int) -> Unit = { _, _, _, _, _, _ -> },
+    onExportAssessmentMarkdown: (AssessmentRecord) -> Unit = {},
     onOpenStudio: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var activeTab by remember { mutableIntStateOf(0) } // 0: Questions, 1: Assessments
     var searchQuery by remember { mutableStateOf("") }
     var selectedType by remember { mutableStateOf<QuestionType?>(null) }
     var selectedDifficulty by remember { mutableStateOf<QuestionDifficulty?>(null) }
@@ -107,6 +129,9 @@ fun QuestionBankScreen(
     var showAddDialog by remember { mutableStateOf(false) }
     var showQuizDialog by remember { mutableStateOf(false) }
     var showFlashcardsDialog by remember { mutableStateOf(false) }
+    var showCreateAssessmentDialog by remember { mutableStateOf(false) }
+    var activeTimedAssessment by remember { mutableStateOf<AssessmentRecord?>(null) }
+    val clipboardManager = LocalClipboardManager.current
 
     val filtered = remember(questions, searchQuery, selectedType, selectedDifficulty, onlyCurrentLesson, selectedLesson) {
         val q = searchQuery.trim()
@@ -163,7 +188,7 @@ fun QuestionBankScreen(
                             color = EduWhite
                         )
                         Text(
-                            text = "${questions.size} سؤال • $reviewedCount معتمد للمراجعة • $duplicatesCount تكرار محتمل",
+                            text = "${questions.size} سؤال • $reviewedCount معتمد • ${assessments.size} تقييم مؤقت • $duplicatesCount تكرار",
                             style = MaterialTheme.typography.bodyMedium,
                             color = EduHeroSub
                         )
@@ -171,189 +196,300 @@ fun QuestionBankScreen(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Button(
-                                onClick = { showQuizDialog = true },
-                                enabled = playableQuestions.isNotEmpty(),
-                                shape = RoundedCornerShape(12.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = EduWhite,
-                                    contentColor = EduGreenDark
-                                ),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .minimumInteractiveComponentSize()
-                                    .testTag("start_interactive_quiz_button")
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.PlayArrow,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("اختبار تفاعلي", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-                            }
-                            OutlinedButton(
-                                onClick = { showFlashcardsDialog = true },
-                                enabled = playableQuestions.isNotEmpty(),
-                                shape = RoundedCornerShape(12.dp),
-                                border = BorderStroke(1.dp, EduWhite.copy(alpha = 0.6f)),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .minimumInteractiveComponentSize()
-                                    .testTag("start_flashcards_button")
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Outlined.Style,
-                                    contentDescription = null,
-                                    tint = EduWhite,
-                                    modifier = Modifier.size(17.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("بطاقات مراجعة", color = EduWhite, style = MaterialTheme.typography.labelLarge)
-                            }
+                            EduPill(
+                                text = "بنك الأسئلة (${questions.size})",
+                                active = activeTab == 0,
+                                onClick = { activeTab = 0 },
+                                testTag = "qb_tab_questions"
+                            )
+                            EduPill(
+                                text = "التقييمات المؤقتة (${assessments.size})",
+                                active = activeTab == 1,
+                                onClick = { activeTab = 1 },
+                                testTag = "qb_tab_assessments"
+                            )
                         }
-                        if (hasWorkspace && selectedLesson != null) {
+                        if (activeTab == 0) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Button(
+                                    onClick = { showQuizDialog = true },
+                                    enabled = playableQuestions.isNotEmpty(),
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = EduWhite,
+                                        contentColor = EduGreenDark
+                                    ),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .minimumInteractiveComponentSize()
+                                        .testTag("start_interactive_quiz_button")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.PlayArrow,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("اختبار تفاعلي", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                                }
+                                OutlinedButton(
+                                    onClick = { showFlashcardsDialog = true },
+                                    enabled = playableQuestions.isNotEmpty(),
+                                    shape = RoundedCornerShape(12.dp),
+                                    border = BorderStroke(1.dp, EduWhite.copy(alpha = 0.6f)),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .minimumInteractiveComponentSize()
+                                        .testTag("start_flashcards_button")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.Style,
+                                        contentDescription = null,
+                                        tint = EduWhite,
+                                        modifier = Modifier.size(17.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("بطاقات مراجعة", color = EduWhite, style = MaterialTheme.typography.labelLarge)
+                                }
+                            }
+                            if (hasWorkspace && selectedLesson != null) {
+                                EduYellowButton(
+                                    text = "إضافة سؤال يدوي للدرس الحالي",
+                                    onClick = { showAddDialog = true },
+                                    icon = Icons.Rounded.Add,
+                                    testTag = "add_manual_question_button"
+                                )
+                            }
+                        } else if (hasWorkspace && questions.isNotEmpty()) {
                             EduYellowButton(
-                                text = "إضافة سؤال يدوي للدرس الحالي",
-                                onClick = { showAddDialog = true },
-                                icon = Icons.Rounded.Add,
-                                testTag = "add_manual_question_button"
+                                text = "إنشاء تقييم مؤقت جديد",
+                                onClick = { showCreateAssessmentDialog = true },
+                                icon = Icons.Outlined.Timer,
+                                testTag = "create_assessment_button"
                             )
                         }
                     }
                 }
             }
 
-            item(key = "qb_filters") {
-                EduPanel(modifier = Modifier.fillMaxWidth()) {
-                    OutlinedTextField(
-                        value = searchQuery,
-                        onValueChange = { searchQuery = it },
-                        leadingIcon = {
-                            Icon(imageVector = Icons.Rounded.Search, contentDescription = null, tint = EduMuted)
-                        },
-                        placeholder = {
-                            Text("ابحث في الأسئلة أو الدروس...", style = MaterialTheme.typography.bodyMedium, color = EduMuted)
-                        },
-                        singleLine = true,
-                        shape = RoundedCornerShape(12.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = EduFieldBg,
-                            unfocusedContainerColor = EduFieldBg,
-                            focusedBorderColor = EduGreen,
-                            unfocusedBorderColor = EduLine,
-                            focusedTextColor = EduInk,
-                            unfocusedTextColor = EduInk
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("question_search_input")
-                    )
+            if (activeTab == 0) {
+                item(key = "qb_filters") {
+                    EduPanel(modifier = Modifier.fillMaxWidth()) {
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            leadingIcon = {
+                                Icon(imageVector = Icons.Rounded.Search, contentDescription = null, tint = EduMuted)
+                            },
+                            placeholder = {
+                                Text("ابحث في الأسئلة أو الدروس...", style = MaterialTheme.typography.bodyMedium, color = EduMuted)
+                            },
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedContainerColor = EduFieldBg,
+                                unfocusedContainerColor = EduFieldBg,
+                                focusedBorderColor = EduGreen,
+                                unfocusedBorderColor = EduLine,
+                                focusedTextColor = EduInk,
+                                unfocusedTextColor = EduInk
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("question_search_input")
+                        )
 
-                    if (selectedLesson != null) {
+                        if (selectedLesson != null) {
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(7.dp),
+                                verticalArrangement = Arrangement.spacedBy(7.dp)
+                            ) {
+                                EduPill(
+                                    text = "كل الدروس (${questions.size})",
+                                    active = !onlyCurrentLesson,
+                                    onClick = { onlyCurrentLesson = false }
+                                )
+                                EduPill(
+                                    text = "الدرس: ${selectedLesson.title}",
+                                    active = onlyCurrentLesson,
+                                    onClick = { onlyCurrentLesson = true }
+                                )
+                            }
+                        }
+
                         FlowRow(
                             horizontalArrangement = Arrangement.spacedBy(7.dp),
                             verticalArrangement = Arrangement.spacedBy(7.dp)
                         ) {
                             EduPill(
-                                text = "كل الدروس (${questions.size})",
-                                active = !onlyCurrentLesson,
-                                onClick = { onlyCurrentLesson = false }
+                                text = "كل الأنواع",
+                                active = selectedType == null,
+                                onClick = { selectedType = null }
                             )
-                            EduPill(
-                                text = "الدرس: ${selectedLesson.title}",
-                                active = onlyCurrentLesson,
-                                onClick = { onlyCurrentLesson = true }
-                            )
+                            QuestionType.entries.forEach { t ->
+                                EduPill(
+                                    text = t.labelAr,
+                                    active = selectedType == t,
+                                    onClick = { selectedType = t }
+                                )
+                            }
                         }
-                    }
 
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(7.dp),
-                        verticalArrangement = Arrangement.spacedBy(7.dp)
-                    ) {
-                        EduPill(
-                            text = "كل الأنواع",
-                            active = selectedType == null,
-                            onClick = { selectedType = null }
-                        )
-                        QuestionType.entries.forEach { t ->
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(7.dp),
+                            verticalArrangement = Arrangement.spacedBy(7.dp)
+                        ) {
                             EduPill(
-                                text = t.labelAr,
-                                active = selectedType == t,
-                                onClick = { selectedType = t }
+                                text = "كل المستويات",
+                                active = selectedDifficulty == null,
+                                onClick = { selectedDifficulty = null }
                             )
-                        }
-                    }
-
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(7.dp),
-                        verticalArrangement = Arrangement.spacedBy(7.dp)
-                    ) {
-                        EduPill(
-                            text = "كل المستويات",
-                            active = selectedDifficulty == null,
-                            onClick = { selectedDifficulty = null }
-                        )
-                        QuestionDifficulty.entries.forEach { d ->
-                            EduPill(
-                                text = d.labelAr,
-                                active = selectedDifficulty == d,
-                                onClick = { selectedDifficulty = d }
-                            )
+                            QuestionDifficulty.entries.forEach { d ->
+                                EduPill(
+                                    text = d.labelAr,
+                                    active = selectedDifficulty == d,
+                                    onClick = { selectedDifficulty = d }
+                                )
+                            }
                         }
                     }
                 }
-            }
 
-            if (filtered.isEmpty()) {
-                item(key = "qb_empty") {
-                    EduPanel(modifier = Modifier.fillMaxWidth()) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Outlined.Quiz,
-                                contentDescription = null,
-                                tint = EduGreenDark,
-                                modifier = Modifier.size(24.dp)
-                            )
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "لا توجد أسئلة محفوظة حتى الآن",
-                                    style = MaterialTheme.typography.titleSmall,
-                                    color = EduInk
-                                )
-                                Text(
-                                    text = "ولّد أسئلة من Studio ثم اضغط «حفظ في بنك الأسئلة»، أو أضف سؤالاً يدوياً.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = EduMuted
-                                )
-                            }
-                        }
-                        if (selectedLesson != null) {
-                            OutlinedButton(
-                                onClick = onOpenStudio,
-                                shape = RoundedCornerShape(10.dp),
-                                border = BorderStroke(1.dp, EduGreen),
-                                modifier = Modifier.minimumInteractiveComponentSize()
+                if (filtered.isEmpty()) {
+                    item(key = "qb_empty") {
+                        EduPanel(modifier = Modifier.fillMaxWidth()) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                Text("الذهاب إلى Studio للتوليد", color = EduGreenDark)
+                                Icon(
+                                    imageVector = Icons.Outlined.Quiz,
+                                    contentDescription = null,
+                                    tint = EduGreenDark,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "لا توجد أسئلة محفوظة حتى الآن",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = EduInk
+                                    )
+                                    Text(
+                                        text = "ولّد أسئلة من Studio ثم اضغط «حفظ في بنك الأسئلة»، أو أضف سؤالاً يدوياً.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = EduMuted
+                                    )
+                                }
+                            }
+                            if (selectedLesson != null) {
+                                OutlinedButton(
+                                    onClick = onOpenStudio,
+                                    shape = RoundedCornerShape(10.dp),
+                                    border = BorderStroke(1.dp, EduGreen),
+                                    modifier = Modifier.minimumInteractiveComponentSize()
+                                ) {
+                                    Text("الذهاب إلى Studio للتوليد", color = EduGreenDark)
+                                }
                             }
                         }
+                    }
+                } else {
+                    items(
+                        items = filtered,
+                        key = { it.id }
+                    ) { item ->
+                        QuestionBankCard(
+                            item = item,
+                            onToggleReviewed = { onToggleReviewed(item.id, item.reviewed) },
+                            onDelete = { onDeleteQuestion(item.id) }
+                        )
                     }
                 }
             } else {
-                items(
-                    items = filtered,
-                    key = { it.id }
-                ) { item ->
-                    QuestionBankCard(
-                        item = item,
-                        onToggleReviewed = { onToggleReviewed(item.id, item.reviewed) },
-                        onDelete = { onDeleteQuestion(item.id) }
-                    )
+                if (assessments.isEmpty()) {
+                    item(key = "asm_empty") {
+                        EduPanel(modifier = Modifier.fillMaxWidth()) {
+                            Text(
+                                text = "لا توجد تقييمات مؤقتة بعد",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = EduInk
+                            )
+                            Text(
+                                text = "أنشئ اختباراً قبلياً أو تكوينياً أو نهائياً من أسئلة البنك مع مؤقت زمني ونسبة نجاح.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = EduMuted
+                            )
+                        }
+                    }
+                } else {
+                    items(items = assessments, key = { "asm_${it.id}" }) { asm ->
+                        val resolvedQs = remember(asm, questions) {
+                            val byId = questions.associateBy { it.id }
+                            asm.questionIds.mapNotNull { byId[it] }
+                        }
+                        AssessmentCard(
+                            assessment = asm,
+                            resolvedCount = resolvedQs.size,
+                            onStartExam = { activeTimedAssessment = asm },
+                            onExportMarkdown = { onExportAssessmentMarkdown(asm) },
+                            onCopyMarkdown = {
+                                val md = QuestionBankEngine.exportAssessmentMarkdown(asm, resolvedQs)
+                                clipboardManager.setText(AnnotatedString(md))
+                            },
+                            onDelete = { onDeleteAssessment(asm.id) }
+                        )
+                    }
+                }
+
+                if (attempts.isNotEmpty()) {
+                    item(key = "attempts_heading") {
+                        Text(
+                            text = "سجل محاولات التقييم (${attempts.size})",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = EduInk,
+                            modifier = Modifier.padding(top = 6.dp)
+                        )
+                    }
+                    items(items = attempts, key = { "att_${it.id}" }) { att ->
+                        EduPanel(
+                            modifier = Modifier.fillMaxWidth(),
+                            borderColor = if (att.passed) EduGreen else EduOrange,
+                            containerColor = if (att.passed) EduMint.copy(alpha = 0.25f) else EduWhite
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = att.assessmentTitle,
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = EduInk
+                                    )
+                                    Text(
+                                        text = "${att.correctCount}/${att.totalQuestions} (${att.scorePercent}%) • ${att.durationSeconds}ث • +${att.earnedXp} XP",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = EduMuted
+                                    )
+                                }
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = if (att.passed) EduMint else EduOrange.copy(alpha = 0.16f)
+                                ) {
+                                    Text(
+                                        text = if (att.passed) "ناجح" else "يحتاج مراجعة",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (att.passed) EduGreenDark else EduOrange,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -384,6 +520,34 @@ fun QuestionBankScreen(
             questions = playableQuestions.take(20),
             onDismiss = { showFlashcardsDialog = false }
         )
+    }
+
+    if (showCreateAssessmentDialog) {
+        CreateAssessmentDialog(
+            questions = questions,
+            onDismiss = { showCreateAssessmentDialog = false },
+            onSave = { title, kind, qIds, minutes, passPercent ->
+                onCreateAssessment(title, kind, qIds, minutes, passPercent)
+                showCreateAssessmentDialog = false
+            }
+        )
+    }
+
+    activeTimedAssessment?.let { asm ->
+        val byId = questions.associateBy { it.id }
+        val examQuestions = asm.questionIds.mapNotNull { byId[it] }
+        if (examQuestions.isNotEmpty()) {
+            TimedExamRunnerDialog(
+                assessment = asm,
+                questions = examQuestions,
+                onDismiss = { activeTimedAssessment = null },
+                onCompleted = { correct, total, percent, elapsedSec, xp ->
+                    onRecordAssessmentAttempt(asm, correct, total, percent, elapsedSec, xp)
+                }
+            )
+        } else {
+            activeTimedAssessment = null
+        }
     }
 }
 
@@ -579,22 +743,30 @@ private fun AddManualQuestionDialog(
                     minLines = 2,
                     modifier = Modifier.fillMaxWidth()
                 )
-                if (type == QuestionType.MCQ) {
+                val optionsHint = when (type) {
+                    QuestionType.MCQ -> "الخيارات (سطر لكل خيار)"
+                    QuestionType.ORDERING -> "العناصر بالترتيب الصحيح (سطر لكل عنصر)"
+                    QuestionType.MATCHING -> "أزواج التوصيل (مثال: المفهوم = التعريف في كل سطر)"
+                    else -> ""
+                }
+                if (optionsHint.isNotBlank()) {
                     OutlinedTextField(
                         value = optionsRaw,
                         onValueChange = { optionsRaw = it },
-                        label = { Text("الخيارات (سطر لكل خيار)") },
+                        label = { Text(optionsHint) },
                         minLines = 3,
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
-                OutlinedTextField(
-                    value = correctAnswer,
-                    onValueChange = { correctAnswer = it },
-                    label = { Text(if (type == QuestionType.TRUE_FALSE) "الإجابة (صح أو خطأ)" else "الإجابة الصحيحة") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
+                if (type != QuestionType.ORDERING && type != QuestionType.MATCHING) {
+                    OutlinedTextField(
+                        value = correctAnswer,
+                        onValueChange = { correctAnswer = it },
+                        label = { Text(if (type == QuestionType.TRUE_FALSE) "الإجابة (صح أو خطأ)" else "الإجابة الصحيحة") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
                 OutlinedTextField(
                     value = rationale,
                     onValueChange = { rationale = it },
@@ -605,15 +777,26 @@ private fun AddManualQuestionDialog(
             }
         },
         confirmButton = {
+            val rawLines = optionsRaw.lines().map { it.trim() }.filter { it.isNotBlank() }
+            val ready = prompt.isNotBlank() && when (type) {
+                QuestionType.ORDERING -> rawLines.size >= 2
+                QuestionType.MATCHING -> rawLines.count { it.contains("=") } >= 2
+                else -> correctAnswer.isNotBlank()
+            }
             TextButton(
-                enabled = prompt.isNotBlank() && correctAnswer.isNotBlank(),
+                enabled = ready,
                 onClick = {
                     val opts = when (type) {
                         QuestionType.TRUE_FALSE -> listOf("صح", "خطأ")
-                        QuestionType.MCQ -> optionsRaw.lines().map { it.trim() }.filter { it.isNotBlank() }
-                        QuestionType.SHORT_ANSWER -> emptyList()
+                        QuestionType.MCQ, QuestionType.ORDERING, QuestionType.MATCHING -> rawLines
+                        QuestionType.FILL_BLANK, QuestionType.SHORT_ANSWER -> emptyList()
                     }
-                    onSave(type, prompt, opts, correctAnswer, rationale, difficulty)
+                    val finalAnswer = when (type) {
+                        QuestionType.ORDERING -> rawLines.joinToString(" | ")
+                        QuestionType.MATCHING -> rawLines.joinToString(";")
+                        else -> correctAnswer.trim()
+                    }
+                    onSave(type, prompt, opts, finalAnswer, rationale, difficulty)
                 }
             ) {
                 Text("حفظ", color = EduGreenDark, fontWeight = FontWeight.Bold)
@@ -692,47 +875,12 @@ private fun InteractiveQuizDialog(
                     )
                     Text(text = current.prompt, style = MaterialTheme.typography.titleSmall, color = EduInk)
 
-                    if (current.options.isNotEmpty()) {
-                        current.options.forEach { opt ->
-                            val isSelected = picked == opt
-                            val isCorrect = opt.equals(current.correctAnswer, ignoreCase = true)
-                            val bg = when {
-                                checkedCurrent && isCorrect -> EduMint
-                                checkedCurrent && isSelected && !isCorrect -> EduRed.copy(alpha = 0.14f)
-                                isSelected -> EduLilac
-                                else -> EduBg
-                            }
-                            Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                color = bg,
-                                border = BorderStroke(
-                                    1.dp,
-                                    if (checkedCurrent && isCorrect) EduGreen else if (isSelected) EduPurple else EduLine
-                                ),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .minimumInteractiveComponentSize()
-                                    .clickable(enabled = !checkedCurrent) {
-                                        answers[current.id] = opt
-                                    }
-                            ) {
-                                Text(
-                                    text = opt,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = EduInk,
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
-                                )
-                            }
-                        }
-                    } else {
-                        OutlinedTextField(
-                            value = picked,
-                            onValueChange = { if (!checkedCurrent) answers[current.id] = it },
-                            label = { Text("اكتب إجابتك") },
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
+                    QuestionAnswerInputArea(
+                        question = current,
+                        currentAnswer = picked,
+                        locked = checkedCurrent,
+                        onAnswerChange = { answers[current.id] = it }
+                    )
 
                     if (checkedCurrent) {
                         Surface(shape = RoundedCornerShape(10.dp), color = EduMint.copy(alpha = 0.5f)) {
@@ -884,6 +1032,455 @@ private fun FlashcardsDialog(
         dismissButton = {
             TextButton(onClick = onDismiss) {
                 Text("إغلاق", color = EduMuted)
+            }
+        }
+    )
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun QuestionAnswerInputArea(
+    question: QuestionItem,
+    currentAnswer: String,
+    locked: Boolean,
+    onAnswerChange: (String) -> Unit
+) {
+    when {
+        question.type == QuestionType.ORDERING -> {
+            val baseItems = remember(question.id) {
+                val src = question.options.ifEmpty {
+                    question.correctAnswer.split("|", "->", "←").map { it.trim() }.filter { it.isNotBlank() }
+                }
+                if (src.size >= 2) src.reversed() else src
+            }
+            val currentList = remember(question.id, currentAnswer) {
+                if (currentAnswer.isBlank()) baseItems
+                else currentAnswer.split("|").map { it.trim() }.filter { it.isNotBlank() }
+            }
+            LaunchedEffect(question.id) {
+                if (currentAnswer.isBlank() && baseItems.isNotEmpty()) {
+                    onAnswerChange(baseItems.joinToString(" | "))
+                }
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("رتّب العناصر بالأعلى والأسفل:", style = MaterialTheme.typography.labelMedium, color = EduMuted)
+                currentList.forEachIndexed { idx, item ->
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = EduBg,
+                        border = BorderStroke(1.dp, EduLine),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("${idx + 1}. $item", style = MaterialTheme.typography.bodyMedium, color = EduInk, modifier = Modifier.weight(1f))
+                            IconButton(
+                                enabled = !locked && idx > 0,
+                                onClick = {
+                                    val mutable = currentList.toMutableList()
+                                    val moved = mutable.removeAt(idx)
+                                    mutable.add(idx - 1, moved)
+                                    onAnswerChange(mutable.joinToString(" | "))
+                                },
+                                modifier = Modifier.minimumInteractiveComponentSize()
+                            ) {
+                                Icon(Icons.Rounded.ArrowUpward, contentDescription = "أعلى", tint = EduGreenDark)
+                            }
+                            IconButton(
+                                enabled = !locked && idx < currentList.lastIndex,
+                                onClick = {
+                                    val mutable = currentList.toMutableList()
+                                    val moved = mutable.removeAt(idx)
+                                    mutable.add(idx + 1, moved)
+                                    onAnswerChange(mutable.joinToString(" | "))
+                                },
+                                modifier = Modifier.minimumInteractiveComponentSize()
+                            ) {
+                                Icon(Icons.Rounded.ArrowDownward, contentDescription = "أسفل", tint = EduGreenDark)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        question.type == QuestionType.MATCHING -> {
+            val pairs = remember(question.id) {
+                val src = question.options.ifEmpty { question.correctAnswer.split(";").map { it.trim() } }
+                src.mapNotNull { line ->
+                    val parts = line.split("=", "->").map { it.trim() }
+                    if (parts.size >= 2) parts[0] to parts[1] else null
+                }
+            }
+            val rightPool = remember(question.id) { pairs.map { it.second }.reversed() }
+            var selectedLeft by remember(question.id) { mutableIntStateOf(0) }
+            val chosen = remember(question.id) { mutableStateMapOf<String, String>() }
+
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("اختر العبارة ثم اختر ما يناسبها:", style = MaterialTheme.typography.labelMedium, color = EduMuted)
+                pairs.forEachIndexed { idx, (left, _) ->
+                    val pickedRight = chosen[left].orEmpty()
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = if (selectedLeft == idx) EduLilac else EduBg,
+                        border = BorderStroke(1.dp, if (selectedLeft == idx) EduPurple else EduLine),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .minimumInteractiveComponentSize()
+                            .clickable(enabled = !locked) { selectedLeft = idx }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(left, style = MaterialTheme.typography.bodySmall, color = EduInk)
+                            Text(pickedRight.ifBlank { "—" }, style = MaterialTheme.typography.labelSmall, color = EduGreenDark)
+                        }
+                    }
+                }
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    rightPool.forEach { r ->
+                        val activeLeft = pairs.getOrNull(selectedLeft)?.first.orEmpty()
+                        EduPill(
+                            text = r,
+                            active = activeLeft.isNotBlank() && chosen[activeLeft] == r,
+                            onClick = {
+                                if (!locked && activeLeft.isNotBlank()) {
+                                    chosen[activeLeft] = r
+                                    val encoded = pairs.mapNotNull { (l, _) ->
+                                        chosen[l]?.let { "$l=$it" }
+                                    }.joinToString(";")
+                                    onAnswerChange(encoded)
+                                }
+                            }
+                        )
+                    }
+                }
+            }
+        }
+
+        question.options.isNotEmpty() -> {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                question.options.forEach { opt ->
+                    val isSelected = currentAnswer == opt
+                    val isCorrect = QuestionBankEngine.isAnswerCorrect(question, opt)
+                    val bg = when {
+                        locked && isCorrect -> EduMint
+                        locked && isSelected && !isCorrect -> EduRed.copy(alpha = 0.14f)
+                        isSelected -> EduLilac
+                        else -> EduBg
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = bg,
+                        border = BorderStroke(
+                            1.dp,
+                            if (locked && isCorrect) EduGreen else if (isSelected) EduPurple else EduLine
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .minimumInteractiveComponentSize()
+                            .clickable(enabled = !locked) { onAnswerChange(opt) }
+                    ) {
+                        Text(
+                            text = opt,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = EduInk,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
+                        )
+                    }
+                }
+            }
+        }
+
+        else -> {
+            OutlinedTextField(
+                value = currentAnswer,
+                onValueChange = { if (!locked) onAnswerChange(it) },
+                label = { Text(if (question.type == QuestionType.FILL_BLANK) "أكمل الفراغ" else "اكتب إجابتك") },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+    }
+}
+
+@Composable
+private fun AssessmentCard(
+    assessment: AssessmentRecord,
+    resolvedCount: Int,
+    onStartExam: () -> Unit,
+    onExportMarkdown: () -> Unit,
+    onCopyMarkdown: () -> Unit,
+    onDelete: () -> Unit
+) {
+    EduPanel(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(assessment.title, style = MaterialTheme.typography.titleSmall, color = EduInk)
+                Text(
+                    text = "${assessment.kind.labelAr} • $resolvedCount سؤال • ${if (assessment.timeLimitMinutes > 0) "${assessment.timeLimitMinutes} دقيقة" else "بدون حد زمني"} • النجاح ${assessment.passScorePercent}%",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = EduMuted
+                )
+            }
+            Row {
+                IconButton(onClick = onCopyMarkdown, modifier = Modifier.minimumInteractiveComponentSize()) {
+                    Icon(Icons.Outlined.ContentCopy, contentDescription = "نسخ Markdown", tint = EduGreenDark)
+                }
+                IconButton(onClick = onExportMarkdown, modifier = Modifier.minimumInteractiveComponentSize()) {
+                    Icon(Icons.Outlined.Description, contentDescription = "تصدير Markdown", tint = EduBlue)
+                }
+                IconButton(onClick = onDelete, modifier = Modifier.minimumInteractiveComponentSize()) {
+                    Icon(Icons.Outlined.DeleteOutline, contentDescription = "حذف التقييم", tint = EduRed)
+                }
+            }
+        }
+        Button(
+            onClick = onStartExam,
+            enabled = resolvedCount > 0,
+            shape = RoundedCornerShape(12.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = EduGreen, contentColor = EduWhite),
+            modifier = Modifier
+                .fillMaxWidth()
+                .minimumInteractiveComponentSize()
+                .testTag("start_assessment_${assessment.id}")
+        ) {
+            Icon(Icons.Rounded.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(modifier = Modifier.width(6.dp))
+            Text("بدء التقييم المؤقت", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun CreateAssessmentDialog(
+    questions: List<QuestionItem>,
+    onDismiss: () -> Unit,
+    onSave: (String, AssessmentKind, List<String>, Int, Int) -> Unit
+) {
+    var title by remember { mutableStateOf("تقييم الدرس التكويني") }
+    var kind by remember { mutableStateOf(AssessmentKind.FORMATIVE) }
+    var minutesText by remember { mutableStateOf("10") }
+    var passText by remember { mutableStateOf("60") }
+    val selectedIds = remember(questions) {
+        mutableStateListOf<String>().apply {
+            addAll(questions.take(10).map { it.id })
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = EduWhite,
+        title = { Text("إنشاء تقييم مؤقت جديد", style = MaterialTheme.typography.titleMedium, color = EduInk) },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    label = { Text("عنوان التقييم") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    AssessmentKind.entries.forEach { k ->
+                        EduPill(text = k.labelAr, active = kind == k, onClick = { kind = k })
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = minutesText,
+                        onValueChange = { minutesText = it.filter { c -> c.isDigit() } },
+                        label = { Text("المدة (دقائق)") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = passText,
+                        onValueChange = { passText = it.filter { c -> c.isDigit() } },
+                        label = { Text("درجة النجاح %") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                Text("الأسئلة المختارة (${selectedIds.size}/${questions.size}):", style = MaterialTheme.typography.labelMedium, color = EduInk)
+                questions.take(20).forEach { q ->
+                    val checked = selectedIds.contains(q.id)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable {
+                                if (checked) selectedIds.remove(q.id) else selectedIds.add(q.id)
+                            }
+                            .padding(vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = checked,
+                            onCheckedChange = {
+                                if (checked) selectedIds.remove(q.id) else selectedIds.add(q.id)
+                            },
+                            colors = CheckboxDefaults.colors(checkedColor = EduGreen)
+                        )
+                        Text(q.prompt, style = MaterialTheme.typography.bodySmall, color = EduInk, maxLines = 2)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = title.isNotBlank() && selectedIds.isNotEmpty(),
+                onClick = {
+                    val mins = minutesText.toIntOrNull() ?: 10
+                    val pass = passText.toIntOrNull() ?: 60
+                    onSave(title, kind, selectedIds.toList(), mins, pass)
+                }
+            ) {
+                Text("حفظ التقييم", color = EduGreenDark, fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("إلغاء", color = EduMuted)
+            }
+        }
+    )
+}
+
+@Composable
+private fun TimedExamRunnerDialog(
+    assessment: AssessmentRecord,
+    questions: List<QuestionItem>,
+    onDismiss: () -> Unit,
+    onCompleted: (correct: Int, total: Int, scorePercent: Int, elapsedSeconds: Int, xp: Int) -> Unit
+) {
+    val answers = remember(assessment.id) { mutableStateMapOf<String, String>() }
+    val totalAllowedSeconds = (assessment.timeLimitMinutes * 60).coerceAtLeast(0)
+    var remainingSeconds by remember(assessment.id) { mutableIntStateOf(totalAllowedSeconds) }
+    var elapsedSeconds by remember(assessment.id) { mutableIntStateOf(0) }
+    var finished by remember(assessment.id) { mutableStateOf(false) }
+
+    fun finishExam() {
+        if (finished) return
+        finished = true
+        val summary = QuestionBankEngine.gradeQuiz(questions, answers)
+        onCompleted(summary.correctCount, summary.totalQuestions, summary.scorePercent, elapsedSeconds, summary.earnedXp)
+    }
+
+    LaunchedEffect(assessment.id, finished) {
+        while (!finished) {
+            delay(1000L)
+            elapsedSeconds++
+            if (totalAllowedSeconds > 0) {
+                remainingSeconds = (remainingSeconds - 1).coerceAtLeast(0)
+                if (remainingSeconds == 0) {
+                    finishExam()
+                    break
+                }
+            }
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = EduWhite,
+        title = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(assessment.title, style = MaterialTheme.typography.titleMedium, color = EduInk, modifier = Modifier.weight(1f))
+                if (totalAllowedSeconds > 0 && !finished) {
+                    val mins = remainingSeconds / 60
+                    val secs = remainingSeconds % 60
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = if (remainingSeconds <= 60) EduRed.copy(alpha = 0.14f) else EduMint
+                    ) {
+                        Text(
+                            text = String.format("%02d:%02d", mins, secs),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = if (remainingSeconds <= 60) EduRed else EduGreenDark,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                if (finished) {
+                    val summary = QuestionBankEngine.gradeQuiz(questions, answers)
+                    val passed = summary.scorePercent >= assessment.passScorePercent
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        RadialProgressIndicator(
+                            percentage = summary.scorePercent,
+                            size = 96.dp,
+                            strokeWidth = 9.dp,
+                            label = if (passed) "ناجح" else "لم يجتز"
+                        )
+                        Text(
+                            text = "${summary.correctCount}/${summary.totalQuestions} • الزمن: ${elapsedSeconds}ث",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = EduInk
+                        )
+                        Text(
+                            text = "نسبة النجاح المطلوبة: ${assessment.passScorePercent}% • +${summary.earnedXp} XP",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = if (passed) EduGreenDark else EduOrange
+                        )
+                    }
+                } else {
+                    questions.forEachIndexed { idx, q ->
+                        EduPanel(modifier = Modifier.fillMaxWidth()) {
+                            Text("${idx + 1}. ${q.prompt}", style = MaterialTheme.typography.titleSmall, color = EduInk)
+                            QuestionAnswerInputArea(
+                                question = q,
+                                currentAnswer = answers[q.id].orEmpty(),
+                                locked = false,
+                                onAnswerChange = { answers[q.id] = it }
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            if (finished) {
+                TextButton(onClick = onDismiss) {
+                    Text("إغلاق", color = EduGreenDark, fontWeight = FontWeight.Bold)
+                }
+            } else {
+                TextButton(onClick = { finishExam() }) {
+                    Text("تسليم التقييم", color = EduGreenDark, fontWeight = FontWeight.Bold)
+                }
+            }
+        },
+        dismissButton = {
+            if (!finished) {
+                TextButton(onClick = onDismiss) {
+                    Text("خروج", color = EduMuted)
+                }
             }
         }
     )

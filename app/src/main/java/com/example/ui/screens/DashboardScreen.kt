@@ -33,12 +33,15 @@ import androidx.compose.material.icons.outlined.EmojiEvents
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Bolt
+import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.LocalFireDepartment
 import androidx.compose.material.icons.rounded.MenuBook
 import androidx.compose.material.icons.rounded.PictureAsPdf
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Route
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.School
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -66,7 +69,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -80,6 +85,7 @@ import com.example.model.DashboardSummary
 import com.example.model.LearningLessonNode
 import com.example.model.LearningNodeStatus
 import com.example.model.LessonRef
+import com.example.ui.components.BookCoverImage
 import com.example.ui.components.EduPanel
 import com.example.ui.components.EduPill
 import com.example.ui.components.EduYellowButton
@@ -103,8 +109,13 @@ import com.example.ui.theme.EduYellow
 @Composable
 fun DashboardScreen(
     summary: DashboardSummary,
+    bookmarkedLessons: List<LessonRef> = emptyList(),
+    bookCoversByKey: Map<String, String?> = emptyMap(),
     onOpenLessonInStudio: (LessonRef) -> Unit,
+    onOpenStudentStudy: (LessonRef) -> Unit = {},
+    onPreviewLessonPdf: (LessonRef) -> Unit = {},
     onToggleLessonCompleted: (LessonRef, Boolean) -> Unit,
+    onOpenGlobalSearch: () -> Unit = {},
     onPickBookPdf: () -> Unit,
     onPickZip: () -> Unit,
     onOpenLibrary: () -> Unit,
@@ -112,6 +123,7 @@ fun DashboardScreen(
 ) {
     var selectedBadge by remember { mutableStateOf<AchievementBadge?>(null) }
     var selectedCategory by remember { mutableStateOf<BadgeCategory?>(null) }
+    val haptic = LocalHapticFeedback.current
 
     Box(
         modifier = modifier.fillMaxSize(),
@@ -125,7 +137,10 @@ fun DashboardScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item(key = "dashboard_hero") {
-                DashboardHeroCard(summary = summary)
+                DashboardHeroCard(
+                    summary = summary,
+                    onOpenGlobalSearch = onOpenGlobalSearch
+                )
             }
 
             if (!summary.hasWorkspace) {
@@ -159,7 +174,22 @@ fun DashboardScreen(
                     item(key = "next_step") {
                         NextRecommendedStepCard(
                             lesson = nextLesson,
+                            coverPath = bookCoversByKey[nextLesson.bookKey],
+                            onOpenStudentStudy = { onOpenStudentStudy(nextLesson) },
+                            onPreviewPdf = if (!nextLesson.pdfPath.isNullOrBlank()) {
+                                { onPreviewLessonPdf(nextLesson) }
+                            } else null,
                             onOpenInStudio = { onOpenLessonInStudio(nextLesson) }
+                        )
+                    }
+                }
+
+                if (bookmarkedLessons.isNotEmpty()) {
+                    item(key = "bookmarked_lessons") {
+                        BookmarkedLessonsStrip(
+                            lessons = bookmarkedLessons,
+                            onOpenStudentStudy = onOpenStudentStudy,
+                            onPreviewLessonPdf = onPreviewLessonPdf
                         )
                     }
                 }
@@ -233,9 +263,13 @@ fun DashboardScreen(
 
                 summary.unitPaths.forEach { unitPath ->
                     item(key = "unit_header_${unitPath.unitKey}") {
+                        val unitLesson = unitPath.nodes.firstOrNull()?.lesson
+                        val unitBookKey = unitLesson?.bookKey.orEmpty()
                         UnitPathHeaderCard(
                             unitTitle = unitPath.unitTitle,
                             bookTitle = unitPath.bookTitle,
+                            coverPath = bookCoversByKey[unitBookKey],
+                            subjectKey = unitLesson?.subjectKey ?: unitBookKey,
                             completedCount = unitPath.completedCount,
                             totalCount = unitPath.totalCount,
                             completionPercent = unitPath.completionPercent
@@ -250,8 +284,13 @@ fun DashboardScreen(
                             isLast = idx == unitPath.nodes.lastIndex,
                             node = node,
                             onToggleCompleted = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 onToggleLessonCompleted(node.lesson, node.isCompleted)
                             },
+                            onOpenStudentStudy = { onOpenStudentStudy(node.lesson) },
+                            onPreviewPdf = if (!node.lesson.pdfPath.isNullOrBlank()) {
+                                { onPreviewLessonPdf(node.lesson) }
+                            } else null,
                             onOpenInStudio = { onOpenLessonInStudio(node.lesson) }
                         )
                     }
@@ -269,7 +308,10 @@ fun DashboardScreen(
 }
 
 @Composable
-private fun DashboardHeroCard(summary: DashboardSummary) {
+private fun DashboardHeroCard(
+    summary: DashboardSummary,
+    onOpenGlobalSearch: () -> Unit
+) {
     val animatedCompletion by animateFloatAsState(
         targetValue = (summary.overallCompletionPercent / 100f).coerceIn(0f, 1f),
         animationSpec = spring(stiffness = Spring.StiffnessLow),
@@ -395,6 +437,31 @@ private fun DashboardHeroCard(summary: DashboardSummary) {
                             brush = Brush.horizontalGradient(listOf(EduYellow, EduHeroKicker)),
                             cornerRadius = CornerRadius(12f, 12f),
                             size = Size(width = size.width * animatedLevelProgress, height = size.height)
+                        )
+                    }
+                }
+
+                if (summary.hasWorkspace) {
+                    OutlinedButton(
+                        onClick = onOpenGlobalSearch,
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, EduWhite.copy(alpha = 0.5f)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .minimumInteractiveComponentSize()
+                            .testTag("dashboard_global_search_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Search,
+                            contentDescription = null,
+                            tint = EduWhite,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "البحث الشامل في الدروس والمسودات والأسئلة",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = EduWhite
                         )
                     }
                 }
@@ -594,9 +661,13 @@ private fun KpiCard(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun NextRecommendedStepCard(
     lesson: LessonRef,
+    coverPath: String?,
+    onOpenStudentStudy: () -> Unit,
+    onPreviewPdf: (() -> Unit)?,
     onOpenInStudio: () -> Unit
 ) {
     EduPanel(
@@ -607,24 +678,19 @@ private fun NextRecommendedStepCard(
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = EduGreen,
-                modifier = Modifier.size(42.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Rounded.PlayArrow,
-                        contentDescription = null,
-                        tint = EduWhite
-                    )
-                }
-            }
+            BookCoverImage(
+                coverPath = coverPath,
+                bookTitle = lesson.bookTitle,
+                subjectKey = lesson.subjectKey,
+                cornerRadius = 10.dp,
+                targetWidthPx = 220,
+                modifier = Modifier.size(width = 48.dp, height = 64.dp)
+            )
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "خطوتك التالية في المسار",
+                    text = "خطوتك التالية في مسار التعلّم",
                     style = MaterialTheme.typography.labelMedium,
                     color = EduGreenDark
                 )
@@ -634,13 +700,19 @@ private fun NextRecommendedStepCard(
                     color = EduInk
                 )
                 Text(
-                    text = "${lesson.bookTitle} • ${lesson.unitTitle}",
+                    text = "${lesson.bookTitle} • ${lesson.unitTitle}" +
+                        (lesson.pageRange?.let { " • ص $it" } ?: ""),
                     style = MaterialTheme.typography.bodySmall,
                     color = EduMuted
                 )
             }
+        }
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
             Button(
-                onClick = onOpenInStudio,
+                onClick = onOpenStudentStudy,
                 shape = RoundedCornerShape(12.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = EduYellow,
@@ -648,13 +720,110 @@ private fun NextRecommendedStepCard(
                 ),
                 modifier = Modifier
                     .minimumInteractiveComponentSize()
-                    .testTag("dashboard_continue_studio_button")
+                    .testTag("dashboard_student_study_button")
             ) {
+                Icon(
+                    imageVector = Icons.Rounded.School,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(5.dp))
                 Text(
-                    text = "ابدأ",
+                    text = "ابدأ التعلّم والمذاكرة",
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.ExtraBold
                 )
+            }
+            if (onPreviewPdf != null) {
+                OutlinedButton(
+                    onClick = onPreviewPdf,
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, EduGreen),
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .testTag("dashboard_next_pdf_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.PictureAsPdf,
+                        contentDescription = null,
+                        tint = EduGreenDark,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "عرض PDF",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = EduGreenDark
+                    )
+                }
+            }
+            OutlinedButton(
+                onClick = onOpenInStudio,
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, EduLine),
+                modifier = Modifier
+                    .minimumInteractiveComponentSize()
+                    .testTag("dashboard_continue_studio_button")
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.AutoAwesome,
+                    contentDescription = null,
+                    tint = EduMuted,
+                    modifier = Modifier.size(15.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = "توليد في Studio",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = EduInk
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun BookmarkedLessonsStrip(
+    lessons: List<LessonRef>,
+    onOpenStudentStudy: (LessonRef) -> Unit,
+    onPreviewLessonPdf: (LessonRef) -> Unit
+) {
+    EduPanel(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.Bookmark,
+                contentDescription = null,
+                tint = EduOrange,
+                modifier = Modifier.size(18.dp)
+            )
+            Text(
+                text = "الدروس المعلّمة للمتابعة السريعة (${lessons.size})",
+                style = MaterialTheme.typography.titleSmall,
+                color = EduInk
+            )
+        }
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+            verticalArrangement = Arrangement.spacedBy(7.dp)
+        ) {
+            lessons.take(6).forEach { l ->
+                EduPill(
+                    text = l.title,
+                    active = false,
+                    onClick = { onOpenStudentStudy(l) },
+                    testTag = "bookmark_pill_${l.lessonKey}"
+                )
+                if (!l.pdfPath.isNullOrBlank()) {
+                    EduPill(
+                        text = "PDF",
+                        active = true,
+                        onClick = { onPreviewLessonPdf(l) }
+                    )
+                }
             }
         }
     }
@@ -1062,6 +1231,8 @@ private fun EduFieldSurfaceMuted(): Color = EduBg.copy(alpha = 0.7f)
 private fun UnitPathHeaderCard(
     unitTitle: String,
     bookTitle: String,
+    coverPath: String?,
+    subjectKey: String,
     completedCount: Int,
     totalCount: Int,
     completionPercent: Int
@@ -1079,8 +1250,16 @@ private fun UnitPathHeaderCard(
                 .fillMaxWidth()
                 .padding(horizontal = 14.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
+            BookCoverImage(
+                coverPath = coverPath,
+                bookTitle = bookTitle,
+                subjectKey = subjectKey,
+                cornerRadius = 8.dp,
+                targetWidthPx = 140,
+                modifier = Modifier.size(width = 34.dp, height = 46.dp)
+            )
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = unitTitle,
@@ -1115,6 +1294,8 @@ private fun LearningPathNodeRow(
     isLast: Boolean,
     node: LearningLessonNode,
     onToggleCompleted: () -> Unit,
+    onOpenStudentStudy: () -> Unit,
+    onPreviewPdf: (() -> Unit)?,
     onOpenInStudio: () -> Unit
 ) {
     val (nodeColor, borderColor, bgColor) = when (node.status) {
@@ -1219,6 +1400,51 @@ private fun LearningPathNodeRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
+                Button(
+                    onClick = onOpenStudentStudy,
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = EduGreen,
+                        contentColor = EduWhite
+                    ),
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .testTag("path_study_${node.lesson.lessonKey}")
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.School,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(5.dp))
+                    Text(
+                        text = "دراسة الدرس",
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                }
+                if (onPreviewPdf != null) {
+                    OutlinedButton(
+                        onClick = onPreviewPdf,
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, EduGreen),
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("path_pdf_${node.lesson.lessonKey}")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.PictureAsPdf,
+                            contentDescription = null,
+                            tint = EduGreenDark,
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "PDF",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = EduGreenDark
+                        )
+                    }
+                }
                 OutlinedButton(
                     onClick = onToggleCompleted,
                     shape = RoundedCornerShape(10.dp),
@@ -1228,25 +1454,30 @@ private fun LearningPathNodeRow(
                         .testTag("toggle_complete_${node.lesson.lessonKey}")
                 ) {
                     Text(
-                        text = if (node.isCompleted) "مكتمل ✓" else "تحديد كمكتمل (+50 XP)",
+                        text = if (node.isCompleted) "مكتمل ✓" else "إتمام (+50 XP)",
                         style = MaterialTheme.typography.labelMedium,
                         color = if (node.isCompleted) EduGreenDark else EduInk
                     )
                 }
-                Button(
+                OutlinedButton(
                     onClick = onOpenInStudio,
                     shape = RoundedCornerShape(10.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = EduGreen,
-                        contentColor = EduWhite
-                    ),
+                    border = BorderStroke(1.dp, EduLine),
                     modifier = Modifier
                         .minimumInteractiveComponentSize()
                         .testTag("path_open_studio_${node.lesson.lessonKey}")
                 ) {
+                    Icon(
+                        imageVector = Icons.Rounded.AutoAwesome,
+                        contentDescription = "تحرير في الاستوديو",
+                        tint = EduMuted,
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = "فتح في الاستوديو",
-                        style = MaterialTheme.typography.labelMedium
+                        text = "Studio",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = EduMuted
                     )
                 }
             }

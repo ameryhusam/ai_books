@@ -1,5 +1,6 @@
 package com.example.data.repository
 
+import com.example.model.AssessmentRecord
 import com.example.model.LessonRef
 import com.example.model.QuestionDifficulty
 import com.example.model.QuestionItem
@@ -280,7 +281,7 @@ object QuestionBankEngine {
         }
         val correct = questions.count { q ->
             val picked = selectedAnswers[q.id]?.trim().orEmpty()
-            picked.isNotBlank() && picked.equals(q.correctAnswer.trim(), ignoreCase = true)
+            isAnswerCorrect(q, picked)
         }
         val percent = LearningProgressCalculator.calculateCompletionPercent(correct, questions.size)
         val earnedXp = (correct * 10) + if (percent >= 60) 15 else 5
@@ -290,6 +291,58 @@ object QuestionBankEngine {
             scorePercent = percent,
             earnedXp = earnedXp
         )
+    }
+
+    fun isAnswerCorrect(q: QuestionItem, rawPicked: String): Boolean {
+        val picked = rawPicked.trim()
+        if (picked.isBlank()) return false
+        val expected = q.correctAnswer.trim()
+        return when (q.type) {
+            QuestionType.ORDERING -> {
+                val normPicked = picked.split("|", "->", "←").map { normalizeForFingerprint(it) }.filter { it.isNotBlank() }
+                val normExpected = if (expected.isNotBlank()) {
+                    expected.split("|", "->", "←").map { normalizeForFingerprint(it) }.filter { it.isNotBlank() }
+                } else {
+                    q.options.map { normalizeForFingerprint(it) }.filter { it.isNotBlank() }
+                }
+                normPicked.isNotEmpty() && normPicked == normExpected
+            }
+            QuestionType.MATCHING -> {
+                val pickedPairs = picked.split(";").map { normalizeForFingerprint(it) }.filter { it.isNotBlank() }.toSet()
+                val expectedPairs = expected.split(";").map { normalizeForFingerprint(it) }.filter { it.isNotBlank() }.toSet()
+                pickedPairs.isNotEmpty() && pickedPairs == expectedPairs
+            }
+            QuestionType.FILL_BLANK, QuestionType.SHORT_ANSWER -> {
+                val normPicked = normalizeForFingerprint(picked)
+                val normExpected = normalizeForFingerprint(expected)
+                normPicked == normExpected || (normExpected.length > 3 && normPicked.contains(normExpected))
+            }
+            else -> picked.equals(expected, ignoreCase = true) ||
+                normalizeForFingerprint(picked) == normalizeForFingerprint(expected)
+        }
+    }
+
+    fun exportAssessmentMarkdown(
+        assessment: AssessmentRecord,
+        questions: List<QuestionItem>
+    ): String = buildString {
+        append("# ${assessment.title}\n\n")
+        append("- **النوع:** ${assessment.kind.labelAr}\n")
+        append("- **عدد الأسئلة:** ${questions.size}\n")
+        append("- **الزمن:** ${if (assessment.timeLimitMinutes > 0) "${assessment.timeLimitMinutes} دقيقة" else "مفتوح"}\n")
+        append("- **درجة النجاح:** ${assessment.passScorePercent}%\n\n---\n\n")
+        questions.forEachIndexed { idx, q ->
+            append("### ${idx + 1}. ${q.prompt}\n")
+            append("*(${q.type.labelAr} • ${q.difficulty.labelAr})*\n\n")
+            q.options.forEachIndexed { optIdx, opt ->
+                append("- ${optIdx + 1}) $opt\n")
+            }
+            append("\n> **الإجابة النموذجية:** ${q.correctAnswer}\n")
+            if (q.rationale.isNotBlank()) {
+                append("> **التفسير:** ${q.rationale}\n")
+            }
+            append("\n")
+        }
     }
 
     private fun firstStr(obj: JsonObject, vararg keys: String): String {

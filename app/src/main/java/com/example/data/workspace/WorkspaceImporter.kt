@@ -6,6 +6,8 @@ import android.provider.OpenableColumns
 import com.example.model.BookRef
 import com.example.model.ImportedWorkspace
 import com.example.model.LessonRef
+import com.example.model.StagedGradeSummary
+import com.example.model.StagedWorkspacePreview
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -14,7 +16,6 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import java.io.BufferedInputStream
 import java.io.File
@@ -29,7 +30,7 @@ class WorkspaceImporter(private val context: Context) {
     private val workspacesRoot: File
         get() = File(context.filesDir, "edumini/workspaces")
 
-    suspend fun importFromUri(uri: Uri): ImportedWorkspace = withContext(Dispatchers.IO) {
+    suspend fun inspectZipFromUri(uri: Uri): StagedWorkspacePreview = withContext(Dispatchers.IO) {
         val declaredSize = queryFileSize(uri)
         if (declaredSize != null && declaredSize > MAX_ZIP_BYTES) {
             throw IllegalArgumentException("حجم ZIP أكبر من الحد التجريبي (120 MB)")
@@ -37,23 +38,22 @@ class WorkspaceImporter(private val context: Context) {
         val stream = context.contentResolver.openInputStream(uri)
             ?: throw IllegalStateException("تعذر فتح ملف ZIP المختار")
         stream.use { input ->
-            importFromStream(input, declaredSize)
+            inspectZipFromStream(input, declaredSize)
         }
     }
 
-    suspend fun importFromStream(
+    suspend fun inspectZipFromStream(
         inputStream: InputStream,
         declaredSizeBytes: Long? = null
-    ): ImportedWorkspace = withContext(Dispatchers.IO) {
+    ): StagedWorkspacePreview = withContext(Dispatchers.IO) {
         if (declaredSizeBytes != null && declaredSizeBytes > MAX_ZIP_BYTES) {
             throw IllegalArgumentException("حجم ZIP أكبر من الحد التجريبي (120 MB)")
         }
 
         val timestamp = System.currentTimeMillis()
-        val workspaceId = "import-$timestamp"
+        val stagingId = "stage-$timestamp"
         val rootDir = workspacesRoot.apply { mkdirs() }
-        val tempDir = File(rootDir, ".tmp-$workspaceId")
-        val destDir = File(rootDir, workspaceId)
+        val tempDir = File(rootDir, ".tmp-$stagingId")
 
         if (tempDir.exists()) tempDir.deleteRecursively()
         tempDir.mkdirs()
@@ -117,111 +117,268 @@ class WorkspaceImporter(private val context: Context) {
                 throw IllegalArgumentException("ZIP يجب أن يحتوي workspace/Gxx/")
             }
 
-            val bookIndexPaths = zipNames.filter { path ->
-                CANONICAL_INDEX_REGEX.matches(path) && !PART_INDEX_REGEX.matches(path)
-            }
-
-            val books = mutableListOf<BookRef>()
-            val lessons = mutableListOf<LessonRef>()
-            val warnings = mutableListOf<String>()
             val zipNameSet = zipNames.toHashSet()
-            val primaryGrade = gradeRoots.first()
-            val destRootPath = destDir.absolutePath
-
-            for (indexPath in bookIndexPaths) {
-                val bookRel = indexPath.removeSuffix("/index.json")
-                val segments = bookRel.split("/").drop(2)
-                val subjectKey = segments.getOrNull(0)?.takeIf { it.isNotBlank() } ?: "UNKNOWN"
-                val componentKey = segments.getOrNull(1)?.takeIf { it.isNotBlank() }
-                val bookKey = segments.joinToString("/")
-
-                val manifestFile = File(tempDir, "$bookRel/book_manifest.json").let { primary ->
-                    if (primary.exists()) primary else File(tempDir, "$bookRel/manifest.json")
-                }
-
-                val manifestObj: JsonObject? = if (manifestFile.exists()) {
-                    runCatching {
-                        json.parseToJsonElement(manifestFile.readText()).jsonObject
-                    }.onFailure {
-                        warnings.add("manifest غير موجود أو غير صالح: $bookRel")
-                    }.getOrNull()
-                } else {
-                    warnings.add("manifest غير موجود أو غير صالح: $bookRel")
-                    null
-                }
-
-                val indexFile = File(tempDir, indexPath)
-                val indexObj: JsonObject = try {
-                    json.parseToJsonElement(indexFile.readText()).jsonObject
-                } catch (_: Exception) {
-                    warnings.add("index.json غير صالح: $bookRel")
-                    continue
-                }
-
-                val fallbackTitle = subjectKey + (if (componentKey != null) " / $componentKey" else "")
-                val title = firstNonBlank(
-                    manifestObj?.str("title"),
-                    manifestObj?.str("bookTitle"),
-                    manifestObj?.str("displayTitle"),
-                    manifestObj?.str("subjectTitle"),
-                    fallbackTitle
+            val warnings = mutableListOf<String>()
+            val gradeSummaries = gradeRoots.mapNotNull { grade ->
+                val parsed = parseGradeFromDir(
+                    baseDir = tempDir,
+                    destRootPath = tempDir.absolutePath,
+                    gradeKey = grade,
+                    zipNames = zipNames,
+                    zipNameSet = zipNameSet,
+                    warningsOut = warnings
                 )
-
-                val parsedLessons = parseLessons(
-                    index = indexObj,
-                    grade = primaryGrade,
-                    rootPath = destRootPath,
-                    bookKey = bookKey,
-                    bookTitle = title,
-                    subjectKey = subjectKey,
-                    componentKey = componentKey,
-                    bookRel = bookRel,
-                    zipNameSet = zipNameSet
+                if (parsed.books.isEmpty()) null else StagedGradeSummary(
+                    gradeKey = grade,
+                    booksCount = parsed.books.size,
+                    lessonsCount = parsed.lessons.size,
+                    bookTitles = parsed.books.map { it.title }
                 )
-
-                books.add(
-                    BookRef(
-                        bookKey = bookKey,
-                        title = title,
-                        subjectKey = subjectKey,
-                        componentKey = componentKey,
-                        relativePath = bookRel,
-                        lessonsCount = parsedLessons.size
-                    )
-                )
-                lessons.addAll(parsedLessons)
             }
 
-            if (books.isEmpty()) {
+            if (gradeSummaries.isEmpty()) {
                 throw IllegalArgumentException(
                     "لم يتم العثور على index.json مرجعي في workspace/<grade>/<subject>[/<component>]/"
                 )
             }
 
-            if (!tempDir.renameTo(destDir)) {
-                tempDir.copyRecursively(destDir, overwrite = true)
-                tempDir.deleteRecursively()
-            }
-
-            if (gradeRoots.size > 1) {
-                warnings.add("الأرشيف يحتوي أكثر من صف؛ تم عرض الصف الأول فقط في هذه النسخة.")
-            }
-
-            ImportedWorkspace(
-                workspaceId = workspaceId,
-                gradeKey = primaryGrade,
-                rootPath = destRootPath,
-                title = "$primaryGrade • ${books.size} كتاب",
-                books = books,
-                lessons = lessons,
-                filesCount = zipNames.size,
-                warnings = warnings,
-                importedAt = timestamp
+            StagedWorkspacePreview(
+                stagingId = stagingId,
+                tempDirPath = tempDir.absolutePath,
+                fileCount = zipNames.size,
+                expandedBytes = expandedBytes,
+                grades = gradeSummaries,
+                warnings = warnings.distinct()
             )
         } catch (e: Exception) {
             tempDir.deleteRecursively()
             throw e
         }
+    }
+
+    suspend fun commitStagedGrades(
+        preview: StagedWorkspacePreview,
+        selectedGrades: List<String>
+    ): List<ImportedWorkspace> = withContext(Dispatchers.IO) {
+        val tempDir = File(preview.tempDirPath)
+        if (!tempDir.exists()) {
+            throw IllegalStateException("انتهت صلاحية المعاينة المؤقتة؛ أعد اختيار الملف.")
+        }
+        val gradesToImport = selectedGrades.ifEmpty {
+            listOfNotNull(preview.grades.firstOrNull()?.gradeKey)
+        }.distinct()
+        val committed = mutableListOf<ImportedWorkspace>()
+        try {
+            val allFiles = collectRelativeFiles(tempDir)
+            val allFileSet = allFiles.toHashSet()
+            val baseStamp = System.currentTimeMillis()
+            gradesToImport.forEachIndexed { idx, gradeKey ->
+                val workspaceId = "import-${baseStamp}-$gradeKey-${idx + 1}"
+                val destDir = File(workspacesRoot.apply { mkdirs() }, workspaceId)
+                // Copy grade subtree + shared top metadata into dedicated workspace folder
+                val gradeSourceDir = File(tempDir, "workspace/$gradeKey")
+                if (gradeSourceDir.exists()) {
+                    val destGradeDir = File(destDir, "workspace/$gradeKey")
+                    gradeSourceDir.copyRecursively(destGradeDir, overwrite = true)
+                }
+                val warnings = mutableListOf<String>()
+                val parsed = parseGradeFromDir(
+                    baseDir = destDir,
+                    destRootPath = destDir.absolutePath,
+                    gradeKey = gradeKey,
+                    zipNames = allFiles.filter { it.startsWith("workspace/$gradeKey/") },
+                    zipNameSet = allFileSet,
+                    warningsOut = warnings
+                )
+                if (parsed.books.isNotEmpty()) {
+                    committed.add(
+                        ImportedWorkspace(
+                            workspaceId = workspaceId,
+                            gradeKey = gradeKey,
+                            rootPath = destDir.absolutePath,
+                            title = "$gradeKey • ${parsed.books.size} كتاب",
+                            books = parsed.books,
+                            lessons = parsed.lessons,
+                            filesCount = allFiles.count { it.startsWith("workspace/$gradeKey/") },
+                            warnings = warnings.distinct(),
+                            importedAt = baseStamp + idx
+                        )
+                    )
+                }
+            }
+            if (committed.isEmpty()) {
+                throw IllegalArgumentException("لم يتم العثور على كتب صالحة في الصفوف المحددة")
+            }
+            committed
+        } finally {
+            tempDir.deleteRecursively()
+        }
+    }
+
+    fun discardStagedPreview(preview: StagedWorkspacePreview) {
+        runCatching { File(preview.tempDirPath).deleteRecursively() }
+    }
+
+    suspend fun importFromUri(uri: Uri): ImportedWorkspace {
+        val preview = inspectZipFromUri(uri)
+        val firstGrade = listOf(preview.grades.first().gradeKey)
+        val results = commitStagedGrades(preview, firstGrade)
+        val first = results.first()
+        return if (preview.grades.size > 1) {
+            first.copy(warnings = (first.warnings + "الأرشيف يحتوي أكثر من صف؛ تم عرض الصف الأول في الاستيراد السريع.").distinct())
+        } else first
+    }
+
+    suspend fun importFromStream(
+        inputStream: InputStream,
+        declaredSizeBytes: Long? = null
+    ): ImportedWorkspace {
+        val preview = inspectZipFromStream(inputStream, declaredSizeBytes)
+        val firstGrade = listOf(preview.grades.first().gradeKey)
+        val results = commitStagedGrades(preview, firstGrade)
+        val first = results.first()
+        return if (preview.grades.size > 1) {
+            first.copy(warnings = (first.warnings + "الأرشيف يحتوي أكثر من صف؛ تم عرض الصف الأول في الاستيراد السريع.").distinct())
+        } else first
+    }
+
+    private data class ParsedGradeTree(
+        val books: List<BookRef>,
+        val lessons: List<LessonRef>
+    )
+
+    private fun parseGradeFromDir(
+        baseDir: File,
+        destRootPath: String,
+        gradeKey: String,
+        zipNames: List<String>,
+        zipNameSet: Set<String>,
+        warningsOut: MutableList<String>
+    ): ParsedGradeTree {
+        val bookIndexPaths = zipNames.filter { path ->
+            path.startsWith("workspace/$gradeKey/") &&
+                CANONICAL_INDEX_REGEX.matches(path) &&
+                !PART_INDEX_REGEX.matches(path)
+        }
+
+        val books = mutableListOf<BookRef>()
+        val lessons = mutableListOf<LessonRef>()
+
+        for (indexPath in bookIndexPaths) {
+            val bookRel = indexPath.removeSuffix("/index.json")
+            val segments = bookRel.split("/").drop(2)
+            val subjectKey = segments.getOrNull(0)?.takeIf { it.isNotBlank() } ?: "UNKNOWN"
+            val componentKey = segments.getOrNull(1)?.takeIf { it.isNotBlank() }
+            val bookKey = segments.joinToString("/")
+
+            val manifestFile = File(baseDir, "$bookRel/book_manifest.json").let { primary ->
+                if (primary.exists()) primary else File(baseDir, "$bookRel/manifest.json")
+            }
+
+            val manifestObj: JsonObject? = if (manifestFile.exists()) {
+                runCatching {
+                    json.parseToJsonElement(manifestFile.readText()).jsonObject
+                }.onFailure {
+                    warningsOut.add("manifest غير موجود أو غير صالح: $bookRel")
+                }.getOrNull()
+            } else {
+                warningsOut.add("manifest غير موجود أو غير صالح: $bookRel")
+                null
+            }
+
+            val indexFile = File(baseDir, indexPath)
+            val indexObj: JsonObject = try {
+                json.parseToJsonElement(indexFile.readText()).jsonObject
+            } catch (_: Exception) {
+                warningsOut.add("index.json غير صالح: $bookRel")
+                continue
+            }
+
+            val fallbackTitle = subjectKey + (if (componentKey != null) " / $componentKey" else "")
+            val title = firstNonBlank(
+                manifestObj?.str("title"),
+                manifestObj?.str("bookTitle"),
+                manifestObj?.str("displayTitle"),
+                manifestObj?.str("subjectTitle"),
+                fallbackTitle
+            )
+
+            val parsedLessons = parseLessons(
+                index = indexObj,
+                grade = gradeKey,
+                rootPath = destRootPath,
+                bookKey = bookKey,
+                bookTitle = title,
+                subjectKey = subjectKey,
+                componentKey = componentKey,
+                bookRel = bookRel,
+                zipNameSet = zipNameSet
+            )
+
+            val manifestCover = manifestObj?.str("cover")
+                ?.trim()
+                ?.removePrefix("./")
+                ?.takeIf { it.isNotBlank() }
+            val coverRel = buildList {
+                if (manifestCover != null) add("$bookRel/$manifestCover")
+                add("$bookRel/cover.png")
+                add("$bookRel/cover.jpg")
+                add("$bookRel/cover.jpeg")
+                add("$bookRel/cover.webp")
+                add("$bookRel/assets/cover.png")
+                add("$bookRel/P01/cover.png")
+                add("workspace/$gradeKey/$subjectKey/cover.png")
+            }.firstOrNull { candidate ->
+                zipNameSet.any { it.equals(candidate, ignoreCase = true) }
+            }?.let { matchedKey ->
+                zipNameSet.first { it.equals(matchedKey, ignoreCase = true) }
+            }
+            val resolvedCoverPath = coverRel?.let { rel ->
+                File(baseDir, rel).takeIf { it.exists() }?.absolutePath
+            }
+
+            val bookPdfRel = buildList {
+                add("$bookRel/book.pdf")
+                add("$bookRel/${subjectKey.lowercase()}.pdf")
+                add("$bookRel/P01/book.pdf")
+                add("$bookRel/source.pdf")
+            }.firstOrNull { candidate ->
+                zipNameSet.any { it.equals(candidate, ignoreCase = true) }
+            }?.let { matchedKey ->
+                zipNameSet.first { it.equals(matchedKey, ignoreCase = true) }
+            } ?: zipNames.firstOrNull { path ->
+                path.startsWith("$bookRel/", ignoreCase = true) &&
+                    path.endsWith(".pdf", ignoreCase = true) &&
+                    !path.contains("/units/", ignoreCase = true)
+            }
+            val resolvedBookPdfPath = bookPdfRel?.let { rel ->
+                File(baseDir, rel).takeIf { it.exists() }?.absolutePath
+            }
+
+            books.add(
+                BookRef(
+                    bookKey = bookKey,
+                    title = title,
+                    subjectKey = subjectKey,
+                    componentKey = componentKey,
+                    relativePath = bookRel,
+                    lessonsCount = parsedLessons.size,
+                    coverPath = resolvedCoverPath,
+                    sourcePdfPath = resolvedBookPdfPath
+                )
+            )
+            lessons.addAll(parsedLessons)
+        }
+
+        return ParsedGradeTree(books = books, lessons = lessons)
+    }
+
+    private fun collectRelativeFiles(root: File): List<String> {
+        val base = root.toPath()
+        return root.walkTopDown()
+            .filter { it.isFile }
+            .map { base.relativize(it.toPath()).toString().replace('\\', '/') }
+            .toList()
     }
 
     private fun parseLessons(

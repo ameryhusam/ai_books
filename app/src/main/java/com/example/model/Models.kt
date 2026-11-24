@@ -7,6 +7,10 @@ enum class TaskType(val id: String, val labelAr: String) {
     EXPLANATION("explanation", "شرح الدرس"),
     SUMMARY("summary", "ملخص الدرس"),
     OBJECTIVES("objectives", "أهداف التعلم"),
+    VOCABULARY("vocabulary", "باني المفردات"),
+    WORKED_EXAMPLES("worked_examples", "أمثلة محلولة"),
+    LESSON_REVIEW("lesson_review", "مراجعة الدرس"),
+    DIFFICULTY_ADAPTER("difficulty_adapter", "تكييف الصعوبة"),
     INTERACTIVE("interactive", "درس تفاعلي"),
     QUESTIONS("questions", "بنك الأسئلة");
 
@@ -47,7 +51,8 @@ data class ProviderConfig(
     val enabled: Boolean,
     val createdAt: Long,
     val priority: Int = 0,
-    val fallbackModels: List<String> = emptyList()
+    val fallbackModels: List<String> = emptyList(),
+    val strictModel: Boolean = false
 )
 
 data class BookRef(
@@ -56,7 +61,9 @@ data class BookRef(
     val subjectKey: String,
     val componentKey: String? = null,
     val relativePath: String,
-    val lessonsCount: Int
+    val lessonsCount: Int,
+    val coverPath: String? = null,
+    val sourcePdfPath: String? = null
 )
 
 data class LessonRef(
@@ -297,6 +304,9 @@ data class DashboardSummary(
 enum class QuestionType(val id: String, val labelAr: String) {
     MCQ("mcq", "اختيار من متعدد"),
     TRUE_FALSE("true_false", "صح أم خطأ"),
+    FILL_BLANK("fill_blank", "إكمال الفراغ"),
+    ORDERING("ordering", "الترتيب"),
+    MATCHING("matching", "التوصيل"),
     SHORT_ANSWER("short_answer", "إجابة قصيرة");
 
     companion object {
@@ -339,12 +349,151 @@ data class QuestionItem(
     val isDuplicate: Boolean = false
 )
 
+enum class AssessmentKind(val id: String, val labelAr: String) {
+    DIAGNOSTIC("diagnostic", "قبلي"),
+    FORMATIVE("formative", "تكويني"),
+    QUIZ("quiz", "قصير"),
+    COMPREHENSIVE("comprehensive", "شامل"),
+    FINAL("final", "نهائي"),
+    SELF("self", "ذاتي");
+
+    companion object {
+        fun fromId(id: String): AssessmentKind = entries.firstOrNull {
+            it.id.equals(id.trim(), ignoreCase = true)
+        } ?: QUIZ
+    }
+}
+
+data class AssessmentRecord(
+    val id: String,
+    val workspaceId: String,
+    val title: String,
+    val kind: AssessmentKind,
+    val questionIds: List<String>,
+    val timeLimitMinutes: Int,
+    val passScorePercent: Int,
+    val createdAt: String
+)
+
+data class AssessmentAttemptRecord(
+    val id: String,
+    val assessmentId: String,
+    val assessmentTitle: String,
+    val workspaceId: String,
+    val correctCount: Int,
+    val totalQuestions: Int,
+    val scorePercent: Int,
+    val passed: Boolean,
+    val durationSeconds: Int,
+    val earnedXp: Int,
+    val completedAt: String
+)
+
+data class TeacherNoteRecord(
+    val workspaceId: String,
+    val bookKey: String,
+    val unitKey: String,
+    val lessonKey: String,
+    val noteText: String,
+    val bookmarked: Boolean,
+    val updatedAt: String
+)
+
+data class PromptTemplateRecord(
+    val id: String,
+    val title: String,
+    val task: TaskType,
+    val instructions: String,
+    val isBuiltIn: Boolean = false
+)
+
+data class InteractiveStepItem(
+    val title: String,
+    val body: String,
+    val checkpointQuestion: String = "",
+    val checkpointOptions: List<String> = emptyList(),
+    val checkpointAnswer: String = ""
+)
+
+data class InteractiveMatchPair(
+    val left: String,
+    val right: String
+)
+
+data class InteractiveActivityModel(
+    val title: String,
+    val objective: String = "",
+    val steps: List<InteractiveStepItem> = emptyList(),
+    val orderingItems: List<String> = emptyList(),
+    val matchingPairs: List<InteractiveMatchPair> = emptyList()
+)
+
+data class StagedGradeSummary(
+    val gradeKey: String,
+    val booksCount: Int,
+    val lessonsCount: Int,
+    val bookTitles: List<String>
+)
+
+data class StagedWorkspacePreview(
+    val stagingId: String,
+    val tempDirPath: String,
+    val fileCount: Int,
+    val expandedBytes: Long,
+    val grades: List<StagedGradeSummary>,
+    val warnings: List<String>
+)
+
+sealed interface GlobalSearchHit {
+    val id: String
+    val title: String
+    val subtitle: String
+
+    data class LessonHit(val lesson: LessonRef) : GlobalSearchHit {
+        override val id: String = "hit_lesson_${lesson.bookKey}_${lesson.unitKey}_${lesson.lessonKey}"
+        override val title: String = lesson.title
+        override val subtitle: String = "${lesson.bookTitle} • ${lesson.unitTitle}"
+    }
+
+    data class DraftHit(val draft: DraftRecord, val lesson: LessonRef?) : GlobalSearchHit {
+        override val id: String = "hit_draft_${draft.id}"
+        override val title: String = "${draft.task.labelAr}: ${draft.title}"
+        override val subtitle: String = draft.content.take(90).replace('\n', ' ')
+    }
+
+    data class QuestionHit(val question: QuestionItem) : GlobalSearchHit {
+        override val id: String = "hit_q_${question.id}"
+        override val title: String = question.prompt
+        override val subtitle: String = "${question.type.labelAr} • ${question.lessonTitle}"
+    }
+}
+
 enum class LibraryPartFilter(val labelAr: String) {
     ALL("الكل"),
     P01("الفصل الأول P01"),
     P02("الفصل الثاني P02"),
     WITH_PDF("PDF متاح")
 }
+
+data class PromptBlueprintSpec(
+    val id: String,
+    val task: TaskType,
+    val titleAr: String,
+    val subtitleAr: String,
+    val sourcePath: String,
+    val roleInstruction: String,
+    val outputContract: String,
+    val schemaSnippet: String = "",
+    val quickInstructions: String = ""
+)
+
+data class Indexer2SchemaSpec(
+    val id: String,
+    val fileName: String,
+    val titleAr: String,
+    val descriptionAr: String,
+    val schemaJson: String
+)
 
 enum class AppPage {
     DASHBOARD,

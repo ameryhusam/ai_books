@@ -320,19 +320,32 @@ private fun BookRadialProgressCard(
         Column(
             modifier = Modifier.padding(12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            RadialProgressIndicator(
-                percentage = summary.completionPercent,
-                size = 64.dp,
-                strokeWidth = 6.dp,
-                trackColor = EduWhite,
-                progressColors = if (summary.completionPercent >= 100) {
-                    listOf(EduGreenDark, EduGreen)
-                } else {
-                    listOf(EduGreen, EduBlue)
-                }
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                BookCoverImage(
+                    coverPath = summary.book.coverPath,
+                    bookTitle = summary.book.title,
+                    subjectKey = summary.book.subjectKey,
+                    cornerRadius = 8.dp,
+                    targetWidthPx = 180,
+                    modifier = Modifier.size(width = 42.dp, height = 56.dp)
+                )
+                RadialProgressIndicator(
+                    percentage = summary.completionPercent,
+                    size = 62.dp,
+                    strokeWidth = 6.dp,
+                    trackColor = EduWhite,
+                    progressColors = if (summary.completionPercent >= 100) {
+                        listOf(EduGreenDark, EduGreen)
+                    } else {
+                        listOf(EduGreen, EduBlue)
+                    }
+                )
+            }
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)

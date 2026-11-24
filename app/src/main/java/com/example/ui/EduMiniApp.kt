@@ -4,6 +4,10 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -28,9 +32,11 @@ import androidx.compose.material.icons.outlined.LibraryBooks
 import androidx.compose.material.icons.outlined.Quiz
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Dashboard
 import androidx.compose.material.icons.rounded.LibraryBooks
 import androidx.compose.material.icons.rounded.Quiz
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -51,9 +57,13 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -64,8 +74,15 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.R
 import com.example.model.AppPage
+import com.example.ui.components.BookCoverPreviewDialog
+import com.example.ui.components.GlobalSearchDialog
+import com.example.ui.components.InteractiveJsonActivityDialog
 import com.example.ui.components.InteractivePackagePreviewDialog
 import com.example.ui.components.PdfBookSplitterDialog
+import com.example.ui.components.PdfReaderDialog
+import com.example.ui.components.PreImportPreviewDialog
+import com.example.ui.components.PromptSourcesAndSchemasDialog
+import com.example.ui.components.StudentStudyDialog
 import com.example.ui.screens.DashboardScreen
 import com.example.ui.screens.LibraryScreen
 import com.example.ui.screens.QuestionBankScreen
@@ -80,6 +97,7 @@ import com.example.ui.theme.EduMiniTheme
 import com.example.ui.theme.EduMint
 import com.example.ui.theme.EduMuted
 import com.example.ui.theme.EduWhite
+import kotlinx.coroutines.delay
 
 @Composable
 fun EduMiniApp(
@@ -90,12 +108,31 @@ fun EduMiniApp(
     val lessonPackages by viewModel.lessonPackages.collectAsStateWithLifecycle()
     val dashboardSummary by viewModel.dashboardSummary.collectAsStateWithLifecycle()
     val workspaceQuestions by viewModel.workspaceQuestions.collectAsStateWithLifecycle()
+    val workspaceDrafts by viewModel.workspaceDrafts.collectAsStateWithLifecycle()
+    val workspaceAssessments by viewModel.workspaceAssessments.collectAsStateWithLifecycle()
+    val workspaceAttempts by viewModel.workspaceAttempts.collectAsStateWithLifecycle()
+    val workspaceTeacherNotes by viewModel.workspaceTeacherNotes.collectAsStateWithLifecycle()
+    val currentTeacherNote by viewModel.currentTeacherNote.collectAsStateWithLifecycle()
+    val promptTemplates by viewModel.promptTemplates.collectAsStateWithLifecycle()
+
+    val bookmarkedLessons = remember(state.workspace, workspaceTeacherNotes) {
+        val lessons = state.workspace?.lessons.orEmpty()
+        val bookmarkedKeys = workspaceTeacherNotes
+            .filter { it.bookmarked }
+            .map { Triple(it.bookKey, it.unitKey, it.lessonKey) }
+            .toSet()
+        lessons.filter { Triple(it.bookKey, it.unitKey, it.lessonKey) in bookmarkedKeys }
+    }
+
+    val bookCoversByKey = remember(state.workspace) {
+        state.workspace?.books?.associate { it.bookKey to it.coverPath }.orEmpty()
+    }
 
     val zipPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         if (uri != null) {
-            viewModel.importWorkspaceZip(uri)
+            viewModel.inspectWorkspaceZip(uri)
         }
     }
 
@@ -107,11 +144,43 @@ fun EduMiniApp(
         }
     }
 
+    val exportBackupLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { uri: Uri? ->
+        if (uri != null) {
+            viewModel.exportFullBackupJson(uri)
+        }
+    }
+
+    val restoreBackupLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            viewModel.restoreFullBackupJson(uri)
+        }
+    }
+
+    val exportAssessmentMdLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("text/markdown")
+    ) { uri: Uri? ->
+        if (uri != null) {
+            viewModel.exportPendingAssessmentMarkdown(uri)
+        }
+    }
+
     val pdfPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         if (uri != null) {
             viewModel.openBookPdfForSplitting(uri)
+        }
+    }
+
+    val standalonePdfPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            viewModel.openLocalPdfUriPreview(uri)
         }
     }
 
@@ -123,6 +192,15 @@ fun EduMiniApp(
         }
     }
 
+    LaunchedEffect(state.toastMessage) {
+        if (state.toastMessage != null) {
+            delay(2600L)
+            viewModel.dismissToast()
+        }
+    }
+
+    val haptic = LocalHapticFeedback.current
+
     EduMiniTheme {
         CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
             BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
@@ -133,6 +211,8 @@ fun EduMiniApp(
                     contentWindowInsets = WindowInsets(0, 0, 0, 0),
                     topBar = {
                         EduTopBar(
+                            hasWorkspace = state.workspace != null,
+                            onOpenSearch = viewModel::openGlobalSearch,
                             onOpenSettings = { viewModel.navigateTo(AppPage.SETTINGS) }
                         )
                     },
@@ -140,7 +220,10 @@ fun EduMiniApp(
                         if (!isWide) {
                             EduBottomNavigationBar(
                                 currentPage = state.page,
-                                onSelectPage = viewModel::navigateTo
+                                onSelectPage = { page ->
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    viewModel.navigateTo(page)
+                                }
                             )
                         }
                     }
@@ -183,8 +266,21 @@ fun EduMiniApp(
                                 when (state.page) {
                                     AppPage.DASHBOARD -> DashboardScreen(
                                         summary = dashboardSummary,
+                                        bookmarkedLessons = bookmarkedLessons,
+                                        bookCoversByKey = bookCoversByKey,
                                         onOpenLessonInStudio = viewModel::selectLessonAndOpenStudio,
+                                        onOpenStudentStudy = viewModel::openStudentStudy,
+                                        onPreviewLessonPdf = { lesson ->
+                                            lesson.pdfPath?.takeIf { it.isNotBlank() }?.let { pdf ->
+                                                viewModel.openPdfPreview(
+                                                    path = pdf,
+                                                    title = lesson.title,
+                                                    subtitle = "${lesson.bookTitle} • ${lesson.unitTitle}"
+                                                )
+                                            }
+                                        },
                                         onToggleLessonCompleted = viewModel::toggleLessonCompletion,
+                                        onOpenGlobalSearch = viewModel::openGlobalSearch,
                                         onPickBookPdf = {
                                             pdfPickerLauncher.launch(arrayOf("application/pdf"))
                                         },
@@ -206,6 +302,7 @@ fun EduMiniApp(
                                         selectedBookKey = state.selectedBookKey,
                                         selectedLesson = state.selectedLesson,
                                         activeProvidersCount = state.providers.count { it.enabled },
+                                        diskUsageBytes = state.activeWorkspaceDiskBytes,
                                         bookProgress = dashboardSummary.bookProgress,
                                         onPickZip = {
                                             zipPickerLauncher.launch(
@@ -219,17 +316,34 @@ fun EduMiniApp(
                                         onPickBookPdf = {
                                             pdfPickerLauncher.launch(arrayOf("application/pdf"))
                                         },
+                                        onPickStandalonePdf = {
+                                            standalonePdfPickerLauncher.launch(arrayOf("application/pdf"))
+                                        },
                                         onSelectWorkspace = viewModel::selectWorkspace,
+                                        onDeleteWorkspace = viewModel::deleteWorkspace,
                                         onSelectBook = viewModel::selectBook,
+                                        onPreviewBookCover = viewModel::openBookCoverPreview,
                                         onOpenLesson = viewModel::selectLessonAndOpenStudio,
+                                        onOpenStudentStudy = viewModel::openStudentStudy,
+                                        onPreviewPdf = viewModel::openPdfPreview,
+                                        onOpenGlobalSearch = viewModel::openGlobalSearch,
                                         onExportWorkspace = {
                                             val grade = state.workspace?.gradeKey ?: "workspace"
                                             exportZipLauncher.launch("edu-mini-$grade-indexer2.zip")
+                                        },
+                                        onExportBackupJson = {
+                                            val grade = state.workspace?.gradeKey ?: "workspace"
+                                            exportBackupLauncher.launch("edu-mini-$grade-backup.json")
+                                        },
+                                        onRestoreBackupJson = {
+                                            restoreBackupLauncher.launch(arrayOf("application/json", "text/plain", "*/*"))
                                         }
                                     )
 
                                     AppPage.STUDIO -> StudioScreen(
                                         selectedLesson = state.selectedLesson,
+                                        workspaceBooks = state.workspace?.books.orEmpty(),
+                                        workspaceLessons = state.workspace?.lessons.orEmpty(),
                                         task = state.task,
                                         questionCount = state.questionCount,
                                         questionStyle = state.questionStyle,
@@ -241,8 +355,14 @@ fun EduMiniApp(
                                         packageSourcePages = state.packageSourcePages,
                                         lessonDrafts = lessonDrafts,
                                         lessonPackages = lessonPackages,
+                                        teacherNote = currentTeacherNote,
+                                        promptTemplates = promptTemplates,
                                         isBusy = state.isBusy,
                                         onBackToLibrary = { viewModel.navigateTo(AppPage.LIBRARY) },
+                                        onSelectLesson = viewModel::selectLessonInStudio,
+                                        onOpenPromptSourcesDialog = viewModel::openPromptSourcesDialog,
+                                        onPreviewPdf = viewModel::openPdfPreview,
+                                        onShowFeedback = viewModel::showToast,
                                         onSelectTask = viewModel::selectTask,
                                         onQuestionCountChange = viewModel::updateQuestionCount,
                                         onQuestionStyleChange = viewModel::updateQuestionStyle,
@@ -255,6 +375,14 @@ fun EduMiniApp(
                                         onGenerate = viewModel::generateContent,
                                         onSaveEditedDraft = viewModel::saveEditedDraftVersion,
                                         onSaveToQuestionBank = viewModel::saveGeneratedDraftToQuestionBank,
+                                        onLaunchInteractiveActivity = viewModel::launchInteractiveActivity,
+                                        onOpenStudentStudy = {
+                                            state.selectedLesson?.let(viewModel::openStudentStudy)
+                                        },
+                                        onSaveTeacherNote = viewModel::saveTeacherNote,
+                                        onApplyPromptTemplate = { tpl ->
+                                            viewModel.applyPromptTemplate(tpl, openStudio = false)
+                                        },
                                         onApproveDraft = viewModel::approveDraft,
                                         onLoadDraft = viewModel::loadDraftIntoEditor,
                                         onDeleteDraft = viewModel::deleteDraft,
@@ -276,12 +404,25 @@ fun EduMiniApp(
 
                                     AppPage.QUIZ_BANK -> QuestionBankScreen(
                                         questions = workspaceQuestions,
+                                        assessments = workspaceAssessments,
+                                        attempts = workspaceAttempts,
                                         selectedLesson = state.selectedLesson,
                                         hasWorkspace = state.workspace != null,
                                         onAddManualQuestion = viewModel::addManualQuestion,
                                         onToggleReviewed = viewModel::toggleQuestionReviewed,
                                         onDeleteQuestion = viewModel::deleteQuestion,
                                         onQuizCompleted = viewModel::recordQuizCompleted,
+                                        onCreateAssessment = viewModel::createAssessment,
+                                        onDeleteAssessment = viewModel::deleteAssessment,
+                                        onRecordAssessmentAttempt = viewModel::recordAssessmentAttempt,
+                                        onExportAssessmentMarkdown = { assessment ->
+                                            viewModel.prepareExportAssessmentMarkdown(assessment)
+                                            val safeName = assessment.title
+                                                .replace(Regex("[\\\\/:*?\"<>|\\s]+"), "_")
+                                                .take(36)
+                                                .ifBlank { "assessment" }
+                                            exportAssessmentMdLauncher.launch("$safeName.md")
+                                        },
                                         onOpenStudio = { viewModel.navigateTo(AppPage.STUDIO) }
                                     )
 
@@ -289,6 +430,7 @@ fun EduMiniApp(
                                         form = state.providerForm,
                                         providers = state.providers,
                                         recentRuns = state.recentRuns,
+                                        promptTemplates = promptTemplates,
                                         onBackToLibrary = { viewModel.navigateTo(AppPage.LIBRARY) },
                                         onSelectProviderType = viewModel::updateProviderType,
                                         onLabelChange = viewModel::updateFormLabel,
@@ -296,15 +438,35 @@ fun EduMiniApp(
                                         onFallbackModelsChange = viewModel::updateFormFallbackModels,
                                         onBaseUrlChange = viewModel::updateFormBaseUrl,
                                         onApiKeyChange = viewModel::updateFormApiKey,
-                                        onAddProvider = viewModel::addProvider,
+                                        onToggleStrictModel = viewModel::toggleFormStrictModel,
+                                        onAddOrUpdateProvider = viewModel::addOrUpdateProvider,
+                                        onCancelEditProvider = viewModel::cancelEditProvider,
+                                        onEditProvider = viewModel::startEditProvider,
+                                        onTestFormProvider = viewModel::testFormProvider,
+                                        onTestSavedProvider = viewModel::testSavedProvider,
                                         onToggleProvider = viewModel::toggleProvider,
                                         onMoveProvider = viewModel::moveProviderPriority,
-                                        onDeleteProvider = viewModel::deleteProvider
+                                        onDeleteProvider = viewModel::deleteProvider,
+                                        onClearRecentRuns = viewModel::clearRecentRuns,
+                                        onSavePromptTemplate = viewModel::savePromptTemplate,
+                                        onDeletePromptTemplate = viewModel::deletePromptTemplate,
+                                        onUseTemplateInStudio = { tpl ->
+                                            viewModel.applyPromptTemplate(tpl, openStudio = true)
+                                        }
                                     )
                                 }
                             }
                         }
                     }
+                }
+
+                state.stagedPreview?.let { preview ->
+                    PreImportPreviewDialog(
+                        preview = preview,
+                        isBusy = state.isBusy,
+                        onConfirmImport = viewModel::confirmStagedImport,
+                        onDismiss = viewModel::dismissStagedPreview
+                    )
                 }
 
                 state.pdfSplitter?.let { splitterState ->
@@ -331,6 +493,129 @@ fun EduMiniApp(
                         onApproveAndPublish = { viewModel.approveAndPublishPackage(pkg) },
                         onDismiss = viewModel::closePackagePreview
                     )
+                }
+
+                state.activeInteractiveActivity?.let { activity ->
+                    InteractiveJsonActivityDialog(
+                        activity = activity,
+                        onCompleted = viewModel::recordInteractiveActivityCompleted,
+                        onDismiss = viewModel::dismissInteractiveActivity
+                    )
+                }
+
+                state.studentStudyLesson?.let { studyLesson ->
+                    val lessonQuestions = remember(workspaceQuestions, studyLesson) {
+                        workspaceQuestions.filter {
+                            it.bookKey == studyLesson.bookKey &&
+                                it.unitKey == studyLesson.unitKey &&
+                                it.lessonKey == studyLesson.lessonKey
+                        }
+                    }
+                    val isCompleted = remember(dashboardSummary, studyLesson) {
+                        dashboardSummary.unitPaths
+                            .flatMap { it.nodes }
+                            .firstOrNull {
+                                it.lesson.bookKey == studyLesson.bookKey &&
+                                    it.lesson.unitKey == studyLesson.unitKey &&
+                                    it.lesson.lessonKey == studyLesson.lessonKey
+                            }
+                            ?.isCompleted == true
+                    }
+                    StudentStudyDialog(
+                        lesson = studyLesson,
+                        drafts = lessonDrafts,
+                        packages = lessonPackages,
+                        lessonQuestions = lessonQuestions,
+                        isCompleted = isCompleted,
+                        onToggleCompleted = { viewModel.toggleLessonCompletion(studyLesson, isCompleted) },
+                        onQuizCompleted = viewModel::recordQuizCompleted,
+                        onDismiss = viewModel::closeStudentStudy
+                    )
+                }
+
+                state.previewingPdf?.let { pdf ->
+                    PdfReaderDialog(
+                        pdfPath = pdf.path,
+                        title = pdf.title,
+                        subtitle = pdf.subtitle,
+                        onDismiss = viewModel::dismissPdfPreview
+                    )
+                }
+
+                state.previewingBookCover?.let { book ->
+                    val bookProg = remember(dashboardSummary, book) {
+                        dashboardSummary.bookProgress.firstOrNull { it.book.bookKey == book.bookKey }
+                    }
+                    BookCoverPreviewDialog(
+                        book = book,
+                        progress = bookProg,
+                        onOpenBookPdf = book.sourcePdfPath?.let { pdf ->
+                            { viewModel.openPdfPreview(pdf, book.title, "${book.subjectKey} • الكتاب الكامل") }
+                        },
+                        onSelectBook = { viewModel.selectBook(book.bookKey) },
+                        onDismiss = viewModel::dismissBookCoverPreview
+                    )
+                }
+
+                if (state.promptSourcesOpen) {
+                    PromptSourcesAndSchemasDialog(
+                        selectedLesson = state.selectedLesson,
+                        activeTask = state.task,
+                        questionCount = state.questionCount,
+                        sourceText = state.sourceText,
+                        extraInstructions = state.extraInstructions,
+                        onApplyBlueprint = viewModel::applyIndexer2Blueprint,
+                        onLoadSampleIntoEditor = viewModel::loadSchemaSampleIntoEditor,
+                        onShowFeedback = viewModel::showToast,
+                        onDismiss = viewModel::dismissPromptSourcesDialog
+                    )
+                }
+
+                if (state.globalSearchOpen) {
+                    GlobalSearchDialog(
+                        lessons = state.workspace?.lessons.orEmpty(),
+                        drafts = workspaceDrafts,
+                        questions = workspaceQuestions,
+                        onSelectLesson = viewModel::handleSearchSelectLesson,
+                        onSelectDraft = viewModel::handleSearchSelectDraft,
+                        onSelectQuestion = viewModel::handleSearchSelectQuestion,
+                        onDismiss = viewModel::closeGlobalSearch
+                    )
+                }
+
+                AnimatedVisibility(
+                    visible = state.toastMessage != null,
+                    enter = fadeIn() + slideInVertically(initialOffsetY = { it }),
+                    exit = fadeOut() + slideOutVertically(targetOffsetY = { it }),
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(horizontal = 20.dp, vertical = 84.dp)
+                ) {
+                    state.toastMessage?.let { msg ->
+                        Surface(
+                            shape = RoundedCornerShape(24.dp),
+                            color = EduGreenDark,
+                            shadowElevation = 6.dp
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.CheckCircle,
+                                    contentDescription = null,
+                                    tint = EduMint,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Text(
+                                    text = msg,
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = EduWhite
+                                )
+                            }
+                        }
+                    }
                 }
 
                 state.alert?.let { alert ->
@@ -368,7 +653,11 @@ fun EduMiniApp(
 }
 
 @Composable
-private fun EduTopBar(onOpenSettings: () -> Unit) {
+private fun EduTopBar(
+    hasWorkspace: Boolean,
+    onOpenSearch: () -> Unit,
+    onOpenSettings: () -> Unit
+) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -406,6 +695,26 @@ private fun EduTopBar(onOpenSettings: () -> Unit) {
                     style = MaterialTheme.typography.bodySmall,
                     color = EduMuted
                 )
+            }
+            if (hasWorkspace) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = EduWhite
+                ) {
+                    IconButton(
+                        onClick = onOpenSearch,
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("top_search_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Search,
+                            contentDescription = "البحث الشامل",
+                            tint = EduGreenDark
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.width(6.dp))
             }
             Surface(
                 shape = RoundedCornerShape(12.dp),

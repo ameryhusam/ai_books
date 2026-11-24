@@ -256,7 +256,7 @@ fun InteractivePackagePreviewDialog(
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-private fun SandboxedPackageWebView(
+fun SandboxedPackageWebView(
     rootDir: String,
     entryFile: String,
     modifier: Modifier = Modifier

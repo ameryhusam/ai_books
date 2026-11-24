@@ -8,25 +8,36 @@ import com.example.data.ai.AiGenerationService
 import com.example.data.local.EduMiniDatabase
 import com.example.data.packageimport.InteractivePackageImporter
 import com.example.data.repository.EduMiniRepository
+import com.example.data.repository.InteractiveActivityParser
+import com.example.data.repository.QuestionBankEngine
 import com.example.data.security.ProviderStorage
 import com.example.data.workspace.PdfBookSplitter
 import com.example.data.workspace.WorkspaceImporter
 import com.example.model.AppPage
+import com.example.model.AssessmentAttemptRecord
+import com.example.model.AssessmentKind
+import com.example.model.AssessmentRecord
+import com.example.model.BookRef
 import com.example.model.DashboardSummary
 import com.example.model.DraftRecord
 import com.example.model.DraftStatus
 import com.example.model.GenerationRunRecord
 import com.example.model.ImportedWorkspace
+import com.example.model.InteractiveActivityModel
 import com.example.model.InteractivePackageRecord
 import com.example.model.LessonRef
 import com.example.model.LessonSplitDraft
 import com.example.model.PdfBookInfo
+import com.example.model.PromptBlueprintSpec
+import com.example.model.PromptTemplateRecord
 import com.example.model.ProviderConfig
 import com.example.model.ProviderType
 import com.example.model.QuestionDifficulty
 import com.example.model.QuestionItem
 import com.example.model.QuestionType
+import com.example.model.StagedWorkspacePreview
 import com.example.model.TaskType
+import com.example.model.TeacherNoteRecord
 import com.example.model.WorkspaceSummary
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -46,11 +57,19 @@ data class AlertMessage(
     val message: String
 )
 
+data class PdfPreviewPayload(
+    val path: String,
+    val title: String,
+    val subtitle: String? = null
+)
+
 data class ProviderFormState(
+    val editingProviderId: String? = null,
     val provider: ProviderType = ProviderType.GEMINI,
     val label: String = "Gemini",
     val model: String = "gemini-2.5-flash",
     val fallbackModels: String = "",
+    val strictModel: Boolean = false,
     val baseUrl: String = "https://api.openai.com/v1",
     val apiKey: String = ""
 )
@@ -69,6 +88,7 @@ data class MainUiState(
     val selectedWorkspaceId: String? = null,
     val workspace: ImportedWorkspace? = null,
     val workspaces: List<WorkspaceSummary> = emptyList(),
+    val activeWorkspaceDiskBytes: Long = 0L,
     val selectedBookKey: String = "",
     val selectedLesson: LessonRef? = null,
     val task: TaskType = TaskType.QUESTIONS,
@@ -84,11 +104,20 @@ data class MainUiState(
     val packageSourcePages: String = "",
     val previewingPackage: InteractivePackageRecord? = null,
     val studentPreviewMode: Boolean = false,
+    val activeInteractiveActivity: InteractiveActivityModel? = null,
+    val studentStudyLesson: LessonRef? = null,
+    val previewingPdf: PdfPreviewPayload? = null,
+    val previewingBookCover: BookRef? = null,
+    val promptSourcesOpen: Boolean = false,
+    val stagedPreview: StagedWorkspacePreview? = null,
+    val globalSearchOpen: Boolean = false,
+    val pendingExportAssessment: AssessmentRecord? = null,
     val pdfSplitter: PdfSplitterUiState? = null,
     val providers: List<ProviderConfig> = emptyList(),
     val providerForm: ProviderFormState = ProviderFormState(),
     val recentRuns: List<GenerationRunRecord> = emptyList(),
     val isBusy: Boolean = false,
+    val toastMessage: String? = null,
     val alert: AlertMessage? = null
 )
 
@@ -154,6 +183,73 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             initialValue = emptyList()
         )
 
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val workspaceDrafts: StateFlow<List<DraftRecord>> = _uiState
+        .map { (it.workspace?.workspaceId.orEmpty()) to (it.workspace?.rootPath.orEmpty()) }
+        .distinctUntilChanged()
+        .flatMapLatest { (wsId, rootPath) ->
+            repository.observeDraftsForWorkspace(wsId, rootPath)
+        }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val workspaceAssessments: StateFlow<List<AssessmentRecord>> = _uiState
+        .map { it.workspace?.workspaceId.orEmpty() }
+        .distinctUntilChanged()
+        .flatMapLatest { wsId -> repository.observeAssessmentsForWorkspace(wsId) }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val workspaceAttempts: StateFlow<List<AssessmentAttemptRecord>> = _uiState
+        .map { it.workspace?.workspaceId.orEmpty() }
+        .distinctUntilChanged()
+        .flatMapLatest { wsId -> repository.observeAssessmentAttempts(wsId) }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val workspaceTeacherNotes: StateFlow<List<TeacherNoteRecord>> = _uiState
+        .map { it.workspace?.workspaceId.orEmpty() }
+        .distinctUntilChanged()
+        .flatMapLatest { wsId -> repository.observeTeacherNotesForWorkspace(wsId) }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val currentTeacherNote: StateFlow<TeacherNoteRecord?> = _uiState
+        .map { (it.workspace?.workspaceId.orEmpty()) to it.selectedLesson }
+        .distinctUntilChanged()
+        .flatMapLatest { (wsId, lesson) ->
+            if (lesson == null) flowOf(null) else repository.observeTeacherNote(wsId, lesson)
+        }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = null
+        )
+
+    val promptTemplates: StateFlow<List<PromptTemplateRecord>> = repository
+        .observePromptTemplates()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = EduMiniRepository.DEFAULT_PROMPT_TEMPLATES
+        )
+
     init {
         viewModelScope.launch {
             runCatching { repository.loadProviders() }
@@ -178,6 +274,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 .distinctUntilChanged()
                 .flatMapLatest { wsId -> repository.observeWorkspace(wsId) }
                 .collect { ws ->
+                    val diskBytes = repository.computeWorkspaceDiskBytes(ws?.rootPath.orEmpty())
                     _uiState.update { state ->
                         val currentSelectedBook = state.selectedBookKey
                         val validSelectedBook = when {
@@ -187,6 +284,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         }
                         state.copy(
                             workspace = ws,
+                            activeWorkspaceDiskBytes = diskBytes,
                             selectedBookKey = validSelectedBook
                         )
                     }
@@ -221,8 +319,228 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update {
             it.copy(
                 selectedLesson = lesson,
+                selectedBookKey = lesson.bookKey,
                 packageSourcePages = lesson.pageRange.orEmpty(),
                 page = AppPage.STUDIO
+            )
+        }
+    }
+
+    fun selectLessonInStudio(lesson: LessonRef) {
+        _uiState.update {
+            it.copy(
+                selectedLesson = lesson,
+                selectedBookKey = lesson.bookKey,
+                packageSourcePages = lesson.pageRange.orEmpty()
+            )
+        }
+    }
+
+    fun openPdfPreview(path: String, title: String, subtitle: String? = null) {
+        _uiState.update {
+            it.copy(previewingPdf = PdfPreviewPayload(path = path, title = title, subtitle = subtitle))
+        }
+    }
+
+    fun openLocalPdfUriPreview(uri: Uri) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isBusy = true) }
+            try {
+                val info = repository.ingestBookPdf(uri)
+                _uiState.update {
+                    it.copy(
+                        previewingPdf = PdfPreviewPayload(
+                            path = info.storedPdfPath,
+                            title = info.fileName,
+                            subtitle = "${info.totalPages} صفحة • ملف PDF محلي"
+                        )
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(alert = AlertMessage("تعذر فتح PDF", e.message ?: "ملف PDF غير صالح"))
+                }
+            } finally {
+                _uiState.update { it.copy(isBusy = false) }
+            }
+        }
+    }
+
+    fun dismissPdfPreview() {
+        _uiState.update { it.copy(previewingPdf = null) }
+    }
+
+    fun openBookCoverPreview(book: BookRef) {
+        _uiState.update { it.copy(previewingBookCover = book) }
+    }
+
+    fun dismissBookCoverPreview() {
+        _uiState.update { it.copy(previewingBookCover = null) }
+    }
+
+    fun openPromptSourcesDialog() {
+        _uiState.update { it.copy(promptSourcesOpen = true) }
+    }
+
+    fun dismissPromptSourcesDialog() {
+        _uiState.update { it.copy(promptSourcesOpen = false) }
+    }
+
+    fun applyIndexer2Blueprint(spec: PromptBlueprintSpec) {
+        _uiState.update { state ->
+            state.copy(
+                task = spec.task,
+                extraInstructions = spec.quickInstructions,
+                promptSourcesOpen = false,
+                toastMessage = "تم تطبيق مخطط «${spec.titleAr}»"
+            )
+        }
+    }
+
+    fun loadSchemaSampleIntoEditor(task: TaskType, sample: String) {
+        _uiState.update { state ->
+            state.copy(
+                task = task,
+                generatedResult = sample,
+                activeDraftProvider = "indexer2 Schema",
+                activeDraftModel = "template",
+                promptSourcesOpen = false,
+                page = AppPage.STUDIO,
+                toastMessage = "تم تحميل نموذج المخطط في الاستوديو"
+            )
+        }
+    }
+
+    fun showToast(message: String) {
+        _uiState.update { it.copy(toastMessage = message) }
+    }
+
+    fun dismissToast() {
+        _uiState.update { it.copy(toastMessage = null) }
+    }
+
+    fun openStudentStudy(lesson: LessonRef) {
+        _uiState.update {
+            it.copy(
+                selectedLesson = lesson,
+                selectedBookKey = lesson.bookKey,
+                packageSourcePages = lesson.pageRange.orEmpty(),
+                studentStudyLesson = lesson
+            )
+        }
+    }
+
+    fun closeStudentStudy() {
+        _uiState.update { it.copy(studentStudyLesson = null) }
+    }
+
+    fun saveTeacherNote(noteText: String, bookmarked: Boolean) {
+        val snapshot = _uiState.value
+        val lesson = snapshot.selectedLesson ?: return
+        val previous = currentTeacherNote.value
+        viewModelScope.launch {
+            repository.saveTeacherNote(
+                workspaceId = snapshot.workspace?.workspaceId.orEmpty(),
+                lesson = lesson,
+                noteText = noteText,
+                bookmarked = bookmarked
+            )
+            val bookmarkOnlyToggle = previous != null && previous.bookmarked != bookmarked && previous.noteText.trim() == noteText.trim()
+            val msg = when {
+                bookmarkOnlyToggle && bookmarked -> "تمت إضافة «${lesson.title}» للمفضلة"
+                bookmarkOnlyToggle && !bookmarked -> "تمت إزالة الإشارة المرجعية"
+                else -> "تم حفظ ملاحظة الدرس بنجاح"
+            }
+            _uiState.update { it.copy(toastMessage = msg) }
+        }
+    }
+
+    fun applyPromptTemplate(template: PromptTemplateRecord, openStudio: Boolean = false) {
+        _uiState.update { state ->
+            state.copy(
+                task = template.task,
+                extraInstructions = template.instructions,
+                page = if (openStudio) AppPage.STUDIO else state.page,
+                toastMessage = "تم تطبيق قالب «${template.title}»"
+            )
+        }
+    }
+
+    fun launchInteractiveActivity(rawText: String, title: String) {
+        val parsed = InteractiveActivityParser.parse(rawText, title.ifBlank { "نشاط تفاعلي للدرس" })
+        if (parsed == null) {
+            _uiState.update {
+                it.copy(
+                    alert = AlertMessage(
+                        "تعذر تشغيل النشاط التفاعلي",
+                        "لم يتم العثور على خطوات منظمة أو بنية JSON صالحة للنشاط. ولّد نشاطاً تفاعلياً أو استخدم قسماً مرقّماً."
+                    )
+                )
+            }
+        } else {
+            _uiState.update { it.copy(activeInteractiveActivity = parsed) }
+        }
+    }
+
+    fun dismissInteractiveActivity() {
+        _uiState.update { it.copy(activeInteractiveActivity = null) }
+    }
+
+    fun recordInteractiveActivityCompleted(earnedXp: Int) {
+        viewModelScope.launch {
+            repository.recordStudyActivity()
+            _uiState.update {
+                it.copy(
+                    activeInteractiveActivity = null,
+                    alert = AlertMessage(
+                        "إنجاز رائع!",
+                        "أتممت النشاط التفاعلي وحصلت على +$earnedXp XP."
+                    )
+                )
+            }
+        }
+    }
+
+    fun openGlobalSearch() {
+        _uiState.update { it.copy(globalSearchOpen = true) }
+    }
+
+    fun closeGlobalSearch() {
+        _uiState.update { it.copy(globalSearchOpen = false) }
+    }
+
+    fun handleSearchSelectLesson(lesson: LessonRef) {
+        _uiState.update {
+            it.copy(
+                globalSearchOpen = false,
+                selectedLesson = lesson,
+                selectedBookKey = lesson.bookKey,
+                packageSourcePages = lesson.pageRange.orEmpty(),
+                page = AppPage.STUDIO
+            )
+        }
+    }
+
+    fun handleSearchSelectDraft(draft: DraftRecord, lesson: LessonRef?) {
+        _uiState.update {
+            it.copy(
+                globalSearchOpen = false,
+                selectedLesson = lesson ?: it.selectedLesson,
+                selectedBookKey = lesson?.bookKey ?: it.selectedBookKey,
+                task = draft.task,
+                generatedResult = draft.content,
+                activeDraftProvider = draft.provider,
+                activeDraftModel = draft.model,
+                page = AppPage.STUDIO
+            )
+        }
+    }
+
+    fun handleSearchSelectQuestion(@Suppress("UNUSED_PARAMETER") question: QuestionItem) {
+        _uiState.update {
+            it.copy(
+                globalSearchOpen = false,
+                page = AppPage.QUIZ_BANK
             )
         }
     }
@@ -304,7 +622,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 status = DraftStatus.DRAFT
             )
             _uiState.update {
-                it.copy(alert = AlertMessage("تم الحفظ", "تم حفظ نسخة جديدة من المسودة بنجاح."))
+                it.copy(toastMessage = "تم حفظ نسخة جديدة من المسودة")
             }
         }
     }
@@ -313,7 +631,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             repository.approveDraft(draftId)
             _uiState.update {
-                it.copy(alert = AlertMessage("تم الاعتماد", "تم اعتماد هذه النسخة للدرس."))
+                it.copy(toastMessage = "تم اعتماد النسخة للدرس ✓")
             }
         }
     }
@@ -327,10 +645,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun updateProviderType(type: ProviderType) {
         _uiState.update { state ->
             val defaultLabel = if (type == ProviderType.GEMINI) "Gemini" else "Compatible"
+            val updatedLabel = if (state.providerForm.editingProviderId == null) defaultLabel else state.providerForm.label
             state.copy(
                 providerForm = state.providerForm.copy(
                     provider = type,
-                    label = defaultLabel
+                    label = updatedLabel
                 )
             )
         }
@@ -354,6 +673,96 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateFormApiKey(value: String) {
         _uiState.update { it.copy(providerForm = it.providerForm.copy(apiKey = value)) }
+    }
+
+    fun toggleFormStrictModel() {
+        _uiState.update { it.copy(providerForm = it.providerForm.copy(strictModel = !it.providerForm.strictModel)) }
+    }
+
+    fun startEditProvider(profile: ProviderConfig) {
+        _uiState.update {
+            it.copy(
+                providerForm = ProviderFormState(
+                    editingProviderId = profile.id,
+                    provider = profile.provider,
+                    label = profile.label,
+                    model = profile.model,
+                    fallbackModels = profile.fallbackModels.joinToString(", "),
+                    strictModel = profile.strictModel,
+                    baseUrl = profile.baseUrl.ifBlank { "https://api.openai.com/v1" },
+                    apiKey = profile.apiKey
+                )
+            )
+        }
+    }
+
+    fun cancelEditProvider() {
+        _uiState.update { it.copy(providerForm = ProviderFormState()) }
+    }
+
+    fun testFormProvider() {
+        val form = _uiState.value.providerForm
+        if (form.model.trim().isEmpty() || form.apiKey.trim().isEmpty()) {
+            _uiState.update {
+                it.copy(alert = AlertMessage("بيانات ناقصة", "أدخل النموذج ومفتاح API لاختبار الاتصال."))
+            }
+            return
+        }
+        val probe = ProviderConfig(
+            id = form.editingProviderId ?: "probe",
+            provider = form.provider,
+            label = form.label.trim().ifBlank { form.provider.displayName },
+            model = form.model.trim(),
+            strictModel = form.strictModel,
+            baseUrl = form.baseUrl.trim(),
+            apiKey = form.apiKey.trim(),
+            enabled = true,
+            createdAt = System.currentTimeMillis()
+        )
+        testSavedProvider(probe)
+    }
+
+    fun testSavedProvider(profile: ProviderConfig) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isBusy = true) }
+            try {
+                val report = repository.testProviderConnection(profile)
+                _uiState.update {
+                    it.copy(alert = AlertMessage("نتيجة اختبار الاتصال", report))
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(alert = AlertMessage("فشل الاتصال", e.message ?: "تعذر الاتصال بالمزود"))
+                }
+            } finally {
+                _uiState.update { it.copy(isBusy = false) }
+            }
+        }
+    }
+
+    fun clearRecentRuns() {
+        viewModelScope.launch {
+            repository.clearGenerationRuns()
+            _uiState.update {
+                it.copy(alert = AlertMessage("تم المسح", "تم مسح سجل آخر المحاولات."))
+            }
+        }
+    }
+
+    fun savePromptTemplate(title: String, task: TaskType, instructions: String) {
+        if (title.isBlank() || instructions.isBlank()) return
+        viewModelScope.launch {
+            repository.savePromptTemplate(title, task, instructions)
+            _uiState.update {
+                it.copy(alert = AlertMessage("تم الحفظ", "تمت إضافة قالب التوجيه «${title.trim()}»."))
+            }
+        }
+    }
+
+    fun deletePromptTemplate(id: String) {
+        viewModelScope.launch {
+            repository.deletePromptTemplate(id)
+        }
     }
 
     fun saveGeneratedDraftToQuestionBank() {
@@ -452,6 +861,101 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun createAssessment(
+        title: String,
+        kind: AssessmentKind,
+        questionIds: List<String>,
+        timeLimitMinutes: Int,
+        passScorePercent: Int
+    ) {
+        val wsId = _uiState.value.workspace?.workspaceId.orEmpty()
+        if (wsId.isBlank() || title.isBlank() || questionIds.isEmpty()) return
+        viewModelScope.launch {
+            val created = repository.createAssessment(
+                workspaceId = wsId,
+                title = title,
+                kind = kind,
+                questionIds = questionIds,
+                timeLimitMinutes = timeLimitMinutes,
+                passScorePercent = passScorePercent
+            )
+            _uiState.update {
+                it.copy(
+                    alert = AlertMessage(
+                        "تم إنشاء التقييم",
+                        "حُفظ «${created.title}» (${created.questionIds.size} سؤال • ${created.kind.labelAr})."
+                    )
+                )
+            }
+        }
+    }
+
+    fun deleteAssessment(assessmentId: String) {
+        viewModelScope.launch {
+            repository.deleteAssessment(assessmentId)
+        }
+    }
+
+    fun recordAssessmentAttempt(
+        assessment: AssessmentRecord,
+        correctCount: Int,
+        totalQuestions: Int,
+        scorePercent: Int,
+        durationSeconds: Int,
+        earnedXp: Int
+    ) {
+        viewModelScope.launch {
+            val record = repository.recordAssessmentAttempt(
+                assessment = assessment,
+                correctCount = correctCount,
+                totalQuestions = totalQuestions,
+                scorePercent = scorePercent,
+                durationSeconds = durationSeconds,
+                earnedXp = earnedXp
+            )
+            val passLabel = if (record.passed) "اجتزت التقييم بنجاح" else "لم تصل لدرجة النجاح (${assessment.passScorePercent}%)"
+            _uiState.update {
+                it.copy(
+                    alert = AlertMessage(
+                        "نتيجة ${assessment.title}",
+                        "$passLabel • $correctCount/$totalQuestions ($scorePercent%) • +$earnedXp XP."
+                    )
+                )
+            }
+        }
+    }
+
+    fun prepareExportAssessmentMarkdown(assessment: AssessmentRecord) {
+        _uiState.update { it.copy(pendingExportAssessment = assessment) }
+    }
+
+    fun exportPendingAssessmentMarkdown(uri: Uri) {
+        val assessment = _uiState.value.pendingExportAssessment ?: return
+        val questionsById = workspaceQuestions.value.associateBy { it.id }
+        val assessmentQuestions = assessment.questionIds.mapNotNull { questionsById[it] }
+        val markdown = QuestionBankEngine.exportAssessmentMarkdown(assessment, assessmentQuestions)
+        viewModelScope.launch {
+            try {
+                val out = getApplication<Application>().contentResolver.openOutputStream(uri)
+                    ?: throw IllegalStateException("تعذر فتح ملف التصدير")
+                out.writer(Charsets.UTF_8).use { it.write(markdown) }
+                _uiState.update {
+                    it.copy(
+                        pendingExportAssessment = null,
+                        alert = AlertMessage("تم تصدير Markdown", "تم حفظ ملف «${assessment.title}» بصيغة Markdown بنجاح.")
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        pendingExportAssessment = null,
+                        alert = AlertMessage("تعذر التصدير", e.message ?: "حدث خطأ أثناء الحفظ")
+                    )
+                }
+            }
+        }
+    }
+
     fun exportIndexer2Zip(uri: Uri) {
         val workspace = _uiState.value.workspace ?: return
         viewModelScope.launch {
@@ -480,11 +984,168 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun exportFullBackupJson(uri: Uri) {
+        val workspace = _uiState.value.workspace ?: return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isBusy = true) }
+            try {
+                val out = getApplication<Application>().contentResolver.openOutputStream(uri)
+                    ?: throw IllegalStateException("تعذر فتح ملف النسخة الاحتياطية")
+                val itemsCount = out.use { stream ->
+                    repository.exportFullBackupJson(stream, workspace)
+                }
+                _uiState.update {
+                    it.copy(
+                        alert = AlertMessage(
+                            "تم تصدير النسخة الاحتياطية",
+                            "تم حفظ $itemsCount عنصر (المسودات، الأسئلة، التقييمات، الملاحظات) في ملف JSON محلي آمن بدون مفاتيح API."
+                        )
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(alert = AlertMessage("تعذر النسخ الاحتياطي", e.message ?: "حدث خطأ أثناء التصدير"))
+                }
+            } finally {
+                _uiState.update { it.copy(isBusy = false) }
+            }
+        }
+    }
+
+    fun restoreFullBackupJson(uri: Uri) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isBusy = true) }
+            try {
+                val input = getApplication<Application>().contentResolver.openInputStream(uri)
+                    ?: throw IllegalStateException("تعذر قراءة ملف النسخة الاحتياطية")
+                val raw = input.bufferedReader(Charsets.UTF_8).use { it.readText() }
+                val summaryMsg = repository.importFullBackupJson(
+                    rawJson = raw,
+                    targetWorkspaceId = _uiState.value.workspace?.workspaceId.orEmpty()
+                )
+                _uiState.update {
+                    it.copy(alert = AlertMessage("تمت الاستعادة", summaryMsg))
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(alert = AlertMessage("فشلت الاستعادة", e.message ?: "ملف النسخة الاحتياطية غير صالح"))
+                }
+            } finally {
+                _uiState.update { it.copy(isBusy = false) }
+            }
+        }
+    }
+
+    fun inspectWorkspaceZip(uri: Uri) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isBusy = true) }
+            try {
+                val staged = repository.inspectWorkspaceZip(uri)
+                if (staged.grades.isEmpty()) {
+                    repository.discardStagedPreview(staged)
+                    _uiState.update {
+                        it.copy(
+                            alert = AlertMessage(
+                                "حزمة غير مكتملة",
+                                "لم يتم العثور على فهارس صفوف وكتب (index.json) صالحة داخل ملف ZIP."
+                            )
+                        )
+                    }
+                } else {
+                    _uiState.update { it.copy(stagedPreview = staged) }
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(alert = AlertMessage("خطأ في ZIP", e.message ?: "تعذر فحص ملف ZIP"))
+                }
+            } finally {
+                _uiState.update { it.copy(isBusy = false) }
+            }
+        }
+    }
+
+    fun confirmStagedImport(selectedGrades: List<String>) {
+        val preview = _uiState.value.stagedPreview ?: return
+        if (selectedGrades.isEmpty()) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isBusy = true) }
+            try {
+                val committed = repository.commitStagedWorkspaces(preview, selectedGrades)
+                val primary = committed.lastOrNull()
+                if (primary != null) {
+                    val diskBytes = repository.computeWorkspaceDiskBytes(primary.rootPath)
+                    val warningsCount = committed.sumOf { it.warnings.size }
+                    val warningNote = if (warningsCount > 0) " (مع $warningsCount تنبيه)" else ""
+                    _uiState.update {
+                        it.copy(
+                            stagedPreview = null,
+                            selectedWorkspaceId = primary.workspaceId,
+                            workspace = primary,
+                            activeWorkspaceDiskBytes = diskBytes,
+                            selectedBookKey = primary.books.firstOrNull()?.bookKey.orEmpty(),
+                            selectedLesson = null,
+                            alert = AlertMessage(
+                                "تم استيراد ${committed.size} صف",
+                                "نشط الآن: ${primary.gradeKey} • ${primary.books.size} كتاب • ${primary.lessons.size} درس$warningNote"
+                            )
+                        )
+                    }
+                } else {
+                    _uiState.update { it.copy(stagedPreview = null) }
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        stagedPreview = null,
+                        alert = AlertMessage("خطأ في الاستيراد", e.message ?: "تعذر اعتماد الحزمة")
+                    )
+                }
+            } finally {
+                _uiState.update { it.copy(isBusy = false) }
+            }
+        }
+    }
+
+    fun dismissStagedPreview() {
+        val preview = _uiState.value.stagedPreview
+        _uiState.update { it.copy(stagedPreview = null) }
+        if (preview != null) {
+            repository.discardStagedPreview(preview)
+        }
+    }
+
+    fun deleteWorkspace(workspaceId: String, rootPath: String) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isBusy = true) }
+            try {
+                repository.deleteWorkspace(workspaceId, rootPath)
+                _uiState.update { state ->
+                    val deletingActive = state.workspace?.workspaceId == workspaceId || state.selectedWorkspaceId == workspaceId
+                    state.copy(
+                        selectedWorkspaceId = if (deletingActive) null else state.selectedWorkspaceId,
+                        workspace = if (deletingActive) null else state.workspace,
+                        activeWorkspaceDiskBytes = if (deletingActive) 0L else state.activeWorkspaceDiskBytes,
+                        selectedBookKey = if (deletingActive) "" else state.selectedBookKey,
+                        selectedLesson = if (deletingActive) null else state.selectedLesson,
+                        alert = AlertMessage("تم الحذف", "تم حذف مساحة العمل وملفاتها المحلية من الجهاز.")
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(alert = AlertMessage("تعذر الحذف", e.message ?: "حدث خطأ أثناء حذف مساحة العمل"))
+                }
+            } finally {
+                _uiState.update { it.copy(isBusy = false) }
+            }
+        }
+    }
+
     fun importWorkspaceZip(uri: Uri) {
         viewModelScope.launch {
             _uiState.update { it.copy(isBusy = true) }
             try {
                 val imported = repository.importWorkspaceZip(uri)
+                val diskBytes = repository.computeWorkspaceDiskBytes(imported.rootPath)
                 val warningSuffix = if (imported.warnings.isNotEmpty()) {
                     "\n\nتنبيهات:\n• ${imported.warnings.joinToString("\n• ")}"
                 } else ""
@@ -492,6 +1153,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     it.copy(
                         selectedWorkspaceId = imported.workspaceId,
                         workspace = imported,
+                        activeWorkspaceDiskBytes = diskBytes,
                         selectedBookKey = imported.books.firstOrNull()?.bookKey.orEmpty(),
                         selectedLesson = null,
                         alert = AlertMessage(
@@ -840,7 +1502,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun addProvider() {
+    fun addOrUpdateProvider() {
         val form = _uiState.value.providerForm
         if (form.label.trim().isEmpty() || form.model.trim().isEmpty() || form.apiKey.trim().isEmpty()) {
             _uiState.update {
@@ -854,24 +1516,46 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .filter { it.isNotEmpty() && !it.equals(form.model.trim(), ignoreCase = true) }
             .distinct()
         viewModelScope.launch {
-            val next = _uiState.value.providers + ProviderConfig(
-                id = System.currentTimeMillis().toString(),
-                provider = form.provider,
-                label = form.label.trim(),
-                model = form.model.trim(),
-                fallbackModels = fallbacks,
-                baseUrl = form.baseUrl.trim(),
-                apiKey = form.apiKey.trim(),
-                enabled = true,
-                createdAt = System.currentTimeMillis(),
-                priority = _uiState.value.providers.size
-            )
+            val existingId = form.editingProviderId
+            val currentList = _uiState.value.providers
+            val next = if (existingId != null && currentList.any { it.id == existingId }) {
+                currentList.map { p ->
+                    if (p.id == existingId) {
+                        p.copy(
+                            provider = form.provider,
+                            label = form.label.trim(),
+                            model = form.model.trim(),
+                            fallbackModels = fallbacks,
+                            strictModel = form.strictModel,
+                            baseUrl = form.baseUrl.trim(),
+                            apiKey = form.apiKey.trim()
+                        )
+                    } else p
+                }
+            } else {
+                currentList + ProviderConfig(
+                    id = System.currentTimeMillis().toString(),
+                    provider = form.provider,
+                    label = form.label.trim(),
+                    model = form.model.trim(),
+                    fallbackModels = fallbacks,
+                    strictModel = form.strictModel,
+                    baseUrl = form.baseUrl.trim(),
+                    apiKey = form.apiKey.trim(),
+                    enabled = true,
+                    createdAt = System.currentTimeMillis(),
+                    priority = currentList.size
+                )
+            }
             repository.saveProviders(next)
             _uiState.update {
                 it.copy(
                     providers = next,
-                    providerForm = it.providerForm.copy(apiKey = "", fallbackModels = ""),
-                    alert = AlertMessage("حفظ", "تم حفظ مفتاح المزود محلياً.")
+                    providerForm = ProviderFormState(),
+                    alert = AlertMessage(
+                        if (existingId != null) "تم التحديث" else "حفظ",
+                        if (existingId != null) "تم حفظ تعديلات المزود محلياً." else "تم حفظ مفتاح المزود محلياً."
+                    )
                 )
             }
         }

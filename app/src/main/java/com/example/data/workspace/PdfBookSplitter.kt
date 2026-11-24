@@ -143,6 +143,12 @@ class PdfBookSplitter(private val context: Context) {
         val lessons = mutableListOf<LessonRef>()
         var filesCount = 2 // book_manifest.json + index.json
 
+        val coverFile = File(bookDir, "cover.png")
+        val coverSaved = renderCoverPng(sourcePdf, coverFile)
+        if (coverSaved) {
+            filesCount++
+        }
+
         val manifestJson = buildJsonObject {
             put("title", cleanTitle)
             put("gradeKey", cleanGrade)
@@ -150,6 +156,9 @@ class PdfBookSplitter(private val context: Context) {
             put("sourceFile", pdfInfo.fileName)
             put("sourceSha256", pdfInfo.sha256)
             put("totalPages", pdfInfo.totalPages)
+            if (coverSaved) {
+                put("cover", "cover.png")
+            }
             put("createdAt", Instant.now().toString())
         }
         File(bookDir, "book_manifest.json").writeText(json.encodeToString(manifestJson))
@@ -232,7 +241,9 @@ class PdfBookSplitter(private val context: Context) {
             subjectKey = cleanSubject,
             componentKey = null,
             relativePath = bookRel,
-            lessonsCount = lessons.size
+            lessonsCount = lessons.size,
+            coverPath = coverFile.takeIf { coverSaved && it.exists() }?.absolutePath,
+            sourcePdfPath = sourcePdf.absolutePath
         )
 
         ImportedWorkspace(
@@ -311,6 +322,32 @@ class PdfBookSplitter(private val context: Context) {
             warnings.add("تعذر تشغيل قارئ PDF لفصل الصفحات: ${err.message ?: "غير مدعوم"}")
         }
         return warnings
+    }
+
+    private fun renderCoverPng(sourcePdf: File, outCoverFile: File): Boolean {
+        return runCatching {
+            ParcelFileDescriptor.open(sourcePdf, ParcelFileDescriptor.MODE_READ_ONLY).use { pfd ->
+                PdfRenderer(pfd).use { renderer ->
+                    if (renderer.pageCount <= 0) return false
+                    renderer.openPage(0).use { page ->
+                        val scale = (640f / page.width.coerceAtLeast(1)).coerceIn(0.6f, 1.8f)
+                        val w = (page.width * scale).toInt().coerceAtLeast(240)
+                        val h = (page.height * scale).toInt().coerceAtLeast(320)
+                        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                        try {
+                            bmp.eraseColor(Color.WHITE)
+                            page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                            FileOutputStream(outCoverFile).use { fos ->
+                                bmp.compress(Bitmap.CompressFormat.PNG, 92, fos)
+                            }
+                        } finally {
+                            bmp.recycle()
+                        }
+                    }
+                }
+            }
+            outCoverFile.exists() && outCoverFile.length() > 0L
+        }.getOrDefault(false)
     }
 
     private fun countPages(pdfFile: File): Int {

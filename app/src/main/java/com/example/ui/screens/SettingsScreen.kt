@@ -20,18 +20,24 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
+import androidx.compose.material.icons.rounded.NetworkCheck
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -43,17 +49,21 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.example.R
 import com.example.model.GenerationRunRecord
+import com.example.model.PromptTemplateRecord
 import com.example.model.ProviderConfig
 import com.example.model.ProviderType
+import com.example.model.TaskType
 import com.example.ui.ProviderFormState
 import com.example.ui.components.EduPanel
 import com.example.ui.components.EduPill
 import com.example.ui.components.EduYellowButton
+import com.example.ui.theme.EduBlue
 import com.example.ui.theme.EduFieldBg
 import com.example.ui.theme.EduGreen
 import com.example.ui.theme.EduGreenDark
@@ -65,6 +75,9 @@ import com.example.ui.theme.EduRed
 import com.example.ui.theme.EduSecurityBg
 import com.example.ui.theme.EduSecurityText
 import com.example.ui.theme.EduWhite
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -72,6 +85,7 @@ fun SettingsScreen(
     form: ProviderFormState,
     providers: List<ProviderConfig>,
     recentRuns: List<GenerationRunRecord>,
+    promptTemplates: List<PromptTemplateRecord> = emptyList(),
     onBackToLibrary: () -> Unit,
     onSelectProviderType: (ProviderType) -> Unit,
     onLabelChange: (String) -> Unit,
@@ -79,15 +93,27 @@ fun SettingsScreen(
     onFallbackModelsChange: (String) -> Unit,
     onBaseUrlChange: (String) -> Unit,
     onApiKeyChange: (String) -> Unit,
-    onAddProvider: () -> Unit,
+    onToggleStrictModel: () -> Unit = {},
+    onAddOrUpdateProvider: () -> Unit,
+    onCancelEditProvider: () -> Unit = {},
+    onEditProvider: (ProviderConfig) -> Unit = {},
+    onTestFormProvider: () -> Unit = {},
+    onTestSavedProvider: (ProviderConfig) -> Unit = {},
     onToggleProvider: (String) -> Unit,
     onMoveProvider: (String, Int) -> Unit,
     onDeleteProvider: (String) -> Unit,
+    onClearRecentRuns: () -> Unit = {},
+    onSavePromptTemplate: (String, TaskType, String) -> Unit = { _, _, _ -> },
+    onDeletePromptTemplate: (String) -> Unit = {},
+    onUseTemplateInStudio: (PromptTemplateRecord) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     BackHandler(onBack = onBackToLibrary)
 
     var showApiKey by remember { mutableStateOf(false) }
+    var newTplTitle by remember { mutableStateOf("") }
+    var newTplTask by remember { mutableStateOf(TaskType.EXPLANATION) }
+    var newTplInstructions by remember { mutableStateOf("") }
 
     Box(
         modifier = modifier.fillMaxSize(),
@@ -284,9 +310,61 @@ fun SettingsScreen(
                             .testTag("provider_apikey_input")
                     )
 
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable(onClick = onToggleStrictModel)
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = form.strictModel,
+                            onCheckedChange = { onToggleStrictModel() },
+                            colors = CheckboxDefaults.colors(checkedColor = EduGreen),
+                            modifier = Modifier.testTag("provider_strict_model_checkbox")
+                        )
+                        Text(
+                            text = "التزام صارم بالنموذج المختار (تجاهل Fallback)",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = EduInk
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = onTestFormProvider,
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, EduGreen),
+                            modifier = Modifier
+                                .weight(1f)
+                                .minimumInteractiveComponentSize()
+                                .testTag("test_form_provider_button")
+                        ) {
+                            Icon(Icons.Rounded.NetworkCheck, contentDescription = null, tint = EduGreenDark, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("اختبار الاتصال", color = EduGreenDark, style = MaterialTheme.typography.labelLarge)
+                        }
+                        if (form.editingProviderId != null) {
+                            OutlinedButton(
+                                onClick = onCancelEditProvider,
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, EduLine),
+                                modifier = Modifier.minimumInteractiveComponentSize()
+                            ) {
+                                Text("إلغاء", color = EduMuted)
+                            }
+                        }
+                    }
+
                     EduYellowButton(
-                        text = stringResource(R.string.settings_add_api_cta),
-                        onClick = onAddProvider,
+                        text = if (form.editingProviderId != null) "حفظ تعديل المزود" else stringResource(R.string.settings_add_api_cta),
+                        onClick = onAddOrUpdateProvider,
                         icon = Icons.Rounded.Add,
                         testTag = "add_provider_button",
                         modifier = Modifier.padding(top = 6.dp)
@@ -320,13 +398,35 @@ fun SettingsScreen(
                                 style = MaterialTheme.typography.titleSmall,
                                 color = EduInk
                             )
-                            val fallbackSuffix = if (profile.fallbackModels.isNotEmpty()) {
+                            val fallbackSuffix = if (profile.fallbackModels.isNotEmpty() && !profile.strictModel) {
                                 " • احتياطي: ${profile.fallbackModels.joinToString(", ")}"
+                            } else if (profile.strictModel) {
+                                " • وضع صارم"
                             } else ""
                             Text(
                                 text = "${profile.provider.id} • ${profile.model}$fallbackSuffix • ${stringResource(R.string.settings_key_hidden)}",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = EduMuted
+                            )
+                        }
+                        IconButton(
+                            onClick = { onTestSavedProvider(profile) },
+                            modifier = Modifier.minimumInteractiveComponentSize()
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.NetworkCheck,
+                                contentDescription = "اختبار الاتصال",
+                                tint = EduBlue
+                            )
+                        }
+                        IconButton(
+                            onClick = { onEditProvider(profile) },
+                            modifier = Modifier.minimumInteractiveComponentSize()
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Edit,
+                                contentDescription = "تعديل المزود",
+                                tint = EduGreenDark
                             )
                         }
                         IconButton(
@@ -377,14 +477,112 @@ fun SettingsScreen(
                 }
             }
 
+            item(key = "prompt_templates_section") {
+                EduPanel(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = "مكتبة قوالب الأوامر (Prompt Templates)",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = EduInk
+                    )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        TaskType.entries.forEach { t ->
+                            EduPill(
+                                text = t.labelAr,
+                                active = newTplTask == t,
+                                onClick = { newTplTask = t }
+                            )
+                        }
+                    }
+                    SettingsField(
+                        value = newTplTitle,
+                        onValueChange = { newTplTitle = it },
+                        testTag = "new_template_title_input"
+                    )
+                    OutlinedTextField(
+                        value = newTplInstructions,
+                        onValueChange = { newTplInstructions = it },
+                        placeholder = { Text("اكتب نص التوجيه المخصص...") },
+                        minLines = 2,
+                        shape = RoundedCornerShape(12.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = EduFieldBg,
+                            unfocusedContainerColor = EduFieldBg,
+                            focusedBorderColor = EduGreen,
+                            unfocusedBorderColor = EduLine
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("new_template_instructions_input")
+                    )
+                    OutlinedButton(
+                        onClick = {
+                            if (newTplTitle.isNotBlank() && newTplInstructions.isNotBlank()) {
+                                onSavePromptTemplate(newTplTitle, newTplTask, newTplInstructions)
+                                newTplTitle = ""
+                                newTplInstructions = ""
+                            }
+                        },
+                        enabled = newTplTitle.isNotBlank() && newTplInstructions.isNotBlank(),
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, EduGreen),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .minimumInteractiveComponentSize()
+                            .testTag("save_prompt_template_button")
+                    ) {
+                        Text("إضافة قالب جديد", color = EduGreenDark, fontWeight = FontWeight.Bold)
+                    }
+
+                    promptTemplates.forEach { tpl ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("${tpl.title} • ${tpl.task.labelAr}", style = MaterialTheme.typography.titleSmall, color = EduInk)
+                                Text(tpl.instructions, style = MaterialTheme.typography.bodySmall, color = EduMuted, maxLines = 2)
+                            }
+                            TextButton(onClick = { onUseTemplateInStudio(tpl) }) {
+                                Text("تطبيق", color = EduGreenDark)
+                            }
+                            if (!tpl.isBuiltIn) {
+                                IconButton(
+                                    onClick = { onDeletePromptTemplate(tpl.id) },
+                                    modifier = Modifier.minimumInteractiveComponentSize()
+                                ) {
+                                    Icon(Icons.Outlined.DeleteOutline, contentDescription = "حذف القالب", tint = EduRed)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             if (recentRuns.isNotEmpty()) {
                 item(key = "recent_runs_heading") {
-                    Text(
-                        text = stringResource(R.string.settings_recent_runs_heading),
-                        style = MaterialTheme.typography.titleMedium,
-                        color = EduInk,
-                        modifier = Modifier.padding(top = 4.dp)
-                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = stringResource(R.string.settings_recent_runs_heading),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = EduInk
+                        )
+                        TextButton(
+                            onClick = onClearRecentRuns,
+                            modifier = Modifier.testTag("clear_recent_runs_button")
+                        ) {
+                            Text("مسح السجل", color = EduRed)
+                        }
+                    }
                 }
                 items(
                     items = recentRuns.take(8),
