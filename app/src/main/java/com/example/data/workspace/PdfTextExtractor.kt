@@ -117,7 +117,7 @@ class PdfTextExtractor(private val context: Context) {
                 }
             }
         } finally {
-            api.end()
+            api.recycle()
         }
         return output.toString().trim()
     }
