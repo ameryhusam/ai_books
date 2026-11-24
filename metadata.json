@@ -1,0 +1,8 @@
+{
+  "name": "Edu Mini",
+  "description": "Offline-first AI educational content studio for importing indexer2 lesson workspaces and generating explanations, interactive lessons, and question banks.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
