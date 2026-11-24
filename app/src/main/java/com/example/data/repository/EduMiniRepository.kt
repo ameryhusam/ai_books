@@ -286,7 +286,7 @@ class EduMiniRepository(
         questionStyleHint: String = "",
         difficultyHint: String = ""
     ): GeneratedResult {
-        val extractedText = if (attachPdfPages && !lesson.pdfPath.isNullOrBlank()) {
+        val extractedText = if (!lesson.pdfPath.isNullOrBlank()) {
             val pdf = File(lesson.pdfPath)
             val textFile = File(pdf.parentFile, pdf.nameWithoutExtension + ".txt")
             if (textFile.isFile) textFile.readText(Charsets.UTF_8).trim() else ""
