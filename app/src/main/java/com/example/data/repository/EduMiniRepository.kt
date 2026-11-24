@@ -353,7 +353,18 @@ class EduMiniRepository(
         val nextVersion = maxVer + 1
         val id = "draft-${System.currentTimeMillis()}-${UUID.randomUUID().toString().take(6)}"
         val createdAt = Instant.now().toString()
-        val sourceHash = sha256Short(sourceText)
+        val extractedPdfText = lesson.pdfPath?.let { path ->
+            val pdf = File(path)
+            File(pdf.parentFile, pdf.nameWithoutExtension + ".txt")
+                .takeIf { it.isFile }
+                ?.readText(Charsets.UTF_8)
+                .orEmpty()
+        }.orEmpty()
+        val provenanceSource = listOf(sourceText.trim(), extractedPdfText.trim())
+            .filter { it.isNotBlank() }
+            .distinct()
+            .joinToString("\\n\\n")
+        val sourceHash = sha256Short(provenanceSource)
         val record = DraftRecord(
             id = id,
             workspaceId = canonicalWorkspaceId,
