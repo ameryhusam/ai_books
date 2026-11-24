@@ -277,8 +277,9 @@ class PdfBookSplitter(private val context: Context) {
         groupedUnits: Map<String, List<LessonSplitDraft>>
     ): List<String> {
         val warnings = mutableListOf<String>()
-        PDFBoxResourceLoader.init(context.applicationContext)
-        PDDocument.load(sourcePdf).use { sourceDocument ->
+        runCatching {
+            PDFBoxResourceLoader.init(context.applicationContext)
+            PDDocument.load(sourcePdf).use { sourceDocument ->
             groupedUnits.forEach { (unitKey, unitSplits) ->
                 unitSplits.forEachIndexed { idx, split ->
                     val lessonKey = split.lessonKey.ifBlank {
@@ -318,6 +319,8 @@ class PdfBookSplitter(private val context: Context) {
                     }
                 }
             }
+        }.onFailure { error ->
+            warnings.add("تعذر قراءة أو فصل صفحات PDF الأصلية: ${error.message ?: "ملف PDF غير صالح"}")
         }
         return warnings
     }
