@@ -166,7 +166,11 @@ object WorkspaceExporter {
         val workspaceRoot = File(workspace.rootPath)
         require(workspaceRoot.isDirectory) { "Workspace source directory is missing: ${workspace.rootPath}" }
         val rootPath = workspaceRoot.toPath()
+        val canonicalWorkspaceRoot = workspaceRoot.canonicalPath + File.separator
         workspaceRoot.walkTopDown().filter { it.isFile }.forEach { file ->
+            require(file.canonicalPath.startsWith(canonicalWorkspaceRoot)) {
+                "Workspace contains a file reference outside its root: ${file.path}"
+            }
             val relative = rootPath.relativize(file.toPath()).toString().replace('\\', '/')
             require(!relative.startsWith("../") && !relative.startsWith("/")) { "Unsafe workspace path: $relative" }
             entriesMap[relative] = file.readBytes()
