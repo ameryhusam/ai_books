@@ -87,9 +87,12 @@ class PdfTextExtractor(private val context: Context) {
         ensureModel(tessData, "eng")
 
         val api = TessBaseAPI()
-        check(api.init(tessRoot.absolutePath, "ara+eng")) {
-            "تعذر تهيئة محرك Tesseract للغتين العربية والإنجليزية"
+        val initialized = api.init(tessRoot.absolutePath, "ara+eng", TessBaseAPI.OEM_LSTM_ONLY)
+        if (!initialized) {
+            api.recycle()
+            throw IllegalStateException("تعذر تهيئة محرك Tesseract للغتين العربية والإنجليزية")
         }
+        api.setPageSegMode(TessBaseAPI.PageSegMode.PSM_AUTO)
         val output = StringBuilder()
         try {
             ParcelFileDescriptor.open(pdfFile, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
