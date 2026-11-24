@@ -21,6 +21,7 @@ import java.io.BufferedInputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
+import java.security.MessageDigest
 import java.util.zip.ZipInputStream
 
 class WorkspaceImporter(private val context: Context) {
@@ -108,6 +109,7 @@ class WorkspaceImporter(private val context: Context) {
             if (zipNames.isEmpty()) {
                 throw IllegalArgumentException("ZIP فارغ")
             }
+            verifyExportManifest(tempDir)
 
             val gradeRoots = zipNames.mapNotNull { path ->
                 GRADE_ROOT_REGEX.find(path)?.groupValues?.get(1)
@@ -180,6 +182,10 @@ class WorkspaceImporter(private val context: Context) {
                 if (gradeSourceDir.exists()) {
                     val destGradeDir = File(destDir, "workspace/$gradeKey")
                     gradeSourceDir.copyRecursively(destGradeDir, overwrite = true)
+                }
+                listOf("full_backup.json", "manifest.json").forEach { name ->
+                    val source = File(tempDir, name)
+                    if (source.isFile) source.copyTo(File(destDir, name), overwrite = true)
                 }
                 val warnings = mutableListOf<String>()
                 val parsed = parseGradeFromDir(
@@ -371,6 +377,37 @@ class WorkspaceImporter(private val context: Context) {
         }
 
         return ParsedGradeTree(books = books, lessons = lessons)
+    }
+
+    private fun verifyExportManifest(root: File) {
+        val manifestFile = File(root, "manifest.json")
+        if (!manifestFile.isFile) return
+        val manifest = runCatching {
+            json.parseToJsonElement(manifestFile.readText()).jsonObject
+        }.getOrElse { throw IllegalArgumentException("manifest.json غير صالح: ${it.message}") }
+        val artifacts = manifest["artifacts"] as? JsonArray ?: return
+        artifacts.forEach { element ->
+            val artifact = element as? JsonObject
+                ?: throw IllegalArgumentException("عنصر artifacts غير صالح في manifest.json")
+            val relative = artifact.str("path")
+            val expectedHash = artifact.str("sha256").lowercase()
+            val expectedBytes = artifact.str("bytes").toLongOrNull()
+            require(relative.isNotBlank() && expectedHash.matches(Regex("^[a-f0-9]{64}$"))) {
+                "بيانات بصمة غير صالحة في manifest.json"
+            }
+            val safeRelative = safePath(relative)
+            val file = File(root, safeRelative)
+            val canonicalRoot = root.canonicalPath + File.separator
+            require(file.canonicalPath.startsWith(canonicalRoot) && file.isFile) {
+                "ملف مفقود أو مسار غير آمن في الحزمة: $relative"
+            }
+            if (expectedBytes != null) {
+                require(file.length() == expectedBytes) { "حجم الملف لا يطابق manifest: $relative" }
+            }
+            val actualHash = MessageDigest.getInstance("SHA-256").digest(file.readBytes())
+                .joinToString("") { "%02x".format(it) }
+            require(actualHash == expectedHash) { "فشل التحقق من SHA-256 للملف: $relative" }
+        }
     }
 
     private fun collectRelativeFiles(root: File): List<String> {
