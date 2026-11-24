@@ -319,6 +319,7 @@ class PdfBookSplitter(private val context: Context) {
                     }
                 }
             }
+            }
         }.onFailure { error ->
             warnings.add("تعذر قراءة أو فصل صفحات PDF الأصلية: ${error.message ?: "ملف PDF غير صالح"}")
         }
