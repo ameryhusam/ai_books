@@ -16,6 +16,11 @@ import com.example.data.security.ProviderStorage
 import com.example.data.workspace.PdfBookSplitter
 import com.example.data.workspace.WorkspaceExporter
 import com.example.data.workspace.WorkspaceImporter
+import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
+import com.tom_roush.pdfbox.pdmodel.PDDocument
+import com.tom_roush.pdfbox.pdmodel.PDPage
+import com.tom_roush.pdfbox.pdmodel.PDPageContentStream
+import com.tom_roush.pdfbox.pdmodel.font.PDType1Font
 import com.example.model.AssessmentKind
 import com.example.model.BookRef
 import com.example.model.ImportedWorkspace
@@ -181,6 +186,9 @@ class EduMiniCoreTest {
         assertTrue(indexFile.readText().contains("lesson_01"))
         assertTrue(manifestFile.readText().contains("العلوم"))
         assertTrue(File(workspace.books.first().sourcePdfPath!!).isFile)
+        val extractedText = File(workspace.rootPath, "workspace/G05/SCI/P01/units/unit_01/lesson_01.txt")
+        assertTrue(extractedText.isFile)
+        assertTrue(extractedText.readText().contains("Sample textbook lesson page"))
     }
 
     @Test
@@ -1026,9 +1034,21 @@ class EduMiniCoreTest {
     )
 
     private fun createSamplePdf(outFile: File, pageCount: Int) {
-        val header = "%PDF-1.4\n% Sample $pageCount pages\n%%EOF\n"
-        FileOutputStream(outFile).use { fos ->
-            fos.write(header.toByteArray(Charsets.UTF_8))
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        PDFBoxResourceLoader.init(context)
+        PDDocument().use { document ->
+            repeat(pageCount) { index ->
+                val page = PDPage()
+                document.addPage(page)
+                PDPageContentStream(document, page).use { stream ->
+                    stream.beginText()
+                    stream.setFont(PDType1Font.HELVETICA, 12f)
+                    stream.newLineAtOffset(48f, 740f)
+                    stream.showText("Sample textbook lesson page ${index + 1} with searchable PDF text.")
+                    stream.endText()
+                }
+            }
+            document.save(outFile)
         }
     }
 
