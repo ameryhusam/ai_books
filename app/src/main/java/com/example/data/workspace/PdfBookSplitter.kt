@@ -175,6 +175,7 @@ class PdfBookSplitter(private val context: Context) {
                     put("unitKey", unitKey)
                     put("title", unitTitle)
                     put("partKey", "P01")
+                    put("assignmentStatus", "assigned")
                     put("lessons", buildJsonArray {
                         unitSplits.forEachIndexed { idx, split ->
                             val lessonKey = split.lessonKey.ifBlank {
