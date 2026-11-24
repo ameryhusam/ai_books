@@ -163,6 +163,13 @@ class EduMiniRepository(
     suspend fun importWorkspaceZip(uri: Uri): ImportedWorkspace {
         val imported = workspaceImporter.importFromUri(uri)
         saveImportedWorkspace(imported)
+        val backupFile = File(imported.rootPath, "full_backup.json")
+        if (backupFile.isFile) {
+            importFullBackupJson(
+                rawJson = backupFile.readText(Charsets.UTF_8),
+                targetWorkspaceId = imported.workspaceId
+            )
+        }
         return imported
     }
 
@@ -875,12 +882,29 @@ class EduMiniRepository(
         val drafts = dao.observeDraftsForWorkspace(workspace.workspaceId, workspace.rootPath).first()
         val questions = dao.observeQuestionsForWorkspace(workspace.workspaceId).first().map { it.toModel() }
         val assessments = dao.observeAssessmentsForWorkspace(workspace.workspaceId).first()
+        val attempts = dao.observeAssessmentAttempts(workspace.workspaceId).first()
+        val progress = dao.observeProgressForWorkspace(workspace.workspaceId).first()
+        val notes = dao.observeTeacherNotesForWorkspace(workspace.workspaceId).first()
+        val studyDays = dao.observeStudyDays().first()
+        val templates = dao.observePromptTemplates().first()
+        val fullBackup = WorkspaceExporter.serializeFullBackup(
+            workspaceId = workspace.workspaceId,
+            drafts = drafts,
+            questions = dao.observeQuestionsForWorkspace(workspace.workspaceId).first(),
+            assessments = assessments,
+            attempts = attempts,
+            progress = progress,
+            notes = notes,
+            studyDays = studyDays,
+            templates = templates
+        )
         WorkspaceExporter.exportIndexer2CompatibleZip(
             outputStream = outputStream,
             workspace = workspace,
             drafts = drafts,
             questions = questions,
-            assessments = assessments
+            assessments = assessments,
+            fullBackupJson = fullBackup
         )
     }
 
