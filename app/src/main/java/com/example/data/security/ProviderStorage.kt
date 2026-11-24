@@ -23,8 +23,12 @@ class ProviderStorage(context: Context) {
 
     suspend fun loadProviders(): List<ProviderConfig> = withContext(Dispatchers.IO) {
         val raw = prefs.getString(KEY_PROFILES, null) ?: return@withContext emptyList()
-        val decrypted = runCatching { decrypt(raw) }.getOrNull() ?: return@withContext emptyList()
-        runCatching { json.decodeFromString<List<ProviderConfig>>(decrypted) }.getOrDefault(emptyList())
+        val decrypted = decrypt(raw)
+        try {
+            json.decodeFromString<List<ProviderConfig>>(decrypted)
+        } catch (e: Exception) {
+            throw IllegalStateException("تعذر قراءة إعدادات مزودي AI المحفوظة؛ لم يتم تجاهل البيانات أو استبدالها.", e)
+        }
     }
 
     suspend fun saveProviders(items: List<ProviderConfig>) = withContext(Dispatchers.IO) {
@@ -33,7 +37,7 @@ class ProviderStorage(context: Context) {
         prefs.edit().putString(KEY_PROFILES, encrypted).apply()
     }
 
-    private fun getOrCreateSecretKey(): SecretKey? {
+    private fun getOrCreateSecretKey(): SecretKey {
         return runCatching {
             val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE)
             keyStore.load(null)
@@ -51,12 +55,12 @@ class ProviderStorage(context: Context) {
                 .build()
             keyGenerator.init(spec)
             keyGenerator.generateKey()
-        }.getOrNull()
+        }.getOrElse { throw IllegalStateException("تعذر الوصول إلى Android Keystore؛ لم يتم تخزين مفتاح API غير مشفر.", it) }
     }
 
     private fun encrypt(plainText: String): String {
         val secretKey = getOrCreateSecretKey()
-        if (secretKey != null) {
+        run {
             val cipher = Cipher.getInstance(TRANSFORMATION)
             cipher.init(Cipher.ENCRYPT_MODE, secretKey)
             val iv = cipher.iv
@@ -65,8 +69,6 @@ class ProviderStorage(context: Context) {
             val dataEncoded = Base64.encodeToString(encryptedBytes, Base64.NO_WRAP)
             return "$PREFIX_GCM$ivEncoded:$dataEncoded"
         }
-        val fallback = Base64.encodeToString(plainText.toByteArray(StandardCharsets.UTF_8), Base64.NO_WRAP)
-        return "$PREFIX_PLAIN$fallback"
     }
 
     private fun decrypt(payload: String): String {
@@ -76,7 +78,7 @@ class ProviderStorage(context: Context) {
             if (parts.size != 2) return "[]"
             val iv = Base64.decode(parts[0], Base64.NO_WRAP)
             val encryptedBytes = Base64.decode(parts[1], Base64.NO_WRAP)
-            val secretKey = getOrCreateSecretKey() ?: return "[]"
+            val secretKey = getOrCreateSecretKey()
             val cipher = Cipher.getInstance(TRANSFORMATION)
             cipher.init(Cipher.DECRYPT_MODE, secretKey, GCMParameterSpec(128, iv))
             return String(cipher.doFinal(encryptedBytes), StandardCharsets.UTF_8)
@@ -85,7 +87,7 @@ class ProviderStorage(context: Context) {
             val raw = Base64.decode(payload.removePrefix(PREFIX_PLAIN), Base64.NO_WRAP)
             return String(raw, StandardCharsets.UTF_8)
         }
-        return payload
+        throw IllegalStateException("صيغة تخزين مفاتيح API غير معروفة؛ أوقفنا التحميل لحماية البيانات.")
     }
 
     companion object {
