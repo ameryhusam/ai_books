@@ -45,6 +45,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.example.R
+import com.example.model.GenerationRunRecord
 import com.example.model.ProviderConfig
 import com.example.model.ProviderType
 import com.example.ui.ProviderFormState
@@ -68,6 +69,7 @@ import com.example.ui.theme.EduWhite
 fun SettingsScreen(
     form: ProviderFormState,
     providers: List<ProviderConfig>,
+    recentRuns: List<GenerationRunRecord>,
     onBackToLibrary: () -> Unit,
     onSelectProviderType: (ProviderType) -> Unit,
     onLabelChange: (String) -> Unit,
@@ -312,6 +314,35 @@ fun SettingsScreen(
                                 tint = EduRed
                             )
                         }
+                    }
+                }
+            }
+
+            if (recentRuns.isNotEmpty()) {
+                item(key = "recent_runs_heading") {
+                    Text(
+                        text = stringResource(R.string.settings_recent_runs_heading),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = EduInk,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
+                items(
+                    items = recentRuns.take(8),
+                    key = { "run_${it.id}" }
+                ) { run ->
+                    EduPanel(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = "${run.providerLabel} (${run.model}) • ${run.status}",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = if (run.status == "SUCCESS") EduGreenDark else EduRed
+                        )
+                        Text(
+                            text = "${run.task.labelAr} • ${run.lessonKey}" +
+                                (run.errorSummary?.let { " • $it" } ?: ""),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = EduMuted
+                        )
                     }
                 }
             }

@@ -60,6 +60,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.R
 import com.example.model.AppPage
+import com.example.ui.components.InteractivePackagePreviewDialog
+import com.example.ui.components.PdfBookSplitterDialog
 import com.example.ui.screens.LibraryScreen
 import com.example.ui.screens.SettingsScreen
 import com.example.ui.screens.StudioScreen
@@ -79,12 +81,29 @@ fun EduMiniApp(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val lessonDrafts by viewModel.lessonDrafts.collectAsStateWithLifecycle()
+    val lessonPackages by viewModel.lessonPackages.collectAsStateWithLifecycle()
 
     val zipPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         if (uri != null) {
             viewModel.importWorkspaceZip(uri)
+        }
+    }
+
+    val pdfPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            viewModel.openBookPdfForSplitting(uri)
+        }
+    }
+
+    val packagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            viewModel.importInteractivePackage(uri)
         }
     }
 
@@ -148,6 +167,7 @@ fun EduMiniApp(
                                 when (state.page) {
                                     AppPage.LIBRARY -> LibraryScreen(
                                         workspace = state.workspace,
+                                        workspaces = state.workspaces,
                                         selectedBookKey = state.selectedBookKey,
                                         selectedLesson = state.selectedLesson,
                                         activeProvidersCount = state.providers.count { it.enabled },
@@ -160,6 +180,10 @@ fun EduMiniApp(
                                                 )
                                             )
                                         },
+                                        onPickBookPdf = {
+                                            pdfPickerLauncher.launch(arrayOf("application/pdf"))
+                                        },
+                                        onSelectWorkspace = viewModel::selectWorkspace,
                                         onSelectBook = viewModel::selectBook,
                                         onOpenLesson = viewModel::selectLessonAndOpenStudio
                                     )
@@ -167,23 +191,48 @@ fun EduMiniApp(
                                     AppPage.STUDIO -> StudioScreen(
                                         selectedLesson = state.selectedLesson,
                                         task = state.task,
+                                        questionCount = state.questionCount,
+                                        attachPdfPages = state.attachPdfPages,
                                         sourceText = state.sourceText,
                                         extraInstructions = state.extraInstructions,
                                         generatedResult = state.generatedResult,
+                                        packageSourcePages = state.packageSourcePages,
                                         lessonDrafts = lessonDrafts,
+                                        lessonPackages = lessonPackages,
                                         isBusy = state.isBusy,
                                         onBackToLibrary = { viewModel.navigateTo(AppPage.LIBRARY) },
                                         onSelectTask = viewModel::selectTask,
+                                        onQuestionCountChange = viewModel::updateQuestionCount,
+                                        onToggleAttachPdfPages = viewModel::toggleAttachPdfPages,
                                         onSourceChange = viewModel::updateSourceText,
                                         onExtraChange = viewModel::updateExtraInstructions,
+                                        onGeneratedResultChange = viewModel::updateGeneratedResult,
+                                        onPackageSourcePagesChange = viewModel::updatePackageSourcePages,
                                         onGenerate = viewModel::generateContent,
+                                        onSaveEditedDraft = viewModel::saveEditedDraftVersion,
+                                        onApproveDraft = viewModel::approveDraft,
                                         onLoadDraft = viewModel::loadDraftIntoEditor,
-                                        onDeleteDraft = viewModel::deleteDraft
+                                        onDeleteDraft = viewModel::deleteDraft,
+                                        onPickInteractivePackage = {
+                                            packagePickerLauncher.launch(
+                                                arrayOf(
+                                                    "text/html",
+                                                    "application/xhtml+xml",
+                                                    "application/zip",
+                                                    "application/x-zip-compressed",
+                                                    "application/octet-stream"
+                                                )
+                                            )
+                                        },
+                                        onPreviewPackage = viewModel::openPackagePreview,
+                                        onPublishPackage = viewModel::approveAndPublishPackage,
+                                        onDeletePackage = viewModel::deletePackage
                                     )
 
                                     AppPage.SETTINGS -> SettingsScreen(
                                         form = state.providerForm,
                                         providers = state.providers,
+                                        recentRuns = state.recentRuns,
                                         onBackToLibrary = { viewModel.navigateTo(AppPage.LIBRARY) },
                                         onSelectProviderType = viewModel::updateProviderType,
                                         onLabelChange = viewModel::updateFormLabel,
@@ -198,6 +247,32 @@ fun EduMiniApp(
                             }
                         }
                     }
+                }
+
+                state.pdfSplitter?.let { splitterState ->
+                    PdfBookSplitterDialog(
+                        state = splitterState,
+                        isBusy = state.isBusy,
+                        onDismiss = viewModel::dismissPdfSplitter,
+                        onGradeChange = viewModel::updateSplitterGrade,
+                        onSubjectChange = viewModel::updateSplitterSubject,
+                        onBookTitleChange = viewModel::updateSplitterBookTitle,
+                        onPagesPerLessonChange = viewModel::updateSplitterPagesPerLesson,
+                        onUpdateSplit = viewModel::updateSplitLesson,
+                        onAddSplit = viewModel::addSplitLesson,
+                        onRemoveSplit = viewModel::removeSplitLesson,
+                        onCreateWorkspace = viewModel::createWorkspaceFromPdfSplits
+                    )
+                }
+
+                state.previewingPackage?.let { pkg ->
+                    InteractivePackagePreviewDialog(
+                        pkg = pkg,
+                        studentMode = state.studentPreviewMode,
+                        onToggleStudentMode = viewModel::toggleStudentPreviewMode,
+                        onApproveAndPublish = { viewModel.approveAndPublishPackage(pkg) },
+                        onDismiss = viewModel::closePackagePreview
+                    )
                 }
 
                 state.alert?.let { alert ->

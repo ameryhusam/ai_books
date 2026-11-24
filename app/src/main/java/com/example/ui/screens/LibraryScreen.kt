@@ -7,6 +7,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -26,7 +29,10 @@ import androidx.compose.material.icons.outlined.FolderZip
 import androidx.compose.material.icons.outlined.MenuBook
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.PictureAsPdf
 import androidx.compose.material.icons.rounded.WarningAmber
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -37,7 +43,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
@@ -50,7 +55,9 @@ import com.example.R
 import com.example.model.BookRef
 import com.example.model.ImportedWorkspace
 import com.example.model.LessonRef
+import com.example.model.WorkspaceSummary
 import com.example.ui.components.EduPanel
+import com.example.ui.components.EduPill
 import com.example.ui.components.EduYellowButton
 import com.example.ui.theme.EduGreen
 import com.example.ui.theme.EduGreenDark
@@ -65,13 +72,17 @@ import com.example.ui.theme.EduOrange
 import com.example.ui.theme.EduPurple
 import com.example.ui.theme.EduWhite
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun LibraryScreen(
     workspace: ImportedWorkspace?,
+    workspaces: List<WorkspaceSummary>,
     selectedBookKey: String,
     selectedLesson: LessonRef?,
     activeProvidersCount: Int,
     onPickZip: () -> Unit,
+    onPickBookPdf: () -> Unit,
+    onSelectWorkspace: (String) -> Unit,
     onSelectBook: (String) -> Unit,
     onOpenLesson: (LessonRef) -> Unit,
     modifier: Modifier = Modifier
@@ -92,7 +103,10 @@ fun LibraryScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item(key = "hero") {
-                LibraryHeroCard(onPickZip = onPickZip)
+                LibraryHeroCard(
+                    onPickZip = onPickZip,
+                    onPickBookPdf = onPickBookPdf
+                )
             }
 
             item(key = "stats") {
@@ -115,6 +129,31 @@ fun LibraryScreen(
                         label = stringResource(R.string.stat_active_api_label),
                         modifier = Modifier.weight(1f)
                     )
+                }
+            }
+
+            if (workspaces.size > 1) {
+                item(key = "workspace_switcher") {
+                    EduPanel(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = stringResource(R.string.workspaces_switcher_heading),
+                            style = MaterialTheme.typography.titleSmall,
+                            color = EduInk
+                        )
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(7.dp),
+                            verticalArrangement = Arrangement.spacedBy(7.dp)
+                        ) {
+                            workspaces.forEach { ws ->
+                                EduPill(
+                                    text = ws.title,
+                                    active = ws.workspaceId == workspace?.workspaceId,
+                                    onClick = { onSelectWorkspace(ws.workspaceId) },
+                                    testTag = "ws_pill_${ws.workspaceId}"
+                                )
+                            }
+                        }
+                    }
                 }
             }
 
@@ -199,7 +238,7 @@ fun LibraryScreen(
                                 modifier = Modifier.size(22.dp)
                             )
                             Text(
-                                text = "لم يتم استيراد كتب بعد. اضغط على استيراد Workspace ZIP للبدء.",
+                                text = stringResource(R.string.empty_books_hint),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = EduMuted
                             )
@@ -257,7 +296,10 @@ fun LibraryScreen(
 }
 
 @Composable
-private fun LibraryHeroCard(onPickZip: () -> Unit) {
+private fun LibraryHeroCard(
+    onPickZip: () -> Unit,
+    onPickBookPdf: () -> Unit
+) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(22.dp),
@@ -269,8 +311,7 @@ private fun LibraryHeroCard(onPickZip: () -> Unit) {
                 contentDescription = stringResource(R.string.cd_hero_banner),
                 contentScale = ContentScale.Crop,
                 alpha = 0.28f,
-                modifier = Modifier
-                    .matchParentSize()
+                modifier = Modifier.matchParentSize()
             )
             Box(
                 modifier = Modifier
@@ -288,7 +329,7 @@ private fun LibraryHeroCard(onPickZip: () -> Unit) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(7.dp)
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text(
                     text = stringResource(R.string.hero_kicker),
@@ -305,13 +346,37 @@ private fun LibraryHeroCard(onPickZip: () -> Unit) {
                     style = MaterialTheme.typography.bodyMedium,
                     color = EduHeroSub
                 )
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(2.dp))
                 EduYellowButton(
-                    text = stringResource(R.string.import_zip_cta),
-                    onClick = onPickZip,
-                    icon = Icons.Rounded.Add,
-                    testTag = "import_zip_button"
+                    text = stringResource(R.string.split_book_pdf_cta),
+                    onClick = onPickBookPdf,
+                    icon = Icons.Rounded.PictureAsPdf,
+                    testTag = "split_book_pdf_button"
                 )
+                Button(
+                    onClick = onPickZip,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = EduWhite.copy(alpha = 0.18f),
+                        contentColor = EduWhite
+                    ),
+                    border = BorderStroke(1.dp, EduWhite.copy(alpha = 0.45f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("import_zip_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Add,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = stringResource(R.string.import_zip_cta),
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
         }
     }
