@@ -71,32 +71,47 @@ class AiGenerationService(
         pdfPath: String?,
         maxPages: Int = 4
     ): List<String> = withContext(Dispatchers.IO) {
-        if (pdfPath.isNullOrBlank()) return@withContext emptyList()
+        require(!pdfPath.isNullOrBlank()) { "مسار PDF غير محدد" }
         val file = File(pdfPath)
-        if (!file.exists()) return@withContext emptyList()
+        require(file.isFile) { "ملف PDF الخاص بالدرس غير موجود: $pdfPath" }
+        require(maxPages > 0) { "عدد صفحات PDF المطلوب يجب أن يكون أكبر من صفر" }
 
         val encodedPages = mutableListOf<String>()
-        runCatching {
-            ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { pfd ->
-                PdfRenderer(pfd).use { renderer ->
-                    val count = renderer.pageCount.coerceAtMost(maxPages)
-                    for (idx in 0 until count) {
-                        renderer.openPage(idx).use { page ->
-                            val scale = (1100f / page.width.coerceAtLeast(1)).coerceAtMost(1.6f)
-                            val w = (page.width * scale).toInt().coerceIn(400, 1400)
-                            val h = (page.height * scale).toInt().coerceIn(500, 1800)
-                            val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { pfd ->
+            PdfRenderer(pfd).use { renderer ->
+                require(renderer.pageCount > 0) { "ملف PDF لا يحتوي صفحات" }
+                val selectedCount = renderer.pageCount.coerceAtMost(maxPages)
+                val selectedIndexes = if (selectedCount == 1) {
+                    listOf(0)
+                } else {
+                    (0 until selectedCount).map { index ->
+                        (index.toLong() * (renderer.pageCount - 1) / (selectedCount - 1)).toInt()
+                    }.distinct()
+                }
+                selectedIndexes.forEach { pageIndex ->
+                    renderer.openPage(pageIndex).use { page ->
+                        val scale = (1100f / page.width.coerceAtLeast(1)).coerceAtMost(1.6f)
+                        val width = (page.width * scale).toInt().coerceIn(400, 1400)
+                        val height = (page.height * scale).toInt().coerceIn(500, 1800)
+                        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                        try {
                             bitmap.eraseColor(Color.WHITE)
                             page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                            val baos = ByteArrayOutputStream()
-                            bitmap.compress(Bitmap.CompressFormat.JPEG, 78, baos)
+                            val bytes = ByteArrayOutputStream().use { output ->
+                                check(bitmap.compress(Bitmap.CompressFormat.JPEG, 82, output)) {
+                                    "تعذر ضغط صفحة PDF رقم ${pageIndex + 1}"
+                                }
+                                output.toByteArray()
+                            }
+                            encodedPages.add(Base64.encodeToString(bytes, Base64.NO_WRAP))
+                        } finally {
                             bitmap.recycle()
-                            encodedPages.add(Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP))
                         }
                     }
                 }
             }
         }
+        check(encodedPages.isNotEmpty()) { "تعذر استخراج صور صفحات PDF" }
         encodedPages
     }
 
