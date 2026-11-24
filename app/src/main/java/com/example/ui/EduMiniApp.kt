@@ -23,9 +23,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.Dashboard
 import androidx.compose.material.icons.outlined.LibraryBooks
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Dashboard
 import androidx.compose.material.icons.rounded.LibraryBooks
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.AlertDialog
@@ -62,6 +64,7 @@ import com.example.R
 import com.example.model.AppPage
 import com.example.ui.components.InteractivePackagePreviewDialog
 import com.example.ui.components.PdfBookSplitterDialog
+import com.example.ui.screens.DashboardScreen
 import com.example.ui.screens.LibraryScreen
 import com.example.ui.screens.SettingsScreen
 import com.example.ui.screens.StudioScreen
@@ -82,6 +85,7 @@ fun EduMiniApp(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val lessonDrafts by viewModel.lessonDrafts.collectAsStateWithLifecycle()
     val lessonPackages by viewModel.lessonPackages.collectAsStateWithLifecycle()
+    val dashboardSummary by viewModel.dashboardSummary.collectAsStateWithLifecycle()
 
     val zipPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -165,12 +169,32 @@ fun EduMiniApp(
 
                             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                                 when (state.page) {
+                                    AppPage.DASHBOARD -> DashboardScreen(
+                                        summary = dashboardSummary,
+                                        onOpenLessonInStudio = viewModel::selectLessonAndOpenStudio,
+                                        onToggleLessonCompleted = viewModel::toggleLessonCompletion,
+                                        onPickBookPdf = {
+                                            pdfPickerLauncher.launch(arrayOf("application/pdf"))
+                                        },
+                                        onPickZip = {
+                                            zipPickerLauncher.launch(
+                                                arrayOf(
+                                                    "application/zip",
+                                                    "application/x-zip-compressed",
+                                                    "application/octet-stream"
+                                                )
+                                            )
+                                        },
+                                        onOpenLibrary = { viewModel.navigateTo(AppPage.LIBRARY) }
+                                    )
+
                                     AppPage.LIBRARY -> LibraryScreen(
                                         workspace = state.workspace,
                                         workspaces = state.workspaces,
                                         selectedBookKey = state.selectedBookKey,
                                         selectedLesson = state.selectedLesson,
                                         activeProvidersCount = state.providers.count { it.enabled },
+                                        bookProgress = dashboardSummary.bookProgress,
                                         onPickZip = {
                                             zipPickerLauncher.launch(
                                                 arrayOf(
@@ -383,6 +407,34 @@ private fun EduBottomNavigationBar(
             tonalElevation = 0.dp
         ) {
             NavigationBarItem(
+                selected = currentPage == AppPage.DASHBOARD,
+                onClick = { onSelectPage(AppPage.DASHBOARD) },
+                icon = {
+                    Icon(
+                        imageVector = if (currentPage == AppPage.DASHBOARD) {
+                            Icons.Rounded.Dashboard
+                        } else {
+                            Icons.Outlined.Dashboard
+                        },
+                        contentDescription = stringResource(R.string.nav_dashboard)
+                    )
+                },
+                label = {
+                    Text(
+                        text = stringResource(R.string.nav_dashboard),
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                },
+                colors = NavigationBarItemDefaults.colors(
+                    selectedIconColor = EduGreenDark,
+                    selectedTextColor = EduGreenDark,
+                    indicatorColor = EduMint,
+                    unselectedIconColor = EduMuted,
+                    unselectedTextColor = EduMuted
+                ),
+                modifier = Modifier.testTag("nav_dashboard")
+            )
+            NavigationBarItem(
                 selected = currentPage == AppPage.LIBRARY,
                 onClick = { onSelectPage(AppPage.LIBRARY) },
                 icon = {
@@ -480,6 +532,28 @@ private fun EduNavigationRail(
         modifier = Modifier.fillMaxHeight()
     ) {
         Spacer(modifier = Modifier.size(12.dp))
+        NavigationRailItem(
+            selected = currentPage == AppPage.DASHBOARD,
+            onClick = { onSelectPage(AppPage.DASHBOARD) },
+            icon = {
+                Icon(
+                    imageVector = if (currentPage == AppPage.DASHBOARD) {
+                        Icons.Rounded.Dashboard
+                    } else {
+                        Icons.Outlined.Dashboard
+                    },
+                    contentDescription = stringResource(R.string.nav_dashboard)
+                )
+            },
+            label = { Text(stringResource(R.string.nav_dashboard)) },
+            colors = NavigationRailItemDefaults.colors(
+                selectedIconColor = EduGreenDark,
+                selectedTextColor = EduGreenDark,
+                indicatorColor = EduMint,
+                unselectedIconColor = EduMuted,
+                unselectedTextColor = EduMuted
+            )
+        )
         NavigationRailItem(
             selected = currentPage == AppPage.LIBRARY,
             onClick = { onSelectPage(AppPage.LIBRARY) },

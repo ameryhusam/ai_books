@@ -2,9 +2,17 @@
 <resources>
     <string name="app_name">Edu Mini</string>
     <string name="brand_subtitle">محتوى تعليمي ذكي</string>
+    <string name="nav_dashboard">لوحة الإنجاز</string>
     <string name="nav_library">المكتبة</string>
     <string name="nav_studio">Studio</string>
     <string name="nav_settings">الإعدادات</string>
+    <string name="dashboard_hero_title">لوحة الإنجاز ومسار التعلم</string>
+    <string name="dashboard_books_progress_heading">نسب إنجاز الكتب والمواد</string>
+    <string name="dashboard_badges_heading">الشارات والإنجازات</string>
+    <string name="dashboard_learning_path_heading">مسار التعلم التفاعلي</string>
+    <string name="dashboard_empty_title">ابدأ ببناء مسار التعلم</string>
+    <string name="dashboard_empty_sub">جزّئ كتاب PDF أو استورد مساحة عمل ZIP لتتبع نسب الإنجاز والنقاط ومسار الدروس خطوة بخطوة.</string>
+    <string name="cd_dashboard_banner">خلفية لوحة الإنجاز ومسار التعلم</string>
     <string name="hero_kicker">EDU MINI • OFFLINE</string>
     <string name="hero_title">ابدأ رحلة التعلم</string>
     <string name="hero_sub">تجزئة الكتب • استيراد مساحات العمل • إنتاج ذكي ومحتوى تفاعلي</string>

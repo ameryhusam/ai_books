@@ -212,7 +212,76 @@ data class LessonSplitDraft(
     val endPage: Int
 )
 
+enum class LearningNodeStatus(val labelAr: String) {
+    NOT_STARTED("لم يبدأ"),
+    IN_PROGRESS("قيد الإعداد"),
+    READY("مُجهّز"),
+    COMPLETED("مكتمل")
+}
+
+data class LearningLessonNode(
+    val lesson: LessonRef,
+    val status: LearningNodeStatus,
+    val isCompleted: Boolean,
+    val draftsCount: Int,
+    val approvedDraftsCount: Int,
+    val packagesCount: Int,
+    val publishedPackagesCount: Int,
+    val pointsEarned: Int,
+    val maxPossiblePoints: Int
+)
+
+data class LearningUnitPath(
+    val unitKey: String,
+    val unitTitle: String,
+    val bookTitle: String,
+    val completedCount: Int,
+    val totalCount: Int,
+    val completionPercent: Int,
+    val nodes: List<LearningLessonNode>
+)
+
+data class BookProgressSummary(
+    val book: BookRef,
+    val completedLessons: Int,
+    val preparedLessons: Int,
+    val totalLessons: Int,
+    val completionPercent: Int,
+    val preparationPercent: Int,
+    val earnedPoints: Int
+)
+
+data class AchievementBadge(
+    val id: String,
+    val title: String,
+    val subtitle: String,
+    val unlocked: Boolean,
+    val pointsBonus: Int
+)
+
+data class DashboardSummary(
+    val hasWorkspace: Boolean = false,
+    val gradeKey: String = "—",
+    val workspaceTitle: String = "",
+    val totalLessons: Int = 0,
+    val completedLessons: Int = 0,
+    val preparedLessons: Int = 0,
+    val approvedItemsCount: Int = 0,
+    val overallCompletionPercent: Int = 0,
+    val preparationPercent: Int = 0,
+    val totalPoints: Int = 0,
+    val level: Int = 1,
+    val levelTitle: String = "مستكشف المعرفة",
+    val pointsIntoLevel: Int = 0,
+    val pointsPerLevel: Int = 150,
+    val bookProgress: List<BookProgressSummary> = emptyList(),
+    val unitPaths: List<LearningUnitPath> = emptyList(),
+    val badges: List<AchievementBadge> = emptyList(),
+    val nextRecommendedLesson: LessonRef? = null
+)
+
 enum class AppPage {
+    DASHBOARD,
     LIBRARY,
     STUDIO,
     SETTINGS

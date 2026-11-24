@@ -8,12 +8,16 @@ import com.example.data.local.EduMiniDao
 import com.example.data.local.GenerationRunEntity
 import com.example.data.local.InteractivePackageEntity
 import com.example.data.local.LessonEntity
+import com.example.data.local.LessonProgressEntity
 import com.example.data.local.WorkspaceEntity
 import com.example.data.packageimport.InteractivePackageImporter
 import com.example.data.security.ProviderStorage
 import com.example.data.workspace.PdfBookSplitter
 import com.example.data.workspace.WorkspaceImporter
+import com.example.model.AchievementBadge
+import com.example.model.BookProgressSummary
 import com.example.model.BookRef
+import com.example.model.DashboardSummary
 import com.example.model.DraftRecord
 import com.example.model.DraftStatus
 import com.example.model.GeneratedResult
@@ -21,6 +25,9 @@ import com.example.model.GenerationRunRecord
 import com.example.model.ImportedWorkspace
 import com.example.model.InteractivePackageRecord
 import com.example.model.InteractivePackageReport
+import com.example.model.LearningLessonNode
+import com.example.model.LearningNodeStatus
+import com.example.model.LearningUnitPath
 import com.example.model.LessonRef
 import com.example.model.LessonSplitDraft
 import com.example.model.PackageKind
@@ -468,6 +475,215 @@ class EduMiniRepository(
         runCatching { File(pkg.rootDir).deleteRecursively() }
     }
 
+    fun observeDashboardSummary(workspace: ImportedWorkspace?): Flow<DashboardSummary> {
+        if (workspace == null) {
+            return flowOf(DashboardSummary(hasWorkspace = false))
+        }
+        return combine(
+            dao.observeDraftsForWorkspace(workspace.workspaceId, workspace.rootPath),
+            dao.observePackagesForWorkspace(workspace.workspaceId),
+            dao.observeProgressForWorkspace(workspace.workspaceId)
+        ) { drafts, packages, progressRows ->
+            computeDashboardSummary(workspace, drafts, packages, progressRows)
+        }
+    }
+
+    suspend fun toggleLessonCompleted(
+        workspaceId: String,
+        lesson: LessonRef,
+        currentlyCompleted: Boolean
+    ) {
+        val nextCompleted = !currentlyCompleted
+        val canonicalWorkspaceId = workspaceId.ifBlank { lesson.workspaceId }.ifBlank { lesson.rootPath }
+        dao.upsertLessonProgress(
+            LessonProgressEntity(
+                workspaceId = canonicalWorkspaceId,
+                bookKey = lesson.bookKey,
+                unitKey = lesson.unitKey,
+                lessonKey = lesson.lessonKey,
+                completed = nextCompleted,
+                pointsEarned = if (nextCompleted) POINTS_LESSON_COMPLETED else 0,
+                completedAt = if (nextCompleted) Instant.now().toString() else null
+            )
+        )
+    }
+
+    fun computeDashboardSummary(
+        workspace: ImportedWorkspace,
+        drafts: List<DraftEntity>,
+        packages: List<InteractivePackageEntity>,
+        progressRows: List<LessonProgressEntity>
+    ): DashboardSummary {
+        val draftsByLesson = drafts.groupBy { Triple(it.bookKey, it.unitKey, it.lessonKey) }
+        val pkgsByLesson = packages.groupBy { Triple(it.bookKey, it.unitKey, it.lessonKey) }
+        val progressByLesson = progressRows.associateBy { Triple(it.bookKey, it.unitKey, it.lessonKey) }
+
+        val nodes = workspace.lessons.map { lesson ->
+            val key = Triple(lesson.bookKey, lesson.unitKey, lesson.lessonKey)
+            val lDrafts = draftsByLesson[key].orEmpty()
+            val lPkgs = pkgsByLesson[key].orEmpty()
+            val prog = progressByLesson[key]
+
+            val approvedDraftsCount = lDrafts.count { it.status == DraftStatus.APPROVED.id }
+            val publishedPkgsCount = lPkgs.count { it.publishedForStudents }
+            val isCompleted = prog?.completed == true
+
+            val status = when {
+                isCompleted -> LearningNodeStatus.COMPLETED
+                approvedDraftsCount > 0 || publishedPkgsCount > 0 -> LearningNodeStatus.READY
+                lDrafts.isNotEmpty() || lPkgs.isNotEmpty() -> LearningNodeStatus.IN_PROGRESS
+                else -> LearningNodeStatus.NOT_STARTED
+            }
+
+            val draftPoints = when {
+                approvedDraftsCount > 0 -> POINTS_APPROVED_DRAFT
+                lDrafts.isNotEmpty() -> POINTS_DRAFT_CREATED
+                else -> 0
+            }
+            val pkgPoints = when {
+                publishedPkgsCount > 0 -> POINTS_PUBLISHED_PACKAGE
+                lPkgs.isNotEmpty() -> POINTS_PACKAGE_UPLOADED
+                else -> 0
+            }
+            val completionPoints = if (isCompleted) POINTS_LESSON_COMPLETED else 0
+            val lessonPoints = draftPoints + pkgPoints + completionPoints
+
+            LearningLessonNode(
+                lesson = lesson,
+                status = status,
+                isCompleted = isCompleted,
+                draftsCount = lDrafts.size,
+                approvedDraftsCount = approvedDraftsCount,
+                packagesCount = lPkgs.size,
+                publishedPackagesCount = publishedPkgsCount,
+                pointsEarned = lessonPoints,
+                maxPossiblePoints = POINTS_MAX_PER_LESSON
+            )
+        }
+
+        val totalLessons = nodes.size
+        val completedLessons = nodes.count { it.isCompleted }
+        val preparedLessons = nodes.count {
+            it.status == LearningNodeStatus.COMPLETED || it.status == LearningNodeStatus.READY
+        }
+        val approvedItemsCount = drafts.count { it.status == DraftStatus.APPROVED.id } +
+            packages.count { it.publishedForStudents }
+
+        val overallCompletionPercent = if (totalLessons == 0) 0 else ((completedLessons * 100f) / totalLessons).toInt()
+        val preparationPercent = if (totalLessons == 0) 0 else ((preparedLessons * 100f) / totalLessons).toInt()
+
+        val nodesByBook = nodes.groupBy { it.lesson.bookKey }
+        val bookProgress = workspace.books.map { book ->
+            val bNodes = nodesByBook[book.bookKey].orEmpty()
+            val bTotal = bNodes.size.coerceAtLeast(book.lessonsCount)
+            val bCompleted = bNodes.count { it.isCompleted }
+            val bPrepared = bNodes.count {
+                it.status == LearningNodeStatus.COMPLETED || it.status == LearningNodeStatus.READY
+            }
+            BookProgressSummary(
+                book = book,
+                completedLessons = bCompleted,
+                preparedLessons = bPrepared,
+                totalLessons = bTotal,
+                completionPercent = if (bTotal == 0) 0 else ((bCompleted * 100f) / bTotal).toInt(),
+                preparationPercent = if (bTotal == 0) 0 else ((bPrepared * 100f) / bTotal).toInt(),
+                earnedPoints = bNodes.sumOf { it.pointsEarned }
+            )
+        }
+
+        val unitPaths = nodes
+            .groupBy { Triple(it.lesson.bookKey, it.lesson.unitKey, it.lesson.unitTitle) }
+            .map { (key, uNodes) ->
+                val uCompleted = uNodes.count { it.isCompleted }
+                val uTotal = uNodes.size
+                LearningUnitPath(
+                    unitKey = "${key.first}_${key.second}",
+                    unitTitle = key.third,
+                    bookTitle = uNodes.firstOrNull()?.lesson?.bookTitle.orEmpty(),
+                    completedCount = uCompleted,
+                    totalCount = uTotal,
+                    completionPercent = if (uTotal == 0) 0 else ((uCompleted * 100f) / uTotal).toInt(),
+                    nodes = uNodes
+                )
+            }
+
+        val firstUnitCompleted = unitPaths.any { it.totalCount > 0 && it.completedCount == it.totalCount }
+        val badges = listOf(
+            AchievementBadge(
+                id = "badge_workspace",
+                title = "انطلاقة المسار",
+                subtitle = "إعداد مساحة عمل تعليمية",
+                unlocked = totalLessons > 0,
+                pointsBonus = 25
+            ),
+            AchievementBadge(
+                id = "badge_ai_author",
+                title = "مؤلف ذكي",
+                subtitle = "توليد أو اعتماد محتوى AI",
+                unlocked = drafts.isNotEmpty(),
+                pointsBonus = 30
+            ),
+            AchievementBadge(
+                id = "badge_3d_creator",
+                title = "رائد التفاعلية",
+                subtitle = "رفع أو نشر حزمة HTML/3D",
+                unlocked = packages.isNotEmpty(),
+                pointsBonus = 35
+            ),
+            AchievementBadge(
+                id = "badge_halfway",
+                title = "نصف الطريق",
+                subtitle = "إتمام 50% من الدروس",
+                unlocked = overallCompletionPercent >= 50 && totalLessons > 0,
+                pointsBonus = 50
+            ),
+            AchievementBadge(
+                id = "badge_unit_master",
+                title = "إتقان وحدة",
+                subtitle = "إكمال وحدة دراسية كاملة",
+                unlocked = firstUnitCompleted,
+                pointsBonus = 60
+            )
+        )
+
+        val lessonPointsSum = nodes.sumOf { it.pointsEarned }
+        val badgeBonusSum = badges.filter { it.unlocked }.sumOf { it.pointsBonus }
+        val totalPoints = lessonPointsSum + badgeBonusSum
+        val pointsPerLevel = 150
+        val level = (totalPoints / pointsPerLevel) + 1
+        val pointsIntoLevel = totalPoints % pointsPerLevel
+        val levelTitle = when (level) {
+            1 -> "مستكشف المعرفة"
+            2 -> "باني المسار"
+            3 -> "مُصمّم الدروس"
+            4 -> "خبير التعلّم الذكي"
+            else -> "رائد الإبداع التعليمي"
+        }
+
+        val nextRecommended = nodes.firstOrNull { !it.isCompleted }?.lesson ?: nodes.firstOrNull()?.lesson
+
+        return DashboardSummary(
+            hasWorkspace = true,
+            gradeKey = workspace.gradeKey,
+            workspaceTitle = workspace.title,
+            totalLessons = totalLessons,
+            completedLessons = completedLessons,
+            preparedLessons = preparedLessons,
+            approvedItemsCount = approvedItemsCount,
+            overallCompletionPercent = overallCompletionPercent,
+            preparationPercent = preparationPercent,
+            totalPoints = totalPoints,
+            level = level,
+            levelTitle = levelTitle,
+            pointsIntoLevel = pointsIntoLevel,
+            pointsPerLevel = pointsPerLevel,
+            bookProgress = bookProgress,
+            unitPaths = unitPaths,
+            badges = badges,
+            nextRecommendedLesson = nextRecommended
+        )
+    }
+
     private fun sha256Short(text: String): String? {
         if (text.isBlank()) return null
         val digest = MessageDigest.getInstance("SHA-256")
@@ -500,4 +716,13 @@ class EduMiniRepository(
         pdfPath = pdfPath,
         workspaceId = wsId
     )
+
+    companion object {
+        const val POINTS_LESSON_COMPLETED = 50
+        const val POINTS_APPROVED_DRAFT = 20
+        const val POINTS_DRAFT_CREATED = 10
+        const val POINTS_PUBLISHED_PACKAGE = 25
+        const val POINTS_PACKAGE_UPLOADED = 15
+        const val POINTS_MAX_PER_LESSON = POINTS_LESSON_COMPLETED + POINTS_APPROVED_DRAFT + POINTS_PUBLISHED_PACKAGE
+    }
 }

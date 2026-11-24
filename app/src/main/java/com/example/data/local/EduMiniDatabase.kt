@@ -137,6 +137,20 @@ data class GenerationRunEntity(
     @ColumnInfo(name = "created_at") val createdAt: String
 )
 
+@Entity(
+    tableName = "lesson_progress",
+    primaryKeys = ["workspace_id", "book_key", "unit_key", "lesson_key"]
+)
+data class LessonProgressEntity(
+    @ColumnInfo(name = "workspace_id") val workspaceId: String,
+    @ColumnInfo(name = "book_key") val bookKey: String,
+    @ColumnInfo(name = "unit_key") val unitKey: String,
+    @ColumnInfo(name = "lesson_key") val lessonKey: String,
+    @ColumnInfo(name = "completed") val completed: Boolean = false,
+    @ColumnInfo(name = "points_earned") val pointsEarned: Int = 0,
+    @ColumnInfo(name = "completed_at") val completedAt: String? = null
+)
+
 @Dao
 interface EduMiniDao {
     @Query("SELECT * FROM workspaces ORDER BY importedAt DESC LIMIT 1")
@@ -304,6 +318,26 @@ interface EduMiniDao {
 
     @Query("SELECT * FROM generation_runs ORDER BY created_at DESC LIMIT 25")
     fun observeRecentRuns(): Flow<List<GenerationRunEntity>>
+
+    @Query(
+        """
+        SELECT * FROM generation_drafts
+        WHERE workspace_id = :workspaceId OR workspace_id = :legacyRootPath
+        """
+    )
+    fun observeDraftsForWorkspace(
+        workspaceId: String,
+        legacyRootPath: String
+    ): Flow<List<DraftEntity>>
+
+    @Query("SELECT * FROM interactive_packages WHERE workspace_id = :workspaceId")
+    fun observePackagesForWorkspace(workspaceId: String): Flow<List<InteractivePackageEntity>>
+
+    @Query("SELECT * FROM lesson_progress WHERE workspace_id = :workspaceId")
+    fun observeProgressForWorkspace(workspaceId: String): Flow<List<LessonProgressEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertLessonProgress(progress: LessonProgressEntity)
 }
 
 @Database(
@@ -313,9 +347,10 @@ interface EduMiniDao {
         LessonEntity::class,
         DraftEntity::class,
         InteractivePackageEntity::class,
-        GenerationRunEntity::class
+        GenerationRunEntity::class,
+        LessonProgressEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class EduMiniDatabase : RoomDatabase() {
@@ -382,6 +417,25 @@ abstract class EduMiniDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS lesson_progress (
+                        workspace_id TEXT NOT NULL,
+                        book_key TEXT NOT NULL,
+                        unit_key TEXT NOT NULL,
+                        lesson_key TEXT NOT NULL,
+                        completed INTEGER NOT NULL DEFAULT 0,
+                        points_earned INTEGER NOT NULL DEFAULT 0,
+                        completed_at TEXT,
+                        PRIMARY KEY (workspace_id, book_key, unit_key, lesson_key)
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
         fun getInstance(context: Context): EduMiniDatabase {
             return instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -389,7 +443,7 @@ abstract class EduMiniDatabase : RoomDatabase() {
                     EduMiniDatabase::class.java,
                     "edu-mini-local.db"
                 )
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .build()
                     .also { instance = it }
             }

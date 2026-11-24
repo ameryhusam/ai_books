@@ -2,14 +2,23 @@ package com.example
 
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.ai.AiGenerationService
+import com.example.data.local.DraftEntity
+import com.example.data.local.EduMiniDatabase
+import com.example.data.local.LessonProgressEntity
 import com.example.data.packageimport.InteractivePackageImporter
+import com.example.data.repository.EduMiniRepository
+import com.example.data.security.ProviderStorage
 import com.example.data.workspace.PdfBookSplitter
 import com.example.data.workspace.WorkspaceImporter
+import com.example.model.BookRef
+import com.example.model.ImportedWorkspace
+import com.example.model.LearningNodeStatus
 import com.example.model.LessonRef
 import com.example.model.PackageKind
 import com.example.model.PdfBookInfo
 import com.example.model.SecuritySeverity
 import com.example.model.TaskType
+import com.example.ui.components.LearningProgressCalculator
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -214,6 +223,130 @@ class EduMiniCoreTest {
             version = 3
         )
         assertTrue(unsafeStage.report.findings.any { it.severity == SecuritySeverity.BLOCKER && it.code == "UNSAFE_DYNAMIC_EVAL" })
+    }
+
+    @Test
+    fun dashboardSummaryComputesCompletionPercentagesPointsAndBadges() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val repo = EduMiniRepository(
+            dao = EduMiniDatabase.getInstance(context).eduMiniDao(),
+            providerStorage = ProviderStorage(context),
+            workspaceImporter = WorkspaceImporter(context),
+            aiGenerationService = AiGenerationService(),
+            pdfBookSplitter = PdfBookSplitter(context),
+            interactivePackageImporter = InteractivePackageImporter(context)
+        )
+        val lesson1 = sampleLesson()
+        val lesson2 = lesson1.copy(lessonKey = "lesson_02", title = "الدرس الثاني")
+        val ws = ImportedWorkspace(
+            workspaceId = "ws-test",
+            gradeKey = "G04",
+            rootPath = "/tmp/ws",
+            title = "G04 • لغتي العربية",
+            books = listOf(
+                BookRef(
+                    bookKey = "ARAB",
+                    title = "لغتي العربية",
+                    subjectKey = "ARAB",
+                    relativePath = "workspace/G04/ARAB",
+                    lessonsCount = 2
+                )
+            ),
+            lessons = listOf(lesson1, lesson2),
+            filesCount = 4,
+            warnings = emptyList()
+        )
+        val drafts = listOf(
+            DraftEntity(
+                id = "d1",
+                workspaceId = "ws-test",
+                gradeKey = "G04",
+                bookKey = "ARAB",
+                unitKey = "unit_01",
+                lessonKey = "lesson_01",
+                task = "questions",
+                title = "الدرس الأول",
+                provider = "Gemini",
+                model = "gemini-2.5-flash",
+                createdAt = "2026-01-01T00:00:00Z",
+                content = "أسئلة",
+                status = "APPROVED"
+            )
+        )
+        val progress = listOf(
+            LessonProgressEntity(
+                workspaceId = "ws-test",
+                bookKey = "ARAB",
+                unitKey = "unit_01",
+                lessonKey = "lesson_01",
+                completed = true,
+                pointsEarned = 50
+            )
+        )
+
+        val summary = repo.computeDashboardSummary(ws, drafts, emptyList(), progress)
+        assertTrue(summary.hasWorkspace)
+        assertEquals(2, summary.totalLessons)
+        assertEquals(1, summary.completedLessons)
+        assertEquals(50, summary.overallCompletionPercent)
+        assertEquals(1, summary.unitPaths.size)
+        assertEquals(LearningNodeStatus.COMPLETED, summary.unitPaths[0].nodes[0].status)
+        assertEquals(LearningNodeStatus.NOT_STARTED, summary.unitPaths[0].nodes[1].status)
+        // 50 (completed) + 20 (approved draft) + 25 (workspace badge) + 30 (ai author badge) + 50 (halfway badge) = 175 XP
+        assertEquals(175, summary.totalPoints)
+        assertEquals(2, summary.level)
+        assertEquals(lesson2.lessonKey, summary.nextRecommendedLesson?.lessonKey)
+    }
+
+    @Test
+    fun learningProgressCalculatorComputesBoundsRoundingAndMultiBookSnapshot() {
+        assertEquals(0, LearningProgressCalculator.calculateCompletionPercent(0, 0))
+        assertEquals(0, LearningProgressCalculator.calculateCompletionPercent(0, 5))
+        assertEquals(0, LearningProgressCalculator.calculateCompletionPercent(-2, 4))
+        assertEquals(67, LearningProgressCalculator.calculateCompletionPercent(2, 3))
+        assertEquals(100, LearningProgressCalculator.calculateCompletionPercent(4, 4))
+        assertEquals(100, LearningProgressCalculator.calculateCompletionPercent(7, 4))
+
+        val book1 = BookRef(
+            bookKey = "ARAB",
+            title = "لغتي العربية",
+            subjectKey = "ARAB",
+            relativePath = "workspace/G04/ARAB",
+            lessonsCount = 3
+        )
+        val book2 = BookRef(
+            bookKey = "SCI",
+            title = "العلوم",
+            subjectKey = "SCI",
+            relativePath = "workspace/G04/SCI",
+            lessonsCount = 2
+        )
+        val lessons = listOf(
+            sampleLesson(),
+            sampleLesson().copy(lessonKey = "lesson_02", title = "الدرس الثاني"),
+            sampleLesson().copy(lessonKey = "lesson_03", title = "الدرس الثالث"),
+            sampleLesson().copy(bookKey = "SCI", bookTitle = "العلوم", subjectKey = "SCI", lessonKey = "lesson_01"),
+            sampleLesson().copy(bookKey = "SCI", bookTitle = "العلوم", subjectKey = "SCI", lessonKey = "lesson_02")
+        )
+        val completed = setOf(
+            Triple("ARAB", "unit_01", "lesson_01"),
+            Triple("ARAB", "unit_01", "lesson_02"),
+            Triple("SCI", "unit_01", "lesson_01"),
+            Triple("SCI", "unit_01", "lesson_02")
+        )
+
+        val snapshot = LearningProgressCalculator.buildSnapshot(
+            books = listOf(book1, book2),
+            lessons = lessons,
+            completedLessonKeys = completed
+        )
+
+        assertEquals(2, snapshot.totalBooks)
+        assertEquals(5, snapshot.totalLessons)
+        assertEquals(4, snapshot.completedLessons)
+        assertEquals(80, snapshot.overallCompletionPercent)
+        assertEquals(67, snapshot.books[0].completionPercent)
+        assertEquals(100, snapshot.books[1].completionPercent)
     }
 
     private fun sampleLesson() = LessonRef(

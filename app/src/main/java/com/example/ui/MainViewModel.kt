@@ -12,6 +12,7 @@ import com.example.data.security.ProviderStorage
 import com.example.data.workspace.PdfBookSplitter
 import com.example.data.workspace.WorkspaceImporter
 import com.example.model.AppPage
+import com.example.model.DashboardSummary
 import com.example.model.DraftRecord
 import com.example.model.DraftStatus
 import com.example.model.GenerationRunRecord
@@ -60,7 +61,7 @@ data class PdfSplitterUiState(
 )
 
 data class MainUiState(
-    val page: AppPage = AppPage.LIBRARY,
+    val page: AppPage = AppPage.DASHBOARD,
     val selectedWorkspaceId: String? = null,
     val workspace: ImportedWorkspace? = null,
     val workspaces: List<WorkspaceSummary> = emptyList(),
@@ -123,6 +124,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = emptyList()
+        )
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val dashboardSummary: StateFlow<DashboardSummary> = _uiState
+        .map { it.workspace }
+        .distinctUntilChanged()
+        .flatMapLatest { ws -> repository.observeDashboardSummary(ws) }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = DashboardSummary()
         )
 
     init {
@@ -195,6 +207,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 packageSourcePages = lesson.pageRange.orEmpty(),
                 page = AppPage.STUDIO
             )
+        }
+    }
+
+    fun toggleLessonCompletion(lesson: LessonRef, currentlyCompleted: Boolean) {
+        val wsId = _uiState.value.workspace?.workspaceId.orEmpty()
+        viewModelScope.launch {
+            repository.toggleLessonCompleted(wsId, lesson, currentlyCompleted)
         }
     }
 

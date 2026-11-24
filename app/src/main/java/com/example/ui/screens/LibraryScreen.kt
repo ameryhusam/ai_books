@@ -52,6 +52,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.R
+import com.example.model.BookProgressSummary
 import com.example.model.BookRef
 import com.example.model.ImportedWorkspace
 import com.example.model.LessonRef
@@ -59,6 +60,7 @@ import com.example.model.WorkspaceSummary
 import com.example.ui.components.EduPanel
 import com.example.ui.components.EduPill
 import com.example.ui.components.EduYellowButton
+import com.example.ui.components.LearningProgress
 import com.example.ui.theme.EduGreen
 import com.example.ui.theme.EduGreenDark
 import com.example.ui.theme.EduHeroKicker
@@ -80,6 +82,7 @@ fun LibraryScreen(
     selectedBookKey: String,
     selectedLesson: LessonRef?,
     activeProvidersCount: Int,
+    bookProgress: List<BookProgressSummary> = emptyList(),
     onPickZip: () -> Unit,
     onPickBookPdf: () -> Unit,
     onSelectWorkspace: (String) -> Unit,
@@ -128,6 +131,16 @@ fun LibraryScreen(
                         value = activeProvidersCount.toString(),
                         label = stringResource(R.string.stat_active_api_label),
                         modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+
+            if (workspace != null && bookProgress.isNotEmpty()) {
+                item(key = "learning_progress") {
+                    LearningProgress(
+                        bookProgress = bookProgress,
+                        selectedBookKey = selectedBookKey,
+                        onSelectBook = onSelectBook
                     )
                 }
             }
