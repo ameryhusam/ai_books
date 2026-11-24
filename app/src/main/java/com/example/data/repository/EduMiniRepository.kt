@@ -286,15 +286,27 @@ class EduMiniRepository(
         questionStyleHint: String = "",
         difficultyHint: String = ""
     ): GeneratedResult {
+        val extractedText = if (attachPdfPages && !lesson.pdfPath.isNullOrBlank()) {
+            val pdf = File(lesson.pdfPath)
+            val textFile = File(pdf.parentFile, pdf.nameWithoutExtension + ".txt")
+            if (textFile.isFile) textFile.readText(Charsets.UTF_8).trim() else ""
+        } else ""
+        val effectiveSource = listOf(source.trim(), extractedText)
+            .filter { it.isNotBlank() }
+            .distinct()
+            .joinToString("\\n\\n")
         val pageImages = if (attachPdfPages) {
             aiGenerationService.extractLessonPdfPageImagesBase64(lesson.pdfPath)
         } else {
             emptyList()
         }
+        require(effectiveSource.isNotBlank() || pageImages.isNotEmpty()) {
+            "لم يتم استخراج نص أو صفحات من PDF؛ أعد فحص الملف قبل إرسال الطلب إلى AI."
+        }
         return aiGenerationService.generate(
             lesson = lesson,
             task = task,
-            source = source,
+            source = effectiveSource,
             extra = extra,
             providers = providers,
             questionCount = questionCount,
