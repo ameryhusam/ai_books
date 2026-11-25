@@ -48,7 +48,7 @@ Implemented on `feat/provider-isolation-local-workspace`:
 - Added `ProviderRoutingPolicy` to centralize provider-scoped profile ordering and model fallback candidates.
 - On Gemini HTTP 429, apply an in-memory model-scoped cooldown (profile + model) and immediately try the next configured Gemini model/key; sibling models on the same key remain eligible. Cooldown state currently resets when the process restarts. Quota-exhausted keys are marked and skipped.
 - Transient non-429 failures use bounded exponential backoff with jitter; every actual dispatch reserves its own request slot.
-- Added tests for provider isolation, strict-model behavior, and persistence of the selected provider.
+- Added tests for provider isolation, strict-model behavior, persistence of the selected provider, and model-scoped Gemini cooldown.
 - Added the missing `MessageDigest` import in `AiGenerationService.kt`.
 
 Validation limitations:
