@@ -730,7 +730,16 @@ fun SettingsScreen(
                             .minimumInteractiveComponentSize()
                             .testTag("save_prompt_template_button")
                     ) {
-                        Text("إضافة قالب جديد", color = EduGreenDark, fontWeight = FontWeight.Bold)
+                        Text(if (editingTemplateId == null) "إضافة قالب جديد" else "حفظ تعديلات القالب", color = EduGreenDark, fontWeight = FontWeight.Bold)
+                    }
+                    if (editingTemplateId != null) {
+                        TextButton(onClick = {
+                            editingTemplateId = null
+                            newTplTitle = ""
+                            newTplInstructions = ""
+                            newTplSchema = ""
+                            newTplMapping = ""
+                        }) { Text("إلغاء التعديل", color = EduMuted) }
                     }
 
                     promptTemplates.forEach { tpl ->
