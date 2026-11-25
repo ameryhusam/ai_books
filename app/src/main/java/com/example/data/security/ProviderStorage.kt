@@ -5,6 +5,7 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import com.example.model.ProviderConfig
+import com.example.model.ProviderType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
@@ -29,6 +30,20 @@ class ProviderStorage(context: Context) {
     private val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     private val json = Json { ignoreUnknownKeys = true }
     private val lock = Any()
+
+    suspend fun loadSelectedProviderType(): ProviderType = withContext(Dispatchers.IO) {
+        synchronized(lock) {
+            ProviderType.fromId(prefs.getString(KEY_SELECTED_PROVIDER, ProviderType.GEMINI.id).orEmpty())
+        }
+    }
+
+    suspend fun saveSelectedProviderType(type: ProviderType) = withContext(Dispatchers.IO) {
+        synchronized(lock) {
+            check(prefs.edit().putString(KEY_SELECTED_PROVIDER, type.id).commit()) {
+                "تعذر حفظ مزود الذكاء الاصطناعي الافتراضي"
+            }
+        }
+    }
 
     suspend fun loadProviders(): List<ProviderConfig> = withContext(Dispatchers.IO) {
         synchronized(lock) {
@@ -257,6 +272,7 @@ class ProviderStorage(context: Context) {
         private const val DEFAULT_TIME_ZONE = "Asia/Aden"
         private const val PREFS_NAME = "edu_mini_secure_prefs"
         private const val KEY_PROFILES = "edu_mini_ai_profiles_v1"
+        private const val KEY_SELECTED_PROVIDER = "edu_mini_selected_ai_provider_v1"
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
         private const val KEY_ALIAS = "edu_mini_providers_aes_key"
         private const val TRANSFORMATION = "AES/GCM/NoPadding"
