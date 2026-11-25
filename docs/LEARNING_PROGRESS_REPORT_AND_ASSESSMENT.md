@@ -44,7 +44,7 @@ These are diagnostic signals, not definitive proof of a specific misconception. 
 
 ### 6. Weekly assessment trend
 
-Assessment attempts are grouped by the Monday-starting UTC week of completion. The report shows weekly average score, attempt count, and number passed for the latest eight weeks. The data is based on recorded assessment attempts; the app does not yet schedule a weekly test automatically.
+Assessment attempts are grouped by the Monday-starting week in the device's local time zone. The report shows weekly average score, attempt count, and number passed for the latest eight weeks. The data is based on recorded assessment attempts; the app does not yet schedule a weekly test automatically.
 
 ### 7. Change after reinforcement practice
 
