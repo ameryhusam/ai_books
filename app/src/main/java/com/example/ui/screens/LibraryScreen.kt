@@ -495,7 +495,7 @@ fun LibraryScreen(
                         },
                         onPreviewCover = { onPreviewBookCover(book) },
                         onOpenSourcePdf = book.sourcePdfPath?.let { pdf ->
-                            { onPreviewPdf(pdf, book.title, "${book.subjectKey} • الكتاب الكامل") }
+                            { onPreviewPdf(pdf, book.title, "${book.subjectName ?: book.subjectKey} • الكتاب الكامل") }
                         }
                     )
                 }
@@ -821,7 +821,7 @@ private fun BookItemCard(
                     color = EduInk
                 )
                 val subtitle = buildString {
-                    append(book.subjectKey)
+                    append(book.subjectName ?: book.subjectKey)
                     if (!book.componentKey.isNullOrBlank()) {
                         append(" • ")
                         append(book.componentKey)
