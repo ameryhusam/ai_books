@@ -387,8 +387,9 @@ private fun AuthenticatedEduMiniContent(
                             }
 
                             Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                                val generationProgressPercent = generationProgressPercent
                                 AnimatedVisibility(visible = state.isBusy) {
-                                    if (state.generationProgressPercent != null) {
+                                    if (generationProgressPercent != null) {
                                         Column(
                                             modifier = Modifier
                                                 .fillMaxWidth()
@@ -406,7 +407,7 @@ private fun AuthenticatedEduMiniContent(
                                                     color = EduMuted
                                                 )
                                                 Text(
-                                                    text = if (state.generationStage?.startsWith("إرسال") == true) "انتظار الاستجابة" else "${state.generationProgressPercent}%",
+                                                    text = if (state.generationStage?.startsWith("إرسال") == true) "انتظار الاستجابة" else "${generationProgressPercent}%",
                                                     style = MaterialTheme.typography.labelSmall,
                                                     color = EduGreenDark
                                                 )
@@ -418,7 +419,7 @@ private fun AuthenticatedEduMiniContent(
                                                 )
                                             } else {
                                                 LinearProgressIndicator(
-                                                    progress = { (state.generationProgressPercent / 100f).coerceIn(0f, 1f) },
+                                                    progress = { (generationProgressPercent / 100f).coerceIn(0f, 1f) },
                                                     modifier = Modifier.fillMaxWidth(),
                                                     color = EduGreen
                                                 )
