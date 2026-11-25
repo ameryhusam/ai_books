@@ -191,7 +191,7 @@ data class GenerationRunEntity(
 
 @Entity(
     tableName = "lesson_progress",
-    primaryKeys = ["workspace_id", "book_key", "unit_key", "lesson_key"]
+    primaryKeys = ["workspace_id", "book_key", "unit_key", "lesson_key", "user_id"]
 )
 data class LessonProgressEntity(
     @ColumnInfo(name = "workspace_id") val workspaceId: String,
@@ -200,14 +200,16 @@ data class LessonProgressEntity(
     @ColumnInfo(name = "lesson_key") val lessonKey: String,
     @ColumnInfo(name = "completed") val completed: Boolean = false,
     @ColumnInfo(name = "points_earned") val pointsEarned: Int = 0,
-    @ColumnInfo(name = "completed_at") val completedAt: String? = null
+    @ColumnInfo(name = "completed_at") val completedAt: String? = null,
+    @ColumnInfo(name = "user_id") val userId: String = "learner_default"
 )
 
-@Entity(tableName = "study_days")
+@Entity(tableName = "study_days", primaryKeys = ["activity_date", "user_id"])
 data class StudyDayEntity(
-    @PrimaryKey @ColumnInfo(name = "activity_date") val activityDate: String,
+    @ColumnInfo(name = "activity_date") val activityDate: String,
     @ColumnInfo(name = "actions_count") val actionsCount: Int = 1,
-    @ColumnInfo(name = "last_updated_at") val lastUpdatedAt: String
+    @ColumnInfo(name = "last_updated_at") val lastUpdatedAt: String,
+    @ColumnInfo(name = "user_id") val userId: String = "learner_default"
 )
 
 @Entity(
@@ -299,7 +301,8 @@ data class AssessmentAttemptEntity(
     @ColumnInfo(name = "passed") val passed: Boolean,
     @ColumnInfo(name = "duration_seconds") val durationSeconds: Int,
     @ColumnInfo(name = "earned_xp") val earnedXp: Int,
-    @ColumnInfo(name = "completed_at") val completedAt: String
+    @ColumnInfo(name = "completed_at") val completedAt: String,
+    @ColumnInfo(name = "user_id") val userId: String = "learner_default"
 )
 
 @Entity(
@@ -550,17 +553,17 @@ interface EduMiniDao {
     @Query("SELECT * FROM interactive_packages WHERE workspace_id = :workspaceId")
     fun observePackagesForWorkspace(workspaceId: String): Flow<List<InteractivePackageEntity>>
 
-    @Query("SELECT * FROM lesson_progress WHERE workspace_id = :workspaceId")
-    fun observeProgressForWorkspace(workspaceId: String): Flow<List<LessonProgressEntity>>
+    @Query("SELECT * FROM lesson_progress WHERE workspace_id = :workspaceId AND user_id = :userId")
+    fun observeProgressForWorkspace(workspaceId: String, userId: String = "learner_default"): Flow<List<LessonProgressEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertLessonProgress(progress: LessonProgressEntity)
 
-    @Query("SELECT * FROM study_days ORDER BY activity_date DESC")
-    fun observeStudyDays(): Flow<List<StudyDayEntity>>
+    @Query("SELECT * FROM study_days WHERE user_id = :userId ORDER BY activity_date DESC")
+    fun observeStudyDays(userId: String = "learner_default"): Flow<List<StudyDayEntity>>
 
-    @Query("SELECT * FROM study_days WHERE activity_date = :dateIso LIMIT 1")
-    suspend fun getStudyDay(dateIso: String): StudyDayEntity?
+    @Query("SELECT * FROM study_days WHERE activity_date = :dateIso AND user_id = :userId LIMIT 1")
+    suspend fun getStudyDay(dateIso: String, userId: String = "learner_default"): StudyDayEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertStudyDay(studyDay: StudyDayEntity)
@@ -640,8 +643,8 @@ interface EduMiniDao {
     @Query("DELETE FROM assessments WHERE id = :assessmentId")
     suspend fun deleteAssessmentById(assessmentId: String)
 
-    @Query("SELECT * FROM assessment_attempts WHERE workspace_id = :workspaceId ORDER BY completed_at DESC LIMIT 30")
-    fun observeAssessmentAttempts(workspaceId: String): Flow<List<AssessmentAttemptEntity>>
+    @Query("SELECT * FROM assessment_attempts WHERE workspace_id = :workspaceId AND user_id = :userId ORDER BY completed_at DESC LIMIT 30")
+    fun observeAssessmentAttempts(workspaceId: String, userId: String = "learner_default"): Flow<List<AssessmentAttemptEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAssessmentAttempt(attempt: AssessmentAttemptEntity)
@@ -744,7 +747,7 @@ interface EduMiniDao {
         TeacherNoteEntity::class,
         PromptTemplateEntity::class
     ],
-    version = 14,
+    version = 15,
     exportSchema = false
 )
 abstract class EduMiniDatabase : RoomDatabase() {
@@ -1099,7 +1102,56 @@ abstract class EduMiniDatabase : RoomDatabase() {
             }
         }
 
-        fun getInstance(context: Context): EduMiniDatabase {
+        val MIGRATION_14_15 = object : Migration(14, 15) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Preserve legacy learning history under the default local learner.
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS lesson_progress_new (
+                        workspace_id TEXT NOT NULL,
+                        book_key TEXT NOT NULL,
+                        unit_key TEXT NOT NULL,
+                        lesson_key TEXT NOT NULL,
+                        completed INTEGER NOT NULL,
+                        points_earned INTEGER NOT NULL,
+                        completed_at TEXT,
+                        user_id TEXT NOT NULL DEFAULT 'learner_default',
+                        PRIMARY KEY(workspace_id, book_key, unit_key, lesson_key, user_id)
+                    )
+                """.trimIndent())
+                db.execSQL("""
+                    INSERT INTO lesson_progress_new
+                    (workspace_id, book_key, unit_key, lesson_key, completed, points_earned, completed_at, user_id)
+                    SELECT workspace_id, book_key, unit_key, lesson_key, completed, points_earned, completed_at, 'learner_default'
+                    FROM lesson_progress
+                """.trimIndent())
+                db.execSQL("DROP TABLE lesson_progress")
+                db.execSQL("ALTER TABLE lesson_progress_new RENAME TO lesson_progress")
+
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS study_days_new (
+                        activity_date TEXT NOT NULL,
+                        actions_count INTEGER NOT NULL,
+                        last_updated_at TEXT NOT NULL,
+                        user_id TEXT NOT NULL DEFAULT 'learner_default',
+                        PRIMARY KEY(activity_date, user_id)
+                    )
+                """.trimIndent())
+                db.execSQL("""
+                    INSERT INTO study_days_new (activity_date, actions_count, last_updated_at, user_id)
+                    SELECT activity_date, actions_count, last_updated_at, 'learner_default' FROM study_days
+                """.trimIndent())
+                db.execSQL("DROP TABLE study_days")
+                db.execSQL("ALTER TABLE study_days_new RENAME TO study_days")
+
+                db.execSQL("ALTER TABLE assessment_attempts ADD COLUMN user_id TEXT NOT NULL DEFAULT 'learner_default'")
+                db.execSQL("""
+                    CREATE INDEX IF NOT EXISTS idx_attempts_ws_user
+                    ON assessment_attempts (workspace_id, user_id, completed_at)
+                """.trimIndent())
+            }
+        }
+
+        fun getInstance(context: Context) {
             return instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
                     context.applicationContext,
@@ -1119,7 +1171,8 @@ abstract class EduMiniDatabase : RoomDatabase() {
                         MIGRATION_10_11,
                         MIGRATION_11_12,
                         MIGRATION_12_13,
-                        MIGRATION_13_14
+                        MIGRATION_13_14,
+                        MIGRATION_14_15
                     )
                     .build()
                     .also { instance = it }
