@@ -2666,4 +2666,54 @@ class EduMiniCoreTest {
         }
         return baos.toByteArray()
     }
+
+    @Test
+    fun learningProgressAnalyticsUsesOneExplicitZoneForDayAndWeekBoundaries() {
+        val zone = java.time.ZoneId.of("Pacific/Kiritimati")
+        val questions = (1..3).map { index ->
+            QuestionItem(
+                id = "zone-q$index",
+                workspaceId = "ws-zone",
+                gradeKey = "G07",
+                bookKey = "SCI",
+                unitKey = "unit-01",
+                lessonKey = "lesson-01",
+                lessonTitle = "الكسور",
+                type = QuestionType.MCQ,
+                prompt = "سؤال $index",
+                options = listOf("أ", "ب"),
+                correctAnswer = "أ",
+                rationale = "التفسير",
+                difficulty = QuestionDifficulty.MEDIUM,
+                conceptTag = "fractions"
+            )
+        }
+        val attempts = listOf(
+            QuestionAttemptRecord(
+                id = "zone-a1", workspaceId = "ws-zone", userId = "learner_a",
+                questionId = "zone-q1", conceptTag = "fractions", selectedAnswer = "أ",
+                isCorrect = true, sourceMode = "lesson_quiz", answeredAt = "2026-11-01T09:30:00Z"
+            ),
+            QuestionAttemptRecord(
+                id = "zone-a2", workspaceId = "ws-zone", userId = "learner_a",
+                questionId = "zone-q2", conceptTag = "fractions", selectedAnswer = "أ",
+                isCorrect = true, sourceMode = "lesson_quiz", answeredAt = "2026-11-01T10:30:00Z"
+            ),
+            QuestionAttemptRecord(
+                id = "zone-a3", workspaceId = "ws-zone", userId = "learner_a",
+                questionId = "zone-q3", conceptTag = "fractions", selectedAnswer = "أ",
+                isCorrect = true, sourceMode = "lesson_quiz", answeredAt = "2026-11-01T10:45:00Z"
+            )
+        )
+        val report = LearningProgressAnalytics.calculate(
+            questions = questions,
+            attempts = attempts,
+            assessments = emptyList(),
+            now = java.time.Instant.parse("2026-11-02T12:00:00Z"),
+            zoneId = zone
+        )
+        // The first attempt is still on Nov 1 locally, while the next two are on Nov 2.
+        assertEquals(1, report.stableConceptsCount)
+    }
+
 }
