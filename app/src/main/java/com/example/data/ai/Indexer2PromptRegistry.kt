@@ -316,7 +316,9 @@ object Indexer2PromptRegistry {
             append(".\n")
             append("التزم بالمصدر ولا تخترع معلومات أو صفحات. اجعل المحتوى منظمًا وقابلاً للتحرير.\n")
             append("المخطط المرجعي (indexer2): ${blueprint.sourcePath}\n")
-            append("معيار المخرجات: ${blueprint.outputContract}.\n")
+            if (task == TaskType.QUESTIONS || task == TaskType.INTERACTIVE) {
+                append("العدد المطلوب من العناصر: $safeCount.\n")
+            }
             if (promptTemplate.isNotBlank()) {
                 append("\nتعليمات المهمة المرجعية من ملف ${blueprint.sourcePath}:\n")
                 append(promptTemplate.trim())
