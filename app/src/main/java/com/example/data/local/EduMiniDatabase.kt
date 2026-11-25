@@ -354,6 +354,15 @@ interface EduMiniDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertBooks(books: List<BookEntity>)
 
+    @Query("SELECT * FROM books WHERE workspaceId = :workspaceId")
+    suspend fun getBooksForWorkspaceSnapshot(workspaceId: String): List<BookEntity>
+
+    @Query("DELETE FROM books WHERE rowId = :rowId")
+    suspend fun deleteBookByRowId(rowId: Long)
+
+    @Query("DELETE FROM lessons WHERE rowId = :rowId")
+    suspend fun deleteLessonByRowId(rowId: Long)
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertLessons(lessons: List<LessonEntity>)
 
@@ -389,12 +398,44 @@ interface EduMiniDao {
         units: List<WorkspaceUnitEntity>
     ) {
         insertWorkspace(workspace)
-        deleteLessonsByWorkspace(workspace.workspaceId)
-        deleteBooksByWorkspace(workspace.workspaceId)
+
+        // Keep stable Room row IDs for identities that still exist in the refreshed index.
+        val existingBooks = getBooksForWorkspaceSnapshot(workspace.workspaceId)
+        val incomingBooks = books.distinctBy { it.bookKey }
+        val incomingBookKeys = incomingBooks.map { it.bookKey }.toSet()
+        existingBooks.filterNot { it.bookKey in incomingBookKeys }.forEach {
+            deleteBookByRowId(it.rowId)
+        }
+        val existingBooksByKey = existingBooks.associateBy { it.bookKey }
+        val stableBooks = incomingBooks.map { incoming ->
+            existingBooksByKey[incoming.bookKey]?.let { incoming.copy(rowId = it.rowId) } ?: incoming
+        }
+
+        val existingLessons = getLessonsForWorkspaceSnapshot(workspace.workspaceId)
+        val incomingLessons = lessons.distinctBy {
+            listOf(it.bookKey, it.unitKey, it.lessonKey).joinToString("|")
+        }
+        val incomingLessonKeys = incomingLessons.map {
+            listOf(it.bookKey, it.unitKey, it.lessonKey).joinToString("|")
+        }.toSet()
+        existingLessons.filterNot {
+            listOf(it.bookKey, it.unitKey, it.lessonKey).joinToString("|") in incomingLessonKeys
+        }.forEach {
+            deleteLessonByRowId(it.rowId)
+        }
+        val existingLessonsByKey = existingLessons.associateBy {
+            listOf(it.bookKey, it.unitKey, it.lessonKey).joinToString("|")
+        }
+        val stableLessons = incomingLessons.map { incoming ->
+            val key = listOf(incoming.bookKey, incoming.unitKey, incoming.lessonKey).joinToString("|")
+            existingLessonsByKey[key]?.let { incoming.copy(rowId = it.rowId) } ?: incoming
+        }
+
+        if (stableBooks.isNotEmpty()) insertBooks(stableBooks)
+        if (stableLessons.isNotEmpty()) insertLessons(stableLessons)
+
         deleteWorkspaceIndexes(workspace.workspaceId)
         deleteWorkspaceUnits(workspace.workspaceId)
-        if (books.isNotEmpty()) insertBooks(books)
-        if (lessons.isNotEmpty()) insertLessons(lessons)
         if (indexes.isNotEmpty()) insertWorkspaceIndexes(indexes)
         if (units.isNotEmpty()) insertWorkspaceUnits(units)
     }
