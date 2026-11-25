@@ -7,16 +7,19 @@ GitHub Actions is not required to verify the workspace binder changes. Run the A
 Linux / macOS:
 
 ```bash
-./gradlew :app:testDebugUnitTest --tests "com.example.EduMiniCoreTest.directWorkspaceBinderInspectsMultiGradeAndBindsSingleGradeInPlaceWithoutCopying"
+./gradlew :app:testDebugUnitTest \
+  --tests "com.example.EduMiniCoreTest.directWorkspaceBinderInspectsMultiGradeAndBindsSingleGradeInPlaceWithoutCopying" \
+  --tests "com.example.EduMiniCoreTest.directWorkspaceBinderRejectsComponentKeyThatConflictsWithIndexPath" \
+  --tests "com.example.EduMiniCoreTest.directWorkspaceCatalogSyncUpdatesIndexAndUnitRowsWithoutDuplicates"
 ```
 
 Windows:
 
 ```bat
-gradlew.bat :app:testDebugUnitTest --tests "com.example.EduMiniCoreTest.directWorkspaceBinderInspectsMultiGradeAndBindsSingleGradeInPlaceWithoutCopying"
+gradlew.bat :app:testDebugUnitTest --tests "com.example.EduMiniCoreTest.directWorkspaceBinderInspectsMultiGradeAndBindsSingleGradeInPlaceWithoutCopying" --tests "com.example.EduMiniCoreTest.directWorkspaceBinderRejectsComponentKeyThatConflictsWithIndexPath" --tests "com.example.EduMiniCoreTest.directWorkspaceCatalogSyncUpdatesIndexAndUnitRowsWithoutDuplicates"
 ```
 
-This test exercises:
+These focused tests exercise:
 - A science index at `G07/SCI/index.json` with no component.
 - English Course and Workbook indexes at `G07/ENG/COURSE/index.json` and `G07/ENG/WORKBOOK/index.json`.
 - Social Studies indexes at `G07/SOC/GEO/index.json`, `G07/SOC/HIST/index.json`, and `G07/SOC/TARBIA/index.json`.
