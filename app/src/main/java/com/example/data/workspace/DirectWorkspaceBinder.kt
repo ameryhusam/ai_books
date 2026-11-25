@@ -545,7 +545,7 @@ class DirectWorkspaceBinder(private val context: Context) {
                     val grade = segments[1].uppercase()
                     val subject = segments[2]
                     val comp = segments.getOrNull(3)
-                    val bk = listOfNotNull(subject, comp).joinToString("/")
+                    val bk = segments.drop(2).joinToString("/")
                     result.add(BookIndexSlot(grade, "workspace/$grade", subject, comp, bk, bookRel, entry))
                 }
                 // Layout B: G04/MATH[/COMP]/index.json
@@ -553,7 +553,7 @@ class DirectWorkspaceBinder(private val context: Context) {
                     val grade = segments[0].uppercase()
                     val subject = segments[1]
                     val comp = segments.getOrNull(2)
-                    val bk = listOfNotNull(subject, comp).joinToString("/")
+                    val bk = segments.drop(1).joinToString("/")
                     result.add(BookIndexSlot(grade, grade, subject, comp, bk, bookRel, entry))
                 }
                 // Layout C/D: User picked G04 directly (<SUBJECT>[/<COMP>]/index.json) or single book root (index.json)
@@ -581,14 +581,19 @@ class DirectWorkspaceBinder(private val context: Context) {
                         "G07"
                     ).uppercase()
                     val subject = firstNonBlank(
-                        segments.getOrNull(0),
                         manifestObj?.str("subjectKey"),
                         indexObj?.str("subjectKey"),
+                        segments.getOrNull(0),
                         folderDisplayName.takeIf { it.isNotBlank() },
                         "BOOK"
                     )
-                    val comp = segments.getOrNull(1)
-                    val bk = listOfNotNull(subject, comp).joinToString("/")
+                    val relativeBookSegments = if (segments.firstOrNull()?.equals(subject, ignoreCase = true) == true) {
+                        segments.drop(1)
+                    } else {
+                        segments
+                    }
+                    val comp = relativeBookSegments.firstOrNull()
+                    val bk = (listOf(subject) + relativeBookSegments).distinct().joinToString("/")
                     result.add(BookIndexSlot(detectedGrade, "", subject, comp, bk, bookRel, entry))
                 }
             }
