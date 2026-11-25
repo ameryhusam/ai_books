@@ -3,6 +3,8 @@ package com.example.data.repository
 import android.content.Context
 import android.net.Uri
 import com.example.data.ai.AiGenerationService
+import com.example.data.ai.Indexer2PromptRegistry
+import com.example.data.ai.TemplateResponseAdapter
 import com.example.data.local.AssessmentAttemptEntity
 import com.example.data.local.AssessmentEntity
 import com.example.data.local.BookEntity
@@ -369,6 +371,16 @@ class EduMiniRepository(
         providerStorage.saveProviders(providers)
     }
 
+    suspend fun setProviderEnabled(providerId: String, enabled: Boolean): List<ProviderConfig> {
+        providerStorage.setProviderEnabled(providerId, enabled)
+        return providerStorage.loadProviders()
+    }
+
+    suspend fun reactivateProvider(providerId: String): List<ProviderConfig> {
+        providerStorage.manuallyReactivateProvider(providerId)
+        return providerStorage.loadProviders()
+    }
+
     suspend fun testProviderConnection(profile: ProviderConfig): String {
         return aiGenerationService.testProviderConnection(profile)
     }
@@ -387,43 +399,107 @@ class EduMiniRepository(
         questionCount: Int,
         attachPdfPages: Boolean,
         questionStyleHint: String = "",
-        difficultyHint: String = ""
+        difficultyHint: String = "",
+        template: PromptTemplateRecord? = null,
+        onProgress: (percent: Int, stage: String) -> Unit = { _, _ -> }
     ): GeneratedResult {
-        val extractedText = if (!lesson.sourceTextPath.isNullOrBlank() && appContext != null) {
-            UriIO.readText(appContext, lesson.sourceTextPath).orEmpty().trim()
-        } else if (!lesson.pdfPath.isNullOrBlank() && !UriIO.isContentUri(lesson.pdfPath)) {
-            val pdf = File(lesson.pdfPath)
-            val metaFile = File(pdf.parentFile, pdf.nameWithoutExtension + ".extraction.json")
-            val extractionMethod = runCatching {
-                json.parseToJsonElement(metaFile.readText(Charsets.UTF_8))
-                    .jsonObject["method"]?.jsonPrimitive?.content
-            }.getOrNull()
-            if (extractionMethod !in setOf("OCR_LOW_CONFIDENCE", "OCR_REQUIRED")) {
-                val textFile = File(pdf.parentFile, pdf.nameWithoutExtension + ".txt")
-                if (textFile.isFile) textFile.readText(Charsets.UTF_8).trim() else ""
-            } else ""
-        } else ""
-        val effectiveSource = listOf(source.trim(), extractedText)
-            .filter { it.isNotBlank() }
-            .distinct()
-            .joinToString("\n\n")
-        val pageImages = if (attachPdfPages) {
+        if (providers.none { it.enabled && it.apiKey.isNotBlank() && it.model.isNotBlank() }) {
+            throw IllegalStateException("لا يوجد مفتاح API مفعّل بنموذج صالح. أضف مفتاحاً أو أعد تفعيل أحد المفاتيح من الإعدادات.")
+        }
+        onProgress(8, "قراءة بيانات الدرس وتجهيز المصدر")
+        val effectiveSource = source.trim()
+        val activeTemplate = template ?: dao.observePromptTemplates().first()
+            .firstOrNull { it.task == task.id }
+            ?.let { entity ->
+                PromptTemplateRecord(
+                    id = entity.id,
+                    title = entity.title,
+                    task = TaskType.fromId(entity.task),
+                    instructions = entity.instructions,
+                    isBuiltIn = entity.id.startsWith("builtin_"),
+                    responseSchemaJson = entity.responseSchemaJson,
+                    responseMappingJson = entity.responseMappingJson,
+                    responseFormat = entity.responseFormat,
+                    sourceAttachmentMode = entity.sourceAttachmentMode,
+                    version = entity.version
+                )
+            }
+        onProgress(18, "تجهيز ملف PDF الأصلي")
+        val attachmentMode = activeTemplate?.sourceAttachmentMode ?: "pdf_native"
+        val shouldAttachSource = attachPdfPages && attachmentMode != "none"
+        val pdfPayload = if (shouldAttachSource && attachmentMode == "pdf_native" &&
+            providers.any { it.provider == com.example.model.ProviderType.GEMINI && it.enabled } &&
+            !lesson.pdfPath.isNullOrBlank()
+        ) {
+            aiGenerationService.extractLessonPdfBase64(lesson.pdfPath)
+        } else null
+        // OpenAI-compatible chat endpoints do not share a universal native-PDF contract.
+        // Rendered page images are retained as a compatibility fallback for those providers.
+        val needsRenderedPages = shouldAttachSource && (
+            attachmentMode == "rendered_pages" ||
+                providers.any { it.provider == com.example.model.ProviderType.OPENAI_COMPATIBLE && it.enabled }
+            )
+        val pageImages = if (needsRenderedPages) {
             aiGenerationService.extractLessonPdfPageImagesBase64(lesson.pdfPath)
+        } else emptyList()
+        onProgress(32, "تجهيز المرفقات ومخطط الاستجابة")
+        require(effectiveSource.isNotBlank() || pdfPayload != null || pageImages.isNotEmpty()) {
+            "لم يتم تجهيز نص أو ملف PDF صالح؛ تحقق من مسار ملف الدرس ثم أعد المحاولة."
+        }
+        val responseSchema = activeTemplate?.responseSchemaJson.orEmpty()
+        val responseFormat = activeTemplate?.responseFormat
+            ?: if (responseSchema.isNotBlank()) "json" else "text"
+        val templateInstructions = activeTemplate?.instructions.orEmpty().trim()
+        val effectiveExtra = if (templateInstructions.isNotBlank() && extra.contains(templateInstructions)) {
+            extra.trim()
         } else {
-            emptyList()
+            listOf(templateInstructions, extra.trim()).filter { it.isNotBlank() }.distinct().joinToString("\n\n")
         }
-        require(effectiveSource.isNotBlank() || pageImages.isNotEmpty()) {
-            "لم يتم استخراج نص أو صفحات من PDF؛ أعد فحص الملف قبل إرسال الطلب إلى AI."
-        }
+        val schemaHash = sha256Full(responseSchema)
+        val mappingHash = sha256Full(activeTemplate?.responseMappingJson.orEmpty())
+        val pdfHash = pdfPayload?.sha256 ?: if (shouldAttachSource && !lesson.pdfPath.isNullOrBlank()) {
+            aiGenerationService.sha256LessonPdf(lesson.pdfPath)
+        } else ""
+        val requestSeed = listOf(
+            activeTemplate?.id.orEmpty(),
+            activeTemplate?.version?.toString().orEmpty(),
+            attachmentMode,
+            task.id,
+            lesson.grade,
+            lesson.bookKey,
+            lesson.unitKey,
+            lesson.lessonKey,
+            lesson.pageRange.orEmpty(),
+            schemaHash,
+            mappingHash,
+            responseFormat,
+            pdfHash,
+            effectiveSource,
+            effectiveExtra
+        ).joinToString("|")
+        val requestSeedHash = sha256Full(requestSeed)
         val startedMs = System.currentTimeMillis()
+        onProgress(42, "إرسال البرومبت والمرفق إلى مزود الذكاء الاصطناعي")
         val result = aiGenerationService.generate(
             lesson = lesson,
             task = task,
             source = effectiveSource,
-            extra = extra,
+            extra = effectiveExtra,
             providers = providers,
             questionCount = questionCount,
             pdfPageImagesBase64 = pageImages,
+            pdfDocumentBase64 = pdfPayload?.base64,
+            responseSchemaJson = responseSchema,
+            responseFormat = responseFormat,
+            templateId = activeTemplate?.id.orEmpty(),
+            templateVersion = activeTemplate?.version ?: 1,
+            responseSchemaHash = schemaHash,
+            requestFingerprint = requestSeedHash,
+            sourcePdfHash = pdfHash,
+            onReserveProvider = { profile -> providerStorage.reserveProviderKey(profile.id) },
+            onProviderStateChanged = { providerId, status, retryAfter ->
+                providerStorage.updateProviderRuntimeState(providerId, status, retryAfter)
+            },
             questionStyleHint = questionStyleHint,
             difficultyHint = difficultyHint,
             onAttemptFinished = { providerLabel, model, success, error ->
@@ -444,7 +520,13 @@ class EduMiniRepository(
                 )
             }
         )
-        return result
+        onProgress(88, "التحقق من الاستجابة ومواءمة الحقول مع نموذج التطبيق")
+        val adaptedText = TemplateResponseAdapter.adapt(result.text, activeTemplate?.responseMappingJson.orEmpty())
+        onProgress(96, "حساب بصمات المصدر والقالب والمحتوى")
+        return if (adaptedText == result.text) result else result.copy(
+            text = adaptedText,
+            contentHash = sha256Full(adaptedText)
+        )
     }
 
     suspend fun persistDraft(
@@ -456,7 +538,8 @@ class EduMiniRepository(
         text: String,
         title: String,
         sourceText: String,
-        status: DraftStatus = DraftStatus.DRAFT
+        status: DraftStatus = DraftStatus.DRAFT,
+        generation: com.example.model.GeneratedResult? = null
     ): DraftRecord {
         val canonicalWorkspaceId = workspaceId.ifBlank { lesson.workspaceId }.ifBlank { lesson.rootPath }
         val maxVer = dao.getMaxDraftVersion(
@@ -469,28 +552,7 @@ class EduMiniRepository(
         val nextVersion = maxVer + 1
         val id = "draft-${System.currentTimeMillis()}-${UUID.randomUUID().toString().take(6)}"
         val createdAt = Instant.now().toString()
-        val extractedPdfText = if (!lesson.sourceTextPath.isNullOrBlank() && appContext != null) {
-            UriIO.readText(appContext, lesson.sourceTextPath).orEmpty()
-        } else if (!lesson.pdfPath.isNullOrBlank() && !UriIO.isContentUri(lesson.pdfPath)) {
-            val pdf = File(lesson.pdfPath)
-            val metaFile = File(pdf.parentFile, pdf.nameWithoutExtension + ".extraction.json")
-            val extractionMethod = runCatching {
-                json.parseToJsonElement(metaFile.readText(Charsets.UTF_8))
-                    .jsonObject["method"]?.jsonPrimitive?.content
-            }.getOrNull()
-            if (extractionMethod in setOf("OCR_LOW_CONFIDENCE", "OCR_REQUIRED")) {
-                ""
-            } else {
-                File(pdf.parentFile, pdf.nameWithoutExtension + ".txt")
-                    .takeIf { it.isFile }
-                    ?.readText(Charsets.UTF_8)
-                    .orEmpty()
-            }
-        } else ""
-        val provenanceSource = listOf(sourceText.trim(), extractedPdfText.trim())
-            .filter { it.isNotBlank() }
-            .distinct()
-            .joinToString("\n\n")
+        val provenanceSource = sourceText.trim()
         val sourceHash = sha256Short(provenanceSource)
         val record = DraftRecord(
             id = id,
@@ -508,7 +570,13 @@ class EduMiniRepository(
             status = status.id,
             version = nextVersion,
             sourcePages = lesson.pageRange,
-            sourceHash = sourceHash
+            sourceHash = sourceHash,
+            templateId = generation?.templateId.orEmpty(),
+            templateVersion = generation?.templateVersion ?: 1,
+            responseSchemaHash = generation?.responseSchemaHash.orEmpty(),
+            requestFingerprint = generation?.requestFingerprint.orEmpty(),
+            contentHash = generation?.contentHash?.takeIf { it.isNotBlank() } ?: sha256Full(text),
+            sourcePdfHash = generation?.sourcePdfHash.orEmpty()
         )
         dao.insertDraft(
             DraftEntity(
@@ -527,7 +595,13 @@ class EduMiniRepository(
                 status = record.status,
                 version = record.version,
                 sourcePages = record.sourcePages,
-                sourceHash = record.sourceHash
+                sourceHash = record.sourceHash,
+                templateId = record.templateId,
+                templateVersion = record.templateVersion,
+                responseSchemaHash = record.responseSchemaHash,
+                requestFingerprint = record.requestFingerprint,
+                contentHash = record.contentHash,
+                sourcePdfHash = record.sourcePdfHash
             )
         )
         return record
@@ -1477,7 +1551,13 @@ class EduMiniRepository(
                     status = d.status,
                     version = d.version,
                     sourcePages = d.sourcePages,
-                    sourceHash = d.sourceHash
+                    sourceHash = d.sourceHash,
+                    templateId = d.templateId,
+                    templateVersion = d.templateVersion,
+                    responseSchemaHash = d.responseSchemaHash,
+                    requestFingerprint = d.requestFingerprint,
+                    contentHash = d.contentHash,
+                    sourcePdfHash = d.sourcePdfHash
                 )
             )
         }
@@ -1622,7 +1702,12 @@ class EduMiniRepository(
                     title = t.title,
                     task = t.task,
                     instructions = t.instructions,
-                    createdAt = t.createdAt
+                    createdAt = t.createdAt,
+                    responseSchemaJson = t.responseSchemaJson,
+                    responseMappingJson = t.responseMappingJson,
+                    responseFormat = t.responseFormat,
+                    sourceAttachmentMode = t.sourceAttachmentMode,
+                    version = t.version
                 )
             )
         }
@@ -1809,26 +1894,83 @@ class EduMiniRepository(
 
     fun observePromptTemplates(): Flow<List<PromptTemplateRecord>> {
         return dao.observePromptTemplates().map { custom ->
-            DEFAULT_PROMPT_TEMPLATES + custom.map { e ->
+            custom.map { e ->
                 PromptTemplateRecord(
                     id = e.id,
                     title = e.title,
                     task = TaskType.fromId(e.task),
                     instructions = e.instructions,
-                    isBuiltIn = false
+                    isBuiltIn = e.id.startsWith("builtin_"),
+                    responseSchemaJson = e.responseSchemaJson,
+                    responseMappingJson = e.responseMappingJson,
+                    responseFormat = e.responseFormat,
+                    sourceAttachmentMode = e.sourceAttachmentMode,
+                    version = e.version
                 )
             }
         }
     }
 
-    suspend fun savePromptTemplate(title: String, task: TaskType, instructions: String) {
+    suspend fun ensureDefaultPromptTemplates() {
+        val now = Instant.now().toString()
+        dao.insertPromptTemplates(
+            DEFAULT_PROMPT_TEMPLATES.map { template ->
+                PromptTemplateEntity(
+                    id = template.id,
+                    title = template.title,
+                    task = template.task.id,
+                    instructions = template.instructions,
+                    createdAt = now,
+                    responseSchemaJson = template.responseSchemaJson,
+                    responseMappingJson = template.responseMappingJson,
+                    responseFormat = template.responseFormat,
+                    sourceAttachmentMode = template.sourceAttachmentMode,
+                    version = template.version
+                )
+            }
+        )
+    }
+
+    suspend fun savePromptTemplate(
+        title: String,
+        task: TaskType,
+        instructions: String,
+        responseSchemaJson: String = "",
+        responseMappingJson: String = "",
+        responseFormat: String = if (responseSchemaJson.isBlank()) "text" else "json",
+        sourceAttachmentMode: String = "pdf_native",
+        templateId: String? = null
+    ) {
+        require(responseSchemaJson.isBlank() || runCatching { json.parseToJsonElement(responseSchemaJson).jsonObject }.isSuccess) {
+            "مخطط الاستجابة يجب أن يكون JSON object صالحاً."
+        }
+        require(responseMappingJson.isBlank() || runCatching { json.parseToJsonElement(responseMappingJson).jsonObject }.isSuccess) {
+            "خريطة توافق الحقول يجب أن تكون JSON object صالحة."
+        }
+        if (!templateId.isNullOrBlank()) {
+            dao.updatePromptTemplate(
+                templateId = templateId,
+                title = title.trim(),
+                task = task.id,
+                instructions = instructions.trim(),
+                responseSchemaJson = responseSchemaJson.trim(),
+                responseMappingJson = responseMappingJson.trim(),
+                responseFormat = responseFormat,
+                sourceAttachmentMode = sourceAttachmentMode
+            )
+            return
+        }
         dao.insertPromptTemplate(
             PromptTemplateEntity(
                 id = "tpl-${System.currentTimeMillis()}-${UUID.randomUUID().toString().take(5)}",
                 title = title.trim(),
                 task = task.id,
                 instructions = instructions.trim(),
-                createdAt = Instant.now().toString()
+                createdAt = Instant.now().toString(),
+                responseSchemaJson = responseSchemaJson.trim(),
+                responseMappingJson = responseMappingJson.trim(),
+                responseFormat = responseFormat,
+                sourceAttachmentMode = sourceAttachmentMode
             )
         )
     }
@@ -1853,7 +1995,13 @@ class EduMiniRepository(
         status = status,
         version = version,
         sourcePages = sourcePages,
-        sourceHash = sourceHash
+        sourceHash = sourceHash,
+        templateId = templateId,
+        templateVersion = templateVersion,
+        responseSchemaHash = responseSchemaHash,
+        requestFingerprint = requestFingerprint,
+        contentHash = contentHash,
+        sourcePdfHash = sourcePdfHash
     )
 
     private fun QuestionEntity.toModel(): QuestionItem {
@@ -1912,6 +2060,9 @@ class EduMiniRepository(
         sourceMode = sourceMode,
         answeredAt = answeredAt
     )
+
+    private fun sha256Full(text: String): String = MessageDigest.getInstance("SHA-256")
+        .digest(text.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
 
     private fun sha256Short(text: String): String? {
         if (text.isBlank()) return null
@@ -2026,28 +2177,102 @@ class EduMiniRepository(
                 title = "شرح مبسط مع مثال حياتي",
                 task = TaskType.EXPLANATION,
                 instructions = "قسّم الشرح إلى 3 خطوات واضحة، أضف مثالاً من الحياة اليومية، واختم بقاعدة ذهبية للحفظ.",
-                isBuiltIn = true
+                isBuiltIn = true,
+                responseSchemaJson = Indexer2PromptRegistry.blueprintFor(TaskType.EXPLANATION).schemaSnippet
             ),
             PromptTemplateRecord(
                 id = "builtin_vocab_cards",
                 title = "مسرد مصطلحات سياقي",
                 task = TaskType.VOCABULARY,
                 instructions = "استخرج أهم المصطلحات في جدول منظم: المصطلح، المعنى المبسط، ومثال من سياق الدرس.",
-                isBuiltIn = true
+                isBuiltIn = true,
+                responseSchemaJson = Indexer2PromptRegistry.blueprintFor(TaskType.VOCABULARY).schemaSnippet
             ),
             PromptTemplateRecord(
                 id = "builtin_bloom_questions",
                 title = "أسئلة متدرجة (تذكر/فهم/تطبيق)",
                 task = TaskType.QUESTIONS,
                 instructions = "وزّع الأسئلة بين مستويات بلوم: سؤال تذكر مباشر، سؤال فهم واستنتاج، وسؤال تطبيقي مع الإجابة والتفسير.",
-                isBuiltIn = true
+                isBuiltIn = true,
+                responseSchemaJson = """
+                    {
+                      "type": "OBJECT",
+                      "properties": {
+                        "questions": {
+                          "type": "ARRAY",
+                          "items": {
+                            "type": "OBJECT",
+                            "properties": {
+                              "type": { "type": "STRING" },
+                              "conceptTag": { "type": "STRING" },
+                              "prompt": { "type": "STRING" },
+                              "options": { "type": "ARRAY", "items": { "type": "STRING" } },
+                              "correctAnswer": { "type": "STRING" },
+                              "rationale": { "type": "STRING" },
+                              "difficulty": { "type": "STRING" },
+                              "sourcePages": { "type": "STRING" }
+                            },
+                            "required": ["type", "prompt", "correctAnswer", "difficulty"]
+                          }
+                        }
+                      },
+                      "required": ["questions"]
+                    }
+                """.trimIndent(),
+                responseFormat = "json"
             ),
             PromptTemplateRecord(
                 id = "builtin_interactive_steps",
                 title = "درس تفاعلي متكامل (JSON + JS + HTML)",
                 task = TaskType.INTERACTIVE,
                 instructions = "أنشئ 3 محطات تفاعلية بصيغة JSON بحيث تحتوي كل محطة conceptTag صريحاً ونقطة تحقق اختيار من متعدد مرتبطة ببنك الأسئلة ومهمة ترتيب وتوصيل ليُعرض عبر محرك JS و HTML.",
-                isBuiltIn = true
+                isBuiltIn = true,
+                responseSchemaJson = """
+                    {
+                      "type": "OBJECT",
+                      "properties": {
+                        "schemaVersion": { "type": "INTEGER" },
+                        "title": { "type": "STRING" },
+                        "objective": { "type": "STRING" },
+                        "steps": {
+                          "type": "ARRAY",
+                          "items": {
+                            "type": "OBJECT",
+                            "properties": {
+                              "title": { "type": "STRING" },
+                              "conceptTag": { "type": "STRING" },
+                              "body": { "type": "STRING" },
+                              "checkpoint": {
+                                "type": "OBJECT",
+                                "properties": {
+                                  "conceptTag": { "type": "STRING" },
+                                  "question": { "type": "STRING" },
+                                  "options": { "type": "ARRAY", "items": { "type": "STRING" } },
+                                  "answer": { "type": "STRING" }
+                                },
+                                "required": ["question", "options", "answer"]
+                              }
+                            },
+                            "required": ["title", "conceptTag", "body"]
+                          }
+                        },
+                        "ordering": { "type": "ARRAY", "items": { "type": "STRING" } },
+                        "matching": {
+                          "type": "ARRAY",
+                          "items": {
+                            "type": "OBJECT",
+                            "properties": {
+                              "left": { "type": "STRING" },
+                              "right": { "type": "STRING" }
+                            },
+                            "required": ["left", "right"]
+                          }
+                        }
+                      },
+                      "required": ["title", "steps"]
+                    }
+                """.trimIndent(),
+                responseFormat = "json"
             )
         )
     }

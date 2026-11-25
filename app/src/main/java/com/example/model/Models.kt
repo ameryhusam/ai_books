@@ -52,7 +52,14 @@ data class ProviderConfig(
     val createdAt: Long,
     val priority: Int = 0,
     val fallbackModels: List<String> = emptyList(),
-    val strictModel: Boolean = false
+    val strictModel: Boolean = false,
+    val dailyRequestLimit: Int = 0,
+    val dailyRequestsUsed: Int = 0,
+    val quotaDate: String = "",
+    val runtimeStatus: String = "ACTIVE",
+    val retryAfterEpochMs: Long = 0L,
+    val quotaTimeZone: String = "Asia/Aden",
+    val lastUsedAtEpochMs: Long = 0L
 )
 
 @Serializable
@@ -241,7 +248,13 @@ data class GeneratedResult(
     val model: String,
     val createdAt: String,
     val durationMs: Long = 0L,
-    val tokensUsed: Int = 0
+    val tokensUsed: Int = 0,
+    val templateId: String = "",
+    val templateVersion: Int = 1,
+    val responseSchemaHash: String = "",
+    val requestFingerprint: String = "",
+    val contentHash: String = "",
+    val sourcePdfHash: String = ""
 )
 
 data class DraftRecord(
@@ -260,7 +273,13 @@ data class DraftRecord(
     val status: String = DraftStatus.DRAFT.id,
     val version: Int = 1,
     val sourcePages: String? = null,
-    val sourceHash: String? = null
+    val sourceHash: String? = null,
+    val templateId: String = "",
+    val templateVersion: Int = 1,
+    val responseSchemaHash: String = "",
+    val requestFingerprint: String = "",
+    val contentHash: String = "",
+    val sourcePdfHash: String = ""
 )
 
 data class GenerationRunRecord(
@@ -629,7 +648,12 @@ data class PromptTemplateRecord(
     val title: String,
     val task: TaskType,
     val instructions: String,
-    val isBuiltIn: Boolean = false
+    val isBuiltIn: Boolean = false,
+    val responseSchemaJson: String = "",
+    val responseMappingJson: String = "",
+    val responseFormat: String = "text",
+    val sourceAttachmentMode: String = "pdf_native",
+    val version: Int = 1
 )
 
 data class InteractiveStepItem(

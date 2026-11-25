@@ -24,6 +24,7 @@ import com.example.model.DirectWorkspaceInspection
 import com.example.model.DraftRecord
 import com.example.model.DraftStatus
 import com.example.model.GenerationRunRecord
+import com.example.model.GeneratedResult
 import com.example.model.ImportedWorkspace
 import com.example.model.InteractiveActivityModel
 import com.example.model.InteractivePackageRecord
@@ -87,11 +88,13 @@ data class ProviderFormState(
     val editingProviderId: String? = null,
     val provider: ProviderType = ProviderType.GEMINI,
     val label: String = "Gemini",
-    val model: String = "gemini-2.5-flash",
+    val model: String = "gemini-3.8-flash",
     val fallbackModels: String = "",
     val strictModel: Boolean = false,
     val baseUrl: String = "https://api.openai.com/v1",
-    val apiKey: String = ""
+    val apiKey: String = "",
+    val dailyRequestLimit: String = "0",
+    val quotaTimeZone: String = "Asia/Aden"
 )
 
 data class PdfSplitterUiState(
@@ -115,6 +118,7 @@ data class MainUiState(
     val selectedBookKey: String = "",
     val selectedLesson: LessonRef? = null,
     val task: TaskType = TaskType.QUESTIONS,
+    val activePromptTemplateId: String = "",
     val questionCount: Int = 5,
     val questionStyle: String = "متنوعة",
     val questionDifficulty: QuestionDifficulty = QuestionDifficulty.MEDIUM,
@@ -144,6 +148,8 @@ data class MainUiState(
     val providerForm: ProviderFormState = ProviderFormState(),
     val recentRuns: List<GenerationRunRecord> = emptyList(),
     val isBusy: Boolean = false,
+    val generationProgressPercent: Int? = null,
+    val generationStage: String? = null,
     val toastMessage: String? = null,
     val alert: AlertMessage? = null
 )
@@ -363,6 +369,7 @@ class MainViewModel(
     init {
         loadLearnerProfiles()
         viewModelScope.launch {
+            runCatching { repository.ensureDefaultPromptTemplates() }
             runCatching { repository.loadProviders() }
                 .onSuccess { loaded ->
                     _uiState.update { it.copy(providers = loaded) }
@@ -1061,9 +1068,13 @@ class MainViewModel(
                     extra = taskInstructions,
                     providers = snapshot.providers,
                     questionCount = 5,
-                    attachPdfPages = false,
+                    attachPdfPages = true,
                     questionStyleHint = if (task == TaskType.QUESTIONS) "أسئلة تشخيصية تكيفية ومشتتات قائمة على الخطأ" else "",
-                    difficultyHint = if (task == TaskType.QUESTIONS) "متدرجة من التأسيسي إلى التطبيق" else ""
+                    difficultyHint = if (task == TaskType.QUESTIONS) "متدرجة من التأسيسي إلى التطبيق" else "",
+                    template = promptTemplates.value.firstOrNull { it.task == task },
+                    onProgress = { percent, stage ->
+                        _uiState.update { it.copy(generationProgressPercent = percent, generationStage = stage) }
+                    }
                 )
                 val draft = repository.persistDraft(
                     workspaceId = workspace.workspaceId,
@@ -1074,9 +1085,12 @@ class MainViewModel(
                     text = output.text,
                     title = "علاج المفهوم: $conceptTitle",
                     sourceText = evidence,
-                    status = DraftStatus.DRAFT
+                    status = DraftStatus.DRAFT,
+                    generation = output
                 )
+                _uiState.update { it.copy(generationProgressPercent = 98, generationStage = "حفظ مهمة التقوية والمسودة") }
                 firestoreSync.upsertDraft(currentUserId, draft)
+                _uiState.update { it.copy(providers = repository.loadProviders(), generationProgressPercent = 100, generationStage = "اكتملت مهمة التوليد") }
 
                 val generatedQuestions = if (task == TaskType.QUESTIONS) {
                     repository.saveQuestionsFromDraftText(workspace.workspaceId, lesson, output.text)
@@ -1122,7 +1136,8 @@ class MainViewModel(
                     ))
                 }
             } finally {
-                _uiState.update { it.copy(isBusy = false) }
+                val latestProviders = runCatching { repository.loadProviders() }.getOrDefault(_uiState.value.providers)
+                _uiState.update { it.copy(providers = latestProviders, isBusy = false, generationProgressPercent = null, generationStage = null) }
             }
         }
     }
@@ -1209,6 +1224,7 @@ class MainViewModel(
         _uiState.update { state ->
             state.copy(
                 task = template.task,
+                activePromptTemplateId = template.id,
                 extraInstructions = template.instructions,
                 page = if (openStudio) AppPage.STUDIO else state.page,
                 toastMessage = "تم تطبيق قالب «${template.title}»"
@@ -1304,6 +1320,11 @@ class MainViewModel(
                 generatedResult = draft.content,
                 activeDraftProvider = draft.provider,
                 activeDraftModel = draft.model,
+                activeDraftTemplateId = draft.templateId,
+                activeDraftTemplateVersion = draft.templateVersion,
+                activeDraftResponseSchemaHash = draft.responseSchemaHash,
+                activeDraftRequestFingerprint = draft.requestFingerprint,
+                activeDraftSourcePdfHash = draft.sourcePdfHash,
                 page = AppPage.STUDIO
             )
         }
@@ -1346,7 +1367,8 @@ class MainViewModel(
     }
 
     fun selectTask(task: TaskType) {
-        _uiState.update { it.copy(task = task) }
+        val defaultTemplate = promptTemplates.value.firstOrNull { it.task == task }
+        _uiState.update { it.copy(task = task, activePromptTemplateId = defaultTemplate?.id.orEmpty()) }
     }
 
     fun updateQuestionCount(count: Int) {
@@ -1387,7 +1409,12 @@ class MainViewModel(
                 task = draft.task,
                 generatedResult = draft.content,
                 activeDraftProvider = draft.provider,
-                activeDraftModel = draft.model
+                activeDraftModel = draft.model,
+                activeDraftTemplateId = draft.templateId,
+                activeDraftTemplateVersion = draft.templateVersion,
+                activeDraftResponseSchemaHash = draft.responseSchemaHash,
+                activeDraftRequestFingerprint = draft.requestFingerprint,
+                activeDraftSourcePdfHash = draft.sourcePdfHash
             )
         }
     }
@@ -1413,7 +1440,18 @@ class MainViewModel(
                 text = content,
                 title = lesson.title,
                 sourceText = snapshot.sourceText,
-                status = DraftStatus.DRAFT
+                status = DraftStatus.DRAFT,
+                generation = GeneratedResult(
+                    text = content,
+                    providerLabel = snapshot.activeDraftProvider,
+                    model = snapshot.activeDraftModel,
+                    createdAt = java.time.Instant.now().toString(),
+                    templateId = snapshot.activeDraftTemplateId,
+                    templateVersion = snapshot.activeDraftTemplateVersion,
+                    responseSchemaHash = snapshot.activeDraftResponseSchemaHash,
+                    requestFingerprint = snapshot.activeDraftRequestFingerprint,
+                    sourcePdfHash = snapshot.activeDraftSourcePdfHash
+                )
             )
             val cloudSyncResult = firestoreSync.upsertDraft(currentUserId, savedDraft)
             val syncedCount = when (snapshot.task) {
@@ -1605,6 +1643,11 @@ class MainViewModel(
                 generatedResult = cloudDraft.content,
                 activeDraftProvider = cloudDraft.provider,
                 activeDraftModel = cloudDraft.model,
+                activeDraftTemplateId = cloudDraft.templateId,
+                activeDraftTemplateVersion = cloudDraft.templateVersion.toInt().coerceAtLeast(1),
+                activeDraftResponseSchemaHash = cloudDraft.responseSchemaHash,
+                activeDraftRequestFingerprint = cloudDraft.requestFingerprint,
+                activeDraftSourcePdfHash = cloudDraft.sourcePdfHash,
                 page = AppPage.STUDIO,
                 toastMessage = "تم تحميل المسودة السحابية «${cloudDraft.title}»"
             )
@@ -1674,6 +1717,14 @@ class MainViewModel(
         _uiState.update { it.copy(providerForm = it.providerForm.copy(apiKey = value)) }
     }
 
+    fun updateFormDailyRequestLimit(value: String) {
+        _uiState.update { it.copy(providerForm = it.providerForm.copy(dailyRequestLimit = value.filter(Char::isDigit).take(7))) }
+    }
+
+    fun updateFormQuotaTimeZone(value: String) {
+        _uiState.update { it.copy(providerForm = it.providerForm.copy(quotaTimeZone = value.trim())) }
+    }
+
     fun toggleFormStrictModel() {
         _uiState.update { it.copy(providerForm = it.providerForm.copy(strictModel = !it.providerForm.strictModel)) }
     }
@@ -1689,7 +1740,9 @@ class MainViewModel(
                     fallbackModels = profile.fallbackModels.joinToString(", "),
                     strictModel = profile.strictModel,
                     baseUrl = profile.baseUrl.ifBlank { "https://api.openai.com/v1" },
-                    apiKey = profile.apiKey
+                    apiKey = profile.apiKey,
+                    dailyRequestLimit = profile.dailyRequestLimit.toString(),
+                    quotaTimeZone = profile.quotaTimeZone
                 )
             )
         }
@@ -1748,12 +1801,30 @@ class MainViewModel(
         }
     }
 
-    fun savePromptTemplate(title: String, task: TaskType, instructions: String) {
+    fun savePromptTemplate(title: String, task: TaskType, instructions: String, responseSchemaJson: String, responseMappingJson: String, templateId: String?) {
         if (title.isBlank() || instructions.isBlank()) return
         viewModelScope.launch {
-            repository.savePromptTemplate(title, task, instructions)
-            _uiState.update {
-                it.copy(alert = AlertMessage("تم الحفظ", "تمت إضافة قالب التوجيه «${title.trim()}»."))
+            try {
+                repository.savePromptTemplate(
+                    title = title,
+                    task = task,
+                    instructions = instructions,
+                    responseSchemaJson = responseSchemaJson,
+                    responseMappingJson = responseMappingJson,
+                    responseFormat = if (responseSchemaJson.isBlank()) "text" else "json",
+                    templateId = templateId
+                )
+                _uiState.update {
+                    it.copy(alert = AlertMessage("تم الحفظ", if (templateId == null) {
+                        "تمت إضافة قالب التوجيه «${title.trim()}»."
+                    } else {
+                        "تم تحديث القالب «${title.trim()}» وزيادة إصداره."
+                    }))
+                }
+            } catch (error: Exception) {
+                _uiState.update {
+                    it.copy(alert = AlertMessage("تعذر حفظ القالب", error.message ?: "تحقق من JSON الخاص بمخطط الاستجابة وخريطة الحقول."))
+                }
             }
         }
     }
@@ -2464,7 +2535,7 @@ class MainViewModel(
 
         generationJob?.cancel()
         generationJob = viewModelScope.launch {
-            _uiState.update { it.copy(isBusy = true) }
+            _uiState.update { it.copy(isBusy = true, generationProgressPercent = 2, generationStage = "بدء تجهيز الطلب") }
             try {
                 val out = repository.generateContent(
                     workspaceId = snapshot.workspace?.workspaceId.orEmpty(),
@@ -2476,7 +2547,12 @@ class MainViewModel(
                     questionCount = snapshot.questionCount,
                     attachPdfPages = snapshot.attachPdfPages,
                     questionStyleHint = snapshot.questionStyle.takeIf { snapshot.task == TaskType.QUESTIONS && it != "متنوعة" }.orEmpty(),
-                    difficultyHint = if (snapshot.task == TaskType.QUESTIONS) snapshot.questionDifficulty.labelAr else ""
+                    difficultyHint = if (snapshot.task == TaskType.QUESTIONS) snapshot.questionDifficulty.labelAr else "",
+                    template = promptTemplates.value.firstOrNull { it.id == snapshot.activePromptTemplateId }
+                        ?: promptTemplates.value.firstOrNull { it.task == snapshot.task },
+                    onProgress = { percent, stage ->
+                        _uiState.update { it.copy(generationProgressPercent = percent, generationStage = stage) }
+                    }
                 )
                 val wsId = snapshot.workspace?.workspaceId.orEmpty()
                 val persistedDraft = repository.persistDraft(
@@ -2488,9 +2564,12 @@ class MainViewModel(
                     text = out.text,
                     title = lesson.title,
                     sourceText = snapshot.sourceText,
-                    status = DraftStatus.DRAFT
+                    status = DraftStatus.DRAFT,
+                    generation = out
                 )
+                _uiState.update { it.copy(generationProgressPercent = 98, generationStage = "حفظ المسودة وبصمة المحتوى") }
                 firestoreSync.upsertDraft(currentUserId, persistedDraft)
+                _uiState.update { it.copy(providers = repository.loadProviders(), generationProgressPercent = 100, generationStage = "اكتمل التوليد والحفظ") }
                 val syncedQuestionsCount = if (snapshot.task == TaskType.QUESTIONS) {
                     repository.saveQuestionsFromDraftText(
                         workspaceId = wsId,
@@ -2530,6 +2609,11 @@ class MainViewModel(
                         generatedResult = out.text,
                         activeDraftProvider = out.providerLabel,
                         activeDraftModel = out.model,
+                        activeDraftTemplateId = out.templateId,
+                        activeDraftTemplateVersion = out.templateVersion,
+                        activeDraftResponseSchemaHash = out.responseSchemaHash,
+                        activeDraftRequestFingerprint = out.requestFingerprint,
+                        activeDraftSourcePdfHash = out.sourcePdfHash,
                         alert = AlertMessage(
                             title = "تم الحفظ والربط",
                             message = resultMessage
@@ -2551,7 +2635,8 @@ class MainViewModel(
                 }
             } finally {
                 generationJob = null
-                _uiState.update { it.copy(isBusy = false) }
+                val latestProviders = runCatching { repository.loadProviders() }.getOrDefault(_uiState.value.providers)
+                _uiState.update { it.copy(providers = latestProviders, isBusy = false, generationProgressPercent = null, generationStage = null) }
             }
         }
     }
@@ -2559,7 +2644,7 @@ class MainViewModel(
     fun cancelActiveGeneration() {
         generationJob?.cancel()
         generationJob = null
-        _uiState.update { it.copy(isBusy = false, toastMessage = "تم إيقاف التوليد") }
+        _uiState.update { it.copy(isBusy = false, generationProgressPercent = null, generationStage = null, toastMessage = "تم إيقاف التوليد") }
     }
 
     fun importInteractivePackage(uri: Uri) {
@@ -2682,6 +2767,7 @@ class MainViewModel(
             val next = if (existingId != null && currentList.any { it.id == existingId }) {
                 currentList.map { p ->
                     if (p.id == existingId) {
+                        val keyChanged = form.apiKey.trim() != p.apiKey
                         p.copy(
                             provider = form.provider,
                             label = form.label.trim(),
@@ -2689,7 +2775,14 @@ class MainViewModel(
                             fallbackModels = fallbacks,
                             strictModel = form.strictModel,
                             baseUrl = form.baseUrl.trim(),
-                            apiKey = form.apiKey.trim()
+                            apiKey = form.apiKey.trim(),
+                            dailyRequestLimit = form.dailyRequestLimit.toIntOrNull()?.coerceAtLeast(0) ?: 0,
+                            quotaTimeZone = form.quotaTimeZone.ifBlank { "Asia/Aden" },
+                            runtimeStatus = if (keyChanged) "ACTIVE" else p.runtimeStatus,
+                            dailyRequestsUsed = if (keyChanged) 0 else p.dailyRequestsUsed,
+                            quotaDate = if (keyChanged) "" else p.quotaDate,
+                            retryAfterEpochMs = if (keyChanged) 0L else p.retryAfterEpochMs,
+                            lastUsedAtEpochMs = if (keyChanged) 0L else p.lastUsedAtEpochMs
                         )
                     } else p
                 }
@@ -2705,7 +2798,9 @@ class MainViewModel(
                     apiKey = form.apiKey.trim(),
                     enabled = true,
                     createdAt = System.currentTimeMillis(),
-                    priority = currentList.size
+                    priority = currentList.size,
+                    dailyRequestLimit = form.dailyRequestLimit.toIntOrNull()?.coerceAtLeast(0) ?: 0,
+                    quotaTimeZone = form.quotaTimeZone.ifBlank { "Asia/Aden" }
                 )
             }
             repository.saveProviders(next)
@@ -2724,11 +2819,16 @@ class MainViewModel(
 
     fun toggleProvider(id: String) {
         viewModelScope.launch {
-            val next = _uiState.value.providers.map { p ->
-                if (p.id == id) p.copy(enabled = !p.enabled) else p
-            }
-            repository.saveProviders(next)
-            _uiState.update { it.copy(providers = next) }
+            val current = _uiState.value.providers.firstOrNull { it.id == id } ?: return@launch
+            val updated = repository.setProviderEnabled(id, !current.enabled)
+            _uiState.update { it.copy(providers = updated) }
+        }
+    }
+
+    fun reactivateProvider(id: String) {
+        viewModelScope.launch {
+            val updated = repository.reactivateProvider(id)
+            _uiState.update { it.copy(providers = updated, toastMessage = "تمت إعادة تنشيط المفتاح يدوياً") }
         }
     }
 

@@ -4,6 +4,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.room.Room
 import com.example.data.ai.AiGenerationService
 import com.example.data.ai.Indexer2PromptRegistry
+import com.example.data.ai.TemplateResponseAdapter
 import com.example.data.local.DraftEntity
 import com.example.data.local.BookEntity
 import com.example.data.local.LessonEntity
@@ -50,9 +51,14 @@ import com.example.model.QuestionItem
 import com.example.model.QuestionType
 import com.example.model.SecuritySeverity
 import com.example.model.TaskType
+import com.example.model.ProviderConfig
+import com.example.model.ProviderType
 import com.example.model.UnitCompletionStatus
 import com.example.ui.components.LearningProgressCalculator
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
@@ -1009,7 +1015,13 @@ class EduMiniCoreTest {
         )
         repo.recordAssessmentAttempt(asm, 1, 1, 100, 42, 30)
         repo.saveTeacherNote(ws.workspaceId, lesson, "مراجعة القاعدة النحوية أولاً", bookmarked = true)
-        repo.savePromptTemplate("خريطة مفاهيم", TaskType.LESSON_REVIEW, "لخّص المفاهيم في نقاط هرمية")
+        repo.savePromptTemplate(
+            "خريطة مفاهيم",
+            TaskType.LESSON_REVIEW,
+            "لخّص المفاهيم في نقاط هرمية",
+            responseSchemaJson = """{"type":"object","properties":{"concepts":{"type":"array"}}}""",
+            responseMappingJson = """{"rootArray":"items","targetArray":"concepts"}"""
+        )
 
         val backupStream = ByteArrayOutputStream()
         val exportedCount = repo.exportFullBackupJson(backupStream, ws)
@@ -1034,7 +1046,10 @@ class EduMiniCoreTest {
         assertEquals("مراجعة القاعدة النحوية أولاً", restoredNote.noteText)
 
         val templates = repo.observePromptTemplates().first()
-        assertTrue(templates.any { it.title == "خريطة مفاهيم" && !it.isBuiltIn })
+        val restoredTemplate = templates.first { it.title == "خريطة مفاهيم" && !it.isBuiltIn }
+        assertTrue(restoredTemplate.responseSchemaJson.contains("concepts"))
+        assertTrue(restoredTemplate.responseMappingJson.contains("targetArray"))
+        assertEquals(1, restoredTemplate.version)
     }
 
     @Test
@@ -1054,7 +1069,15 @@ class EduMiniCoreTest {
         val adapterPrompt = service.buildPrompt(lesson, TaskType.DIFFICULTY_ADAPTER, "نص", "", questionCount = 4)
         assertTrue(adapterPrompt.contains("ثلاثة مستويات"))
 
-        val interactivePrompt = service.buildPrompt(lesson, TaskType.INTERACTIVE, "نص", "", questionCount = 3)
+        val interactivePrompt = service.buildPrompt(
+            lesson,
+            TaskType.INTERACTIVE,
+            "نص",
+            "",
+            questionCount = 3,
+            responseSchemaJson = """{"type":"object","properties":{"steps":{"type":"array"},"ordering":{"type":"array"}}}""",
+            responseFormat = "json"
+        )
         assertTrue(interactivePrompt.contains("\"steps\""))
         assertTrue(interactivePrompt.contains("\"ordering\""))
     }
@@ -2431,6 +2454,81 @@ class EduMiniCoreTest {
         assertEquals(setOf("learner_a", "learner_b"), restored.progress.map { it.userId }.toSet())
         assertEquals(setOf("learner_a", "learner_b"), restored.studyDayRecords.map { it.userId }.toSet())
         assertEquals(3, restored.studyDayRecords.first { it.userId == "learner_a" }.actionsCount)
+    }
+
+    @Test
+    fun providerQuotaReservationFreezesKeyUntilNextTimezoneDay() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val storage = ProviderStorage(context)
+        val dayOne = java.time.Instant.parse("2026-11-25T10:00:00Z").toEpochMilli()
+        val provider = ProviderConfig(
+            id = "quota-test-key",
+            provider = ProviderType.GEMINI,
+            label = "Quota test",
+            model = "gemini-test",
+            baseUrl = "",
+            apiKey = "not-a-real-key",
+            enabled = true,
+            createdAt = dayOne,
+            dailyRequestLimit = 1,
+            quotaTimeZone = "UTC"
+        )
+
+        runBlocking {
+            storage.saveProviders(listOf(provider))
+            val sameDayReservations = coroutineScope {
+                (1..8).map { async { storage.reserveProviderKey(provider.id, dayOne) } }.awaitAll()
+            }
+            assertEquals(1, sameDayReservations.count { it })
+            assertFalse(storage.reserveProviderKey(provider.id, dayOne + 60_000L))
+            val nextDay = java.time.Instant.parse("2026-11-26T00:01:00Z").toEpochMilli()
+            assertTrue(storage.reserveProviderKey(provider.id, nextDay))
+            assertFalse(storage.reserveProviderKey(provider.id, nextDay + 60_000L))
+        }
+    }
+
+    @Test
+    fun templateResponseAdapterMapsProviderSpecificQuestionFields() {
+        val raw = """{"items":[{"stem":"ما ناتج 2+2؟","choices":["3","4"],"answer":"4","explanation":"الجمع","level":"easy"}]}"""
+        val mapping = """{"rootArray":"items","fields":{"prompt":"stem","options":"choices","correctAnswer":"answer","rationale":"explanation","difficulty":"level"}}"""
+
+        val adapted = TemplateResponseAdapter.adapt(raw, mapping)
+        val parsed = kotlinx.serialization.json.Json.parseToJsonElement(adapted).jsonObject
+        val questions = parsed["questions"] as kotlinx.serialization.json.JsonArray
+        val question = questions.first().jsonObject
+
+        assertEquals("ما ناتج 2+2؟", question["prompt"]?.jsonPrimitive?.content)
+        assertEquals("4", question["correctAnswer"]?.jsonPrimitive?.content)
+        assertEquals("الجمع", question["rationale"]?.jsonPrimitive?.content)
+        assertEquals(2, (question["options"] as kotlinx.serialization.json.JsonArray).size)
+    }
+
+    @Test
+    fun templateResponseAdapterLeavesPlainTextAndUnmappedJsonUntouched() {
+        val plain = "شرح تعليمي عادي"
+        assertEquals(plain, TemplateResponseAdapter.adapt(plain, """{"rootArray":"items"}"""))
+        val raw = """{"title":"نشاط","steps":[]}"""
+        assertEquals(raw, TemplateResponseAdapter.adapt(raw, ""))
+    }
+
+    @Test
+    fun extractLessonPdfBase64PreservesOriginalPdfDocument() {
+        val file = File.createTempFile("edu-mini-original-", ".pdf")
+        try {
+            createSamplePdf(file, 2)
+            val payload = kotlinx.coroutines.runBlocking {
+                AiGenerationService().extractLessonPdfBase64(file.absolutePath)
+            }
+            assertTrue(payload.base64.startsWith("JVBER"))
+            assertTrue(payload.byteCount > 0)
+            assertEquals(64, payload.sha256.length)
+            val streamedHash = kotlinx.coroutines.runBlocking {
+                AiGenerationService().sha256LessonPdf(file.absolutePath)
+            }
+            assertEquals(payload.sha256, streamedHash)
+        } finally {
+            file.delete()
+        }
     }
 
     private fun sampleLesson() = LessonRef(

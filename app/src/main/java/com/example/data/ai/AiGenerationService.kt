@@ -19,6 +19,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
@@ -37,12 +38,15 @@ import okhttp3.Response
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
+import java.io.InputStream
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.time.Instant
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
+
+data class PdfDocumentPayload(val base64: String, val sha256: String, val byteCount: Int)
 
 class AiGenerationService(
     private val context: Context? = null,
@@ -55,7 +59,9 @@ class AiGenerationService(
 
     open class ProviderCallException(
         message: String,
-        val isTransient: Boolean
+        val isTransient: Boolean,
+        val httpCode: Int? = null,
+        val retryAfterEpochMs: Long = 0L
     ) : IllegalStateException(message)
 
     fun buildPrompt(
@@ -66,7 +72,9 @@ class AiGenerationService(
         questionCount: Int = 5,
         attachedPdfPagesCount: Int = 0,
         questionStyleHint: String = "",
-        difficultyHint: String = ""
+        difficultyHint: String = "",
+        responseSchemaJson: String = "",
+        responseFormat: String = "text"
     ): String {
         val blueprint = Indexer2PromptRegistry.blueprintFor(task)
         val promptTemplate = context?.let { appContext ->
@@ -84,7 +92,9 @@ class AiGenerationService(
         attachedPdfPagesCount = attachedPdfPagesCount,
         questionStyleHint = questionStyleHint,
         difficultyHint = difficultyHint,
-        promptTemplate = promptTemplate
+        promptTemplate = promptTemplate,
+        responseSchemaJson = responseSchemaJson,
+        responseFormat = responseFormat
         )
     }
 
@@ -144,6 +154,55 @@ class AiGenerationService(
         encodedPages
     }
 
+    suspend fun sha256LessonPdf(pdfPath: String?): String = withContext(Dispatchers.IO) {
+        require(!pdfPath.isNullOrBlank()) { "مسار PDF غير محدد" }
+        val input = if (context != null) {
+            UriIO.openInputStream(context, pdfPath)
+        } else {
+            File(pdfPath).takeIf { it.isFile }?.inputStream()
+        } ?: throw IllegalStateException("تعذر فتح ملف PDF لحساب البصمة")
+        val digest = MessageDigest.getInstance("SHA-256")
+        input.use { stream ->
+            val buffer = ByteArray(16 * 1024)
+            while (true) {
+                val count = stream.read(buffer)
+                if (count < 0) break
+                digest.update(buffer, 0, count)
+            }
+        }
+        digest.digest().joinToString("") { "%02x".format(it) }
+    }
+
+    suspend fun extractLessonPdfBase64(
+        pdfPath: String?,
+        maxBytes: Int = 18 * 1024 * 1024
+    ): PdfDocumentPayload = withContext(Dispatchers.IO) {
+        require(!pdfPath.isNullOrBlank()) { "مسار PDF غير محدد" }
+        val knownLength = if (context != null) UriIO.fileLength(context, pdfPath) else File(pdfPath).length()
+        require(knownLength <= maxBytes) {
+            "حجم PDF (${knownLength / (1024 * 1024)} MB) يتجاوز الحد المحلي ${maxBytes / (1024 * 1024)} MB؛ اختر صفحات أقل أو ملفاً أصغر."
+        }
+        val bytes = if (context != null) {
+            UriIO.openInputStream(context, pdfPath)?.use { readBounded(it, maxBytes) }
+        } else {
+            File(pdfPath).takeIf { it.isFile }?.inputStream()?.use { readBounded(it, maxBytes) }
+        } ?: throw IllegalStateException("تعذر قراءة ملف PDF")
+        require(bytes.isNotEmpty()) { "ملف PDF فارغ" }
+        require(bytes.size <= maxBytes) {
+            "حجم PDF (${bytes.size / (1024 * 1024)} MB) يتجاوز الحد المحلي ${maxBytes / (1024 * 1024)} MB؛ اختر صفحات أقل أو ملفاً أصغر."
+        }
+        require(bytes.size >= 5 && bytes.copyOfRange(0, 5).toString(Charsets.US_ASCII) == "%PDF-") {
+            "الملف المحدد ليس PDF صالحاً"
+        }
+        val hash = MessageDigest.getInstance("SHA-256").digest(bytes)
+            .joinToString("") { "%02x".format(it) }
+        PdfDocumentPayload(
+            base64 = Base64.encodeToString(bytes, Base64.NO_WRAP),
+            sha256 = hash,
+            byteCount = bytes.size
+        )
+    }
+
     suspend fun generate(
         lesson: LessonRef,
         task: TaskType,
@@ -154,11 +213,21 @@ class AiGenerationService(
         pdfPageImagesBase64: List<String> = emptyList(),
         questionStyleHint: String = "",
         difficultyHint: String = "",
+        pdfDocumentBase64: String? = null,
+        responseSchemaJson: String = "",
+        responseFormat: String = "text",
+        templateId: String = "",
+        templateVersion: Int = 1,
+        responseSchemaHash: String = "",
+        requestFingerprint: String = "",
+        sourcePdfHash: String = "",
+        onReserveProvider: (suspend (ProviderConfig) -> Boolean)? = null,
+        onProviderStateChanged: (suspend (providerId: String, status: String, retryAfterEpochMs: Long) -> Unit)? = null,
         onAttemptFinished: (suspend (providerLabel: String, model: String, success: Boolean, error: String?) -> Unit)? = null
     ): GeneratedResult = withContext(Dispatchers.IO) {
         val active = providers
             .filter { it.enabled && it.apiKey.isNotBlank() && it.model.isNotBlank() }
-            .sortedWith(compareBy<ProviderConfig> { it.priority }.thenBy { it.createdAt })
+            .sortedWith(compareBy<ProviderConfig> { it.lastUsedAtEpochMs }.thenBy { it.priority }.thenBy { it.createdAt })
 
         if (active.isEmpty()) {
             throw IllegalStateException("أضف مفتاح API فعّال في الإعدادات")
@@ -170,9 +239,11 @@ class AiGenerationService(
             source = source,
             extra = extra,
             questionCount = questionCount,
-            attachedPdfPagesCount = pdfPageImagesBase64.size,
+            attachedPdfPagesCount = if (!pdfDocumentBase64.isNullOrBlank()) 1 else pdfPageImagesBase64.size,
             questionStyleHint = questionStyleHint,
-            difficultyHint = difficultyHint
+            difficultyHint = difficultyHint,
+            responseSchemaJson = responseSchemaJson,
+            responseFormat = responseFormat
         )
         val errors = mutableListOf<String>()
 
@@ -185,17 +256,24 @@ class AiGenerationService(
                     .distinct()
             }
 
-            for (modelName in modelCandidates) {
+            modelLoop@ for (modelName in modelCandidates) {
                 val candidateProfile = profile.copy(model = modelName)
-                val expectJson = task == TaskType.QUESTIONS || task == TaskType.INTERACTIVE
+                val expectJson = responseFormat.equals("json", ignoreCase = true) || responseSchemaJson.isNotBlank()
                 var retry = 0
                 while (retry < 2) {
                     val callStart = System.currentTimeMillis()
                     try {
+                        val reserved = onReserveProvider?.invoke(candidateProfile) ?: true
+                        if (!reserved) {
+                            errors.add("${profile.label}/$modelName: المفتاح معطّل أو مقيّد أو استنفد حصته اليومية")
+                            break@modelLoop
+                        }
                         val (outputText, tokens) = callProvider(
                             profile = candidateProfile,
                             prompt = prompt,
                             pdfPageImagesBase64 = pdfPageImagesBase64,
+                            pdfDocumentBase64 = if (profile.provider == ProviderType.GEMINI) pdfDocumentBase64 else null,
+                            responseSchemaJson = responseSchemaJson,
                             expectJson = expectJson
                         )
                         val durationMs = (System.currentTimeMillis() - callStart).coerceAtLeast(1L)
@@ -206,7 +284,13 @@ class AiGenerationService(
                             model = modelName,
                             createdAt = Instant.now().toString(),
                             durationMs = durationMs,
-                            tokensUsed = tokens
+                            tokensUsed = tokens,
+                            templateId = templateId,
+                            templateVersion = templateVersion,
+                            responseSchemaHash = responseSchemaHash,
+                            requestFingerprint = sha256("$requestFingerprint|${profile.provider.id}|$modelName|$prompt"),
+                            contentHash = sha256(outputText),
+                            sourcePdfHash = sourcePdfHash
                         )
                     } catch (e: CancellationException) {
                         throw e
@@ -214,6 +298,14 @@ class AiGenerationService(
                         val reason = e.message?.takeIf { it.isNotBlank() } ?: "فشل"
                         errors.add("${profile.label}/$modelName: $reason")
                         onAttemptFinished?.invoke(profile.label, modelName, false, reason)
+                        val failureStatus = when {
+                            e.httpCode == 401 || e.httpCode == 403 || Regex("invalid api.?key|api key not valid|unauthorized|authentication failed", RegexOption.IGNORE_CASE).containsMatchIn(reason) -> "INVALID_KEY"
+                            e.httpCode == 429 && Regex("rate.?limit|too many requests|requests per minute|tokens per minute|retry after", RegexOption.IGNORE_CASE).containsMatchIn(reason) -> "RATE_LIMITED"
+                            e.httpCode == 429 && Regex("quota|daily|resource.?exhausted|billing|insufficient quota", RegexOption.IGNORE_CASE).containsMatchIn(reason) -> "QUOTA_EXHAUSTED"
+                            e.httpCode == 429 -> "RATE_LIMITED"
+                            else -> "ERROR"
+                        }
+                        onProviderStateChanged?.invoke(profile.id, failureStatus, e.retryAfterEpochMs)
                         if (!e.isTransient) {
                             break
                         }
@@ -224,6 +316,7 @@ class AiGenerationService(
                         val reason = e.message?.takeIf { it.isNotBlank() } ?: "خطأ شبكة"
                         errors.add("${profile.label}/$modelName: $reason")
                         onAttemptFinished?.invoke(profile.label, modelName, false, reason)
+                        onProviderStateChanged?.invoke(profile.id, "ERROR", 0L)
                         if (retry == 0) {
                             delay(650L)
                         }
@@ -231,6 +324,7 @@ class AiGenerationService(
                         val reason = e.message?.takeIf { it.isNotBlank() } ?: "فشل"
                         errors.add("${profile.label}/$modelName: $reason")
                         onAttemptFinished?.invoke(profile.label, modelName, false, reason)
+                        onProviderStateChanged?.invoke(profile.id, "ERROR", 0L)
                         break
                     }
                     retry++
@@ -250,6 +344,8 @@ class AiGenerationService(
             profile = profile,
             prompt = "أجب بكلمة واحدة فقط: جاهز",
             pdfPageImagesBase64 = emptyList(),
+            pdfDocumentBase64 = null,
+            responseSchemaJson = "",
             expectJson = false
         )
         val elapsed = (System.currentTimeMillis() - started).coerceAtLeast(1L)
@@ -260,10 +356,12 @@ class AiGenerationService(
         profile: ProviderConfig,
         prompt: String,
         pdfPageImagesBase64: List<String>,
+        pdfDocumentBase64: String?,
+        responseSchemaJson: String,
         expectJson: Boolean
     ): Pair<String, Int> {
         return when (profile.provider) {
-            ProviderType.GEMINI -> callGemini(profile, prompt, pdfPageImagesBase64, expectJson)
+            ProviderType.GEMINI -> callGemini(profile, prompt, pdfPageImagesBase64, pdfDocumentBase64, responseSchemaJson, expectJson)
             ProviderType.OPENAI_COMPATIBLE -> callOpenAiCompatible(profile, prompt, pdfPageImagesBase64, expectJson)
         }
     }
@@ -272,6 +370,8 @@ class AiGenerationService(
         profile: ProviderConfig,
         prompt: String,
         pdfPageImagesBase64: List<String>,
+        pdfDocumentBase64: String?,
+        responseSchemaJson: String,
         expectJson: Boolean
     ): Pair<String, Int> {
         val encodedModel = URLEncoder.encode(profile.model.trim(), StandardCharsets.UTF_8.name())
@@ -286,7 +386,14 @@ class AiGenerationService(
                         add(buildJsonObject {
                             put("text", prompt)
                         })
-                        pdfPageImagesBase64.forEach { base64Jpeg ->
+                        if (!pdfDocumentBase64.isNullOrBlank()) {
+                            add(buildJsonObject {
+                                put("inlineData", buildJsonObject {
+                                    put("mimeType", "application/pdf")
+                                    put("data", pdfDocumentBase64)
+                                })
+                            })
+                        } else pdfPageImagesBase64.forEach { base64Jpeg ->
                             add(buildJsonObject {
                                 put("inlineData", buildJsonObject {
                                     put("mimeType", "image/jpeg")
@@ -301,6 +408,12 @@ class AiGenerationService(
                 put("temperature", 0.3)
                 if (expectJson) {
                     put("responseMimeType", "application/json")
+                    val providerSchema = runCatching {
+                        json.parseToJsonElement(responseSchemaJson).jsonObject
+                    }.getOrNull()?.takeIf { schema ->
+                        schema["type"] != null && schema["properties"] != null
+                    }?.let { normalizeGeminiSchema(it) as? JsonObject }
+                    if (providerSchema != null) put("responseSchema", providerSchema)
                 }
             })
         }.toString()
@@ -322,7 +435,7 @@ class AiGenerationService(
                     ?.let { it as? JsonPrimitive }
                     ?.contentOrNull
                     ?: "Gemini HTTP ${response.code}"
-                throw ProviderCallException(errMsg, isTransientHttp(response.code))
+                throw ProviderCallException(errMsg, isTransientHttp(response.code), response.code, retryAfterEpochMs(response))
             }
 
             val candidates = jsonObj?.get("candidates") as? JsonArray
@@ -411,7 +524,7 @@ class AiGenerationService(
                     ?.let { it as? JsonPrimitive }
                     ?.contentOrNull
                     ?: "API HTTP ${response.code}"
-                throw ProviderCallException(errMsg, isTransientHttp(response.code))
+                throw ProviderCallException(errMsg, isTransientHttp(response.code), response.code, retryAfterEpochMs(response))
             }
 
             val choices = jsonObj?.get("choices") as? JsonArray
@@ -453,6 +566,39 @@ class AiGenerationService(
                 }
             })
         }
+
+    private fun readBounded(input: InputStream, maxBytes: Int): ByteArray {
+        val output = ByteArrayOutputStream()
+        val buffer = ByteArray(8 * 1024)
+        var total = 0
+        while (true) {
+            val count = input.read(buffer)
+            if (count < 0) break
+            total += count
+            require(total <= maxBytes) {
+                "حجم PDF يتجاوز الحد المحلي ${maxBytes / (1024 * 1024)} MB؛ اختر صفحات أقل أو ملفاً أصغر."
+            }
+            output.write(buffer, 0, count)
+        }
+        return output.toByteArray()
+    }
+
+    private fun normalizeGeminiSchema(element: JsonElement): JsonElement = when (element) {
+        is JsonObject -> JsonObject(element.mapValues { (key, value) ->
+            if (key == "type" && value is JsonPrimitive) JsonPrimitive(value.content.uppercase())
+            else normalizeGeminiSchema(value)
+        })
+        is JsonArray -> JsonArray(element.map(::normalizeGeminiSchema))
+        else -> element
+    }
+
+    private fun retryAfterEpochMs(response: Response): Long {
+        val seconds = response.header("Retry-After")?.toLongOrNull()
+        return System.currentTimeMillis() + (seconds?.coerceAtLeast(1L)?.times(1000L) ?: 60_000L)
+    }
+
+    private fun sha256(value: String): String = MessageDigest.getInstance("SHA-256")
+        .digest(value.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
 
     private fun isTransientHttp(code: Int): Boolean {
         return code == 408 || code == 429 || code >= 500

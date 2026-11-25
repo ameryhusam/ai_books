@@ -140,7 +140,13 @@ data class DraftEntity(
     @ColumnInfo(name = "status") val status: String = "DRAFT",
     @ColumnInfo(name = "version") val version: Int = 1,
     @ColumnInfo(name = "source_pages") val sourcePages: String? = null,
-    @ColumnInfo(name = "source_hash") val sourceHash: String? = null
+    @ColumnInfo(name = "source_hash") val sourceHash: String? = null,
+    @ColumnInfo(name = "template_id", defaultValue = "''") val templateId: String = "",
+    @ColumnInfo(name = "template_version", defaultValue = "1") val templateVersion: Int = 1,
+    @ColumnInfo(name = "response_schema_hash", defaultValue = "''") val responseSchemaHash: String = "",
+    @ColumnInfo(name = "request_fingerprint", defaultValue = "''") val requestFingerprint: String = "",
+    @ColumnInfo(name = "content_hash", defaultValue = "''") val contentHash: String = "",
+    @ColumnInfo(name = "source_pdf_hash", defaultValue = "''") val sourcePdfHash: String = ""
 )
 
 @Entity(
@@ -329,7 +335,12 @@ data class PromptTemplateEntity(
     @ColumnInfo(name = "title") val title: String,
     @ColumnInfo(name = "task") val task: String,
     @ColumnInfo(name = "instructions") val instructions: String,
-    @ColumnInfo(name = "created_at") val createdAt: String
+    @ColumnInfo(name = "created_at") val createdAt: String,
+    @ColumnInfo(name = "response_schema_json", defaultValue = "''") val responseSchemaJson: String = "",
+    @ColumnInfo(name = "response_mapping_json", defaultValue = "''") val responseMappingJson: String = "",
+    @ColumnInfo(name = "response_format", defaultValue = "'text'") val responseFormat: String = "text",
+    @ColumnInfo(name = "source_attachment_mode", defaultValue = "'pdf_native'") val sourceAttachmentMode: String = "pdf_native",
+    @ColumnInfo(name = "version", defaultValue = "1") val version: Int = 1
 )
 
 @Dao
@@ -732,6 +743,12 @@ interface EduMiniDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPromptTemplate(template: PromptTemplateEntity)
 
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertPromptTemplates(templates: List<PromptTemplateEntity>)
+
+    @Query("UPDATE prompt_templates SET title = :title, task = :task, instructions = :instructions, response_schema_json = :responseSchemaJson, response_mapping_json = :responseMappingJson, response_format = :responseFormat, source_attachment_mode = :sourceAttachmentMode, version = version + 1 WHERE id = :templateId")
+    suspend fun updatePromptTemplate(templateId: String, title: String, task: String, instructions: String, responseSchemaJson: String, responseMappingJson: String, responseFormat: String, sourceAttachmentMode: String)
+
     @Query("DELETE FROM prompt_templates WHERE id = :templateId")
     suspend fun deletePromptTemplateById(templateId: String)
 
@@ -801,7 +818,7 @@ interface EduMiniDao {
         TeacherNoteEntity::class,
         PromptTemplateEntity::class
     ],
-    version = 15,
+    version = 16,
     exportSchema = false
 )
 abstract class EduMiniDatabase : RoomDatabase() {
@@ -1213,6 +1230,23 @@ abstract class EduMiniDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_15_16 = object : Migration(15, 16) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE prompt_templates ADD COLUMN response_schema_json TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE prompt_templates ADD COLUMN response_mapping_json TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE prompt_templates ADD COLUMN response_format TEXT NOT NULL DEFAULT 'text'")
+                db.execSQL("ALTER TABLE prompt_templates ADD COLUMN source_attachment_mode TEXT NOT NULL DEFAULT 'pdf_native'")
+                db.execSQL("ALTER TABLE prompt_templates ADD COLUMN version INTEGER NOT NULL DEFAULT 1")
+
+                db.execSQL("ALTER TABLE generation_drafts ADD COLUMN template_id TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE generation_drafts ADD COLUMN template_version INTEGER NOT NULL DEFAULT 1")
+                db.execSQL("ALTER TABLE generation_drafts ADD COLUMN response_schema_hash TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE generation_drafts ADD COLUMN request_fingerprint TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE generation_drafts ADD COLUMN content_hash TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE generation_drafts ADD COLUMN source_pdf_hash TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
         fun getInstance(context: Context) {
             return instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -1234,7 +1268,8 @@ abstract class EduMiniDatabase : RoomDatabase() {
                         MIGRATION_11_12,
                         MIGRATION_12_13,
                         MIGRATION_13_14,
-                        MIGRATION_14_15
+                        MIGRATION_14_15,
+                        MIGRATION_15_16
                     )
                     .build()
                     .also { instance = it }

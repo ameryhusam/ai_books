@@ -61,6 +61,8 @@ import com.example.model.CloudDraft
 import com.example.model.GenerationRunRecord
 import com.example.model.LessonProgress
 import com.example.model.PromptTemplateRecord
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
 import com.example.model.ProviderConfig
 import com.example.model.ProviderType
 import com.example.model.SyncUiState
@@ -105,6 +107,8 @@ fun SettingsScreen(
     onFallbackModelsChange: (String) -> Unit,
     onBaseUrlChange: (String) -> Unit,
     onApiKeyChange: (String) -> Unit,
+    onDailyRequestLimitChange: (String) -> Unit = {},
+    onQuotaTimeZoneChange: (String) -> Unit = {},
     onToggleStrictModel: () -> Unit = {},
     onAddOrUpdateProvider: () -> Unit,
     onCancelEditProvider: () -> Unit = {},
@@ -112,10 +116,11 @@ fun SettingsScreen(
     onTestFormProvider: () -> Unit = {},
     onTestSavedProvider: (ProviderConfig) -> Unit = {},
     onToggleProvider: (String) -> Unit,
+    onReactivateProvider: (String) -> Unit = {},
     onMoveProvider: (String, Int) -> Unit,
     onDeleteProvider: (String) -> Unit,
     onClearRecentRuns: () -> Unit = {},
-    onSavePromptTemplate: (String, TaskType, String) -> Unit = { _, _, _ -> },
+    onSavePromptTemplate: (String, TaskType, String, String, String, String?) -> Unit = { _, _, _, _, _, _ -> },
     onDeletePromptTemplate: (String) -> Unit = {},
     onUseTemplateInStudio: (PromptTemplateRecord) -> Unit = {},
     modifier: Modifier = Modifier
@@ -126,6 +131,10 @@ fun SettingsScreen(
     var newTplTitle by remember { mutableStateOf("") }
     var newTplTask by remember { mutableStateOf(TaskType.EXPLANATION) }
     var newTplInstructions by remember { mutableStateOf("") }
+    var newTplSchema by remember { mutableStateOf("") }
+    var newTplMapping by remember { mutableStateOf("") }
+    var editingTemplateId by remember { mutableStateOf<String?>(null) }
+    var templateValidationError by remember { mutableStateOf<String?>(null) }
 
     Box(
         modifier = modifier.fillMaxSize(),
@@ -330,7 +339,7 @@ fun SettingsScreen(
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         val presets = if (form.provider == ProviderType.GEMINI) {
-                            listOf("gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite")
+                            listOf("gemini-3.5-flash", "gemini-3.6-flash", "gemini-3.7-flash", "gemini-3.8-flash")
                         } else {
                             listOf("gpt-4o-mini", "gpt-4.1-mini", "deepseek-chat")
                         }
@@ -369,6 +378,28 @@ fun SettingsScreen(
                         )
                     }
 
+                    Text(
+                        text = "الحد اليومي لهذا المفتاح (0 = غير محدود)",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = EduInk,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                    SettingsField(
+                        value = form.dailyRequestLimit,
+                        onValueChange = onDailyRequestLimitChange,
+                        testTag = "provider_daily_limit_input"
+                    )
+                    Text(
+                        text = "المنطقة الزمنية لإعادة ضبط الحصة",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = EduInk,
+                        modifier = Modifier.padding(top = 6.dp)
+                    )
+                    SettingsField(
+                        value = form.quotaTimeZone,
+                        onValueChange = onQuotaTimeZoneChange,
+                        testTag = "provider_quota_timezone_input"
+                    )
                     Text(
                         text = stringResource(R.string.settings_api_key_label),
                         style = MaterialTheme.typography.labelMedium,
@@ -507,10 +538,24 @@ fun SettingsScreen(
                             } else if (profile.strictModel) {
                                 " • وضع صارم"
                             } else ""
+                            val statusLabel = when (profile.runtimeStatus.uppercase()) {
+                                "ACTIVE" -> "نشط"
+                                "DISABLED" -> "معطّل"
+                                "QUOTA_EXHAUSTED" -> "الحصة اليومية مستنفدة"
+                                "RATE_LIMITED" -> "انتظار من المزود"
+                                "INVALID_KEY" -> "مفتاح غير صالح"
+                                else -> "خطأ مؤقت"
+                            }
                             Text(
                                 text = "${profile.provider.id} • ${profile.model}$fallbackSuffix • ${stringResource(R.string.settings_key_hidden)}",
+
                                 style = MaterialTheme.typography.bodySmall,
                                 color = EduMuted
+                            )
+                            Text(
+                                text = "$statusLabel • ${profile.dailyRequestsUsed}/${if (profile.dailyRequestLimit == 0) "∞" else profile.dailyRequestLimit} طلب يومي",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (profile.runtimeStatus == "ACTIVE") EduGreenDark else EduRed
                             )
                         }
                         IconButton(
@@ -554,6 +599,9 @@ fun SettingsScreen(
                                 contentDescription = "خفض الأولوية",
                                 tint = if (idx in 0 until providers.lastIndex) EduGreenDark else EduLine
                             )
+                        }
+                        if (profile.runtimeStatus != "ACTIVE" && profile.enabled) {
+                            TextButton(onClick = { onReactivateProvider(profile.id) }) { Text("إعادة تنشيط", color = EduGreenDark) }
                         }
                         EduPill(
                             text = if (profile.enabled) {
@@ -621,12 +669,70 @@ fun SettingsScreen(
                             .fillMaxWidth()
                             .testTag("new_template_instructions_input")
                     )
+                    Text(
+                        text = "مخطط الاستجابة (JSON Schema أو مثال JSON تعاقدي)",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = EduInk,
+                        modifier = Modifier.padding(top = 6.dp)
+                    )
+                    OutlinedTextField(
+                        value = newTplSchema,
+                        onValueChange = { newTplSchema = it },
+                        placeholder = { Text("ضع هنا مخطط الاستجابة الذي يجب أن يلتزم به النموذج...") },
+                        minLines = 4,
+                        shape = RoundedCornerShape(12.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = EduFieldBg,
+                            unfocusedContainerColor = EduFieldBg,
+                            focusedBorderColor = EduGreen,
+                            unfocusedBorderColor = EduLine
+                        ),
+                        modifier = Modifier.fillMaxWidth().testTag("new_template_response_schema_input")
+                    )
+                    Text(
+                        text = "خريطة توافق الحقول (اختيارية)",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = EduInk,
+                        modifier = Modifier.padding(top = 6.dp)
+                    )
+                    OutlinedTextField(
+                        value = newTplMapping,
+                        onValueChange = { newTplMapping = it },
+                        placeholder = { Text("""{"rootArray":"items","fields":{"prompt":"stem","options":"choices","correctAnswer":"answer"}}""") },
+                        minLines = 3,
+                        shape = RoundedCornerShape(12.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = EduFieldBg,
+                            unfocusedContainerColor = EduFieldBg,
+                            focusedBorderColor = EduGreen,
+                            unfocusedBorderColor = EduLine
+                        ),
+                        modifier = Modifier.fillMaxWidth().testTag("new_template_response_mapping_input")
+                    )
+                    templateValidationError?.let { error ->
+                        Text(error, style = MaterialTheme.typography.bodySmall, color = EduRed)
+                    }
+                    Text(
+                        text = "يُحفظ المخطط مع القالب ويُرسل ضمن البرومبت. اتركه فارغاً للمخرجات النصية.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = EduMuted
+                    )
                     OutlinedButton(
                         onClick = {
                             if (newTplTitle.isNotBlank() && newTplInstructions.isNotBlank()) {
-                                onSavePromptTemplate(newTplTitle, newTplTask, newTplInstructions)
-                                newTplTitle = ""
-                                newTplInstructions = ""
+                                val schemaValid = newTplSchema.isBlank() || runCatching { Json.parseToJsonElement(newTplSchema).jsonObject }.isSuccess
+                                val mappingValid = newTplMapping.isBlank() || runCatching { Json.parseToJsonElement(newTplMapping).jsonObject }.isSuccess
+                                if (!schemaValid || !mappingValid) {
+                                    templateValidationError = "مخطط الاستجابة وخريطة الحقول يجب أن يكونا JSON object صالحين."
+                                } else {
+                                    templateValidationError = null
+                                    onSavePromptTemplate(newTplTitle, newTplTask, newTplInstructions, newTplSchema, newTplMapping, editingTemplateId)
+                                    newTplTitle = ""
+                                    newTplInstructions = ""
+                                    newTplSchema = ""
+                                    newTplMapping = ""
+                                    editingTemplateId = null
+                                }
                             }
                         },
                         enabled = newTplTitle.isNotBlank() && newTplInstructions.isNotBlank(),
@@ -637,7 +743,16 @@ fun SettingsScreen(
                             .minimumInteractiveComponentSize()
                             .testTag("save_prompt_template_button")
                     ) {
-                        Text("إضافة قالب جديد", color = EduGreenDark, fontWeight = FontWeight.Bold)
+                        Text(if (editingTemplateId == null) "إضافة قالب جديد" else "حفظ تعديلات القالب", color = EduGreenDark, fontWeight = FontWeight.Bold)
+                    }
+                    if (editingTemplateId != null) {
+                        TextButton(onClick = {
+                            editingTemplateId = null
+                            newTplTitle = ""
+                            newTplInstructions = ""
+                            newTplSchema = ""
+                            newTplMapping = ""
+                        }) { Text("إلغاء التعديل", color = EduMuted) }
                     }
 
                     promptTemplates.forEach { tpl ->
@@ -649,6 +764,17 @@ fun SettingsScreen(
                             Column(modifier = Modifier.weight(1f)) {
                                 Text("${tpl.title} • ${tpl.task.labelAr}", style = MaterialTheme.typography.titleSmall, color = EduInk)
                                 Text(tpl.instructions, style = MaterialTheme.typography.bodySmall, color = EduMuted, maxLines = 2)
+                                if (tpl.responseSchemaJson.isNotBlank()) Text("مخطط استجابة محفوظ • ${tpl.responseFormat}", style = MaterialTheme.typography.labelSmall, color = EduGreenDark)
+                            }
+                            TextButton(onClick = {
+                                editingTemplateId = tpl.id
+                                newTplTitle = tpl.title
+                                newTplTask = tpl.task
+                                newTplInstructions = tpl.instructions
+                                newTplSchema = tpl.responseSchemaJson
+                                newTplMapping = tpl.responseMappingJson
+                            }) {
+                                Text("تعديل", color = EduBlue)
                             }
                             TextButton(onClick = { onUseTemplateInStudio(tpl) }) {
                                 Text("تطبيق", color = EduGreenDark)

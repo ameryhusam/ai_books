@@ -289,17 +289,13 @@ object Indexer2PromptRegistry {
         attachedPdfPagesCount: Int = 0,
         questionStyleHint: String = "",
         difficultyHint: String = "",
-        promptTemplate: String = ""
+        promptTemplate: String = "",
+        responseSchemaJson: String = "",
+        responseFormat: String = "text"
     ): String {
         val safeCount = questionCount.coerceIn(1, 30)
         val blueprint = blueprintFor(task)
-        val taskInstruction = when (task) {
-            TaskType.QUESTIONS ->
-                "بنك أسئلة مكوّن من $safeCount أسئلة مع الخيارات والإجابة الصحيحة والتفسير ومستوى الصعوبة وربط كل سؤال بالصفحة المرجعية"
-            TaskType.INTERACTIVE ->
-                "نشاطاً تعليمياً تفاعلياً منظماً بصيغة JSON آمنة تتضمن خطوات تفاعلية، ونقاط تحقق، ومهمة ترتيب أو توصيل، و$safeCount محطات تعلم"
-            else -> blueprint.roleInstruction
-        }
+        val taskInstruction = task.labelAr
 
         return buildString {
             append("أنت مساعد إعداد محتوى تعليمي. أنشئ ")
@@ -320,30 +316,26 @@ object Indexer2PromptRegistry {
             append(".\n")
             append("التزم بالمصدر ولا تخترع معلومات أو صفحات. اجعل المحتوى منظمًا وقابلاً للتحرير.\n")
             append("المخطط المرجعي (indexer2): ${blueprint.sourcePath}\n")
-            append("معيار المخرجات: ${blueprint.outputContract}.\n")
+            if (task == TaskType.QUESTIONS || task == TaskType.INTERACTIVE) {
+                append("العدد المطلوب من العناصر: $safeCount.\n")
+            }
+            if (questionStyleHint.isNotBlank()) append("تنسيق/تنويع العناصر المطلوب: $questionStyleHint.\n")
+            if (difficultyHint.isNotBlank()) append("مستوى الصعوبة المطلوب: $difficultyHint.\n")
             if (promptTemplate.isNotBlank()) {
                 append("\nتعليمات المهمة المرجعية من ملف ${blueprint.sourcePath}:\n")
                 append(promptTemplate.trim())
                 append("\n")
             }
-            if (task == TaskType.QUESTIONS) {
-                append("عدد الأسئلة المطلوب بدقة: $safeCount.\n")
-                if (questionStyleHint.isNotBlank()) {
-                    append("نمط الأسئلة المطلوب: $questionStyleHint.\n")
-                }
-                if (difficultyHint.isNotBlank()) {
-                    append("مستوى الصعوبة المستهدف: $difficultyHint.\n")
-                }
-                append("أخرج JSON صالحاً فقط دون Markdown أو نص خارج JSON. استخدم كائن الجذر {\"questions\":[...]}، ولا تنتج سؤالاً بلا إجابة صحيحة صريحة.\n")
-                append(blueprint.schemaSnippet)
-                append("\n")
-            } else if (task == TaskType.INTERACTIVE) {
-                append("أخرج JSON صالحاً فقط دون HTML أو JavaScript أو Markdown، والتزم بمخطط النشاط التفاعلي.\n")
-                append(blueprint.schemaSnippet)
+            if (responseFormat.equals("json", ignoreCase = true) || responseSchemaJson.isNotBlank()) {
+                append("أخرج استجابة منظمة وفق مخطط الاستجابة المرفق، دون Markdown أو نص خارج البنية المطلوبة.\n")
+            }
+            if (responseSchemaJson.isNotBlank()) {
+                append("\nمخطط الاستجابة المعتمد من القالب (لا تغيّر أسماء الحقول أو أنواعها):\n")
+                append(responseSchemaJson.trim())
                 append("\n")
             }
             if (attachedPdfPagesCount > 0) {
-                append("ملاحظة: مرفق مع هذا الطلب $attachedPdfPagesCount صفحة مصورة من ملف PDF الخاص بالدرس لاستخراج المحتوى والاعتماد عليها.\n")
+                append("ملاحظة: ملف PDF الأصلي للدرس مرفق مع البرومبت كمدخل متعدد الوسائط؛ استخدم محتواه والصفحات المرجعية المحددة.\n")
             }
             if (source.isNotBlank()) {
                 append("المصدر النصي:\n")

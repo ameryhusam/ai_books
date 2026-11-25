@@ -52,6 +52,13 @@ The current report measures the difference between pre-reinforcement and later n
 
 This is an observational association after practice. It does **not** isolate the effect of a generated explanation, because the app does not yet record that the learner opened, read, and completed a specific explanation. An explanation's benefit must not be claimed from practice scores alone.
 
+
+## Schedule and intervention implementation status
+
+As of this revision, the weekly report still groups recorded assessment attempts; it does not yet create or schedule a Friday test. The intended schedule is configurable study days (default Saturday–Wednesday), a separate assessment day (default Friday), local time and timezone. A WorkManager worker, idempotent per-learner weekly assessment creation, and a learner-facing assessment entry point remain outstanding.
+
+The remedial generator still creates drafts and optional adaptive questions. It does not yet create a learner assignment or record when the learner opens, reads, and completes a specific explanation. The current post-reinforcement comparison must not be presented as direct evidence of explanation effectiveness.
+
 ## Role-based presentation
 
 ### Learner
