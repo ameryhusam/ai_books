@@ -61,10 +61,9 @@ object LearningProgressAnalytics {
             val sorted = rows.sortedBy { parseInstant(it.answeredAt) ?: Instant.MAX }
             val first = sorted.firstOrNull() ?: return@mapNotNull null
             val firstAt = parseInstant(first.answeredAt) ?: return@mapNotNull null
+            val delayedThreshold = firstAt.plusSeconds(DELAYED_RECALL_DAYS * SECONDS_PER_DAY)
             val delayed = sorted.lastOrNull { attempt ->
-                val at = parseInstant(attempt.answeredAt) ?: return@lastOrNull false
-                at.isAfter(firstAt.plusSeconds(DELAYED_RECALL_DAYS * SECONDS_PER_DAY)) ||
-                    at == firstAt.plusSeconds(DELAYED_RECALL_DAYS * SECONDS_PER_DAY)
+                parseInstant(attempt.answeredAt)?.let { !it.isBefore(delayedThreshold) } == true
             } ?: return@mapNotNull null
             first to delayed
         }
