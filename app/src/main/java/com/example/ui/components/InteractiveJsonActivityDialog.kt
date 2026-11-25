@@ -68,7 +68,8 @@ import com.example.ui.theme.EduWhite
 fun InteractiveJsonActivityDialog(
     activity: InteractiveActivityModel,
     onCompleted: (earnedXp: Int) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onCheckpointAnswered: ((step: InteractiveStepItem, selectedOption: String, isCorrect: Boolean) -> Unit)? = null
 ) {
     Dialog(
         onDismissRequest = onDismiss,
@@ -121,6 +122,7 @@ fun InteractiveJsonActivityDialog(
                 InteractiveJsonActivityPlayer(
                     activity = activity,
                     onCompleted = onCompleted,
+                    onCheckpointAnswered = onCheckpointAnswered,
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
