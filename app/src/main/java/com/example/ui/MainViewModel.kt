@@ -1483,7 +1483,14 @@ class MainViewModel(
                         draftsSynced++
                     }
                 }
-                val localProgress = repository.getWorkspaceProgressSnapshot(ws.workspaceId)
+                val activeLearnerId = _uiState.value.activeLearner.userId
+                // Firestore progress remains account-scoped. Until its contract carries a local
+                // learner ID, only the legacy default learner can safely use this sync path.
+                val localProgress = if (activeLearnerId == LearnerProfile.DEFAULT_USER_ID) {
+                    repository.getWorkspaceProgressSnapshot(ws.workspaceId, activeLearnerId)
+                } else {
+                    emptyList()
+                }
                 var progressSynced = 0
                 val lessonsByKey = ws.lessons.associateBy { "${it.bookKey}|${it.unitKey}|${it.lessonKey}" }
                 for (prog in localProgress) {
@@ -1514,7 +1521,11 @@ class MainViewModel(
                     it.copy(
                         alert = AlertMessage(
                             "تمت المزامنة السحابية",
-                            "تمت مزامنة $draftsSynced مسودة و $progressSynced سجل تقدم إلى Firebase Firestore."
+                            if (activeLearnerId == LearnerProfile.DEFAULT_USER_ID) {
+                                "تمت مزامنة $draftsSynced مسودة و $progressSynced سجل تقدم للملف الافتراضي إلى Firebase Firestore."
+                            } else {
+                                "تمت مزامنة $draftsSynced مسودة. لم تتم مزامنة تقدم «${_uiState.value.activeLearner.displayName}» لأن Firestore الحالي لا يفصل ملفات المتعلمين المحلية؛ بقي التقدم محفوظاً محلياً."
+                            }
                         )
                     )
                 }
