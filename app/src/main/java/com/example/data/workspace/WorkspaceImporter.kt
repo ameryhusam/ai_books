@@ -731,11 +731,11 @@ class WorkspaceImporter(private val context: Context) {
         private val TRAILING_NUMBER_REGEX = Regex("(\\d+)$")
         private val GRADE_ROOT_REGEX = Regex("^workspace/(G\\d{2})/")
         private val CANONICAL_INDEX_REGEX = Regex(
-            "^workspace/G\\d{2}/[^/]+(?:/[^/]+)?/index\\.json$",
+            "^workspace/G\\d{2}/[^/]+(?:/[^/]+){0,2}/index\\.json$",
             RegexOption.IGNORE_CASE
         )
         private val PART_INDEX_REGEX = Regex(
-            "^workspace/G\\d{2}/[^/]+/(?:P01|P02|BOTH)/index\\.json$",
+            "^workspace/G\\d{2}/.+/(?:P01|P02|BOTH)/index\\.json$",
             RegexOption.IGNORE_CASE
         )
     }
