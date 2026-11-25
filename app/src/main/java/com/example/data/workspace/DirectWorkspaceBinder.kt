@@ -43,9 +43,9 @@ data class DirectBoundWorkspaceResult(
 )
 
 /**
- * Zero-permission, zero-copy local workspace binder.
- * Works directly on Android SAF DocumentTree URIs (`OpenDocumentTree`) or local filesystem directories
- * without copying PDFs, covers, or HTML lessons into app-private storage.
+ * Permissioned, zero-copy workspace binder.
+ * Works directly on Android SAF DocumentTree URIs (`OpenDocumentTree`) or local filesystem directories.
+ * PDF, cover, and lesson assets remain in the selected source; only metadata and file references are stored in Room.
  */
 class DirectWorkspaceBinder(private val context: Context) {
 
