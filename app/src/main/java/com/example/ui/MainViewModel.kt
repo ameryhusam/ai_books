@@ -921,6 +921,10 @@ class MainViewModel(
         val currentIndex = orderedBookLessons.indexOfFirst {
             it.unitKey == currentLesson.unitKey && it.lessonKey == currentLesson.lessonKey
         }
+        if (currentIndex < 0) {
+            _uiState.update { it.copy(toastMessage = "تعذر تحديد ترتيب هذا الدرس داخل الكتاب.") }
+            return
+        }
         val nextLesson = orderedBookLessons.getOrNull(currentIndex + 1)
         if (nextLesson != null) {
             openStudentStudy(nextLesson)
