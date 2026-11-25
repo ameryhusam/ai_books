@@ -130,6 +130,8 @@ data class ConceptMasterySummary(
 
 data class LessonQuizCompletionResult(
     val lessonKey: String,
+    val bookKey: String = "",
+    val unitKey: String = "",
     val correctCount: Int,
     val totalQuestions: Int,
     val scorePercent: Int,
