@@ -570,8 +570,19 @@ fun QuestionBankScreen(
 
     activeTimedAssessment?.let { asm ->
         val byId = questions.associateBy { it.id }
-        val examQuestions = asm.questionIds.mapNotNull { byId[it] }
-        if (examQuestions.isNotEmpty()) {
+        val examQuestions = asm.questionIds.mapNotNull { byId[it] }.filter { it.reviewed }
+        if (examQuestions.size != asm.questionIds.size) {
+            AlertDialog(
+                onDismissRequest = { activeTimedAssessment = null },
+                title = { Text("تعذر بدء التقييم") },
+                text = { Text("بعض أسئلة هذا التقييم لم تعد معتمدة للمراجعة. راجع بنك الأسئلة وحدّث التقييم قبل تشغيله.") },
+                confirmButton = {
+                    TextButton(onClick = { activeTimedAssessment = null }) {
+                        Text("حسناً")
+                    }
+                }
+            )
+        } else if (examQuestions.isNotEmpty()) {
             TimedExamRunnerDialog(
                 assessment = asm,
                 questions = examQuestions,
