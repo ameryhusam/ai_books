@@ -232,7 +232,7 @@ class AiGenerationService(
                     .distinct()
             }
 
-            for (modelName in modelCandidates) {
+            modelLoop@ for (modelName in modelCandidates) {
                 val candidateProfile = profile.copy(model = modelName)
                 val expectJson = responseFormat.equals("json", ignoreCase = true) || responseSchemaJson.isNotBlank()
                 var retry = 0
