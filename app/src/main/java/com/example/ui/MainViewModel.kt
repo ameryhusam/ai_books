@@ -803,6 +803,36 @@ class MainViewModel(
     }
 
     fun openStudentStudy(lesson: LessonRef) {
+        val snapshot = _uiState.value
+        if (snapshot.userRole == UserRole.LEARNER) {
+            val orderedBookLessons = snapshot.workspace?.lessons.orEmpty()
+                .filter { it.bookKey == lesson.bookKey }
+            val targetIndex = orderedBookLessons.indexOfFirst {
+                it.unitKey == lesson.unitKey && it.lessonKey == lesson.lessonKey
+            }
+            val previousLesson = orderedBookLessons.getOrNull(targetIndex - 1)
+            if (previousLesson != null) {
+                val previousNode = dashboardSummary.value.unitPaths
+                    .flatMap { it.nodes }
+                    .firstOrNull {
+                        it.lesson.bookKey == previousLesson.bookKey &&
+                            it.lesson.unitKey == previousLesson.unitKey &&
+                            it.lesson.lessonKey == previousLesson.lessonKey
+                    }
+                val passedInCurrentSession = snapshot.lastLessonQuizResult?.let {
+                    it.passed &&
+                        it.bookKey == previousLesson.bookKey &&
+                        it.unitKey == previousLesson.unitKey &&
+                        it.lessonKey == previousLesson.lessonKey
+                } == true
+                if (previousNode?.isCompleted != true && !passedInCurrentSession) {
+                    _uiState.update {
+                        it.copy(toastMessage = "للوصول إلى هذا الدرس، أكمل الدرس السابق واجتز اختباره أولاً.")
+                    }
+                    return
+                }
+            }
+        }
         _uiState.update {
             it.copy(
                 selectedLesson = lesson,
@@ -848,14 +878,18 @@ class MainViewModel(
                 }
             }
 
-            firestoreSync.upsertLessonProgress(
-                userId = currentUserId,
-                workspaceId = wsId,
-                lesson = lesson,
-                completed = result.lessonMarkedCompleted,
-                xpEarned = result.earnedXp,
-                scorePercent = result.scorePercent
-            )
+            // The current Firestore progress document is account-scoped, not local-learner-scoped.
+            // Sync only the legacy default profile until a versioned per-learner cloud contract exists.
+            if (activeUserId == LearnerProfile.DEFAULT_USER_ID) {
+                firestoreSync.upsertLessonProgress(
+                    userId = currentUserId,
+                    workspaceId = wsId,
+                    lesson = lesson,
+                    completed = result.lessonMarkedCompleted,
+                    xpEarned = result.earnedXp,
+                    scorePercent = result.scorePercent
+                )
+            }
 
             _uiState.update {
                 it.copy(
@@ -874,7 +908,25 @@ class MainViewModel(
     }
 
     fun openNextLessonInStudy(currentLesson: LessonRef) {
-        val lessons = _uiState.value.workspace?.lessons.orEmpty()
+        val snapshot = _uiState.value
+        val currentNode = dashboardSummary.value.unitPaths
+            .flatMap { it.nodes }
+            .firstOrNull {
+                it.lesson.bookKey == currentLesson.bookKey &&
+                    it.lesson.unitKey == currentLesson.unitKey &&
+                    it.lesson.lessonKey == currentLesson.lessonKey
+            }
+        val passedInCurrentSession = snapshot.lastLessonQuizResult?.let {
+            it.passed &&
+                it.bookKey == currentLesson.bookKey &&
+                it.unitKey == currentLesson.unitKey &&
+                it.lessonKey == currentLesson.lessonKey
+        } == true
+        if (snapshot.userRole == UserRole.LEARNER && currentNode?.isCompleted != true && !passedInCurrentSession) {
+            _uiState.update { it.copy(toastMessage = "لا يمكن الانتقال إلى الدرس التالي قبل اجتياز اختبار هذا الدرس.") }
+            return
+        }
+        val lessons = snapshot.workspace?.lessons.orEmpty()
         if (lessons.isEmpty()) return
         val currentIdx = lessons.indexOfFirst {
             it.bookKey == currentLesson.bookKey &&
