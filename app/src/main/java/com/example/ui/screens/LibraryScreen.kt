@@ -38,6 +38,7 @@ import androidx.compose.material.icons.rounded.FileDownload
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.PictureAsPdf
 import androidx.compose.material.icons.rounded.Restore
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.School
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.WarningAmber
@@ -118,6 +119,7 @@ fun LibraryScreen(
     cloudProgressState: SyncUiState<List<LessonProgress>> = SyncUiState.Loading,
     onSyncWorkspaceToCloud: () -> Unit = {},
     onBindDirectFolder: () -> Unit = {},
+    onRefreshIndex: () -> Unit = {},
     onPickZip: () -> Unit = {},
     onPickBookPdf: () -> Unit = {},
     onPickStandalonePdf: () -> Unit = {},
@@ -352,6 +354,30 @@ fun LibraryScreen(
                                         tint = EduRed
                                     )
                                 }
+                            }
+                        }
+                        if (UriIO.isContentUri(workspace.rootPath)) {
+                            OutlinedButton(
+                                onClick = onRefreshIndex,
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, EduGreen),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .minimumInteractiveComponentSize()
+                                    .testTag("refresh_workspace_index_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Refresh,
+                                    contentDescription = null,
+                                    tint = EduGreenDark,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "مزامنة الفهرس من مساحة التخزين",
+                                    color = EduGreenDark,
+                                    style = MaterialTheme.typography.labelLarge
+                                )
                             }
                         }
                         if (workspace.warnings.isNotEmpty()) {
