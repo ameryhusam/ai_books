@@ -863,6 +863,14 @@ private fun StudioWorkbench(
                                         color = EduInk
                                     )
                                 }
+                                if (attachPdfPages) {
+                                    Text(
+                                        text = stringResource(R.string.studio_pdf_privacy_notice),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = EduMuted,
+                                        modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 6.dp)
+                                    )
+                                }
                             }
 
                             OutlinedTextField(
