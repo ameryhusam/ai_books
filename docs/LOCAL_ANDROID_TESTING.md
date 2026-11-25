@@ -62,7 +62,8 @@ Before release, back up app data on a test device that has an existing version-1
 3. Two non-default learner profiles can complete the same lesson independently.
 4. Assessment history and study streaks change when switching local learner profiles.
 5. Full backup export/import preserves the learner IDs and separate study-day records.
-6. Firebase sign-in and the existing Firestore sync still work as before.
+6. Firebase sign-in and draft sync still work as before.
+7. A non-default local learner's progress is not uploaded into the account-wide Firestore progress record; the sync screen explains that it remains local until a profile-aware cloud contract exists.
 
 Do not use "Clear storage" for this upgrade test; that would bypass the migration.
 
