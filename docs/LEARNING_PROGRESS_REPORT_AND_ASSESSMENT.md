@@ -13,7 +13,7 @@ The product should measure durable learning, not merely lesson completion or a s
 
 For each question with at least one recorded response, take its earliest recorded response. The indicator is the percentage of those first responses that were correct.
 
-This avoids inflating the initial understanding score by counting repeated attempts after feedback as if they were first-time knowledge.
+This avoids inflating the initial understanding score by counting repeated attempts after feedback as if they were first-time knowledge. Reinforcement drills and the general question-bank practice mode are excluded from the main accuracy, stable-concept, and delayed-recall scores; their mistakes remain available for diagnostic patterns.
 
 ### 2. Latest observed accuracy
 
