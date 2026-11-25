@@ -177,6 +177,8 @@ class EduMiniCoreTest {
             "unit_01",
             com.example.data.workspace.WorkspaceContractValidator.sourceUnitFolderKey(p01Unit)
         )
+        val explicitLesson = Json.parseToJsonElement("""{"lessonKey":"stable_lesson_alpha","lessonNumber":4}""").jsonObject
+        assertEquals(4, com.example.data.workspace.WorkspaceContractValidator.sourceLessonNumber(explicitLesson))
     }
 
     @Test
