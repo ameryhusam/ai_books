@@ -361,9 +361,6 @@ class EduMiniRepository(
         } else {
             dao.saveWorkspaceGraph(workspaceEntity, bookEntities, lessonEntities)
         }
-        if (imported.indexRecords.isEmpty()) {
-            recordStudyActivity()
-        }
     }
 
     suspend fun loadProviders(): List<ProviderConfig> = providerStorage.loadProviders()
@@ -533,7 +530,6 @@ class EduMiniRepository(
                 sourceHash = record.sourceHash
             )
         )
-        recordStudyActivity()
         return record
     }
 
@@ -663,7 +659,6 @@ class EduMiniRepository(
             lesson = lesson,
             activity = activity
         )
-        recordStudyActivity()
         return record
     }
 
@@ -770,7 +765,6 @@ class EduMiniRepository(
                 createdAt = record.createdAt
             )
         )
-        recordStudyActivity()
         return record
     }
 
@@ -1310,9 +1304,6 @@ class EduMiniRepository(
         val parsed = QuestionBankEngine.parseQuestionsFromText(rawText, canonicalWs, lesson)
         if (parsed.isEmpty()) return emptyList()
         val saved = questionBankService.saveQuestionsWithConceptTags(canonicalWs, lesson, parsed)
-        if (saved.isNotEmpty()) {
-            recordStudyActivity()
-        }
         return saved
     }
 
@@ -1349,7 +1340,6 @@ class EduMiniRepository(
             conceptTag = conceptTag.trim().ifBlank { lesson.title }
         )
         dao.insertQuestions(listOf(item.toEntity()))
-        recordStudyActivity()
         return item
     }
 
@@ -1614,7 +1604,6 @@ class EduMiniRepository(
                 )
             )
         }
-        recordStudyActivity()
         "تمت استعادة ${bundle.drafts.size} مسودة، ${bundle.questions.size} سؤال، ${bundle.assessments.size} تقييم، و${bundle.teacherNotes.size} ملاحظة بنجاح."
     }
 
@@ -1667,7 +1656,6 @@ class EduMiniRepository(
                 createdAt = record.createdAt
             )
         )
-        recordStudyActivity()
         return record
     }
 
