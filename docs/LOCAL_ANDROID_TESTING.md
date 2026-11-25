@@ -19,13 +19,14 @@ Linux / macOS:
   --tests "com.example.EduMiniCoreTest.learningProgressReportMeasuresFollowUpAfterReinforcementOnlyOnSharedQuestions" \
   --tests "com.example.EduMiniCoreTest.lessonSequenceGateRequiresEveryEarlierLessonToBePassed" \
   --tests "com.example.EduMiniCoreTest.subjectMilestoneBadgesReflectPerBookCompletionThresholds" \
+  --tests "com.example.EduMiniCoreTest.learnerPointsExcludeAuthoringOnlyBadgeBonuses" \
   --tests "com.example.EduMiniCoreTest.reinforcementSelectionExcludesUnreviewedGeneratedQuestions"
 ```
 
 Windows:
 
 ```bat
-gradlew.bat :app:testDebugUnitTest --tests "com.example.EduMiniCoreTest.directWorkspaceBinderInspectsMultiGradeAndBindsSingleGradeInPlaceWithoutCopying" --tests "com.example.EduMiniCoreTest.directWorkspaceBinderRejectsComponentKeyThatConflictsWithIndexPath" --tests "com.example.EduMiniCoreTest.directWorkspaceCatalogSyncUpdatesIndexAndUnitRowsWithoutDuplicates" --tests "com.example.EduMiniCoreTest.roomEnforcesStableBookAndLessonIdentityWithinWorkspace" --tests "com.example.EduMiniCoreTest.learnerProgressStudyDaysAndAssessmentAttemptsAreIsolated" --tests "com.example.EduMiniCoreTest.fullBackupPreservesLocalLearnerOwnership" --tests "com.example.EduMiniCoreTest.learningProgressReportSeparatesInitialAccuracyDelayedRecallAndRecurringMistakes" --tests "com.example.EduMiniCoreTest.practiceOnlyAttemptsDoNotInflateMainMasteryAccuracy" --tests "com.example.EduMiniCoreTest.learningProgressReportMeasuresFollowUpAfterReinforcementOnlyOnSharedQuestions" --tests "com.example.EduMiniCoreTest.lessonSequenceGateRequiresEveryEarlierLessonToBePassed" --tests "com.example.EduMiniCoreTest.subjectMilestoneBadgesReflectPerBookCompletionThresholds" --tests "com.example.EduMiniCoreTest.reinforcementSelectionExcludesUnreviewedGeneratedQuestions"
+gradlew.bat :app:testDebugUnitTest --tests "com.example.EduMiniCoreTest.directWorkspaceBinderInspectsMultiGradeAndBindsSingleGradeInPlaceWithoutCopying" --tests "com.example.EduMiniCoreTest.directWorkspaceBinderRejectsComponentKeyThatConflictsWithIndexPath" --tests "com.example.EduMiniCoreTest.directWorkspaceCatalogSyncUpdatesIndexAndUnitRowsWithoutDuplicates" --tests "com.example.EduMiniCoreTest.roomEnforcesStableBookAndLessonIdentityWithinWorkspace" --tests "com.example.EduMiniCoreTest.learnerProgressStudyDaysAndAssessmentAttemptsAreIsolated" --tests "com.example.EduMiniCoreTest.fullBackupPreservesLocalLearnerOwnership" --tests "com.example.EduMiniCoreTest.learningProgressReportSeparatesInitialAccuracyDelayedRecallAndRecurringMistakes" --tests "com.example.EduMiniCoreTest.practiceOnlyAttemptsDoNotInflateMainMasteryAccuracy" --tests "com.example.EduMiniCoreTest.learningProgressReportMeasuresFollowUpAfterReinforcementOnlyOnSharedQuestions" --tests "com.example.EduMiniCoreTest.lessonSequenceGateRequiresEveryEarlierLessonToBePassed" --tests "com.example.EduMiniCoreTest.subjectMilestoneBadgesReflectPerBookCompletionThresholds" --tests "com.example.EduMiniCoreTest.learnerPointsExcludeAuthoringOnlyBadgeBonuses" --tests "com.example.EduMiniCoreTest.reinforcementSelectionExcludesUnreviewedGeneratedQuestions"
 ```
 
 The focused tests exercise:
