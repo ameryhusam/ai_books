@@ -378,36 +378,117 @@ class DirectWorkspaceBinder(private val context: Context) {
                 "لم يتم العثور على index.json داخل المجلد. اختر مجلد مساحة العمل أو مجلد الصف (مثل G04 أو G07)."
             )
         }
+
         val warnings = mutableListOf<String>()
-        val gradeChoices = slots.groupBy { it.gradeKey }.entries
+        val validSlots = mutableListOf<BookIndexSlot>()
+        val titleByBook = mutableMapOf<String, String>()
+        val lessonCountByBook = mutableMapOf<String, Int>()
+
+        slots.forEach { slot ->
+            val bookLabel = slot.bookRelPath.ifBlank { slot.bookKey }
+            val manifestEntry = firstExisting(
+                entryMap,
+                joinRel(slot.bookRelPath, "book_manifest.json"),
+                joinRel(slot.bookRelPath, "manifest.json")
+            )
+            val manifestRaw = manifestEntry?.let { UriIO.readText(context, it.uriOrPath) }
+            if (manifestEntry != null && manifestRaw.isNullOrBlank()) {
+                warnings.add("$bookLabel: تعذر قراءة book_manifest.json.")
+                return@forEach
+            }
+            val manifestObj = manifestRaw?.let { raw ->
+                runCatching { json.parseToJsonElement(raw).jsonObject }.getOrElse {
+                    warnings.add("$bookLabel: book_manifest.json غير صالح.")
+                    return@forEach
+                }
+            }
+            val indexRaw = UriIO.readText(context, slot.indexEntry.uriOrPath)
+            if (indexRaw.isNullOrBlank()) {
+                warnings.add("$bookLabel: تعذر قراءة index.json.")
+                return@forEach
+            }
+            val indexObj = runCatching {
+                json.parseToJsonElement(indexRaw).jsonObject
+            }.getOrElse {
+                warnings.add("$bookLabel: index.json غير صالح.")
+                return@forEach
+            }
+
+            val validation = WorkspaceContractValidator.validate(
+                indexRaw = indexRaw,
+                manifestRaw = manifestRaw,
+                expectedGrade = slot.gradeKey,
+                expectedSubject = slot.subjectKey,
+                bookRelativePath = slot.bookRelPath,
+                availableRelativePaths = entries.map { it.relativePath }.toSet()
+            )
+            warnings.addAll(validation.warnings.map { "$bookLabel: $it" })
+            if (!validation.isValid) {
+                warnings.addAll(validation.errors.map { "$bookLabel: $it" })
+                return@forEach
+            }
+
+            val bookTitle = firstNonBlank(
+                manifestObj?.str("title"),
+                manifestObj?.str("bookTitle"),
+                manifestObj?.str("displayTitle"),
+                indexObj.str("displayName"),
+                indexObj.str("title"),
+                slot.subjectKey
+            )
+            val parsedLessons = runCatching {
+                parseLessonsForBook(
+                    index = indexObj,
+                    grade = slot.gradeKey,
+                    workspaceId = "inspection",
+                    rootUriOrPath = rootUriOrPath,
+                    bookKey = slot.bookKey,
+                    bookTitle = bookTitle,
+                    subjectKey = slot.subjectKey,
+                    componentKey = slot.componentKey,
+                    bookRel = slot.bookRelPath,
+                    entries = entries,
+                    entryMap = entryMap
+                )
+            }.getOrElse {
+                warnings.add("$bookLabel: تعذر ربط الدروس بمفاتيحها المرجعية: ${it.message}")
+                return@forEach
+            }
+
+            val invalidPdfs = parsedLessons.filter { lesson ->
+                lesson.pdfPath.isNullOrBlank() || !isReadablePdf(lesson.pdfPath)
+            }
+            if (validation.canonicalContract && invalidPdfs.isNotEmpty()) {
+                warnings.add("$bookLabel: لم تجتز ملفات PDF الخاصة بجميع الدروس فحص القراءة؛ تم استبعاد الكتاب من خيارات الربط.")
+                return@forEach
+            }
+            if (invalidPdfs.isNotEmpty()) {
+                warnings.add("$bookLabel: توجد دروس قديمة بلا PDF صالح؛ راجع التحذيرات قبل اعتماد الربط.")
+            }
+
+            validSlots.add(slot)
+            val bookIdentity = "${slot.gradeKey}|${slot.bookKey}|${slot.bookRelPath}"
+            titleByBook[bookIdentity] = bookTitle
+            lessonCountByBook[bookIdentity] = parsedLessons.size
+        }
+
+        if (validSlots.isEmpty()) {
+            val details = warnings.distinct().take(8).joinToString("\\n")
+            throw IllegalArgumentException(
+                "لم يجتز أي كتاب التحقق الأولي؛ لم يتم تنفيذ الربط." +
+                    if (details.isBlank()) "" else "\\n$details"
+            )
+        }
+
+        val gradeChoices = validSlots.groupBy { it.gradeKey }.entries
             .sortedBy { it.key }
             .map { (grade, gradeSlots) ->
-                var lessonSum = 0
                 val titles = mutableListOf<String>()
+                var lessonSum = 0
                 gradeSlots.forEach { slot ->
-                    val manifestEntry = firstExisting(
-                        entryMap,
-                        joinRel(slot.bookRelPath, "book_manifest.json"),
-                        joinRel(slot.bookRelPath, "manifest.json")
-                    )
-                    val manifestObj = manifestEntry?.let { entry ->
-                        runCatching {
-                            json.parseToJsonElement(UriIO.readText(context, entry.uriOrPath).orEmpty()).jsonObject
-                        }.getOrNull()
-                    }
-                    val indexObj = runCatching {
-                        json.parseToJsonElement(UriIO.readText(context, slot.indexEntry.uriOrPath).orEmpty()).jsonObject
-                    }.getOrNull()
-                    val count = (indexObj?.get("units") as? JsonArray)?.sumOf { u ->
-                        ((u as? JsonObject)?.get("lessons") as? JsonArray)?.size ?: 0
-                    } ?: 0
-                    lessonSum += count
-                    val bookTitle = firstNonBlank(
-                        manifestObj?.str("title"),
-                        manifestObj?.str("bookTitle"),
-                        slot.subjectKey
-                    )
-                    titles.add(bookTitle)
+                    val bookIdentity = "${slot.gradeKey}|${slot.bookKey}|${slot.bookRelPath}"
+                    titles.add(titleByBook[bookIdentity] ?: slot.subjectKey)
+                    lessonSum += lessonCountByBook[bookIdentity] ?: 0
                 }
                 DirectGradeChoice(
                     gradeKey = grade,
@@ -423,7 +504,7 @@ class DirectWorkspaceBinder(private val context: Context) {
             isSafUri = isSafUri,
             grades = gradeChoices,
             totalFilesIndexed = entries.size,
-            warnings = warnings
+            warnings = warnings.distinct()
         )
     }
 
