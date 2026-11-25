@@ -1453,6 +1453,7 @@ class EduMiniCoreTest {
             correctAnswer = "أ",
             rationale = "تفسير",
             difficulty = QuestionDifficulty.EASY,
+            reviewed = true,
             conceptTag = "توحيد المقامات"
         )
         val q2 = q1.copy(id = "q-2", prompt = "سؤال 2", conceptTag = "توحيد المقامات")
@@ -2044,6 +2045,18 @@ class EduMiniCoreTest {
         } finally {
             db.close()
         }
+    }
+
+    @Test
+    fun reinforcementSelectionExcludesUnreviewedGeneratedQuestions() {
+        val approved = sampleQuestion().copy(id = "approved-q", reviewed = true, conceptTag = "fractions")
+        val pending = sampleQuestion().copy(id = "pending-q", reviewed = false, conceptTag = "fractions")
+        val selected = ConceptMasteryEngine.selectReinforcementQuestions(
+            questions = listOf(approved, pending),
+            attempts = emptyList(),
+            targetConceptTag = "fractions"
+        )
+        assertEquals(listOf("approved-q"), selected.map { it.id })
     }
 
     @Test
