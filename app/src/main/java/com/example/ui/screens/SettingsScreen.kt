@@ -409,26 +409,10 @@ fun SettingsScreen(
                     }
 
                     Text(
-                        text = "الحد اليومي لهذا المفتاح (0 = غير محدود)",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = EduInk,
+                        text = "تُحدَّد الحصة الفعلية من استجابة مزود الخدمة. لا يفرض التطبيق سقفاً يومياً محلياً؛ ويُعرض عدد المحاولات لأغراض التشخيص فقط.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = EduMuted,
                         modifier = Modifier.padding(top = 8.dp)
-                    )
-                    SettingsField(
-                        value = form.dailyRequestLimit,
-                        onValueChange = onDailyRequestLimitChange,
-                        testTag = "provider_daily_limit_input"
-                    )
-                    Text(
-                        text = "المنطقة الزمنية لإعادة ضبط الحصة",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = EduInk,
-                        modifier = Modifier.padding(top = 6.dp)
-                    )
-                    SettingsField(
-                        value = form.quotaTimeZone,
-                        onValueChange = onQuotaTimeZoneChange,
-                        testTag = "provider_quota_timezone_input"
                     )
                     Text(
                         text = stringResource(R.string.settings_api_key_label),
@@ -571,7 +555,7 @@ fun SettingsScreen(
                             val statusLabel = when (profile.runtimeStatus.uppercase()) {
                                 "ACTIVE" -> "نشط"
                                 "DISABLED" -> "معطّل"
-                                "QUOTA_EXHAUSTED" -> "الحصة اليومية مستنفدة"
+                                "QUOTA_EXHAUSTED" -> "أبلغ المزود باستنفاد الحصة"
                                 "RATE_LIMITED" -> "انتظار من المزود"
                                 "INVALID_KEY" -> "مفتاح غير صالح"
                                 else -> "خطأ مؤقت"
@@ -583,7 +567,7 @@ fun SettingsScreen(
                                 color = EduMuted
                             )
                             Text(
-                                text = "$statusLabel • ${profile.dailyRequestsUsed}/${if (profile.dailyRequestLimit == 0) "∞" else profile.dailyRequestLimit} طلب يومي",
+                                text = "$statusLabel • ${profile.dailyRequestsUsed} محاولة مسجلة اليوم",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = if (profile.runtimeStatus == "ACTIVE") EduGreenDark else EduRed
                             )
