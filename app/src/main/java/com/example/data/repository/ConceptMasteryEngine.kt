@@ -116,11 +116,13 @@ object ConceptMasteryEngine {
         attempts: List<QuestionAttemptRecord>,
         targetConceptTag: String? = null
     ): List<QuestionItem> {
-        val statsByQ = computeQuestionStats(questions, attempts)
+        // Unreviewed AI-generated questions must not enter learner practice automatically.
+        val approvedQuestions = questions.filter { it.reviewed }
+        val statsByQ = computeQuestionStats(approvedQuestions, attempts)
         val filtered = if (!targetConceptTag.isNullOrBlank()) {
-            questions.filter { effectiveConceptTag(it).equals(targetConceptTag.trim(), ignoreCase = true) }
+            approvedQuestions.filter { effectiveConceptTag(it).equals(targetConceptTag.trim(), ignoreCase = true) }
         } else {
-            questions
+            approvedQuestions
         }
         return filtered.sortedWith(
             compareBy<QuestionItem> { q ->
