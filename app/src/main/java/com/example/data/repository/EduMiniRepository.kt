@@ -1024,7 +1024,9 @@ class EduMiniRepository(
             selectedAnswers = selectedAnswers,
             sourceMode = sourceMode
         )
-        if (recorded.isNotEmpty() && !sourceMode.equals("timed_assessment", ignoreCase = true)) {
+        val activityRecordedByParent = sourceMode.equals("timed_assessment", ignoreCase = true) ||
+            sourceMode.equals("bank_quiz", ignoreCase = true)
+        if (recorded.isNotEmpty() && !activityRecordedByParent) {
             recordStudyActivity(userId = userId)
         }
     }
