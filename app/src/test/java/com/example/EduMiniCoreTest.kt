@@ -216,7 +216,7 @@ class EduMiniCoreTest {
     }
 
     @Test
-    fun importerRejectsZipSlipPath() = runBlocking {    @Test
+    @Test
     fun importerRejectsZipSlipPath() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val importer = WorkspaceImporter(context)
@@ -1190,27 +1190,79 @@ class EduMiniCoreTest {
                 """.trimIndent()
             )
 
-            val g07Sci = File(rootDir, "workspace/G07/SCI").apply { mkdirs() }
-            File(g07Sci, "book_manifest.json").writeText("""{"title":"العلوم - السابع"}""")
-            File(g07Sci, "index.json").writeText(
-                """
-                {
-                  "units": [
-                    {
-                      "unitKey": "unit_01",
-                      "title": "الخلية",
-                      "lessons": [{"lessonKey": "lesson_01", "title": "تركيب الخلية"}]
-                    }
-                  ]
+            fun addIndexer2Book(subjectKey: String, componentKey: String?, title: String) {
+                val componentFolder = componentKey ?: ""
+                val componentPath = if (componentKey == null) "" else componentKey + "/"
+                val bookDir = File(rootDir, "workspace/G07/" + subjectKey + "/" + componentFolder).apply { mkdirs() }
+                val lessonRelativePath = "workspace/G07/" + subjectKey + "/" + componentPath + "P01/units/unit_01/lesson_01.pdf"
+                val lessonPdf = File(bookDir, "P01/units/unit_01/lesson_01.pdf").apply {
+                    parentFile?.mkdirs()
                 }
+                createSamplePdf(lessonPdf, pageCount = 1)
+                val componentJson = componentKey?.let { "\"$it\"" } ?: "null"
+                val componentLabel = componentKey ?: "BASE"
+                val sourceHash = "a".repeat(64)
+                val indexRaw = """
+                    {
+                      "templateId": "$subjectKey-$componentLabel",
+                      "title": "$title",
+                      "displayName": "$title",
+                      "gradeKey": "G07",
+                      "subjectKey": "$subjectKey",
+                      "componentKey": $componentJson,
+                      "partKey": "P01",
+                      "sourceLayout": "SINGLE_PART_FILE",
+                      "sourceReviewStatus": "VERIFIED",
+                      "approvalStatus": "APPROVED",
+                      "requiresReview": false,
+                      "units": [{
+                        "unitNumber": 1,
+                        "title": "الوحدة الأولى",
+                        "partKey": "P01",
+                        "assignmentStatus": "assigned",
+                        "lessons": [{
+                          "lessonNumber": 1,
+                          "title": "الدرس الأول",
+                          "pdfPageStart": 1,
+                          "pdfPageEnd": 1,
+                          "sliceFile": {"workspaceUri": "$lessonRelativePath"}
+                        }]
+                      }]
+                    }
                 """.trimIndent()
-            )
+                val indexHash = MessageDigest.getInstance("SHA-256")
+                    .digest(indexRaw.toByteArray(Charsets.UTF_8))
+                    .joinToString("") { "%02x".format(it) }
+                val manifestRaw = """
+                    {
+                      "manifestVersion": "edu.book_manifest.v1",
+                      "bookTitle": "$title",
+                      "gradeKey": "G07",
+                      "subjectKey": "$subjectKey",
+                      "componentKey": $componentJson,
+                      "partKey": "P01",
+                      "sourceLayout": "SINGLE_PART_FILE",
+                      "sourceReviewStatus": "VERIFIED",
+                      "sourceSha256": "$sourceHash",
+                      "indexSha256": "$indexHash"
+                    }
+                """.trimIndent()
+                File(bookDir, "index.json").writeText(indexRaw)
+                File(bookDir, "book_manifest.json").writeText(manifestRaw)
+            }
+
+            addIndexer2Book("SCI", null, "العلوم والحياة")
+            addIndexer2Book("ENG", "COURSE", "English Course")
+            addIndexer2Book("ENG", "WORKBOOK", "English Workbook")
+            addIndexer2Book("SOC", "GEO", "الجغرافيا")
+            addIndexer2Book("SOC", "HIST", "التاريخ")
+            addIndexer2Book("SOC", "TARBIA", "التربية الوطنية")
 
             val binder = DirectWorkspaceBinder(context)
             val inspection = binder.inspectDirectory(rootDir)
             assertEquals(2, inspection.grades.size)
             assertTrue(inspection.grades.any { it.gradeKey == "G04" && it.lessonsCount == 1 })
-            assertTrue(inspection.grades.any { it.gradeKey == "G07" && it.lessonsCount == 1 })
+            assertTrue(inspection.grades.any { it.gradeKey == "G07" && it.booksCount == 6 && it.lessonsCount == 6 })
 
             val bound = binder.bindSingleGrade(rootDir.absolutePath, "G04")
             assertEquals("G04", bound.workspace.gradeKey)
@@ -1233,7 +1285,23 @@ class EduMiniCoreTest {
             assertEquals("مقارنة الكسور المتكافئة", bound.preloadedQuestions.first().conceptTag)
 
             val boundScience = binder.bindSingleGrade(rootDir.absolutePath, "G07")
-            assertEquals("العلوم والحياة", boundScience.workspace.books.first().subjectName)
+            assertEquals(6, boundScience.workspace.books.size)
+            assertEquals(6, boundScience.workspace.indexRecords.size)
+            val scienceBook = boundScience.workspace.books.single { it.subjectKey == "SCI" }
+            assertEquals("العلوم والحياة", scienceBook.subjectName)
+            assertNull(scienceBook.componentKey)
+            assertEquals(
+                setOf("COURSE", "WORKBOOK"),
+                boundScience.workspace.books.filter { it.subjectKey == "ENG" }.mapNotNull { it.componentKey }.toSet()
+            )
+            assertEquals(
+                setOf("GEO", "HIST", "TARBIA"),
+                boundScience.workspace.books.filter { it.subjectKey == "SOC" }.mapNotNull { it.componentKey }.toSet()
+            )
+            assertEquals(
+                setOf("SCI", "ENG/COURSE", "ENG/WORKBOOK", "SOC/GEO", "SOC/HIST", "SOC/TARBIA"),
+                boundScience.workspace.books.map { it.bookKey }.toSet()
+            )
 
             // Verify zero-copy: PDF file was NOT duplicated inside filesDir/edumini/workspaces
             val privateWorkspacesDir = File(context.filesDir, "edumini/workspaces/${bound.workspace.workspaceId}")
@@ -1262,11 +1330,11 @@ class EduMiniCoreTest {
             )
             val book = BookEntity(
                 workspaceId = workspace.workspaceId,
-                bookKey = "SCI/COURSE/BOOK",
-                title = "العلوم",
+                bookKey = "SCI",
+                title = "العلوم والحياة",
                 subjectKey = "SCI",
-                componentKey = "COURSE",
-                relativePath = "G07/SCI/COURSE/BOOK",
+                componentKey = null,
+                relativePath = "G07/SCI",
                 lessonsCount = 1,
                 subjectName = "العلوم"
             )
@@ -1290,7 +1358,7 @@ class EduMiniCoreTest {
                 workspaceId = workspace.workspaceId,
                 bookKey = book.bookKey,
                 indexUri = "content://test/document/index.json",
-                indexRelativePath = "G07/SCI/COURSE/BOOK/index.json",
+                indexRelativePath = "G07/SCI/index.json",
                 manifestUri = "content://test/document/book_manifest.json",
                 manifestRelativePath = "G07/SCI/COURSE/BOOK/book_manifest.json",
                 indexSha256 = "a".repeat(64),
