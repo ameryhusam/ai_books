@@ -1066,7 +1066,15 @@ class EduMiniCoreTest {
         val adapterPrompt = service.buildPrompt(lesson, TaskType.DIFFICULTY_ADAPTER, "نص", "", questionCount = 4)
         assertTrue(adapterPrompt.contains("ثلاثة مستويات"))
 
-        val interactivePrompt = service.buildPrompt(lesson, TaskType.INTERACTIVE, "نص", "", questionCount = 3)
+        val interactivePrompt = service.buildPrompt(
+            lesson,
+            TaskType.INTERACTIVE,
+            "نص",
+            "",
+            questionCount = 3,
+            responseSchemaJson = """{"type":"object","properties":{"steps":{"type":"array"},"ordering":{"type":"array"}}}""",
+            responseFormat = "json"
+        )
         assertTrue(interactivePrompt.contains("\"steps\""))
         assertTrue(interactivePrompt.contains("\"ordering\""))
     }
