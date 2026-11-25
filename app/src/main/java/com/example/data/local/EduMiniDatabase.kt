@@ -201,7 +201,7 @@ data class LessonProgressEntity(
     @ColumnInfo(name = "completed") val completed: Boolean = false,
     @ColumnInfo(name = "points_earned") val pointsEarned: Int = 0,
     @ColumnInfo(name = "completed_at") val completedAt: String? = null,
-    @ColumnInfo(name = "user_id") val userId: String = "learner_default"
+    @ColumnInfo(name = "user_id", defaultValue = "'learner_default'") val userId: String = "learner_default"
 )
 
 @Entity(tableName = "study_days", primaryKeys = ["activity_date", "user_id"])
@@ -209,7 +209,7 @@ data class StudyDayEntity(
     @ColumnInfo(name = "activity_date") val activityDate: String,
     @ColumnInfo(name = "actions_count") val actionsCount: Int = 1,
     @ColumnInfo(name = "last_updated_at") val lastUpdatedAt: String,
-    @ColumnInfo(name = "user_id") val userId: String = "learner_default"
+    @ColumnInfo(name = "user_id", defaultValue = "'learner_default'") val userId: String = "learner_default"
 )
 
 @Entity(
@@ -305,7 +305,7 @@ data class AssessmentAttemptEntity(
     @ColumnInfo(name = "duration_seconds") val durationSeconds: Int,
     @ColumnInfo(name = "earned_xp") val earnedXp: Int,
     @ColumnInfo(name = "completed_at") val completedAt: String,
-    @ColumnInfo(name = "user_id") val userId: String = "learner_default"
+    @ColumnInfo(name = "user_id", defaultValue = "'learner_default'") val userId: String = "learner_default"
 )
 
 @Entity(
