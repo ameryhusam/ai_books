@@ -227,9 +227,7 @@ class AiGenerationService(
         onProviderStateChanged: (suspend (providerId: String, status: String, retryAfterEpochMs: Long) -> Unit)? = null,
         onAttemptFinished: (suspend (providerLabel: String, model: String, success: Boolean, error: String?) -> Unit)? = null
     ): GeneratedResult = withContext(Dispatchers.IO) {
-        val active = providers
-            .filter { it.provider == selectedProvider && it.enabled && it.apiKey.isNotBlank() && it.model.isNotBlank() }
-            .sortedWith(compareBy<ProviderConfig> { it.lastUsedAtEpochMs }.thenBy { it.priority }.thenBy { it.createdAt })
+        val active = ProviderRoutingPolicy.activeProfiles(providers, selectedProvider)
 
         if (active.isEmpty()) {
             throw IllegalStateException("لا يوجد ملف ${selectedProvider.displayName} فعّال بمفتاح ونموذج صالحين. لا يتم التحويل تلقائياً إلى مزود آخر.")
@@ -250,13 +248,7 @@ class AiGenerationService(
         val errors = mutableListOf<String>()
 
         for (profile in active) {
-            val modelCandidates = if (profile.strictModel) {
-                listOf(profile.model.trim())
-            } else {
-                (listOf(profile.model.trim()) + profile.fallbackModels.map { it.trim() })
-                    .filter { it.isNotBlank() }
-                    .distinct()
-            }
+            val modelCandidates = ProviderRoutingPolicy.modelCandidates(profile)
 
             modelLoop@ for (modelName in modelCandidates) {
                 val candidateProfile = profile.copy(model = modelName)
@@ -307,7 +299,9 @@ class AiGenerationService(
                             e.httpCode == 429 -> "RATE_LIMITED"
                             else -> "ERROR"
                         }
-                        onProviderStateChanged?.invoke(profile.id, failureStatus, e.retryAfterEpochMs)
+                        if (failureStatus != "RATE_LIMITED") {
+                            onProviderStateChanged?.invoke(profile.id, failureStatus, e.retryAfterEpochMs)
+                        }
                         // HTTP 429 is handled by moving to the next compatible model/key
                         // within the selected provider. Never retry the same saturated slot
                         // after a short fixed delay and never cross provider boundaries.
