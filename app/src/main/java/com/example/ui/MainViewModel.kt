@@ -1753,10 +1753,10 @@ class MainViewModel(
         }
     }
 
-    fun savePromptTemplate(title: String, task: TaskType, instructions: String, responseSchemaJson: String) {
+    fun savePromptTemplate(title: String, task: TaskType, instructions: String, responseSchemaJson: String, responseMappingJson: String) {
         if (title.isBlank() || instructions.isBlank()) return
         viewModelScope.launch {
-            repository.savePromptTemplate(title, task, instructions, responseSchemaJson = responseSchemaJson, responseFormat = if (responseSchemaJson.isBlank()) "text" else "json")
+            repository.savePromptTemplate(title, task, instructions, responseSchemaJson = responseSchemaJson, responseMappingJson = responseMappingJson, responseFormat = if (responseSchemaJson.isBlank()) "text" else "json")
             _uiState.update {
                 it.copy(alert = AlertMessage("تم الحفظ", "تمت إضافة قالب التوجيه «${title.trim()}»."))
             }
