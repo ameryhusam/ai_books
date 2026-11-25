@@ -756,7 +756,7 @@ private fun DashboardKpiGrid(summary: DashboardSummary, isLearner: Boolean = fal
                     KpiCard(
                         title = "نسبة الإنجاز",
                         value = "${summary.overallCompletionPercent}%",
-                        subtitle = "من دروس الكتاب",
+                        subtitle = "من دروس المسار",
                         icon = Icons.Rounded.Route,
                         accent = EduGreen,
                         modifier = Modifier.weight(1f)
