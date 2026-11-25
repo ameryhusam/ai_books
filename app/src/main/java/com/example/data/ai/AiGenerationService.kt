@@ -57,6 +57,7 @@ class AiGenerationService(
 
     private val json = Json { ignoreUnknownKeys = true }
     private val mediaTypeJson = "application/json; charset=utf-8".toMediaType()
+    private val geminiModelRouter = GeminiModelRouter()
 
     open class ProviderCallException(
         message: String,
@@ -248,7 +249,16 @@ class AiGenerationService(
         val errors = mutableListOf<String>()
 
         for (profile in active) {
-            val modelCandidates = ProviderRoutingPolicy.modelCandidates(profile)
+            val configuredModelCandidates = ProviderRoutingPolicy.modelCandidates(profile)
+            val modelCandidates = if (profile.provider == ProviderType.GEMINI) {
+                configuredModelCandidates.filterNot { geminiModelRouter.isCoolingDown(profile.id, it) }
+            } else {
+                configuredModelCandidates
+            }
+            if (modelCandidates.isEmpty()) {
+                errors.add("${profile.label}: جميع نماذج Gemini الاحتياطية في فترة انتظار مؤقتة")
+                continue
+            }
 
             modelLoop@ for (modelName in modelCandidates) {
                 val candidateProfile = profile.copy(model = modelName)
@@ -299,17 +309,19 @@ class AiGenerationService(
                             e.httpCode == 429 -> "RATE_LIMITED"
                             else -> "ERROR"
                         }
-                        if (failureStatus != "RATE_LIMITED") {
+                        if (e.httpCode == 429 && profile.provider == ProviderType.GEMINI) {
+                            geminiModelRouter.markCoolingDown(profile.id, modelName, e.retryAfterEpochMs)
+                        } else if (failureStatus != "RATE_LIMITED" || profile.provider == ProviderType.OPENAI_COMPATIBLE) {
                             onProviderStateChanged?.invoke(profile.id, failureStatus, e.retryAfterEpochMs)
                         }
-                        // HTTP 429 is handled by moving to the next compatible model/key
-                        // within the selected provider. Never retry the same saturated slot
-                        // after a short fixed delay and never cross provider boundaries.
+                        // Gemini 429 responses cool down only the affected model, then
+                        // continue with the next configured Gemini model/key. OpenAI remains
+                        // on its own provider path and never invokes Gemini routing.
                         if (e.httpCode == 429 || !e.isTransient) {
                             break
                         }
                         if (retry == 0) {
-                            delay(800L)
+                            delay(800L + kotlin.random.Random.nextLong(0L, 251L))
                         }
                     } catch (e: IOException) {
                         val reason = e.message?.takeIf { it.isNotBlank() } ?: "خطأ شبكة"
@@ -317,7 +329,7 @@ class AiGenerationService(
                         onAttemptFinished?.invoke(profile.label, modelName, false, reason)
                         onProviderStateChanged?.invoke(profile.id, "ERROR", 0L)
                         if (retry == 0) {
-                            delay(800L)
+                            delay(800L + kotlin.random.Random.nextLong(0L, 251L))
                         }
                     } catch (e: Exception) {
                         val reason = e.message?.takeIf { it.isNotBlank() } ?: "فشل"
