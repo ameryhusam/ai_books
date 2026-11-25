@@ -148,7 +148,8 @@ data class BookRef(
     val relativePath: String,
     val lessonsCount: Int,
     val coverPath: String? = null,
-    val sourcePdfPath: String? = null
+    val sourcePdfPath: String? = null,
+    val subjectName: String? = null
 )
 
 data class LessonRef(
