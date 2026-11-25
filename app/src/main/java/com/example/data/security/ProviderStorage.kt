@@ -21,9 +21,11 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
 /**
- * Encrypted provider profiles plus atomic per-key quota reservation.
- * The same process-wide instance serializes reservation/update operations to prevent
- * two concurrent generation jobs from consuming the same final request slot.
+ * Encrypted provider profiles plus atomic request-attempt telemetry.
+ *
+ * Daily limit fields remain in ProviderConfig for backward compatibility, but the
+ * app does not enforce provider quota locally. The provider response is authoritative.
+ * The same process-wide instance serializes profile state updates.
  */
 class ProviderStorage(context: Context) {
 
@@ -59,8 +61,12 @@ class ProviderStorage(context: Context) {
     }
 
     /**
-     * Reserves one daily request slot before a network request starts.
-     * Returns false when the key is disabled, invalid, rate-limited or out of quota.
+     * Records an outgoing request attempt and checks only local availability state.
+     * dailyRequestLimit is intentionally not enforced: actual quota is determined
+     * by the provider response, not by a locally estimated counter.
+     *
+     * Returns false only for disabled/invalid profiles, provider-reported quota
+     * exhaustion, or an active rate-limit cooldown.
      */
     suspend fun reserveProviderKey(providerId: String, nowMillis: Long = System.currentTimeMillis()): Boolean =
         withContext(Dispatchers.IO) {
@@ -76,20 +82,12 @@ class ProviderStorage(context: Context) {
                         (status == STATUS_RATE_LIMITED && profile.retryAfterEpochMs > nowMillis)
                     ) return@map profile
 
-                    if (profile.dailyRequestLimit > 0 &&
-                        profile.dailyRequestsUsed >= profile.dailyRequestLimit
-                    ) {
-                        profile = profile.copy(runtimeStatus = STATUS_QUOTA_EXHAUSTED)
-                        return@map profile
-                    }
-
+                    // Diagnostic counter only. It must never act as a local quota gate.
                     val nextUsage = profile.dailyRequestsUsed + 1
                     profile = profile.copy(
                         dailyRequestsUsed = nextUsage,
                         lastUsedAtEpochMs = nowMillis,
-                        runtimeStatus = if (profile.dailyRequestLimit > 0 &&
-                            nextUsage >= profile.dailyRequestLimit
-                        ) STATUS_QUOTA_EXHAUSTED else STATUS_ACTIVE
+                        runtimeStatus = STATUS_ACTIVE
                     )
                     reserved = true
                     profile
@@ -179,9 +177,6 @@ class ProviderStorage(context: Context) {
         }
 
         if (!next.enabled) next = next.copy(runtimeStatus = STATUS_DISABLED)
-        else if (next.runtimeStatus.equals(STATUS_ACTIVE, true) &&
-            next.dailyRequestLimit > 0 && next.dailyRequestsUsed >= next.dailyRequestLimit
-        ) next = next.copy(runtimeStatus = STATUS_QUOTA_EXHAUSTED)
 
         return next
     }
