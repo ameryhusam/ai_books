@@ -7,6 +7,7 @@ import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
 import android.util.Base64
 import com.example.data.workspace.UriIO
+import com.example.data.ai.PromptPrivacySanitizer
 import com.example.model.GeneratedResult
 import com.example.model.LessonRef
 import com.example.model.ProviderConfig
@@ -88,15 +89,20 @@ class AiGenerationService(
         require(context == null || promptTemplate.isNotBlank()) {
             "ملف قالب المهمة غير موجود أو فارغ: ${blueprint.sourcePath}"
         }
+        val safeLesson = lesson.copy(
+            bookTitle = PromptPrivacySanitizer.sanitize(lesson.bookTitle),
+            unitTitle = PromptPrivacySanitizer.sanitize(lesson.unitTitle),
+            title = PromptPrivacySanitizer.sanitize(lesson.title)
+        )
         return Indexer2PromptRegistry.assemblePrompt(
-        lesson = lesson,
+        lesson = safeLesson,
         task = task,
-        source = source,
-        extra = extra,
+        source = PromptPrivacySanitizer.sanitize(source),
+        extra = PromptPrivacySanitizer.sanitize(extra),
         questionCount = questionCount,
         attachedPdfPagesCount = attachedPdfPagesCount,
-        questionStyleHint = questionStyleHint,
-        difficultyHint = difficultyHint,
+        questionStyleHint = PromptPrivacySanitizer.sanitize(questionStyleHint),
+        difficultyHint = PromptPrivacySanitizer.sanitize(difficultyHint),
         promptTemplate = promptTemplate,
         responseSchemaJson = responseSchemaJson,
         responseFormat = responseFormat
