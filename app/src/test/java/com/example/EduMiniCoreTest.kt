@@ -9,6 +9,7 @@ import com.example.data.ai.AiGenerationService
 import com.example.data.ai.Indexer2PromptRegistry
 import com.example.data.ai.TemplateResponseAdapter
 import com.example.data.ai.TemplateOutputValidator
+import com.example.data.ai.PromptPrivacySanitizer
 import com.example.data.local.DraftEntity
 import com.example.data.local.BookEntity
 import com.example.data.local.LessonEntity
@@ -2861,6 +2862,31 @@ class EduMiniCoreTest {
             helper.close()
             context.deleteDatabase(dbName)
         }
+    }
+
+
+    @Test
+    fun promptPrivacySanitizerRedactsDirectIdentifiersWithoutRemovingLessonNumbers() {
+        val source = "البريد student@example.com، الهاتف +967 777 123 456، رقم الهوية: AB-12345678. ناتج 12 × 8 = 96 والمسافة 1200 متر."
+        val sanitized = PromptPrivacySanitizer.sanitize(source)
+        assertFalse(sanitized.contains("student@example.com"))
+        assertFalse(sanitized.contains("+967 777 123 456"))
+        assertFalse(sanitized.contains("AB-12345678"))
+        assertTrue(sanitized.contains("[REDACTED_EMAIL]"))
+        assertTrue(sanitized.contains("[REDACTED_PHONE]"))
+        assertTrue(sanitized.contains("[REDACTED_ID]"))
+        assertTrue(sanitized.contains("12 × 8 = 96"))
+        assertTrue(sanitized.contains("1200 متر"))
+
+        val prompt = AiGenerationService().buildPrompt(
+            lesson = sampleLesson(),
+            task = TaskType.QUESTIONS,
+            source = "درس تجريبي يتضمن teacher@example.com ومعادلة 5 + 7 = 12",
+            extra = "رقم الهاتف: 777123456"
+        )
+        assertFalse(prompt.contains("teacher@example.com"))
+        assertFalse(prompt.contains("777123456"))
+        assertTrue(prompt.contains("5 + 7 = 12"))
     }
 
 }
