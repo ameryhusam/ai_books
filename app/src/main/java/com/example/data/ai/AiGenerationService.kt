@@ -249,6 +249,7 @@ class AiGenerationService(
                             prompt = prompt,
                             pdfPageImagesBase64 = pdfPageImagesBase64,
                             pdfDocumentBase64 = if (profile.provider == ProviderType.GEMINI) pdfDocumentBase64 else null,
+                            responseSchemaJson = responseSchemaJson,
                             expectJson = expectJson
                         )
                         val durationMs = (System.currentTimeMillis() - callStart).coerceAtLeast(1L)
@@ -319,6 +320,7 @@ class AiGenerationService(
             prompt = "أجب بكلمة واحدة فقط: جاهز",
             pdfPageImagesBase64 = emptyList(),
             pdfDocumentBase64 = null,
+            responseSchemaJson = "",
             expectJson = false
         )
         val elapsed = (System.currentTimeMillis() - started).coerceAtLeast(1L)
@@ -330,10 +332,11 @@ class AiGenerationService(
         prompt: String,
         pdfPageImagesBase64: List<String>,
         pdfDocumentBase64: String?,
+        responseSchemaJson: String,
         expectJson: Boolean
     ): Pair<String, Int> {
         return when (profile.provider) {
-            ProviderType.GEMINI -> callGemini(profile, prompt, pdfPageImagesBase64, pdfDocumentBase64, expectJson)
+            ProviderType.GEMINI -> callGemini(profile, prompt, pdfPageImagesBase64, pdfDocumentBase64, responseSchemaJson, expectJson)
             ProviderType.OPENAI_COMPATIBLE -> callOpenAiCompatible(profile, prompt, pdfPageImagesBase64, expectJson)
         }
     }
@@ -343,6 +346,7 @@ class AiGenerationService(
         prompt: String,
         pdfPageImagesBase64: List<String>,
         pdfDocumentBase64: String?,
+        responseSchemaJson: String,
         expectJson: Boolean
     ): Pair<String, Int> {
         val encodedModel = URLEncoder.encode(profile.model.trim(), StandardCharsets.UTF_8.name())
@@ -379,6 +383,12 @@ class AiGenerationService(
                 put("temperature", 0.3)
                 if (expectJson) {
                     put("responseMimeType", "application/json")
+                    val providerSchema = runCatching {
+                        json.parseToJsonElement(responseSchemaJson).jsonObject
+                    }.getOrNull()?.takeIf { schema ->
+                        schema["type"] != null && schema["properties"] != null
+                    }
+                    if (providerSchema != null) put("responseSchema", providerSchema)
                 }
             })
         }.toString()
