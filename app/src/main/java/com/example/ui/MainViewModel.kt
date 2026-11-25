@@ -2735,6 +2735,7 @@ class MainViewModel(
             val next = if (existingId != null && currentList.any { it.id == existingId }) {
                 currentList.map { p ->
                     if (p.id == existingId) {
+                        val keyChanged = form.apiKey.trim() != p.apiKey
                         p.copy(
                             provider = form.provider,
                             label = form.label.trim(),
@@ -2744,7 +2745,12 @@ class MainViewModel(
                             baseUrl = form.baseUrl.trim(),
                             apiKey = form.apiKey.trim(),
                             dailyRequestLimit = form.dailyRequestLimit.toIntOrNull()?.coerceAtLeast(0) ?: 0,
-                            quotaTimeZone = form.quotaTimeZone.ifBlank { "Asia/Aden" }
+                            quotaTimeZone = form.quotaTimeZone.ifBlank { "Asia/Aden" },
+                            runtimeStatus = if (keyChanged) "ACTIVE" else p.runtimeStatus,
+                            dailyRequestsUsed = if (keyChanged) 0 else p.dailyRequestsUsed,
+                            quotaDate = if (keyChanged) "" else p.quotaDate,
+                            retryAfterEpochMs = if (keyChanged) 0L else p.retryAfterEpochMs,
+                            lastUsedAtEpochMs = if (keyChanged) 0L else p.lastUsedAtEpochMs
                         )
                     } else p
                 }
