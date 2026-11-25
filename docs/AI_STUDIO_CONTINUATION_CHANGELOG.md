@@ -435,3 +435,26 @@ The latest Android CI run observed during this pass is [run 45715165859](https:/
   - `c7a89fc` — validator regression tests.
 - **Scope note:** this validator enforces the structural keyword subset listed above; it is not a full JSON Schema implementation. Constraints outside that subset are not claimed as enforced.
 - **Verification boundary:** no Gradle compilation or test execution was performed. The new validator and tests are source changes pending local build verification.
+
+## 2026-11-26 — P2 continuation: local learner backup, Room migrations, and prompt privacy
+
+### Local learner metadata in backup
+- Added `BackupLearnerProfileDto`, `learnerProfiles`, and `activeLearnerId` to the full JSON backup.
+- Bumped the emitted format to `edu-mini-backup-1.3`; the new fields have defaults, so older 1.2 and earlier files remain decodable.
+- Passed local profiles and the active learner from `MainViewModel` through standalone JSON and ZIP full-backup export.
+- Restores the profile list and active learner into the existing local SharedPreferences only after the database import reaches its successful end; the UI reloads the profile state after restore.
+- Added serialization compatibility and preference-restore tests. No provider credentials or API keys were added to the backup.
+
+### Room schema and migration coverage
+- Set Room `exportSchema = true` and configured KSP to write schema JSON files under `app/schemas`.
+- Added the Room testing dependency.
+- Added a SQLite-backed test that creates the migration-relevant version-13 tables/data and executes the actual Room migrations 13→14→15→16, checking duplicate retention, learner defaults, and v16 template/provenance defaults.
+- **Important test boundary:** this is a direct SQL migration-chain integration test using the actual Room Migration objects. It does not yet perform MigrationTestHelper's full exported-schema validation for every entity. No v13 schema JSON was present in the repository at the verified baseline, and no local Gradle build was run to generate one. The first local compile should generate the current v16 schema; a full MigrationTestHelper upgrade test still requires the authentic v13 exported schema.
+
+### Prompt privacy guard
+- Added a conservative `PromptPrivacySanitizer` at the AI prompt assembly boundary.
+- It redacts email addresses, international phone numbers, phone numbers explicitly labelled as such, and labelled national-ID values.
+- It deliberately preserves unlabelled numeric values to avoid corrupting equations, measurements, dates, and curriculum content.
+- Added tests for redaction and preservation of mathematical/measurement values.
+- **Attachment boundary:** this sanitizer processes prompt text and lesson metadata only. It does not redact personal data embedded in the original PDF or rendered page images sent as provider attachments. Do not treat it as a complete attachment-privacy solution; PDF/image redaction or an explicit user disclosure/consent gate remains open.
+
