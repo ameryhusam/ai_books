@@ -1642,11 +1642,11 @@ class MainViewModel(
                 generatedResult = cloudDraft.content,
                 activeDraftProvider = cloudDraft.provider,
                 activeDraftModel = cloudDraft.model,
-                activeDraftTemplateId = "",
-                activeDraftTemplateVersion = 1,
-                activeDraftResponseSchemaHash = "",
-                activeDraftRequestFingerprint = "",
-                activeDraftSourcePdfHash = "",
+                activeDraftTemplateId = cloudDraft.templateId,
+                activeDraftTemplateVersion = cloudDraft.templateVersion.toInt().coerceAtLeast(1),
+                activeDraftResponseSchemaHash = cloudDraft.responseSchemaHash,
+                activeDraftRequestFingerprint = cloudDraft.requestFingerprint,
+                activeDraftSourcePdfHash = cloudDraft.sourcePdfHash,
                 page = AppPage.STUDIO,
                 toastMessage = "تم تحميل المسودة السحابية «${cloudDraft.title}»"
             )
