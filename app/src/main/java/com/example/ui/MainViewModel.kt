@@ -2198,8 +2198,14 @@ class MainViewModel(
             try {
                 val out = repository.openOutputStreamForUri(uri)
                     ?: throw IllegalStateException("تعذر فتح ملف الحفظ المختار")
+                val snapshot = _uiState.value
                 val receipt = out.use { stream ->
-                    repository.exportIndexer2Zip(stream, workspace)
+                    repository.exportIndexer2Zip(
+                        stream,
+                        workspace,
+                        learnerProfiles = snapshot.availableLearners,
+                        activeLearnerId = snapshot.activeLearner.userId
+                    )
                 }
                 _uiState.update {
                     it.copy(
@@ -2226,8 +2232,14 @@ class MainViewModel(
             try {
                 val out = repository.openOutputStreamForUri(uri)
                     ?: throw IllegalStateException("تعذر فتح ملف النسخة الاحتياطية")
+                val snapshot = _uiState.value
                 val itemsCount = out.use { stream ->
-                    repository.exportFullBackupJson(stream, workspace)
+                    repository.exportFullBackupJson(
+                        stream,
+                        workspace,
+                        learnerProfiles = snapshot.availableLearners,
+                        activeLearnerId = snapshot.activeLearner.userId
+                    )
                 }
                 _uiState.update {
                     it.copy(
@@ -2257,6 +2269,7 @@ class MainViewModel(
                     rawJson = raw,
                     targetWorkspaceId = _uiState.value.workspace?.workspaceId.orEmpty()
                 )
+                loadLearnerProfiles()
                 _uiState.update {
                     it.copy(alert = AlertMessage("تمت الاستعادة", summaryMsg))
                 }
@@ -2379,6 +2392,7 @@ class MainViewModel(
             _uiState.update { it.copy(isBusy = true) }
             try {
                 val imported = repository.importWorkspaceZip(uri)
+                loadLearnerProfiles()
                 val diskBytes = repository.computeWorkspaceDiskBytes(imported.rootPath)
                 val warningSuffix = if (imported.warnings.isNotEmpty()) {
                     "\n\nتنبيهات:\n• ${imported.warnings.joinToString("\n• ")}"
