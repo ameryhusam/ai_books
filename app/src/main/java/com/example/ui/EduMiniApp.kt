@@ -642,6 +642,8 @@ private fun AuthenticatedEduMiniContent(
                                         AppPage.SETTINGS -> SettingsScreen(
                                             form = state.providerForm,
                                             providers = state.providers,
+                                            selectedProvider = state.selectedProvider,
+                                            onSelectDefaultProvider = viewModel::selectDefaultAiProvider,
                                             recentRuns = state.recentRuns,
                                             promptTemplates = promptTemplates,
                                             userEmail = userEmail,
