@@ -1158,7 +1158,7 @@ class EduMiniCoreTest {
                       "title": "الكسور",
                       "partKey": "P01",
                       "lessons": [
-                        {"lessonKey": "lesson_01", "title": "مقارنة الكسور", "pdfPageStart": 8, "pdfPageEnd": 12}
+                        {"lessonKey": "lesson_01", "title": "مقارنة الكسور", "printedPageStart": 6, "printedPageEnd": 10, "pdfPageStart": 8, "pdfPageEnd": 12}
                       ]
                     }
                   ]
@@ -1224,6 +1224,8 @@ class EduMiniCoreTest {
 
             val boundLesson = bound.workspace.lessons.first()
             assertEquals(pdfFile.absolutePath, boundLesson.pdfPath)
+            assertEquals("8–12", boundLesson.pageRange)
+            assertEquals("6–10", boundLesson.printedPageRange)
             assertEquals(txtFile.absolutePath, boundLesson.sourceTextPath)
             assertEquals(htmlFile.absolutePath, boundLesson.interactivePath)
             assertEquals(1, bound.preloadedInteractivePackages.size)
