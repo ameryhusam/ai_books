@@ -331,7 +331,7 @@ fun SettingsScreen(
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         val presets = if (form.provider == ProviderType.GEMINI) {
-                            listOf("gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite")
+                            listOf("gemini-3.5-flash", "gemini-3.6-flash", "gemini-3.7-flash", "gemini-3.8-flash")
                         } else {
                             listOf("gpt-4o-mini", "gpt-4.1-mini", "deepseek-chat")
                         }
