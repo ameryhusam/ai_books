@@ -133,20 +133,34 @@ class DirectWorkspaceBinder(private val context: Context) {
                 joinRel(bookRel, "book_manifest.json"),
                 joinRel(bookRel, "manifest.json")
             )
-            val manifestObj: JsonObject? = manifestEntry?.let { entry ->
+            val manifestRaw = manifestEntry?.let { UriIO.readText(context, it.uriOrPath).orEmpty() }
+            val manifestObj: JsonObject? = manifestRaw?.takeIf { it.isNotBlank() }?.let { raw ->
                 runCatching {
-                    val raw = UriIO.readText(context, entry.uriOrPath).orEmpty()
                     json.parseToJsonElement(raw).jsonObject
                 }.onFailure {
                     warnings.add("تعذر قراءة manifest في $bookRel")
                 }.getOrNull()
             }
 
+            val indexRaw = UriIO.readText(context, slot.indexEntry.uriOrPath).orEmpty()
             val indexObj: JsonObject = runCatching {
-                val raw = UriIO.readText(context, slot.indexEntry.uriOrPath).orEmpty()
-                json.parseToJsonElement(raw).jsonObject
+                json.parseToJsonElement(indexRaw).jsonObject
             }.getOrElse {
                 warnings.add("index.json غير صالح: $bookRel")
+                continue
+            }
+
+            val validation = WorkspaceContractValidator.validate(
+                indexRaw = indexRaw,
+                manifestRaw = manifestRaw,
+                expectedGrade = gradeKey,
+                expectedSubject = slot.subjectKey,
+                bookRelativePath = bookRel,
+                availableRelativePaths = entries.map { it.relativePath }.toSet()
+            )
+            warnings.addAll(validation.warnings)
+            if (!validation.isValid) {
+                warnings.addAll(validation.errors.map { "$bookRel: $it" })
                 continue
             }
 
@@ -217,6 +231,10 @@ class DirectWorkspaceBinder(private val context: Context) {
                 )
             )
             lessons.addAll(parsedLessons)
+        }
+
+        require(books.isNotEmpty()) {
+            "لم يجتز أي كتاب في الصف $gradeKey التحقق من الفهرس والهوية وملفات الدروس. راجع التحذيرات ثم أصلح المصدر."
         }
 
         // Load pre-generated Question Bank JSON and Interactive HTML packages directly in-place
@@ -495,14 +513,10 @@ class DirectWorkspaceBinder(private val context: Context) {
 
         units.forEachIndexed { ui, unitElem ->
             val u = unitElem as? JsonObject ?: return@forEachIndexed
-            val uk = firstNonBlank(
-                u.str("unitKey"),
-                u.str("key"),
-                u.str("unitId"),
-                u.str("unitNumber"),
-                u.str("id"),
-                "unit_${(ui + 1).toString().padStart(2, '0')}"
-            )
+            val uk = WorkspaceContractValidator.sourceUnitKey(u)
+            if (uk.isBlank()) {
+                throw IllegalArgumentException("الوحدة رقم ${ui + 1} لا تحتوي مفتاحاً ثابتاً أو unitNumber صالحاً.")
+            }
             val ut = firstNonBlank(
                 u.str("title"),
                 u.str("unitTitle"),
@@ -514,14 +528,10 @@ class DirectWorkspaceBinder(private val context: Context) {
 
             unitLessons.forEachIndexed { li, lessonElem ->
                 val l = lessonElem as? JsonObject ?: return@forEachIndexed
-                val lk = firstNonBlank(
-                    l.str("lessonKey"),
-                    l.str("key"),
-                    l.str("lessonId"),
-                    l.str("lessonNumber"),
-                    l.str("id"),
-                    "lesson_${(li + 1).toString().padStart(2, '0')}"
-                )
+                val lk = WorkspaceContractValidator.sourceLessonKey(l)
+                if (lk.isBlank()) {
+                    throw IllegalArgumentException("درس رقم ${li + 1} في الوحدة $uk لا يحتوي مفتاحاً ثابتاً أو lessonNumber صالحاً.")
+                }
                 val lt = firstNonBlank(
                     l.str("title"),
                     l.str("lessonTitle"),
@@ -535,15 +545,18 @@ class DirectWorkspaceBinder(private val context: Context) {
                     if (num >= 0) num.toString().padStart(2, '0') else "-1"
                 }
 
+                val linkedPdf = (l["sliceFile"] as? JsonObject)?.str("workspaceUri").orEmpty()
                 val pdfCandidates = buildList {
+                    if (linkedPdf.isNotBlank()) {
+                        add(linkedPdf)
+                        if (linkedPdf.startsWith("workspace/", ignoreCase = true)) {
+                            add(linkedPdf.removePrefix("workspace/"))
+                        }
+                    }
                     if (p == "P01" || p == "P02") {
                         add(joinRel(bookRel, "$p/units/$uk/lesson_$lessonNumStr.pdf"))
                         add(joinRel(bookRel, "$p/units/$uk/$lk.pdf"))
                     }
-                    add(joinRel(bookRel, "P01/units/$uk/lesson_$lessonNumStr.pdf"))
-                    add(joinRel(bookRel, "P02/units/$uk/lesson_$lessonNumStr.pdf"))
-                    add(joinRel(bookRel, "units/$uk/lesson_$lessonNumStr.pdf"))
-                    add(joinRel(bookRel, "units/$uk/$lk.pdf"))
                 }
                 val matchedPdf = firstExisting(entryMap, *pdfCandidates.toTypedArray())
 
