@@ -168,7 +168,8 @@ data class LessonRef(
     val pdfPath: String? = null,
     val workspaceId: String = "",
     val sourceTextPath: String? = null,
-    val interactivePath: String? = null
+    val interactivePath: String? = null,
+    val printedPageRange: String? = null
 )
 
 data class DirectGradeChoice(
