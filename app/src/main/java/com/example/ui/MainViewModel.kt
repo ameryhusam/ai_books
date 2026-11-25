@@ -138,6 +138,7 @@ data class MainUiState(
     val previewingPackage: InteractivePackageRecord? = null,
     val studentPreviewMode: Boolean = false,
     val activeInteractiveActivity: InteractiveActivityModel? = null,
+    val activeInteractiveLesson: LessonRef? = null,
     val studentStudyLesson: LessonRef? = null,
     val lastLessonQuizResult: LessonQuizCompletionResult? = null,
     val reinforcementConceptTitle: String? = null,
@@ -1262,12 +1263,19 @@ class MainViewModel(
                 )
             }
         } else {
-            _uiState.update { it.copy(activeInteractiveActivity = parsed) }
+            _uiState.update {
+                it.copy(
+                    activeInteractiveActivity = parsed,
+                    activeInteractiveLesson = it.selectedLesson
+                )
+            }
         }
     }
 
     fun dismissInteractiveActivity() {
-        _uiState.update { it.copy(activeInteractiveActivity = null) }
+        _uiState.update {
+            it.copy(activeInteractiveActivity = null, activeInteractiveLesson = null)
+        }
     }
 
     fun recordInteractiveActivityCompleted(earnedXp: Int) {
@@ -1277,6 +1285,7 @@ class MainViewModel(
             _uiState.update {
                 it.copy(
                     activeInteractiveActivity = null,
+                    activeInteractiveLesson = null,
                     alert = AlertMessage(
                         "إنجاز رائع!",
                         "أتممت النشاط التفاعلي وحصلت على +$earnedXp XP."
