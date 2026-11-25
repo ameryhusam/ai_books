@@ -284,6 +284,7 @@ class AiGenerationService(
                             expectJson = expectJson
                         )
                         val durationMs = (System.currentTimeMillis() - callStart).coerceAtLeast(1L)
+                        onProviderStateChanged?.invoke(profile.id, "ACTIVE", 0L)
                         onAttemptFinished?.invoke(profile.label, modelName, true, null)
                         return@withContext GeneratedResult(
                             text = outputText,
