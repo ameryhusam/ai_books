@@ -151,7 +151,7 @@ object LearningProgressAnalytics {
                 val afterScore = sharedIds.count { after[it]?.isCorrect == true } * 100 / sharedIds.size
                 afterScore - beforeScore
             }
-        return if (changes.isEmpty()) null else changes.average().toInt() to changes.size
+        return if (changes.isEmpty()) null to 0 else changes.average().toInt() to changes.size
     }
 
     private fun latestPerQuestion(rows: List<QuestionAttemptRecord>): List<QuestionAttemptRecord> =
