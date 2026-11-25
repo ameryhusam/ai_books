@@ -76,6 +76,7 @@ object InteractiveActivityParser {
         val title = str(root, "title").ifBlank { fallbackTitle }
         val objective = str(root, "objective", "goal")
 
+        val rootConcept = str(root, "conceptTag", "concept", "topic")
         val stepsArr = (root["steps"] as? JsonArray) ?: (root["sections"] as? JsonArray)
         val steps = stepsArr?.mapIndexedNotNull { idx, elem ->
             val obj = elem as? JsonObject ?: return@mapIndexedNotNull null
@@ -89,6 +90,10 @@ object InteractiveActivityParser {
                 .orEmpty()
             val cpAnswer = cpObj?.let { str(it, "answer", "correctAnswer") }
                 ?: str(obj, "checkpointAnswer", "answer")
+            val stepConcept = cpObj?.let { str(it, "conceptTag", "concept", "topic") }
+                ?.ifBlank { str(obj, "conceptTag", "concept", "topic") }
+                ?.ifBlank { rootConcept }
+                .orEmpty()
 
             if (stepTitle.isBlank() && stepBody.isBlank()) null
             else InteractiveStepItem(
@@ -96,7 +101,8 @@ object InteractiveActivityParser {
                 body = stepBody,
                 checkpointQuestion = cpQuestion,
                 checkpointOptions = cpOptions,
-                checkpointAnswer = cpAnswer
+                checkpointAnswer = cpAnswer,
+                conceptTag = stepConcept
             )
         }.orEmpty()
 

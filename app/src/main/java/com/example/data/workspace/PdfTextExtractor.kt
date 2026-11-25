@@ -30,20 +30,25 @@ data class PdfTextExtractionResult(
  */
 class PdfTextExtractor(private val context: Context) {
 
-    fun extract(pdfFile: File, startPage: Int, endPage: Int): PdfTextExtractionResult {
-        require(pdfFile.isFile) { "ملف PDF غير موجود لاستخراج النص" }
+    fun extract(pdfFile: File, startPage: Int, endPage: Int): PdfTextExtractionResult =
+        extract(pdfFile.absolutePath, startPage, endPage)
+
+    fun extract(pdfPathOrUri: String, startPage: Int, endPage: Int): PdfTextExtractionResult {
+        require(UriIO.exists(context, pdfPathOrUri)) { "ملف PDF غير موجود لاستخراج النص" }
         require(startPage >= 1 && endPage >= startPage) { "نطاق صفحات PDF غير صالح" }
 
         val nativeText = runCatching {
             PDFBoxResourceLoader.init(context.applicationContext)
-            PDDocument.load(pdfFile, MemoryUsageSetting.setupTempFileOnly()).use { document ->
-                require(endPage <= document.numberOfPages) { "نطاق الصفحات يتجاوز عدد صفحات PDF" }
-                PDFTextStripper().apply {
-                    setStartPage(startPage)
-                    setEndPage(endPage)
-                    sortByPosition = true
-                }.getText(document).trim()
-            }
+            UriIO.openInputStream(context, pdfPathOrUri)?.use { stream ->
+                PDDocument.load(stream, MemoryUsageSetting.setupTempFileOnly()).use { document ->
+                    require(endPage <= document.numberOfPages) { "نطاق الصفحات يتجاوز عدد صفحات PDF" }
+                    PDFTextStripper().apply {
+                        setStartPage(startPage)
+                        setEndPage(endPage)
+                        sortByPosition = true
+                    }.getText(document).trim()
+                }
+            } ?: ""
         }.getOrElse { "" }
 
         if (nativeText.count { !it.isWhitespace() } >= MIN_NATIVE_TEXT_CHARS) {
@@ -55,7 +60,7 @@ class PdfTextExtractor(private val context: Context) {
         }
 
         return runCatching {
-            val ocrText = recognizePages(pdfFile, startPage, endPage)
+            val ocrText = recognizePages(pdfPathOrUri, startPage, endPage)
             if (ocrText.count { !it.isWhitespace() } < MIN_OCR_TEXT_CHARS) {
                 PdfTextExtractionResult(
                     text = ocrText,
@@ -80,7 +85,7 @@ class PdfTextExtractor(private val context: Context) {
         }
     }
 
-    private fun recognizePages(pdfFile: File, startPage: Int, endPage: Int): String {
+    private fun recognizePages(pdfPathOrUri: String, startPage: Int, endPage: Int): String {
         val tessRoot = File(context.filesDir, "tesseract").apply { mkdirs() }
         val tessData = File(tessRoot, "tessdata").apply { mkdirs() }
         ensureModel(tessData, "ara")
@@ -95,8 +100,10 @@ class PdfTextExtractor(private val context: Context) {
         api.setPageSegMode(TessBaseAPI.PageSegMode.PSM_AUTO)
         val output = StringBuilder()
         try {
-            ParcelFileDescriptor.open(pdfFile, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
-                PdfRenderer(descriptor).use { renderer ->
+            val descriptor = UriIO.openReadPfd(context, pdfPathOrUri)
+                ?: throw IllegalStateException("تعذر فتح ملف PDF للقراءة")
+            descriptor.use { pfd ->
+                PdfRenderer(pfd).use { renderer ->
                     require(endPage <= renderer.pageCount) { "نطاق الصفحات يتجاوز عدد صفحات PDF" }
                     for (pageNumber in startPage..endPage) {
                         renderer.openPage(pageNumber - 1).use { page ->

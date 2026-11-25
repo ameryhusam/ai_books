@@ -254,9 +254,9 @@ class InteractivePackageImporter(private val context: Context) {
         val externalUrls = linkedSetOf<String>()
         val missingAssets = linkedSetOf<String>()
 
-        // Scan HTML/CSS/JS files for external URLs, local references, and unsafe JS constructs
+        // Scan HTML/CSS/JS/GLTF files for external URLs, local references, and unsafe JS constructs
         val inspectableFiles = allFiles.filter {
-            it.extension.lowercase() in setOf("html", "htm", "js", "mjs", "css", "svg")
+            it.extension.lowercase() in setOf("html", "htm", "js", "mjs", "css", "svg", "gltf")
         }
 
         for (file in inspectableFiles) {
@@ -264,29 +264,47 @@ class InteractivePackageImporter(private val context: Context) {
             EXTERNAL_URL_REGEX.findAll(content).forEach { match ->
                 externalUrls.add(match.value)
             }
-            if (file.extension.lowercase() in setOf("html", "htm")) {
-                LOCAL_REF_REGEX.findAll(content).forEach { match ->
-                    val ref = match.groupValues[1].trim()
-                    if (isRelativeLocalReference(ref)) {
-                        val cleanRef = ref.substringBefore('?').substringBefore('#')
-                        val resolved = File(entryDir, cleanRef)
-                        val canonicalResolved = runCatching { resolved.canonicalPath }.getOrDefault("")
-                        val canonicalRoot = versionDir.canonicalPath + File.separator
-                        if (!canonicalResolved.startsWith(canonicalRoot)) {
-                            findings.add(
-                                SecurityFinding(
-                                    severity = SecuritySeverity.BLOCKER,
-                                    code = "LOCAL_REFERENCE_PATH_ESCAPE",
-                                    message = "مرجع مورد محلي يخرج عن مجلد الحزمة: $cleanRef"
-                                )
+            val ext = file.extension.lowercase()
+            val fileParentDir = file.parentFile ?: entryDir
+            val candidateRefs = mutableListOf<String>()
+            when (ext) {
+                "html", "htm" -> {
+                    LOCAL_REF_REGEX.findAll(content).forEach { candidateRefs.add(it.groupValues[1].trim()) }
+                    CSS_URL_REGEX.findAll(content).forEach { candidateRefs.add(it.groupValues[1].trim()) }
+                }
+                "css" -> {
+                    CSS_URL_REGEX.findAll(content).forEach { candidateRefs.add(it.groupValues[1].trim()) }
+                }
+                "js", "mjs" -> {
+                    JS_ASSET_REF_REGEX.findAll(content).forEach { candidateRefs.add(it.groupValues[1].trim()) }
+                }
+                "gltf" -> {
+                    GLTF_URI_REGEX.findAll(content).forEach { candidateRefs.add(it.groupValues[1].trim()) }
+                }
+            }
+            candidateRefs.forEach { ref ->
+                if (isRelativeLocalReference(ref)) {
+                    val cleanRef = ref.substringBefore('?').substringBefore('#')
+                    val baseResolveDir = if (ext == "html" || ext == "htm") entryDir else fileParentDir
+                    val resolved = File(baseResolveDir, cleanRef)
+                    val canonicalResolved = runCatching { resolved.canonicalPath }.getOrDefault("")
+                    val canonicalRoot = versionDir.canonicalPath + File.separator
+                    if (!canonicalResolved.startsWith(canonicalRoot)) {
+                        findings.add(
+                            SecurityFinding(
+                                severity = SecuritySeverity.BLOCKER,
+                                code = "LOCAL_REFERENCE_PATH_ESCAPE",
+                                message = "مرجع مورد محلي يخرج عن مجلد الحزمة: $cleanRef"
                             )
-                        } else if (!resolved.exists()) {
-                            missingAssets.add(cleanRef)
-                        }
+                        )
+                    } else if (!resolved.exists()) {
+                        missingAssets.add(cleanRef)
                     }
                 }
             }
-            checkDangerousPatterns(file.name, content, findings)
+            if (ext != "gltf") {
+                checkDangerousPatterns(file.name, content, findings)
+            }
         }
 
         // Standalone HTML referencing local/3D files cannot resolve relative GLB/media
@@ -382,12 +400,14 @@ class InteractivePackageImporter(private val context: Context) {
                 )
             )
         }
-        if (isMarkupFile && Regex("<[^>]+\\bon[a-z]+\\s*=", RegexOption.IGNORE_CASE).containsMatchIn(content)) {
+        if (isMarkupFile && !fileName.endsWith(".svg", ignoreCase = true) &&
+            Regex("<[^>]+\\bon[a-z]+\\s*=", RegexOption.IGNORE_CASE).containsMatchIn(content)
+        ) {
             findings.add(
                 SecurityFinding(
-                    severity = SecuritySeverity.BLOCKER,
-                    code = "INLINE_EVENT_HANDLER",
-                    message = "تم رصد معالج JavaScript مضمّن داخل HTML/SVG في $fileName."
+                    severity = SecuritySeverity.PASS,
+                    code = "INLINE_EVENT_HANDLER_SANDBOXED",
+                    message = "يحتوي $fileName معالجات تفاعل HTML مضمّنة (مسموح بها داخل الصندوق الرملي)."
                 )
             )
         }
@@ -585,6 +605,18 @@ class InteractivePackageImporter(private val context: Context) {
         private val EXTERNAL_URL_REGEX = Regex("https?://[^\\s\"'<>`()]+", RegexOption.IGNORE_CASE)
         private val LOCAL_REF_REGEX = Regex(
             "(?:src|href|poster)\\s*=\\s*[\"']([^\"']+)[\"']",
+            RegexOption.IGNORE_CASE
+        )
+        private val CSS_URL_REGEX = Regex(
+            "url\\(\\s*[\"']?([^\"')]+)[\"']?\\s*\\)",
+            RegexOption.IGNORE_CASE
+        )
+        private val JS_ASSET_REF_REGEX = Regex(
+            "(?:fetch|import)\\s*\\(\\s*[\"']([^\"']+)[\"']\\s*\\)|from\\s+[\"'](\\.[^\"']+)[\"']",
+            RegexOption.IGNORE_CASE
+        )
+        private val GLTF_URI_REGEX = Regex(
+            "\"uri\"\\s*:\\s*\"([^\"]+)\"",
             RegexOption.IGNORE_CASE
         )
     }

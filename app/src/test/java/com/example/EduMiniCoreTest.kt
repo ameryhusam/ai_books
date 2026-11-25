@@ -8,11 +8,13 @@ import com.example.data.local.GenerationRunEntity
 import com.example.data.local.EduMiniDatabase
 import com.example.data.local.LessonProgressEntity
 import com.example.data.packageimport.InteractivePackageImporter
+import com.example.data.repository.ConceptMasteryEngine
 import com.example.data.repository.EduMiniRepository
 import com.example.data.repository.InteractiveActivityParser
 import com.example.data.repository.MilestoneBadgeEngine
 import com.example.data.repository.QuestionBankEngine
 import com.example.data.security.ProviderStorage
+import com.example.data.workspace.DirectWorkspaceBinder
 import com.example.data.workspace.PdfBookSplitter
 import com.example.data.workspace.WorkspaceExporter
 import com.example.data.workspace.WorkspaceImporter
@@ -26,16 +28,25 @@ import com.example.model.BookRef
 import com.example.model.ImportedWorkspace
 import com.example.model.LearningNodeStatus
 import com.example.model.LessonRef
+import com.example.model.MasteryStatus
 import com.example.model.PackageKind
 import com.example.model.PdfBookInfo
+import com.example.model.QuestionAttemptRecord
 import com.example.model.QuestionDifficulty
 import com.example.model.QuestionItem
 import com.example.model.QuestionType
 import com.example.model.SecuritySeverity
 import com.example.model.TaskType
+import com.example.model.UnitCompletionStatus
 import com.example.ui.components.LearningProgressCalculator
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import java.security.MessageDigest
+import java.util.zip.ZipInputStream
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -1022,6 +1033,534 @@ class EduMiniCoreTest {
         assertTrue(prompt.contains("prompts/indexer2/lesson_explanation.prompt.md"))
         assertTrue(prompt.contains("مفهوم القسمة المطولة"))
         assertTrue(prompt.contains("1 صفحة مصورة"))
+    }
+
+    @Test
+    fun directWorkspaceBinderInspectsMultiGradeAndBindsSingleGradeInPlaceWithoutCopying() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val rootDir = File(context.cacheDir, "direct_ws_sample_${System.currentTimeMillis()}").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+
+        try {
+            val g04Math = File(rootDir, "workspace/G04/MATH").apply { mkdirs() }
+            File(g04Math, "book_manifest.json").writeText("""{"title":"الرياضيات - الرابع"}""")
+            File(g04Math, "index.json").writeText(
+                """
+                {
+                  "units": [
+                    {
+                      "unitKey": "unit_01",
+                      "title": "الكسور",
+                      "partKey": "P01",
+                      "lessons": [
+                        {"lessonKey": "lesson_01", "title": "مقارنة الكسور", "pdfPageStart": 8, "pdfPageEnd": 12}
+                      ]
+                    }
+                  ]
+                }
+                """.trimIndent()
+            )
+            val g04LessonDir = File(g04Math, "P01/units/unit_01").apply { mkdirs() }
+            val pdfFile = File(g04LessonDir, "lesson_01.pdf").apply { writeText("%PDF-1.4 sample") }
+            val txtFile = File(g04LessonDir, "lesson_01.txt").apply { writeText("نص درس الكسور") }
+            val htmlFile = File(g04LessonDir, "lesson_01_interactive.html").apply {
+                writeText("<!doctype html><html><body><h1>تفاعلي الكسور</h1></body></html>")
+            }
+            val qDir = File(g04Math, "questions/unit_01/lesson_01").apply { mkdirs() }
+            File(qDir, "ai_generated.json").writeText(
+                """
+                {
+                  "questions": [
+                    {
+                      "type": "mcq",
+                      "conceptTag": "مقارنة الكسور المتكافئة",
+                      "prompt": "أي كسر يساوي النصف؟",
+                      "options": ["2/4", "1/3", "3/4", "2/5"],
+                      "correctAnswer": "2/4",
+                      "rationale": "بقسمة البسط والمقام على 2",
+                      "difficulty": "easy"
+                    }
+                  ]
+                }
+                """.trimIndent()
+            )
+
+            val g07Sci = File(rootDir, "workspace/G07/SCI").apply { mkdirs() }
+            File(g07Sci, "book_manifest.json").writeText("""{"title":"العلوم - السابع"}""")
+            File(g07Sci, "index.json").writeText(
+                """
+                {
+                  "units": [
+                    {
+                      "unitKey": "unit_01",
+                      "title": "الخلية",
+                      "lessons": [{"lessonKey": "lesson_01", "title": "تركيب الخلية"}]
+                    }
+                  ]
+                }
+                """.trimIndent()
+            )
+
+            val binder = DirectWorkspaceBinder(context)
+            val inspection = binder.inspectDirectory(rootDir)
+            assertEquals(2, inspection.grades.size)
+            assertTrue(inspection.grades.any { it.gradeKey == "G04" && it.lessonsCount == 1 })
+            assertTrue(inspection.grades.any { it.gradeKey == "G07" && it.lessonsCount == 1 })
+
+            val bound = binder.bindSingleGrade(rootDir.absolutePath, "G04")
+            assertEquals("G04", bound.workspace.gradeKey)
+            assertEquals(1, bound.workspace.books.size)
+            assertEquals(1, bound.workspace.lessons.size)
+
+            val boundLesson = bound.workspace.lessons.first()
+            assertEquals(pdfFile.absolutePath, boundLesson.pdfPath)
+            assertEquals(txtFile.absolutePath, boundLesson.sourceTextPath)
+            assertEquals(htmlFile.absolutePath, boundLesson.interactivePath)
+            assertEquals(1, bound.preloadedInteractivePackages.size)
+            assertEquals(1, bound.preloadedQuestions.size)
+            assertEquals("مقارنة الكسور المتكافئة", bound.preloadedQuestions.first().conceptTag)
+
+            // Verify zero-copy: PDF file was NOT duplicated inside filesDir/edumini/workspaces
+            val privateWorkspacesDir = File(context.filesDir, "edumini/workspaces/${bound.workspace.workspaceId}")
+            assertFalse(privateWorkspacesDir.exists())
+        } finally {
+            rootDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun conceptMasteryEngineDistinguishesMasteredVsNeedsReinforcementAndPreviousChoice() {
+        val q1 = QuestionItem(
+            id = "q-1",
+            workspaceId = "ws-mastery",
+            gradeKey = "G04",
+            bookKey = "MATH",
+            unitKey = "unit_01",
+            lessonKey = "lesson_01",
+            lessonTitle = "الكسور",
+            type = QuestionType.MCQ,
+            prompt = "سؤال 1",
+            options = listOf("أ", "ب", "ج"),
+            correctAnswer = "أ",
+            rationale = "تفسير",
+            difficulty = QuestionDifficulty.EASY,
+            conceptTag = "توحيد المقامات"
+        )
+        val q2 = q1.copy(id = "q-2", prompt = "سؤال 2", conceptTag = "توحيد المقامات")
+        val q3 = q1.copy(id = "q-3", prompt = "سؤال 3", conceptTag = "الكسور المتكافئة")
+        val q4 = q1.copy(id = "q-4", prompt = "سؤال 4", conceptTag = "ضرب الكسور")
+
+        val attempts = listOf(
+            // q3 is always answered correctly -> MASTERED
+            QuestionAttemptRecord("a1", "ws-mastery", "q-3", "الكسور المتكافئة", "أ", true, answeredAt = "2026-01-01T10:00:00Z"),
+            QuestionAttemptRecord("a2", "ws-mastery", "q-3", "الكسور المتكافئة", "أ", true, answeredAt = "2026-01-02T10:00:00Z"),
+            // q1 was wrong once then right -> mixed => NEEDS_REINFORCEMENT
+            QuestionAttemptRecord("a3", "ws-mastery", "q-1", "توحيد المقامات", "ب", false, answeredAt = "2026-01-01T11:00:00Z"),
+            QuestionAttemptRecord("a4", "ws-mastery", "q-1", "توحيد المقامات", "أ", true, answeredAt = "2026-01-02T11:00:00Z")
+        )
+
+        val stats = ConceptMasteryEngine.computeQuestionStats(listOf(q1, q2, q3, q4), attempts)
+        assertEquals(MasteryStatus.MASTERED, stats["q-3"]?.status)
+        assertEquals("أ", stats["q-3"]?.lastSelectedAnswer)
+        assertTrue(stats["q-3"]?.sameAsPrevious(" أ ") == true)
+        assertFalse(stats["q-3"]?.sameAsPrevious("ب") == true)
+
+        assertEquals(MasteryStatus.NEEDS_REINFORCEMENT, stats["q-1"]?.status)
+        assertEquals(1, stats["q-1"]?.correctCount)
+        assertEquals(1, stats["q-1"]?.wrongCount)
+        assertEquals(MasteryStatus.UNSEEN, stats["q-4"]?.status)
+
+        val summaries = ConceptMasteryEngine.computeConceptSummaries(listOf(q1, q2, q3, q4), attempts)
+        assertEquals(MasteryStatus.NEEDS_REINFORCEMENT, summaries.first().status)
+        assertEquals("توحيد المقامات", summaries.first().conceptTag)
+        assertEquals(50, summaries.first().accuracyPercent)
+
+        val mastered = summaries.first { it.conceptTag == "الكسور المتكافئة" }
+        assertEquals(MasteryStatus.MASTERED, mastered.status)
+        assertEquals(100, mastered.accuracyPercent)
+
+        val targeted = ConceptMasteryEngine.selectReinforcementQuestions(
+            questions = listOf(q1, q2, q3, q4),
+            attempts = attempts,
+            targetConceptTag = "توحيد المقامات"
+        )
+        assertEquals(listOf("q-1", "q-2"), targeted.map { it.id })
+    }
+
+    @Test
+    fun lessonQuizGatesLessonCompletionAndPersistsQuestionAttempts() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val db = EduMiniDatabase.getInstance(context)
+        val repo = EduMiniRepository(
+            dao = db.eduMiniDao(),
+            providerStorage = ProviderStorage(context),
+            workspaceImporter = WorkspaceImporter(context),
+            aiGenerationService = AiGenerationService(context),
+            pdfBookSplitter = PdfBookSplitter(context),
+            interactivePackageImporter = InteractivePackageImporter(context),
+            directWorkspaceBinder = DirectWorkspaceBinder(context),
+            appContext = context
+        )
+
+        val wsId = "ws-quiz-gate-${System.currentTimeMillis()}"
+        val lesson = sampleLesson().copy(workspaceId = wsId)
+        val ws = ImportedWorkspace(
+            workspaceId = wsId,
+            gradeKey = "G04",
+            rootPath = "/tmp/$wsId",
+            title = "اختبار بوابة الإكمال",
+            books = listOf(BookRef("ARAB", "لغتي", "ARAB", null, "ARAB", 1)),
+            lessons = listOf(lesson),
+            filesCount = 1,
+            warnings = emptyList()
+        )
+        repo.saveImportedWorkspace(ws)
+
+        val q1 = QuestionItem(
+            id = "qg-1-$wsId",
+            workspaceId = wsId,
+            gradeKey = "G04",
+            bookKey = lesson.bookKey,
+            unitKey = lesson.unitKey,
+            lessonKey = lesson.lessonKey,
+            lessonTitle = lesson.title,
+            type = QuestionType.MCQ,
+            prompt = "السؤال الأول",
+            options = listOf("صحيح", "خطأ 1"),
+            correctAnswer = "صحيح",
+            rationale = "تفسير 1",
+            difficulty = QuestionDifficulty.EASY,
+            conceptTag = "المبتدأ والخبر"
+        )
+        val q2 = q1.copy(
+            id = "qg-2-$wsId",
+            prompt = "السؤال الثاني",
+            options = listOf("نعم", "لا"),
+            correctAnswer = "نعم",
+            conceptTag = "علامات الإعراب"
+        )
+
+        // Failing attempt (0/2 -> 0% < 60%) must NOT mark lesson completed
+        val failResult = repo.recordLessonQuizAttempt(
+            workspaceId = wsId,
+            lesson = lesson,
+            questions = listOf(q1, q2),
+            selectedAnswers = mapOf(q1.id to "خطأ 1", q2.id to "لا")
+        )
+        assertFalse(failResult.passed)
+        assertFalse(failResult.lessonMarkedCompleted)
+        assertEquals(0, failResult.scorePercent)
+
+        val progressAfterFail = db.eduMiniDao().observeProgressForWorkspace(wsId).first()
+        assertTrue(progressAfterFail.none { it.completed })
+
+        // Passing attempt (2/2 -> 100% >= 60%) MUST mark lesson completed & award XP
+        val passResult = repo.recordLessonQuizAttempt(
+            workspaceId = wsId,
+            lesson = lesson,
+            questions = listOf(q1, q2),
+            selectedAnswers = mapOf(q1.id to "صحيح", q2.id to "نعم")
+        )
+        assertTrue(passResult.passed)
+        assertTrue(passResult.lessonMarkedCompleted)
+        assertEquals(100, passResult.scorePercent)
+        assertTrue(passResult.earnedXp >= EduMiniRepository.POINTS_LESSON_COMPLETED)
+
+        val progressAfterPass = db.eduMiniDao().observeProgressForWorkspace(wsId).first()
+        assertTrue(progressAfterPass.any { it.lessonKey == lesson.lessonKey && it.completed })
+
+        // Mixed history on both concepts keeps them in NEEDS_REINFORCEMENT (because earlier attempt was wrong)
+        val recordedAttempts = db.eduMiniDao().observeQuestionAttemptsForWorkspace(wsId).first()
+        assertEquals(4, recordedAttempts.size)
+        assertEquals(2, passResult.weakConcepts.size)
+    }
+
+    @Test
+    fun interactiveHtmlScannerAllowsSandboxedInlineHandlersAndBlocksEval() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val importer = InteractivePackageImporter(context)
+        val lesson = sampleLesson()
+
+        val safeHtml = """
+            <!doctype html>
+            <html><body>
+              <button onclick="document.getElementById('hint').style.display='block'">تلميح</button>
+              <div id="hint" style="display:none">تلميح تعليمي</div>
+            </body></html>
+        """.trimIndent()
+        val safeStage = importer.importFromStream(
+            inputStream = ByteArrayInputStream(safeHtml.toByteArray(Charsets.UTF_8)),
+            fileName = "interactive.html",
+            isZip = false,
+            declaredSizeBytes = safeHtml.length.toLong(),
+            lesson = lesson,
+            sourcePages = "5–10",
+            version = 1
+        )
+        assertFalse(safeStage.report.hasBlockers)
+        assertTrue(safeStage.report.findings.any { it.code == "INLINE_EVENT_HANDLER_SANDBOXED" && it.severity == SecuritySeverity.PASS })
+
+        val dangerousHtml = """
+            <!doctype html><html><body><script>eval("1+1")</script></body></html>
+        """.trimIndent()
+        val blockedStage = importer.importFromStream(
+            inputStream = ByteArrayInputStream(dangerousHtml.toByteArray(Charsets.UTF_8)),
+            fileName = "danger.html",
+            isZip = false,
+            declaredSizeBytes = dangerousHtml.length.toLong(),
+            lesson = lesson,
+            sourcePages = "5–10",
+            version = 2
+        )
+        assertTrue(blockedStage.report.hasBlockers)
+        assertTrue(blockedStage.report.findings.any { it.code == "UNSAFE_DYNAMIC_EVAL" && it.severity == SecuritySeverity.BLOCKER })
+    }
+
+    @Test
+    fun workspaceExporterWritesManifestWithAccurateSha256Checksums() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val wsDir = File(context.cacheDir, "export_src_${System.currentTimeMillis()}").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        try {
+            File(wsDir, "book_manifest.json").writeText("""{"title":"كتاب الاختبار"}""")
+            val workspace = ImportedWorkspace(
+                workspaceId = "ws-export",
+                gradeKey = "G04",
+                rootPath = wsDir.absolutePath,
+                title = "تصدير SHA256",
+                books = listOf(BookRef("ARAB", "كتاب الاختبار", "ARAB", null, ".", 1)),
+                lessons = listOf(sampleLesson().copy(rootPath = wsDir.absolutePath, workspaceId = "ws-export")),
+                filesCount = 1,
+                warnings = emptyList()
+            )
+            val baos = ByteArrayOutputStream()
+            val receipt = WorkspaceExporter.exportIndexer2CompatibleZip(
+                outputStream = baos,
+                workspace = workspace,
+                drafts = emptyList(),
+                questions = emptyList(),
+                context = context
+            )
+            assertTrue(receipt.entriesCount >= 2)
+
+            val entries = mutableMapOf<String, ByteArray>()
+            ZipInputStream(ByteArrayInputStream(baos.toByteArray())).use { zis ->
+                while (true) {
+                    val entry = zis.nextEntry ?: break
+                    entries[entry.name] = zis.readBytes()
+                    zis.closeEntry()
+                }
+            }
+            val manifestBytes = entries["manifest.json"]
+            assertNotNull(manifestBytes)
+            val manifestJson = Json.parseToJsonElement(manifestBytes!!.toString(Charsets.UTF_8)).jsonObject
+            val artifacts = manifestJson["artifacts"]!!.jsonArray
+            assertEquals(1, artifacts.size)
+            val bookEntry = artifacts.first().jsonObject
+            val recordedPath = bookEntry["path"]!!.jsonPrimitive.content
+            val recordedHash = bookEntry["sha256"]!!.jsonPrimitive.content
+            val actualBytes = entries[recordedPath]!!
+            val expectedHash = MessageDigest.getInstance("SHA-256")
+                .digest(actualBytes)
+                .joinToString("") { "%02x".format(it) }
+            assertEquals(expectedHash, recordedHash)
+        } finally {
+            wsDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun multiUnitStateProgressionTracksQuizAttemptsAndRequiresAllLessonsPassedForUnitCompletion() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val db = EduMiniDatabase.getInstance(context)
+        val repo = EduMiniRepository(
+            dao = db.eduMiniDao(),
+            providerStorage = ProviderStorage(context),
+            workspaceImporter = WorkspaceImporter(context),
+            aiGenerationService = AiGenerationService(),
+            pdfBookSplitter = PdfBookSplitter(context),
+            interactivePackageImporter = InteractivePackageImporter(context)
+        )
+        val u1Lesson1 = sampleLesson().copy(
+            workspaceId = "ws-multi-unit",
+            unitKey = "unit_01",
+            unitTitle = "الوحدة الأولى",
+            lessonKey = "lesson_01",
+            title = "درس ١-١"
+        )
+        val u1Lesson2 = u1Lesson1.copy(lessonKey = "lesson_02", title = "درس ١-٢")
+        val u2Lesson1 = u1Lesson1.copy(unitKey = "unit_02", unitTitle = "الوحدة الثانية", lessonKey = "lesson_03", title = "درس ٢-١")
+        val ws = ImportedWorkspace(
+            workspaceId = "ws-multi-unit",
+            gradeKey = "G04",
+            rootPath = "/tmp/ws-multi-unit",
+            title = "G04 • العلوم",
+            books = listOf(
+                BookRef(
+                    bookKey = "ARAB",
+                    title = "لغتي العربية",
+                    subjectKey = "ARAB",
+                    relativePath = "workspace/G04/ARAB",
+                    lessonsCount = 3
+                )
+            ),
+            lessons = listOf(u1Lesson1, u1Lesson2, u2Lesson1),
+            filesCount = 3,
+            warnings = emptyList()
+        )
+        repo.saveImportedWorkspace(ws)
+
+        val q1 = repo.addManualQuestion(
+            workspaceId = ws.workspaceId,
+            lesson = u1Lesson1,
+            type = QuestionType.TRUE_FALSE,
+            prompt = "السؤال الأول للدرس ١-١",
+            options = listOf("صح", "خطأ"),
+            correctAnswer = "صح",
+            rationale = "تفسير",
+            difficulty = QuestionDifficulty.EASY
+        )
+        val q2 = repo.addManualQuestion(
+            workspaceId = ws.workspaceId,
+            lesson = u1Lesson2,
+            type = QuestionType.TRUE_FALSE,
+            prompt = "السؤال الأول للدرس ١-٢",
+            options = listOf("صح", "خطأ"),
+            correctAnswer = "صح",
+            rationale = "تفسير",
+            difficulty = QuestionDifficulty.EASY
+        )
+
+        // Initially: Unit 1 has questions (lessons are READY, unit NOT_STARTED), Unit 2 is NOT_STARTED
+        val initialSummary = repo.observeDashboardSummary(ws).first()
+        val initialUnit1 = initialSummary.unitPaths.first { it.unitKey == "ARAB_unit_01" }
+        val initialUnit2 = initialSummary.unitPaths.first { it.unitKey == "ARAB_unit_02" }
+        assertEquals(UnitCompletionStatus.NOT_STARTED, initialUnit1.status)
+        assertEquals(UnitCompletionStatus.NOT_STARTED, initialUnit2.status)
+        assertEquals(LearningNodeStatus.READY, initialUnit1.nodes[0].status)
+        assertEquals(1, initialUnit1.nodes[0].questionsCount)
+
+        // Failed attempt on lesson 1 keeps lesson incomplete and marks unit IN_PROGRESS via quizAttemptedCount
+        val failRes = repo.recordLessonQuizAttempt(ws.workspaceId, u1Lesson1, listOf(q1), mapOf(q1.id to "خطأ"))
+        assertFalse(failRes.passed)
+        val afterFailSummary = repo.observeDashboardSummary(ws).first()
+        val afterFailUnit1 = afterFailSummary.unitPaths.first { it.unitKey == "ARAB_unit_01" }
+        assertEquals(0, afterFailUnit1.completedCount)
+        assertFalse(afterFailUnit1.nodes[0].isCompleted)
+        assertEquals(1, afterFailUnit1.nodes[0].quizAttemptedCount)
+        assertEquals(UnitCompletionStatus.IN_PROGRESS, afterFailUnit1.status)
+
+        // Pass lesson 1 quiz -> lesson 1 COMPLETED, Unit 1 stays IN_PROGRESS because lesson 2 is not passed
+        val pass1 = repo.recordLessonQuizAttempt(ws.workspaceId, u1Lesson1, listOf(q1), mapOf(q1.id to "صح"))
+        assertTrue(pass1.passed)
+        val midSummary = repo.observeDashboardSummary(ws).first()
+        val midUnit1 = midSummary.unitPaths.first { it.unitKey == "ARAB_unit_01" }
+        assertEquals(1, midUnit1.completedCount)
+        assertEquals(UnitCompletionStatus.IN_PROGRESS, midUnit1.status)
+        assertTrue(midUnit1.nodes[0].quizPassed)
+        assertFalse(midUnit1.nodes[1].quizPassed)
+
+        // Pass lesson 2 quiz -> ALL lessons in Unit 1 passed -> Unit 1 becomes COMPLETED; Unit 2 remains NOT_STARTED
+        val pass2 = repo.recordLessonQuizAttempt(ws.workspaceId, u1Lesson2, listOf(q2), mapOf(q2.id to "صح"))
+        assertTrue(pass2.passed)
+        val finalSummary = repo.observeDashboardSummary(ws).first()
+        val finalUnit1 = finalSummary.unitPaths.first { it.unitKey == "ARAB_unit_01" }
+        val finalUnit2 = finalSummary.unitPaths.first { it.unitKey == "ARAB_unit_02" }
+        assertEquals(UnitCompletionStatus.COMPLETED, finalUnit1.status)
+        assertEquals(100, finalUnit1.completionPercent)
+        assertEquals(UnitCompletionStatus.NOT_STARTED, finalUnit2.status)
+    }
+
+    @Test
+    fun questionGenerationDraftApprovalDeduplicatesAndPopulatesQuizAndDashboardState() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val db = EduMiniDatabase.getInstance(context)
+        val repo = EduMiniRepository(
+            dao = db.eduMiniDao(),
+            providerStorage = ProviderStorage(context),
+            workspaceImporter = WorkspaceImporter(context),
+            aiGenerationService = AiGenerationService(),
+            pdfBookSplitter = PdfBookSplitter(context),
+            interactivePackageImporter = InteractivePackageImporter(context)
+        )
+        val lesson = sampleLesson().copy(workspaceId = "ws-gen-sync", lessonKey = "lesson_sync", title = "حالات المادة")
+        val ws = ImportedWorkspace(
+            workspaceId = "ws-gen-sync",
+            gradeKey = "G04",
+            rootPath = "/tmp/ws-gen-sync",
+            title = "G04 • العلوم",
+            books = listOf(
+                BookRef(
+                    bookKey = "ARAB",
+                    title = "لغتي العربية",
+                    subjectKey = "ARAB",
+                    relativePath = "workspace/G04/ARAB",
+                    lessonsCount = 1
+                )
+            ),
+            lessons = listOf(lesson),
+            filesCount = 1,
+            warnings = emptyList()
+        )
+        repo.saveImportedWorkspace(ws)
+
+        val generatedQuestionsText = """
+            1. ما الحالة التي لها شكل وحجم ثابت؟
+            أ) الصلبة
+            ب) السائلة
+            ج) الغازية
+            الإجابة: أ
+
+            2. البخار مثال على الحالة السائلة.
+            أ) صح
+            ب) خطأ
+            الإجابة: ب
+        """.trimIndent()
+
+        val draft = repo.persistDraft(
+            workspaceId = ws.workspaceId,
+            lesson = lesson,
+            task = TaskType.QUESTIONS,
+            providerLabel = "Gemini",
+            model = "gemini-2.5-flash",
+            text = generatedQuestionsText,
+            title = lesson.title,
+            sourceText = "حالات المادة ثلاث"
+        )
+
+        // First sync inserts 2 questions
+        val firstInserted = repo.saveQuestionsFromDraftText(ws.workspaceId, lesson, draft.content)
+        assertEquals(2, firstInserted.size)
+
+        // Approving the same draft deduplicates cleanly and does not insert duplicate rows
+        val addedOnApprove = repo.approveDraft(draft.id)
+        assertEquals(0, addedOnApprove)
+
+        val storedQuestions = repo.observeQuestionsForWorkspace(ws.workspaceId).first()
+        assertEquals(2, storedQuestions.size)
+
+        val beforeQuizSummary = repo.observeDashboardSummary(ws).first()
+        val nodeBefore = beforeQuizSummary.unitPaths.first().nodes.first()
+        assertEquals(2, nodeBefore.questionsCount)
+        assertTrue(nodeBefore.hasGeneratedMaterials)
+        assertEquals(LearningNodeStatus.READY, nodeBefore.status)
+        assertFalse(nodeBefore.isCompleted)
+
+        // Passing the generated questions completes the lesson and the unit
+        val answers = storedQuestions.associate { q ->
+            val correctOpt = if (q.prompt.contains("ثابت")) q.options.first() else "خطأ"
+            q.id to correctOpt
+        }
+        val quizRes = repo.recordLessonQuizAttempt(ws.workspaceId, lesson, storedQuestions, answers)
+        assertTrue(quizRes.passed)
+
+        val afterQuizSummary = repo.observeDashboardSummary(ws).first()
+        assertEquals(1, afterQuizSummary.completedLessons)
+        assertEquals(UnitCompletionStatus.COMPLETED, afterQuizSummary.unitPaths.first().status)
     }
 
     private fun sampleLesson() = LessonRef(

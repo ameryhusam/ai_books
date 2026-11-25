@@ -31,9 +31,8 @@ import androidx.compose.material.icons.outlined.Quiz
 import androidx.compose.material.icons.outlined.Style
 import androidx.compose.material.icons.outlined.Timer
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.ArrowDownward
-import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.WarningAmber
@@ -72,17 +71,22 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.R
+import com.example.data.repository.ConceptMasteryEngine
 import com.example.data.repository.QuestionBankEngine
 import com.example.model.AssessmentAttemptRecord
 import com.example.model.AssessmentKind
 import com.example.model.AssessmentRecord
 import com.example.model.LessonRef
+import com.example.model.MasteryStatus
 import com.example.model.QuestionDifficulty
 import com.example.model.QuestionItem
+import com.example.model.QuestionMasteryStats
 import com.example.model.QuestionType
 import com.example.ui.components.EduPanel
 import com.example.ui.components.EduPill
 import com.example.ui.components.EduYellowButton
+import com.example.ui.components.QuestionAnswerInputArea
+import com.example.ui.components.QuestionMasteryDiagnosticBanner
 import com.example.ui.components.RadialProgressIndicator
 import com.example.ui.theme.EduBg
 import com.example.ui.theme.EduBlue
@@ -108,12 +112,15 @@ fun QuestionBankScreen(
     questions: List<QuestionItem>,
     assessments: List<AssessmentRecord> = emptyList(),
     attempts: List<AssessmentAttemptRecord> = emptyList(),
+    questionStats: Map<String, QuestionMasteryStats> = emptyMap(),
     selectedLesson: LessonRef?,
     hasWorkspace: Boolean,
-    onAddManualQuestion: (QuestionType, String, List<String>, String, String, QuestionDifficulty) -> Unit,
+    onAddManualQuestion: (QuestionType, String, List<String>, String, String, QuestionDifficulty, String) -> Unit,
+    onUpdateQuestion: (String, QuestionType, String, List<String>, String, String, QuestionDifficulty, String, Boolean) -> Unit = { _, _, _, _, _, _, _, _, _ -> },
     onToggleReviewed: (String, Boolean) -> Unit,
     onDeleteQuestion: (String) -> Unit,
     onQuizCompleted: (Int, Int, Int) -> Unit,
+    onRecordQuestionAttempts: (List<QuestionItem>, Map<String, String>, String) -> Unit = { _, _, _ -> },
     onCreateAssessment: (String, AssessmentKind, List<String>, Int, Int) -> Unit = { _, _, _, _, _ -> },
     onDeleteAssessment: (String) -> Unit = {},
     onRecordAssessmentAttempt: (AssessmentRecord, Int, Int, Int, Int, Int) -> Unit = { _, _, _, _, _, _ -> },
@@ -127,6 +134,7 @@ fun QuestionBankScreen(
     var selectedDifficulty by remember { mutableStateOf<QuestionDifficulty?>(null) }
     var onlyCurrentLesson by remember { mutableStateOf(false) }
     var showAddDialog by remember { mutableStateOf(false) }
+    var editingQuestion by remember { mutableStateOf<QuestionItem?>(null) }
     var showQuizDialog by remember { mutableStateOf(false) }
     var showFlashcardsDialog by remember { mutableStateOf(false) }
     var showCreateAssessmentDialog by remember { mutableStateOf(false) }
@@ -143,6 +151,7 @@ fun QuestionBankScreen(
             val matchesSearch = q.isEmpty() ||
                 item.prompt.contains(q, ignoreCase = true) ||
                 item.lessonTitle.contains(q, ignoreCase = true) ||
+                item.conceptTag.contains(q, ignoreCase = true) ||
                 item.rationale.contains(q, ignoreCase = true)
             matchesLesson && matchesType && matchesDiff && matchesSearch
         }
@@ -403,6 +412,8 @@ fun QuestionBankScreen(
                     ) { item ->
                         QuestionBankCard(
                             item = item,
+                            stats = questionStats[item.id],
+                            onEdit = { editingQuestion = item },
                             onToggleReviewed = { onToggleReviewed(item.id, item.reviewed) },
                             onDelete = { onDeleteQuestion(item.id) }
                         )
@@ -496,11 +507,33 @@ fun QuestionBankScreen(
     }
 
     if (showAddDialog) {
-        AddManualQuestionDialog(
+        QuestionEditorDialog(
+            dialogTitle = "إضافة سؤال جديد",
+            initialConcept = selectedLesson?.title.orEmpty(),
             onDismiss = { showAddDialog = false },
-            onSave = { type, prompt, options, correctAnswer, rationale, diff ->
-                onAddManualQuestion(type, prompt, options, correctAnswer, rationale, diff)
+            onSave = { type, prompt, options, correctAnswer, rationale, diff, conceptTag, _ ->
+                onAddManualQuestion(type, prompt, options, correctAnswer, rationale, diff, conceptTag)
                 showAddDialog = false
+            }
+        )
+    }
+
+    editingQuestion?.let { qToEdit ->
+        QuestionEditorDialog(
+            dialogTitle = "تعديل السؤال والمفهوم",
+            initialType = qToEdit.type,
+            initialDifficulty = qToEdit.difficulty,
+            initialPrompt = qToEdit.prompt,
+            initialOptions = qToEdit.options,
+            initialCorrectAnswer = qToEdit.correctAnswer,
+            initialRationale = qToEdit.rationale,
+            initialConcept = qToEdit.conceptTag.ifBlank { qToEdit.lessonTitle },
+            initialReviewed = qToEdit.reviewed,
+            showReviewedToggle = true,
+            onDismiss = { editingQuestion = null },
+            onSave = { type, prompt, options, correctAnswer, rationale, diff, conceptTag, reviewed ->
+                onUpdateQuestion(qToEdit.id, type, prompt, options, correctAnswer, rationale, diff, conceptTag, reviewed)
+                editingQuestion = null
             }
         )
     }
@@ -508,8 +541,10 @@ fun QuestionBankScreen(
     if (showQuizDialog && playableQuestions.isNotEmpty()) {
         InteractiveQuizDialog(
             questions = playableQuestions.take(15),
+            questionStats = questionStats,
             onDismiss = { showQuizDialog = false },
-            onFinished = { correct, total, xp ->
+            onFinished = { correct, total, xp, recordedAnswers ->
+                onRecordQuestionAttempts(playableQuestions.take(15), recordedAnswers, "bank_quiz")
                 onQuizCompleted(correct, total, xp)
             }
         )
@@ -540,8 +575,10 @@ fun QuestionBankScreen(
             TimedExamRunnerDialog(
                 assessment = asm,
                 questions = examQuestions,
+                questionStats = questionStats,
                 onDismiss = { activeTimedAssessment = null },
-                onCompleted = { correct, total, percent, elapsedSec, xp ->
+                onCompleted = { correct, total, percent, elapsedSec, xp, recordedAnswers ->
+                    onRecordQuestionAttempts(examQuestions, recordedAnswers, "timed_assessment")
                     onRecordAssessmentAttempt(asm, correct, total, percent, elapsedSec, xp)
                 }
             )
@@ -555,6 +592,8 @@ fun QuestionBankScreen(
 @Composable
 private fun QuestionBankCard(
     item: QuestionItem,
+    stats: QuestionMasteryStats?,
+    onEdit: () -> Unit,
     onToggleReviewed: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -591,6 +630,37 @@ private fun QuestionBankCard(
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                     )
                 }
+                val conceptLabel = ConceptMasteryEngine.effectiveConceptTag(item)
+                if (conceptLabel.isNotBlank()) {
+                    Surface(shape = RoundedCornerShape(8.dp), color = EduMint) {
+                        Text(
+                            text = conceptLabel,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = EduGreenDark,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                        )
+                    }
+                }
+                if (stats != null && stats.attemptsCount > 0) {
+                    val masteryBg = when (stats.status) {
+                        MasteryStatus.MASTERED -> EduMint
+                        MasteryStatus.NEEDS_REINFORCEMENT -> EduOrange.copy(alpha = 0.16f)
+                        MasteryStatus.UNSEEN -> EduBg
+                    }
+                    val masteryColor = when (stats.status) {
+                        MasteryStatus.MASTERED -> EduGreenDark
+                        MasteryStatus.NEEDS_REINFORCEMENT -> EduRed
+                        MasteryStatus.UNSEEN -> EduMuted
+                    }
+                    Surface(shape = RoundedCornerShape(8.dp), color = masteryBg) {
+                        Text(
+                            text = "${stats.status.labelAr} (${stats.correctCount}/${stats.attemptsCount})",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = masteryColor,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                        )
+                    }
+                }
                 if (item.isDuplicate) {
                     Surface(shape = RoundedCornerShape(8.dp), color = EduOrange.copy(alpha = 0.16f)) {
                         Row(
@@ -610,6 +680,18 @@ private fun QuestionBankCard(
                 }
             }
             Row {
+                IconButton(
+                    onClick = onEdit,
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .testTag("edit_question_${item.id}")
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Edit,
+                        contentDescription = "تعديل السؤال",
+                        tint = EduPurple
+                    )
+                }
                 IconButton(
                     onClick = onToggleReviewed,
                     modifier = Modifier.minimumInteractiveComponentSize()
@@ -699,22 +781,34 @@ private fun QuestionBankCard(
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun AddManualQuestionDialog(
+private fun QuestionEditorDialog(
+    dialogTitle: String,
+    initialType: QuestionType = QuestionType.MCQ,
+    initialDifficulty: QuestionDifficulty = QuestionDifficulty.MEDIUM,
+    initialPrompt: String = "",
+    initialOptions: List<String> = emptyList(),
+    initialCorrectAnswer: String = "",
+    initialRationale: String = "",
+    initialConcept: String = "",
+    initialReviewed: Boolean = false,
+    showReviewedToggle: Boolean = false,
     onDismiss: () -> Unit,
-    onSave: (QuestionType, String, List<String>, String, String, QuestionDifficulty) -> Unit
+    onSave: (QuestionType, String, List<String>, String, String, QuestionDifficulty, String, Boolean) -> Unit
 ) {
-    var type by remember { mutableStateOf(QuestionType.MCQ) }
-    var difficulty by remember { mutableStateOf(QuestionDifficulty.MEDIUM) }
-    var prompt by remember { mutableStateOf("") }
-    var optionsRaw by remember { mutableStateOf("") }
-    var correctAnswer by remember { mutableStateOf("") }
-    var rationale by remember { mutableStateOf("") }
+    var type by remember { mutableStateOf(initialType) }
+    var difficulty by remember { mutableStateOf(initialDifficulty) }
+    var prompt by remember { mutableStateOf(initialPrompt) }
+    var optionsRaw by remember { mutableStateOf(initialOptions.joinToString("\n")) }
+    var correctAnswer by remember { mutableStateOf(initialCorrectAnswer) }
+    var rationale by remember { mutableStateOf(initialRationale) }
+    var conceptTag by remember { mutableStateOf(initialConcept) }
+    var reviewed by remember { mutableStateOf(initialReviewed) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = EduWhite,
         title = {
-            Text("إضافة سؤال جديد", style = MaterialTheme.typography.titleMedium, color = EduInk)
+            Text(dialogTitle, style = MaterialTheme.typography.titleMedium, color = EduInk)
         },
         text = {
             Column(
@@ -741,6 +835,13 @@ private fun AddManualQuestionDialog(
                     onValueChange = { prompt = it },
                     label = { Text("نص السؤال") },
                     minLines = 2,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = conceptTag,
+                    onValueChange = { conceptTag = it },
+                    label = { Text("المفهوم التعليمي المرتبط (لتتبع الإتقان والتقوية)") },
+                    singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
                 val optionsHint = when (type) {
@@ -774,6 +875,21 @@ private fun AddManualQuestionDialog(
                     minLines = 2,
                     modifier = Modifier.fillMaxWidth()
                 )
+                if (showReviewedToggle) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { reviewed = !reviewed },
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = reviewed,
+                            onCheckedChange = { reviewed = it },
+                            colors = CheckboxDefaults.colors(checkedColor = EduGreen)
+                        )
+                        Text("سؤال معتمد ومُراجع", style = MaterialTheme.typography.bodyMedium, color = EduInk)
+                    }
+                }
             }
         },
         confirmButton = {
@@ -796,7 +912,7 @@ private fun AddManualQuestionDialog(
                         QuestionType.MATCHING -> rawLines.joinToString(";")
                         else -> correctAnswer.trim()
                     }
-                    onSave(type, prompt, opts, finalAnswer, rationale, difficulty)
+                    onSave(type, prompt, opts, finalAnswer, rationale, difficulty, conceptTag.trim(), reviewed)
                 }
             ) {
                 Text("حفظ", color = EduGreenDark, fontWeight = FontWeight.Bold)
@@ -813,8 +929,9 @@ private fun AddManualQuestionDialog(
 @Composable
 private fun InteractiveQuizDialog(
     questions: List<QuestionItem>,
+    questionStats: Map<String, QuestionMasteryStats>,
     onDismiss: () -> Unit,
-    onFinished: (correct: Int, total: Int, xp: Int) -> Unit
+    onFinished: (correct: Int, total: Int, xp: Int, answers: Map<String, String>) -> Unit
 ) {
     var index by remember { mutableIntStateOf(0) }
     val answers = remember { mutableStateMapOf<String, String>() }
@@ -863,6 +980,7 @@ private fun InteractiveQuizDialog(
                 }
             } else if (current != null) {
                 val picked = answers[current.id].orEmpty()
+                val stats = questionStats[current.id]
                 Column(
                     modifier = Modifier.verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -873,12 +991,17 @@ private fun InteractiveQuizDialog(
                         trackColor = EduBg,
                         modifier = Modifier.fillMaxWidth()
                     )
+                    QuestionMasteryDiagnosticBanner(
+                        stats = stats,
+                        currentAnswer = picked
+                    )
                     Text(text = current.prompt, style = MaterialTheme.typography.titleSmall, color = EduInk)
 
                     QuestionAnswerInputArea(
                         question = current,
                         currentAnswer = picked,
                         locked = checkedCurrent,
+                        previousSelectedAnswer = stats?.lastSelectedAnswer,
                         onAnswerChange = { answers[current.id] = it }
                     )
 
@@ -926,7 +1049,7 @@ private fun InteractiveQuizDialog(
                     } else {
                         val summary = QuestionBankEngine.gradeQuiz(questions, answers)
                         finished = true
-                        onFinished(summary.correctCount, summary.totalQuestions, summary.earnedXp)
+                        onFinished(summary.correctCount, summary.totalQuestions, summary.earnedXp, answers.toMap())
                     }
                 }) {
                     Text(
@@ -1037,176 +1160,6 @@ private fun FlashcardsDialog(
     )
 }
 
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun QuestionAnswerInputArea(
-    question: QuestionItem,
-    currentAnswer: String,
-    locked: Boolean,
-    onAnswerChange: (String) -> Unit
-) {
-    when {
-        question.type == QuestionType.ORDERING -> {
-            val baseItems = remember(question.id) {
-                val src = question.options.ifEmpty {
-                    question.correctAnswer.split("|", "->", "←").map { it.trim() }.filter { it.isNotBlank() }
-                }
-                if (src.size >= 2) src.reversed() else src
-            }
-            val currentList = remember(question.id, currentAnswer) {
-                if (currentAnswer.isBlank()) baseItems
-                else currentAnswer.split("|").map { it.trim() }.filter { it.isNotBlank() }
-            }
-            LaunchedEffect(question.id) {
-                if (currentAnswer.isBlank() && baseItems.isNotEmpty()) {
-                    onAnswerChange(baseItems.joinToString(" | "))
-                }
-            }
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("رتّب العناصر بالأعلى والأسفل:", style = MaterialTheme.typography.labelMedium, color = EduMuted)
-                currentList.forEachIndexed { idx, item ->
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = EduBg,
-                        border = BorderStroke(1.dp, EduLine),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text("${idx + 1}. $item", style = MaterialTheme.typography.bodyMedium, color = EduInk, modifier = Modifier.weight(1f))
-                            IconButton(
-                                enabled = !locked && idx > 0,
-                                onClick = {
-                                    val mutable = currentList.toMutableList()
-                                    val moved = mutable.removeAt(idx)
-                                    mutable.add(idx - 1, moved)
-                                    onAnswerChange(mutable.joinToString(" | "))
-                                },
-                                modifier = Modifier.minimumInteractiveComponentSize()
-                            ) {
-                                Icon(Icons.Rounded.ArrowUpward, contentDescription = "أعلى", tint = EduGreenDark)
-                            }
-                            IconButton(
-                                enabled = !locked && idx < currentList.lastIndex,
-                                onClick = {
-                                    val mutable = currentList.toMutableList()
-                                    val moved = mutable.removeAt(idx)
-                                    mutable.add(idx + 1, moved)
-                                    onAnswerChange(mutable.joinToString(" | "))
-                                },
-                                modifier = Modifier.minimumInteractiveComponentSize()
-                            ) {
-                                Icon(Icons.Rounded.ArrowDownward, contentDescription = "أسفل", tint = EduGreenDark)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        question.type == QuestionType.MATCHING -> {
-            val pairs = remember(question.id) {
-                val src = question.options.ifEmpty { question.correctAnswer.split(";").map { it.trim() } }
-                src.mapNotNull { line ->
-                    val parts = line.split("=", "->").map { it.trim() }
-                    if (parts.size >= 2) parts[0] to parts[1] else null
-                }
-            }
-            val rightPool = remember(question.id) { pairs.map { it.second }.reversed() }
-            var selectedLeft by remember(question.id) { mutableIntStateOf(0) }
-            val chosen = remember(question.id) { mutableStateMapOf<String, String>() }
-
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("اختر العبارة ثم اختر ما يناسبها:", style = MaterialTheme.typography.labelMedium, color = EduMuted)
-                pairs.forEachIndexed { idx, (left, _) ->
-                    val pickedRight = chosen[left].orEmpty()
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = if (selectedLeft == idx) EduLilac else EduBg,
-                        border = BorderStroke(1.dp, if (selectedLeft == idx) EduPurple else EduLine),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .minimumInteractiveComponentSize()
-                            .clickable(enabled = !locked) { selectedLeft = idx }
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(10.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(left, style = MaterialTheme.typography.bodySmall, color = EduInk)
-                            Text(pickedRight.ifBlank { "—" }, style = MaterialTheme.typography.labelSmall, color = EduGreenDark)
-                        }
-                    }
-                }
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    rightPool.forEach { r ->
-                        val activeLeft = pairs.getOrNull(selectedLeft)?.first.orEmpty()
-                        EduPill(
-                            text = r,
-                            active = activeLeft.isNotBlank() && chosen[activeLeft] == r,
-                            onClick = {
-                                if (!locked && activeLeft.isNotBlank()) {
-                                    chosen[activeLeft] = r
-                                    val encoded = pairs.mapNotNull { (l, _) ->
-                                        chosen[l]?.let { "$l=$it" }
-                                    }.joinToString(";")
-                                    onAnswerChange(encoded)
-                                }
-                            }
-                        )
-                    }
-                }
-            }
-        }
-
-        question.options.isNotEmpty() -> {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                question.options.forEach { opt ->
-                    val isSelected = currentAnswer == opt
-                    val isCorrect = QuestionBankEngine.isAnswerCorrect(question, opt)
-                    val bg = when {
-                        locked && isCorrect -> EduMint
-                        locked && isSelected && !isCorrect -> EduRed.copy(alpha = 0.14f)
-                        isSelected -> EduLilac
-                        else -> EduBg
-                    }
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = bg,
-                        border = BorderStroke(
-                            1.dp,
-                            if (locked && isCorrect) EduGreen else if (isSelected) EduPurple else EduLine
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .minimumInteractiveComponentSize()
-                            .clickable(enabled = !locked) { onAnswerChange(opt) }
-                    ) {
-                        Text(
-                            text = opt,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = EduInk,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
-                        )
-                    }
-                }
-            }
-        }
-
-        else -> {
-            OutlinedTextField(
-                value = currentAnswer,
-                onValueChange = { if (!locked) onAnswerChange(it) },
-                label = { Text(if (question.type == QuestionType.FILL_BLANK) "أكمل الفراغ" else "اكتب إجابتك") },
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
-    }
-}
 
 @Composable
 private fun AssessmentCard(
@@ -1271,9 +1224,19 @@ private fun CreateAssessmentDialog(
     var kind by remember { mutableStateOf(AssessmentKind.FORMATIVE) }
     var minutesText by remember { mutableStateOf("10") }
     var passText by remember { mutableStateOf("60") }
+    var filterQuery by remember { mutableStateOf("") }
     val selectedIds = remember(questions) {
         mutableStateListOf<String>().apply {
             addAll(questions.take(10).map { it.id })
+        }
+    }
+    val visibleQuestions = remember(questions, filterQuery) {
+        val q = filterQuery.trim()
+        if (q.isEmpty()) questions
+        else questions.filter {
+            it.prompt.contains(q, ignoreCase = true) ||
+                it.lessonTitle.contains(q, ignoreCase = true) ||
+                it.conceptTag.contains(q, ignoreCase = true)
         }
     }
 
@@ -1314,8 +1277,38 @@ private fun CreateAssessmentDialog(
                         modifier = Modifier.weight(1f)
                     )
                 }
-                Text("الأسئلة المختارة (${selectedIds.size}/${questions.size}):", style = MaterialTheme.typography.labelMedium, color = EduInk)
-                questions.take(20).forEach { q ->
+                OutlinedTextField(
+                    value = filterQuery,
+                    onValueChange = { filterQuery = it },
+                    leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null, tint = EduMuted) },
+                    placeholder = { Text("تصفية الأسئلة حسب النص أو المفهوم...") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "الأسئلة المختارة (${selectedIds.size}/${questions.size}):",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = EduInk
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        TextButton(onClick = {
+                            visibleQuestions.forEach { q ->
+                                if (!selectedIds.contains(q.id)) selectedIds.add(q.id)
+                            }
+                        }) {
+                            Text("تحديد المعروض", style = MaterialTheme.typography.labelSmall, color = EduGreenDark)
+                        }
+                        TextButton(onClick = { selectedIds.clear() }) {
+                            Text("إلغاء الكل", style = MaterialTheme.typography.labelSmall, color = EduMuted)
+                        }
+                    }
+                }
+                visibleQuestions.forEach { q ->
                     val checked = selectedIds.contains(q.id)
                     Row(
                         modifier = Modifier
@@ -1363,8 +1356,9 @@ private fun CreateAssessmentDialog(
 private fun TimedExamRunnerDialog(
     assessment: AssessmentRecord,
     questions: List<QuestionItem>,
+    questionStats: Map<String, QuestionMasteryStats>,
     onDismiss: () -> Unit,
-    onCompleted: (correct: Int, total: Int, scorePercent: Int, elapsedSeconds: Int, xp: Int) -> Unit
+    onCompleted: (correct: Int, total: Int, scorePercent: Int, elapsedSeconds: Int, xp: Int, answers: Map<String, String>) -> Unit
 ) {
     val answers = remember(assessment.id) { mutableStateMapOf<String, String>() }
     val totalAllowedSeconds = (assessment.timeLimitMinutes * 60).coerceAtLeast(0)
@@ -1376,7 +1370,14 @@ private fun TimedExamRunnerDialog(
         if (finished) return
         finished = true
         val summary = QuestionBankEngine.gradeQuiz(questions, answers)
-        onCompleted(summary.correctCount, summary.totalQuestions, summary.scorePercent, elapsedSeconds, summary.earnedXp)
+        onCompleted(
+            summary.correctCount,
+            summary.totalQuestions,
+            summary.scorePercent,
+            elapsedSeconds,
+            summary.earnedXp,
+            answers.toMap()
+        )
     }
 
     LaunchedEffect(assessment.id, finished) {
@@ -1452,12 +1453,16 @@ private fun TimedExamRunnerDialog(
                     }
                 } else {
                     questions.forEachIndexed { idx, q ->
+                        val picked = answers[q.id].orEmpty()
+                        val stats = questionStats[q.id]
                         EduPanel(modifier = Modifier.fillMaxWidth()) {
+                            QuestionMasteryDiagnosticBanner(stats = stats, currentAnswer = picked)
                             Text("${idx + 1}. ${q.prompt}", style = MaterialTheme.typography.titleSmall, color = EduInk)
                             QuestionAnswerInputArea(
                                 question = q,
-                                currentAnswer = answers[q.id].orEmpty(),
+                                currentAnswer = picked,
                                 locked = false,
+                                previousSelectedAnswer = stats?.lastSelectedAnswer,
                                 onAnswerChange = { answers[q.id] = it }
                             )
                         }

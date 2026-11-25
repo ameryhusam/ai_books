@@ -1,7 +1,7 @@
 package com.example.ui.components
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -17,20 +17,26 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Code
 import androidx.compose.material.icons.rounded.MenuBook
+import androidx.compose.material.icons.rounded.PictureAsPdf
+import androidx.compose.material.icons.rounded.Quiz
+import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
@@ -39,31 +45,39 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.example.data.repository.EduMiniRepository
 import com.example.data.repository.InteractiveActivityParser
 import com.example.data.repository.QuestionBankEngine
+import com.example.data.workspace.UriIO
 import com.example.model.DraftRecord
 import com.example.model.DraftStatus
 import com.example.model.InteractivePackageRecord
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import com.example.model.LessonQuizCompletionResult
 import com.example.model.LessonRef
 import com.example.model.QuestionItem
+import com.example.model.QuestionMasteryStats
 import com.example.model.TaskType
 import com.example.ui.theme.EduBg
 import com.example.ui.theme.EduGreen
 import com.example.ui.theme.EduGreenDark
 import com.example.ui.theme.EduInk
-import com.example.ui.theme.EduLilac
 import com.example.ui.theme.EduLine
 import com.example.ui.theme.EduMint
 import com.example.ui.theme.EduMuted
+import com.example.ui.theme.EduOrange
 import com.example.ui.theme.EduPurple
 import com.example.ui.theme.EduRed
 import com.example.ui.theme.EduWhite
+import com.example.ui.theme.EduYellow
+import java.io.File
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -72,22 +86,87 @@ fun StudentStudyDialog(
     drafts: List<DraftRecord>,
     packages: List<InteractivePackageRecord>,
     lessonQuestions: List<QuestionItem>,
+    questionStats: Map<String, QuestionMasteryStats> = emptyMap(),
     isCompleted: Boolean,
-    onToggleCompleted: () -> Unit,
-    onQuizCompleted: (Int, Int, Int) -> Unit,
+    hasNextLesson: Boolean = false,
+    lastQuizResult: LessonQuizCompletionResult? = null,
+    showAdminShortcuts: Boolean = false,
+    onOpenGenerateQuestions: (() -> Unit)? = null,
+    onSubmitLessonQuiz: (Map<String, String>) -> Unit,
+    onOpenNextLesson: () -> Unit = {},
+    onInteractiveXpEarned: (Int) -> Unit = {},
+    onInteractiveQuestionAnswered: (
+        prompt: String,
+        conceptTag: String,
+        selectedAnswer: String,
+        correctAnswer: String,
+        isCorrect: Boolean,
+        options: List<String>,
+        sourceMode: String
+    ) -> Unit = { _, _, _, _, _, _, _ -> },
     onDismiss: () -> Unit
 ) {
-    var activeTab by remember { mutableIntStateOf(0) }
-    val approvedDrafts = remember(drafts) {
-        drafts.filter { it.status == DraftStatus.APPROVED.id }.ifEmpty { drafts }
+    val context = LocalContext.current
+    // 0: محتوى الدرس و PDF, 1: الدرس التفاعلي, 2: الشرح والملخص, 3: اختبار الدرس
+    var activeTab by remember(lesson.lessonKey, lesson.bookKey, lesson.unitKey) {
+        mutableIntStateOf(0)
+    }
+    var lessonTextContent by remember(lesson.sourceTextPath, lesson.pdfPath) {
+        mutableStateOf<String?>(null)
+    }
+    LaunchedEffect(lesson.sourceTextPath, lesson.pdfPath) {
+        val loadedText = withContext(Dispatchers.IO) {
+            val fromSource = lesson.sourceTextPath?.takeIf { it.isNotBlank() }?.let {
+                UriIO.readText(context, it)?.trim()?.takeIf { text -> text.isNotEmpty() }
+            }
+            if (!fromSource.isNullOrBlank()) return@withContext fromSource
+            val rawPdf = lesson.pdfPath?.takeIf { it.isNotBlank() && !UriIO.isContentUri(it) } ?: return@withContext null
+            val pdfFile = File(rawPdf)
+            val txtSibling = File(pdfFile.parentFile, pdfFile.nameWithoutExtension + ".txt")
+            val mdSibling = File(pdfFile.parentFile, pdfFile.nameWithoutExtension + ".md")
+            when {
+                txtSibling.isFile -> txtSibling.readText(Charsets.UTF_8).trim().takeIf { it.isNotEmpty() }
+                mdSibling.isFile -> mdSibling.readText(Charsets.UTF_8).trim().takeIf { it.isNotEmpty() }
+                else -> null
+            }
+        }
+        lessonTextContent = loadedText
+    }
+    val studyDrafts = remember(drafts) {
+        drafts.filter { it.task != TaskType.QUESTIONS }
+            .sortedWith(
+                compareByDescending<DraftRecord> { it.status == DraftStatus.APPROVED.id }
+                    .thenByDescending { it.version }
+            )
+    }
+    val approvedDrafts = remember(studyDrafts) {
+        studyDrafts.filter { it.status == DraftStatus.APPROVED.id }.ifEmpty { studyDrafts }
     }
     val publishedPkg = remember(packages) {
         packages.firstOrNull { it.publishedForStudents }
     }
-    val interactiveDraftActivity = remember(approvedDrafts, lesson) {
-        approvedDrafts.firstOrNull { it.task == TaskType.INTERACTIVE }
-            ?.let { InteractiveActivityParser.parse(it.content, lesson.title) }
+    val fallbackDirectFilePkg = remember(lesson.interactivePath) {
+        val raw = lesson.interactivePath
+        if (!raw.isNullOrBlank() && !UriIO.isContentUri(raw)) {
+            val f = File(raw)
+            if (f.isFile && f.parentFile != null) f.parentFile!!.absolutePath to f.name else null
+        } else null
     }
+    val interactiveDraftActivity = remember(drafts, lesson) {
+        val interactiveDrafts = drafts.filter { it.task == TaskType.INTERACTIVE }
+            .sortedWith(
+                compareByDescending<DraftRecord> { it.status == DraftStatus.APPROVED.id }
+                    .thenByDescending { it.version }
+            )
+        interactiveDrafts.firstNotNullOfOrNull { InteractiveActivityParser.parse(it.content, lesson.title) }
+    }
+    val hasWebPackage = publishedPkg != null || fallbackDirectFilePkg != null
+    val hasInteractive = hasWebPackage || interactiveDraftActivity != null
+    // 0 = HTML/3D package, 1 = AI interactive steps JSON
+    var interactiveSourceMode by remember(lesson.lessonKey, hasWebPackage, interactiveDraftActivity) {
+        mutableIntStateOf(if (hasWebPackage) 0 else 1)
+    }
+    var interactiveCompletedXp by remember(lesson.lessonKey) { mutableStateOf<Int?>(null) }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -111,14 +190,15 @@ fun StudentStudyDialog(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "وضع الطالب • ${lesson.title}",
+                                text = lesson.title,
                                 style = MaterialTheme.typography.titleMedium,
                                 color = EduWhite
                             )
                             Text(
-                                text = "${lesson.bookTitle} • ${lesson.unitTitle}",
+                                text = "${lesson.bookTitle} • ${lesson.unitTitle}" +
+                                    (if (isCompleted) " • مكتمل ✓" else ""),
                                 style = MaterialTheme.typography.bodySmall,
-                                color = EduWhite.copy(alpha = 0.9f)
+                                color = EduWhite.copy(alpha = 0.92f)
                             )
                         }
                         IconButton(
@@ -132,6 +212,7 @@ fun StudentStudyDialog(
                     }
                 }
 
+                // Quick Toggle Bar: الكتاب (PDF) <-> التفاعلي <-> الشرح <-> الاختبار
                 FlowRow(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -140,9 +221,9 @@ fun StudentStudyDialog(
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     listOf(
-                        "الكتاب (PDF)",
+                        "محتوى الدرس و PDF",
+                        "الدرس التفاعلي",
                         "الشرح والملخص (${approvedDrafts.size})",
-                        "التفاعلي",
                         "اختبار الدرس (${lessonQuestions.size})"
                     ).forEachIndexed { idx, label ->
                         EduPill(
@@ -160,21 +241,296 @@ fun StudentStudyDialog(
                         .fillMaxWidth()
                 ) {
                     when (activeTab) {
-                        0 -> Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .verticalScroll(rememberScrollState())
-                                .padding(horizontal = 12.dp, vertical = 6.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            LessonPdfViewer(
-                                pdfPath = lesson.pdfPath,
-                                title = lesson.title,
-                                maxHeightDp = 520
-                            )
+                        0 -> {
+                            val hasPdf = !lesson.pdfPath.isNullOrBlank()
+                            val readableDraft = remember(approvedDrafts) {
+                                approvedDrafts.firstOrNull {
+                                    it.task == TaskType.EXPLANATION || it.task == TaskType.SUMMARY || it.task == TaskType.LESSON_REVIEW
+                                }
+                            }
+                            val effectiveText = lessonTextContent ?: readableDraft?.content
+                            val hasText = !effectiveText.isNullOrBlank()
+                            // 0 = الكل, 1 = PDF فقط, 2 = نص الدرس فقط
+                            var contentViewMode by remember(lesson.lessonKey, hasPdf, hasText) {
+                                mutableIntStateOf(if (hasPdf && hasText) 0 else if (hasPdf) 1 else 2)
+                            }
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .verticalScroll(rememberScrollState())
+                                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                if (hasPdf && hasText) {
+                                    FlowRow(
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        EduPill(
+                                            text = "عرض المحتوى + PDF",
+                                            active = contentViewMode == 0,
+                                            onClick = { contentViewMode = 0 },
+                                            testTag = "study_content_mode_both"
+                                        )
+                                        EduPill(
+                                            text = "ملف PDF فقط",
+                                            active = contentViewMode == 1,
+                                            onClick = { contentViewMode = 1 },
+                                            testTag = "study_content_mode_pdf"
+                                        )
+                                        EduPill(
+                                            text = "نص الدرس فقط",
+                                            active = contentViewMode == 2,
+                                            onClick = { contentViewMode = 2 },
+                                            testTag = "study_content_mode_text"
+                                        )
+                                    }
+                                }
+
+                                if (hasPdf && (contentViewMode == 0 || contentViewMode == 1)) {
+                                    LessonPdfViewer(
+                                        pdfPath = lesson.pdfPath,
+                                        title = lesson.title,
+                                        maxHeightDp = if (contentViewMode == 0 && hasText) 360 else 500
+                                    )
+                                }
+
+                                if (hasText && (contentViewMode == 0 || contentViewMode == 2)) {
+                                    EduMarkdownReader(
+                                        text = effectiveText.orEmpty(),
+                                        headerLabel = if (!lessonTextContent.isNullOrBlank()) {
+                                            "محتوى الدرس النصي من مساحة العمل"
+                                        } else {
+                                            "${readableDraft?.task?.labelAr ?: "محتوى"} • شرح الدرس"
+                                        },
+                                        testTag = "study_lesson_text_reader"
+                                    )
+                                }
+
+                                if (!hasPdf && !hasText) {
+                                    LessonPdfViewer(
+                                        pdfPath = null,
+                                        title = lesson.title,
+                                        maxHeightDp = 240
+                                    )
+                                }
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    OutlinedButton(
+                                        onClick = { activeTab = 1 },
+                                        shape = RoundedCornerShape(12.dp),
+                                        border = BorderStroke(1.dp, EduPurple),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .minimumInteractiveComponentSize()
+                                            .testTag("study_toggle_interactive_button")
+                                    ) {
+                                        Icon(Icons.Rounded.Code, contentDescription = null, tint = EduPurple, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(5.dp))
+                                        Text(
+                                            text = if (hasInteractive) "فتح الدرس التفاعلي" else "الدرس التفاعلي",
+                                            color = EduPurple,
+                                            style = MaterialTheme.typography.labelLarge
+                                        )
+                                    }
+                                    Button(
+                                        onClick = { activeTab = 3 },
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = EduYellow, contentColor = EduInk),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .minimumInteractiveComponentSize()
+                                            .testTag("study_finish_reading_quiz_button")
+                                    ) {
+                                        Icon(Icons.Rounded.Quiz, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(5.dp))
+                                        Text("إنهاء القراءة ← الاختبار", fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
                         }
 
-                        1 -> Column(
+                        1 -> Column(modifier = Modifier.fillMaxSize()) {
+                            Surface(
+                                color = EduWhite,
+                                border = BorderStroke(1.dp, EduLine),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        OutlinedButton(
+                                            onClick = { activeTab = 0 },
+                                            shape = RoundedCornerShape(10.dp),
+                                            border = BorderStroke(1.dp, EduGreen),
+                                            modifier = Modifier
+                                                .minimumInteractiveComponentSize()
+                                                .testTag("study_toggle_pdf_button")
+                                        ) {
+                                            Icon(Icons.Rounded.PictureAsPdf, contentDescription = null, tint = EduGreenDark, modifier = Modifier.size(15.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("محتوى الدرس و PDF", color = EduGreenDark, style = MaterialTheme.typography.labelMedium)
+                                        }
+                                        Spacer(modifier = Modifier.weight(1f))
+                                        Button(
+                                            onClick = { activeTab = 3 },
+                                            shape = RoundedCornerShape(10.dp),
+                                            colors = ButtonDefaults.buttonColors(containerColor = EduYellow, contentColor = EduInk),
+                                            modifier = Modifier
+                                                .minimumInteractiveComponentSize()
+                                                .testTag("study_interactive_to_quiz_button")
+                                        ) {
+                                            Text("اختبار الدرس", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+
+                                    if (hasWebPackage && interactiveDraftActivity != null) {
+                                        FlowRow(
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            EduPill(
+                                                text = "عرض HTML / 3D",
+                                                active = interactiveSourceMode == 0,
+                                                onClick = { interactiveSourceMode = 0 },
+                                                testTag = "interactive_source_web"
+                                            )
+                                            EduPill(
+                                                text = "النشاط التفاعلي المولّد (${interactiveDraftActivity.steps.size})",
+                                                active = interactiveSourceMode == 1,
+                                                onClick = { interactiveSourceMode = 1 },
+                                                testTag = "interactive_source_ai"
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            AnimatedVisibility(visible = interactiveCompletedXp != null) {
+                                Surface(
+                                    color = EduMint,
+                                    border = BorderStroke(1.dp, EduGreen),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = EduGreenDark, modifier = Modifier.size(18.dp))
+                                        Text(
+                                            text = "أتممت النشاط التفاعلي (+${interactiveCompletedXp ?: 0} XP)!",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = EduGreenDark,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        Button(
+                                            onClick = { activeTab = 3 },
+                                            shape = RoundedCornerShape(8.dp),
+                                            colors = ButtonDefaults.buttonColors(containerColor = EduGreen, contentColor = EduWhite),
+                                            modifier = Modifier.minimumInteractiveComponentSize()
+                                        ) {
+                                            Text("ابدأ الاختبار", style = MaterialTheme.typography.labelSmall)
+                                        }
+                                    }
+                                }
+                            }
+
+                            when {
+                                interactiveSourceMode == 0 && publishedPkg != null -> SandboxedPackageWebView(
+                                    rootDir = publishedPkg.rootDir,
+                                    entryFile = publishedPkg.entryFile,
+                                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                                    onWebQuestionAnswered = { prompt, conceptTag, selected, correct, isCorrect ->
+                                        onInteractiveQuestionAnswered(
+                                            prompt,
+                                            conceptTag.ifBlank { lesson.title },
+                                            selected,
+                                            correct,
+                                            isCorrect,
+                                            emptyList(),
+                                            "interactive_html"
+                                        )
+                                    },
+                                    onWebInteractiveCompleted = { _, earnedXp ->
+                                        interactiveCompletedXp = earnedXp
+                                        onInteractiveXpEarned(earnedXp)
+                                    }
+                                )
+                                interactiveSourceMode == 0 && fallbackDirectFilePkg != null -> SandboxedPackageWebView(
+                                    rootDir = fallbackDirectFilePkg.first,
+                                    entryFile = fallbackDirectFilePkg.second,
+                                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                                    onWebQuestionAnswered = { prompt, conceptTag, selected, correct, isCorrect ->
+                                        onInteractiveQuestionAnswered(
+                                            prompt,
+                                            conceptTag.ifBlank { lesson.title },
+                                            selected,
+                                            correct,
+                                            isCorrect,
+                                            emptyList(),
+                                            "interactive_html"
+                                        )
+                                    },
+                                    onWebInteractiveCompleted = { _, earnedXp ->
+                                        interactiveCompletedXp = earnedXp
+                                        onInteractiveXpEarned(earnedXp)
+                                    }
+                                )
+                                interactiveDraftActivity != null -> InteractiveJsonActivityPlayer(
+                                    activity = interactiveDraftActivity,
+                                    onCompleted = { xp ->
+                                        interactiveCompletedXp = xp
+                                        onInteractiveXpEarned(xp)
+                                    },
+                                    onCheckpointAnswered = { step, selectedOption, isCorrect ->
+                                        onInteractiveQuestionAnswered(
+                                            step.checkpointQuestion.ifBlank { step.title },
+                                            step.conceptTag.ifBlank { lesson.title },
+                                            selectedOption,
+                                            step.checkpointAnswer,
+                                            isCorrect,
+                                            step.checkpointOptions,
+                                            "interactive_json"
+                                        )
+                                    },
+                                    modifier = Modifier.weight(1f).fillMaxWidth()
+                                )
+                                else -> Column(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxWidth()
+                                        .padding(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    EduPanel(modifier = Modifier.fillMaxWidth()) {
+                                        Text(
+                                            text = "لا يوجد نشاط تفاعلي مرتبط بهذا الدرس في مساحة العمل حالياً.",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = EduMuted
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        2 -> Column(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .verticalScroll(rememberScrollState())
@@ -189,7 +545,7 @@ fun StudentStudyDialog(
                                     ) {
                                         Icon(Icons.Rounded.MenuBook, contentDescription = null, tint = EduMuted)
                                         Text(
-                                            text = "لا توجد مسودات أو شروحات محفوظة لهذا الدرس بعد.",
+                                            text = "لا توجد مسودات أو شروحات منشورة لهذا الدرس بعد.",
                                             style = MaterialTheme.typography.bodyMedium,
                                             color = EduMuted
                                         )
@@ -197,59 +553,43 @@ fun StudentStudyDialog(
                                 }
                             } else {
                                 approvedDrafts.forEach { d ->
-                                    EduPanel(modifier = Modifier.fillMaxWidth()) {
-                                        Text(
-                                            text = "${d.task.labelAr} (v${d.version} • ${DraftStatus.fromId(d.status).labelAr})",
-                                            style = MaterialTheme.typography.titleSmall,
-                                            color = EduGreenDark
-                                        )
-                                        Text(
-                                            text = d.content,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = EduInk
-                                        )
-                                    }
+                                    val statusBadge = if (d.status == DraftStatus.APPROVED.id) "معتمد ✓" else "مسودة"
+                                    EduMarkdownReader(
+                                        text = d.content,
+                                        headerLabel = "${d.task.labelAr} • v${d.version} • $statusBadge"
+                                    )
                                 }
                             }
-                        }
-
-                        2 -> {
-                            when {
-                                publishedPkg != null -> SandboxedPackageWebView(
-                                    rootDir = publishedPkg.rootDir,
-                                    entryFile = publishedPkg.entryFile,
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                                interactiveDraftActivity != null -> InteractiveJsonActivityPlayer(
-                                    activity = interactiveDraftActivity,
-                                    onCompleted = { xp -> onQuizCompleted(1, 1, xp) },
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                                else -> Column(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .padding(16.dp),
-                                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    EduPanel(modifier = Modifier.fillMaxWidth()) {
-                                        Text(
-                                            text = "لا يوجد نشاط تفاعلي منشور أو مولّد لهذا الدرس بعد.",
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = EduMuted
-                                        )
-                                    }
-                                }
+                            Button(
+                                onClick = { activeTab = 3 },
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = EduYellow, contentColor = EduInk),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .minimumInteractiveComponentSize()
+                            ) {
+                                Icon(Icons.Rounded.Quiz, contentDescription = null, modifier = Modifier.size(17.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("الانتقال لاختبار نهاية الدرس", fontWeight = FontWeight.Bold)
                             }
                         }
 
                         else -> StudentLessonQuizTab(
+                            lesson = lesson,
                             questions = lessonQuestions,
-                            onCompleted = onQuizCompleted,
+                            questionStats = questionStats,
+                            lastQuizResult = lastQuizResult,
+                            hasNextLesson = hasNextLesson,
+                            showAdminShortcuts = showAdminShortcuts,
+                            onOpenGenerateQuestions = onOpenGenerateQuestions,
+                            onSubmitQuiz = onSubmitLessonQuiz,
+                            onOpenNextLesson = onOpenNextLesson,
                             modifier = Modifier.fillMaxSize()
                         )
                     }
                 }
 
+                // Footer strictly enforces quiz-gated completion — no manual toggle
                 Surface(
                     color = EduWhite,
                     border = BorderStroke(1.dp, EduLine),
@@ -262,24 +602,65 @@ fun StudentStudyDialog(
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Button(
-                            onClick = onToggleCompleted,
-                            shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = if (isCompleted) EduMint else EduGreen,
-                                contentColor = if (isCompleted) EduGreenDark else EduWhite
-                            ),
-                            modifier = Modifier
-                                .weight(1f)
-                                .minimumInteractiveComponentSize()
-                                .testTag("student_toggle_complete_button")
-                        ) {
-                            Icon(Icons.Rounded.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = if (isCompleted) "تم إكمال الدرس ✓" else "تحديد الدرس كمكتمل (+50 XP)",
-                                fontWeight = FontWeight.Bold
-                            )
+                        if (isCompleted) {
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = EduMint,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("student_quiz_completed_badge")
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = EduGreenDark, modifier = Modifier.size(18.dp))
+                                    Text(
+                                        text = "تم إكمال الدرس باجتياز الاختبار ✓",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        color = EduGreenDark,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                            if (hasNextLesson) {
+                                Button(
+                                    onClick = onOpenNextLesson,
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = EduGreen, contentColor = EduWhite),
+                                    modifier = Modifier
+                                        .minimumInteractiveComponentSize()
+                                        .testTag("student_footer_next_lesson_button")
+                                ) {
+                                    Text("الدرس التالي", fontWeight = FontWeight.Bold)
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Icon(Icons.AutoMirrored.Rounded.ArrowForward, contentDescription = null, modifier = Modifier.size(16.dp))
+                                }
+                            }
+                        } else {
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(Icons.Rounded.Quiz, contentDescription = null, tint = EduPurple, modifier = Modifier.size(17.dp))
+                                Text(
+                                    text = "يكتمل الدرس تلقائياً عند اجتياز الاختبار (${EduMiniRepository.LESSON_QUIZ_PASS_PERCENT}%+).",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = EduMuted
+                                )
+                            }
+                            if (activeTab != 3) {
+                                OutlinedButton(
+                                    onClick = { activeTab = 3 },
+                                    shape = RoundedCornerShape(10.dp),
+                                    border = BorderStroke(1.dp, EduGreen),
+                                    modifier = Modifier.minimumInteractiveComponentSize()
+                                ) {
+                                    Text("الاختبار", color = EduGreenDark, style = MaterialTheme.typography.labelMedium)
+                                }
+                            }
                         }
                     }
                 }
@@ -290,12 +671,25 @@ fun StudentStudyDialog(
 
 @Composable
 private fun StudentLessonQuizTab(
+    lesson: LessonRef,
     questions: List<QuestionItem>,
-    onCompleted: (Int, Int, Int) -> Unit,
+    questionStats: Map<String, QuestionMasteryStats>,
+    lastQuizResult: LessonQuizCompletionResult?,
+    hasNextLesson: Boolean,
+    showAdminShortcuts: Boolean = false,
+    onOpenGenerateQuestions: (() -> Unit)? = null,
+    onSubmitQuiz: (Map<String, String>) -> Unit,
+    onOpenNextLesson: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val answers = remember(questions) { mutableStateMapOf<String, String>() }
-    var submitted by remember(questions) { mutableStateOf(false) }
+    val answers = remember(lesson.lessonKey, questions) { mutableStateMapOf<String, String>() }
+    var submitted by remember(lesson.lessonKey, questions) { mutableStateOf(false) }
+
+    LaunchedEffect(lastQuizResult?.lessonKey, lastQuizResult?.scorePercent) {
+        if (lastQuizResult != null && lastQuizResult.lessonKey == lesson.lessonKey) {
+            submitted = true
+        }
+    }
 
     Column(
         modifier = modifier
@@ -306,96 +700,174 @@ private fun StudentLessonQuizTab(
         if (questions.isEmpty()) {
             EduPanel(modifier = Modifier.fillMaxWidth()) {
                 Text(
-                    text = "لا توجد أسئلة محفوظة لهذا الدرس في بنك الأسئلة.",
+                    text = "لا توجد أسئلة مرتبطة بهذا الدرس في بنك الأسئلة حالياً.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = EduMuted
                 )
+                if (showAdminShortcuts && onOpenGenerateQuestions != null) {
+                    Spacer(modifier = Modifier.padding(top = 4.dp))
+                    OutlinedButton(
+                        onClick = onOpenGenerateQuestions,
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, EduPurple),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .minimumInteractiveComponentSize()
+                            .testTag("study_admin_generate_questions_button")
+                    ) {
+                        Icon(Icons.Rounded.AutoAwesome, contentDescription = null, tint = EduPurple, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("توليد أسئلة لهذا الدرس في Studio", color = EduPurple, fontWeight = FontWeight.Bold)
+                    }
+                }
             }
             return@Column
         }
 
         if (submitted) {
-            val summary = QuestionBankEngine.gradeQuiz(questions, answers)
+            val graded = QuestionBankEngine.gradeQuiz(questions, answers)
+            val displayPercent = lastQuizResult?.takeIf { it.lessonKey == lesson.lessonKey }?.scorePercent ?: graded.scorePercent
+            val displayCorrect = lastQuizResult?.takeIf { it.lessonKey == lesson.lessonKey }?.correctCount ?: graded.correctCount
+            val displayTotal = lastQuizResult?.takeIf { it.lessonKey == lesson.lessonKey }?.totalQuestions ?: graded.totalQuestions
+            val displayXp = lastQuizResult?.takeIf { it.lessonKey == lesson.lessonKey }?.earnedXp ?: graded.earnedXp
+            val passed = displayPercent >= EduMiniRepository.LESSON_QUIZ_PASS_PERCENT
+
             EduPanel(
-                modifier = Modifier.fillMaxWidth(),
-                borderColor = EduGreen,
-                containerColor = EduMint.copy(alpha = 0.4f)
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("lesson_quiz_result_panel"),
+                borderColor = if (passed) EduGreen else EduOrange,
+                containerColor = if (passed) EduMint.copy(alpha = 0.45f) else EduOrange.copy(alpha = 0.1f)
             ) {
-                Text(
-                    text = "النتيجة: ${summary.correctCount} / ${summary.totalQuestions} (${summary.scorePercent}%)",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = EduGreenDark
-                )
-                Text(
-                    text = "+${summary.earnedXp} XP مكتسبة",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = EduInk
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    RadialProgressIndicator(
+                        percentage = displayPercent,
+                        size = 76.dp,
+                        strokeWidth = 7.dp,
+                        label = if (passed) "ناجح" else "تقوية"
+                    )
+                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text(
+                            text = if (passed) {
+                                "أحسنت! اجتزت اختبار الدرس ✓"
+                            } else {
+                                "حاول مرة أخرى لتحقيق ${EduMiniRepository.LESSON_QUIZ_PASS_PERCENT}%+ وإكمال الدرس"
+                            },
+                            style = MaterialTheme.typography.titleSmall,
+                            color = if (passed) EduGreenDark else EduInk
+                        )
+                        Text(
+                            text = "النتيجة: $displayCorrect / $displayTotal ($displayPercent%) • +$displayXp XP",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = EduInk
+                        )
+                    }
+                }
+
+                val weak = lastQuizResult?.weakConcepts.orEmpty()
+                if (weak.isNotEmpty()) {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = EduWhite,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(9.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(Icons.Rounded.WarningAmber, contentDescription = null, tint = EduOrange, modifier = Modifier.size(16.dp))
+                            Text(
+                                text = "مفاهيم تحتاج تقوية: ${weak.joinToString("، ") { it.conceptTag }}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = EduInk
+                            )
+                        }
+                    }
+                }
+
+                if (passed && hasNextLesson) {
+                    Button(
+                        onClick = onOpenNextLesson,
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = EduGreen, contentColor = EduWhite),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .minimumInteractiveComponentSize()
+                            .testTag("lesson_quiz_next_lesson_button")
+                    ) {
+                        Text("الانتقال إلى الدرس التالي", fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Icon(Icons.AutoMirrored.Rounded.ArrowForward, contentDescription = null, modifier = Modifier.size(18.dp))
+                    }
+                }
             }
         }
 
         questions.forEachIndexed { idx, q ->
             val picked = answers[q.id].orEmpty()
+            val stats = questionStats[q.id]
             EduPanel(modifier = Modifier.fillMaxWidth()) {
+                QuestionMasteryDiagnosticBanner(
+                    stats = stats,
+                    currentAnswer = picked
+                )
                 Text(
                     text = "${idx + 1}. ${q.prompt}",
                     style = MaterialTheme.typography.titleSmall,
                     color = EduInk
                 )
-                if (q.options.isNotEmpty() && q.type != com.example.model.QuestionType.ORDERING && q.type != com.example.model.QuestionType.MATCHING) {
-                    q.options.forEach { opt ->
-                        val isSelected = picked == opt
-                        val isCorrect = QuestionBankEngine.isAnswerCorrect(q, opt)
-                        val bg = when {
-                            submitted && isCorrect -> EduMint
-                            submitted && isSelected && !isCorrect -> EduRed.copy(alpha = 0.14f)
-                            isSelected -> EduLilac
-                            else -> EduBg
-                        }
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = bg,
-                            border = BorderStroke(1.dp, if (isSelected) EduPurple else EduLine),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(10.dp))
-                                .minimumInteractiveComponentSize()
-                                .clickable(enabled = !submitted) { answers[q.id] = opt }
+                QuestionAnswerInputArea(
+                    question = q,
+                    currentAnswer = picked,
+                    locked = submitted,
+                    previousSelectedAnswer = stats?.lastSelectedAnswer,
+                    onAnswerChange = { answers[q.id] = it }
+                )
+                if (submitted) {
+                    val rightNow = QuestionBankEngine.isAnswerCorrect(q, picked)
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (rightNow) EduMint else EduRed.copy(alpha = 0.1f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
                         ) {
                             Text(
-                                text = opt,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = EduInk,
-                                modifier = Modifier.padding(10.dp)
+                                text = if (rightNow) "إجابة صحيحة ✓" else "الإجابة الصحيحة: ${q.correctAnswer}",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = if (rightNow) EduGreenDark else EduRed
                             )
+                            if (q.rationale.isNotBlank()) {
+                                Text(
+                                    text = q.rationale,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = EduInk
+                                )
+                            }
                         }
                     }
-                } else {
-                    OutlinedTextField(
-                        value = picked,
-                        onValueChange = { if (!submitted) answers[q.id] = it },
-                        label = { Text("اكتب إجابتك") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-                if (submitted) {
-                    Text(
-                        text = "الإجابة الصحيحة: ${q.correctAnswer}",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = EduGreenDark
-                    )
                 }
             }
         }
 
+        val answeredCount = questions.count { !answers[it.id].isNullOrBlank() }
         if (!submitted) {
             EduYellowButton(
-                text = "اعتماد إجابات الدرس",
+                text = "اعتماد اختبار الدرس (${answeredCount}/${questions.size})",
                 onClick = {
                     submitted = true
-                    val summary = QuestionBankEngine.gradeQuiz(questions, answers)
-                    onCompleted(summary.correctCount, summary.totalQuestions, summary.earnedXp)
-                }
+                    onSubmitQuiz(answers.toMap())
+                },
+                enabled = answeredCount > 0,
+                icon = Icons.Rounded.CheckCircle,
+                testTag = "submit_lesson_quiz_button"
             )
         } else {
             OutlinedButton(
@@ -408,8 +880,9 @@ private fun StudentLessonQuizTab(
                 modifier = Modifier
                     .fillMaxWidth()
                     .minimumInteractiveComponentSize()
+                    .testTag("retry_lesson_quiz_button")
             ) {
-                Text("إعادة المحاولة", color = EduGreenDark)
+                Text("إعادة محاولة الاختبار", color = EduGreenDark, fontWeight = FontWeight.Bold)
             }
         }
     }

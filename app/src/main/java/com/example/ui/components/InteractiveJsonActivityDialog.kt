@@ -50,6 +50,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.data.repository.QuestionBankEngine
 import com.example.model.InteractiveActivityModel
+import com.example.model.InteractiveStepItem
 import com.example.ui.theme.EduBg
 import com.example.ui.theme.EduBlue
 import com.example.ui.theme.EduGreen
@@ -134,7 +135,8 @@ fun InteractiveJsonActivityDialog(
 fun InteractiveJsonActivityPlayer(
     activity: InteractiveActivityModel,
     onCompleted: (earnedXp: Int) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onCheckpointAnswered: ((step: InteractiveStepItem, selectedOption: String, isCorrect: Boolean) -> Unit)? = null
 ) {
     val hasOrdering = activity.orderingItems.isNotEmpty()
     val hasMatching = activity.matchingPairs.isNotEmpty()
@@ -245,6 +247,19 @@ fun InteractiveJsonActivityPlayer(
                                 modifier = Modifier.padding(12.dp),
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
+                                if (step.conceptTag.isNotBlank()) {
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = EduWhite
+                                    ) {
+                                        Text(
+                                            text = "المفهوم: ${step.conceptTag}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = EduPurple,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                        )
+                                    }
+                                }
                                 Text(
                                     text = "نقطة تحقق سريعة: ${step.checkpointQuestion}",
                                     style = MaterialTheme.typography.labelLarge,
@@ -287,7 +302,12 @@ fun InteractiveJsonActivityPlayer(
                                 }
                                 if (!verified && step.checkpointOptions.isNotEmpty()) {
                                     OutlinedButton(
-                                        onClick = { checkpointVerified[currentStation] = true },
+                                        onClick = {
+                                            checkpointVerified[currentStation] = true
+                                            val rightNow = QuestionBankEngine.normalizeForFingerprint(picked) ==
+                                                QuestionBankEngine.normalizeForFingerprint(step.checkpointAnswer)
+                                            onCheckpointAnswered?.invoke(step, picked, rightNow)
+                                        },
                                         enabled = picked.isNotBlank(),
                                         shape = RoundedCornerShape(10.dp),
                                         border = BorderStroke(1.dp, EduPurple),

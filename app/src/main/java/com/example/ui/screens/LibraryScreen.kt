@@ -33,6 +33,7 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Backup
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.FileDownload
+import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.PictureAsPdf
 import androidx.compose.material.icons.rounded.Restore
 import androidx.compose.material.icons.rounded.School
@@ -71,6 +72,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.R
+import com.example.data.workspace.UriIO
 import com.example.model.BookProgressSummary
 import com.example.model.BookRef
 import com.example.model.ImportedWorkspace
@@ -107,8 +109,9 @@ fun LibraryScreen(
     activeProvidersCount: Int,
     diskUsageBytes: Long = 0L,
     bookProgress: List<BookProgressSummary> = emptyList(),
-    onPickZip: () -> Unit,
-    onPickBookPdf: () -> Unit,
+    onBindDirectFolder: () -> Unit = {},
+    onPickZip: () -> Unit = {},
+    onPickBookPdf: () -> Unit = {},
     onPickStandalonePdf: () -> Unit = {},
     onSelectWorkspace: (String) -> Unit,
     onDeleteWorkspace: (String, String) -> Unit = { _, _ -> },
@@ -159,8 +162,7 @@ fun LibraryScreen(
         ) {
             item(key = "hero") {
                 LibraryHeroCard(
-                    onPickZip = onPickZip,
-                    onPickBookPdf = onPickBookPdf,
+                    onBindDirectFolder = onBindDirectFolder,
                     onPickStandalonePdf = onPickStandalonePdf
                 )
             }
@@ -246,8 +248,15 @@ fun LibraryScreen(
                                     style = MaterialTheme.typography.titleSmall,
                                     color = EduInk
                                 )
+                                val isDirectSaf = remember(workspace.rootPath) {
+                                    UriIO.isContentUri(workspace.rootPath)
+                                }
                                 Text(
-                                    text = "${workspace.gradeKey} • ${workspace.filesCount} ملف • الحجم على القرص: $diskLabel",
+                                    text = if (isDirectSaf) {
+                                        "${workspace.gradeKey} • ${workspace.filesCount} ملف • ربط مباشر محلي (بدون نسخ)"
+                                    } else {
+                                        "${workspace.gradeKey} • ${workspace.filesCount} ملف • الحجم على القرص: $diskLabel"
+                                    },
                                     style = MaterialTheme.typography.bodySmall,
                                     color = EduMuted
                                 )
@@ -557,8 +566,7 @@ fun LibraryScreen(
 
 @Composable
 private fun LibraryHeroCard(
-    onPickZip: () -> Unit,
-    onPickBookPdf: () -> Unit,
+    onBindDirectFolder: () -> Unit,
     onPickStandalonePdf: () -> Unit
 ) {
     Surface(
@@ -609,64 +617,33 @@ private fun LibraryHeroCard(
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 EduYellowButton(
-                    text = stringResource(R.string.split_book_pdf_cta),
-                    onClick = onPickBookPdf,
-                    icon = Icons.Rounded.PictureAsPdf,
-                    testTag = "split_book_pdf_button"
+                    text = stringResource(R.string.bind_direct_folder_cta),
+                    onClick = onBindDirectFolder,
+                    icon = Icons.Rounded.FolderOpen,
+                    testTag = "bind_direct_folder_button"
                 )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                OutlinedButton(
+                    onClick = onPickStandalonePdf,
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, EduWhite.copy(alpha = 0.55f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .minimumInteractiveComponentSize()
+                        .testTag("open_standalone_pdf_button")
                 ) {
-                    Button(
-                        onClick = onPickZip,
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = EduWhite.copy(alpha = 0.18f),
-                            contentColor = EduWhite
-                        ),
-                        border = BorderStroke(1.dp, EduWhite.copy(alpha = 0.45f)),
-                        modifier = Modifier
-                            .weight(1f)
-                            .minimumInteractiveComponentSize()
-                            .testTag("import_zip_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Add,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = stringResource(R.string.import_zip_cta),
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                    OutlinedButton(
-                        onClick = onPickStandalonePdf,
-                        shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(1.dp, EduWhite.copy(alpha = 0.55f)),
-                        modifier = Modifier
-                            .minimumInteractiveComponentSize()
-                            .testTag("open_standalone_pdf_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.PictureAsPdf,
-                            contentDescription = "عرض ملف PDF محلي",
-                            tint = EduWhite,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(5.dp))
-                        Text(
-                            text = "عرض PDF",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = EduWhite,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
+                    Icon(
+                        imageVector = Icons.Rounded.PictureAsPdf,
+                        contentDescription = "عرض ملف PDF محلي",
+                        tint = EduWhite,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "عرض ملف PDF محلي مباشرة",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = EduWhite,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
         }

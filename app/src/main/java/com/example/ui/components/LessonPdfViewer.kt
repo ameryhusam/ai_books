@@ -1,32 +1,29 @@
 package com.example.ui.components
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
+import android.util.LruCache
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTransformGestures
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
@@ -43,6 +40,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -55,19 +53,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.example.data.workspace.UriIO
 import com.example.ui.theme.EduBg
 import com.example.ui.theme.EduFieldBg
-import com.example.ui.theme.EduGreen
 import com.example.ui.theme.EduGreenDark
 import com.example.ui.theme.EduInk
 import com.example.ui.theme.EduLine
@@ -76,8 +75,9 @@ import com.example.ui.theme.EduMuted
 import com.example.ui.theme.EduOrange
 import com.example.ui.theme.EduWhite
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import java.io.File
 
 private data class PdfPageRenderResult(
     val pageCount: Int,
@@ -86,39 +86,77 @@ private data class PdfPageRenderResult(
     val fileBytes: Long
 )
 
-private suspend fun renderPdfPage(pdfPath: String?, pageIndex: Int, targetWidthPx: Int = 960): PdfPageRenderResult {
-    if (pdfPath.isNullOrBlank()) {
-        return PdfPageRenderResult(0, null, "لا يوجد ملف PDF مرتبط بهذا العنصر.", 0L)
+private object PdfBitmapCache {
+    private val cache = object : LruCache<String, Bitmap>(16) {}
+    fun get(key: String): Bitmap? = cache.get(key)?.takeIf { !it.isRecycled }
+    fun put(key: String, bitmap: Bitmap) {
+        cache.put(key, bitmap)
     }
-    val file = File(pdfPath)
-    if (!file.exists()) {
-        return PdfPageRenderResult(0, null, "ملف PDF غير موجود في التخزين المحلي.", 0L)
-    }
-    val fileBytes = file.length()
-    return withContext(Dispatchers.IO) {
-        runCatching {
-            ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { pfd ->
-                PdfRenderer(pfd).use { renderer ->
-                    val total = renderer.pageCount
-                    if (total <= 0) {
-                        PdfPageRenderResult(0, null, "ملف PDF فارغ", fileBytes)
-                    } else {
-                        val safeIndex = pageIndex.coerceIn(0, total - 1)
-                        renderer.openPage(safeIndex).use { page ->
-                            val scale = (targetWidthPx.toFloat() / page.width.coerceAtLeast(1)).coerceIn(0.8f, 2.2f)
-                            val w = (page.width * scale).toInt().coerceAtLeast(320)
-                            val h = (page.height * scale).toInt().coerceAtLeast(420)
-                            val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-                            bmp.eraseColor(Color.WHITE)
-                            page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                            PdfPageRenderResult(total, bmp, null, fileBytes)
-                        }
+}
+
+private class PdfRenderSession(
+    private val pfd: ParcelFileDescriptor,
+    private val renderer: PdfRenderer,
+    val fileBytes: Long
+) {
+    val pageCount: Int get() = renderer.pageCount
+    private val mutex = Mutex()
+
+    suspend fun renderPage(cachePrefix: String, pageIndex: Int, targetWidthPx: Int): PdfPageRenderResult =
+        mutex.withLock {
+            val total = renderer.pageCount
+            if (total <= 0) {
+                return@withLock PdfPageRenderResult(0, null, "ملف PDF فارغ", fileBytes)
+            }
+            val safeIndex = pageIndex.coerceIn(0, total - 1)
+            val widthBucket = ((targetWidthPx + 127) / 128) * 128
+            val cacheKey = "$cachePrefix#$safeIndex#$widthBucket"
+            PdfBitmapCache.get(cacheKey)?.let { cached ->
+                return@withLock PdfPageRenderResult(total, cached, null, fileBytes)
+            }
+            return@withLock withContext(Dispatchers.IO) {
+                runCatching {
+                    renderer.openPage(safeIndex).use { page ->
+                        val scale = (widthBucket.toFloat() / page.width.coerceAtLeast(1)).coerceIn(0.8f, 2.8f)
+                        val w = (page.width * scale).toInt().coerceIn(320, 2200)
+                        val h = (page.height * scale).toInt().coerceIn(420, 3000)
+                        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                        bmp.eraseColor(Color.WHITE)
+                        page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                        PdfBitmapCache.put(cacheKey, bmp)
+                        PdfPageRenderResult(total, bmp, null, fileBytes)
                     }
+                }.getOrElse { err ->
+                    PdfPageRenderResult(total, null, err.message ?: "تعذر عرض PDF", fileBytes)
                 }
             }
-        }.getOrElse { err ->
-            PdfPageRenderResult(0, null, err.message ?: "تعذر عرض PDF", fileBytes)
         }
+
+    fun close() {
+        runCatching { renderer.close() }
+        runCatching { pfd.close() }
+    }
+
+    companion object {
+        suspend fun open(context: Context, pdfPathOrUri: String?): Pair<PdfRenderSession?, String?> =
+            withContext(Dispatchers.IO) {
+                if (pdfPathOrUri.isNullOrBlank()) {
+                    return@withContext null to "لا يوجد ملف PDF مرتبط بهذا العنصر."
+                }
+                if (!UriIO.exists(context, pdfPathOrUri)) {
+                    return@withContext null to "ملف PDF غير موجود في مساحة العمل المحلية."
+                }
+                val size = UriIO.fileLength(context, pdfPathOrUri)
+                val pfd = UriIO.openReadPfd(context, pdfPathOrUri)
+                    ?: return@withContext null to "تعذر فتح ملف PDF للقراءة."
+                runCatching {
+                    val renderer = PdfRenderer(pfd)
+                    PdfRenderSession(pfd, renderer, size) to null
+                }.getOrElse { err ->
+                    runCatching { pfd.close() }
+                    null to (err.message ?: "تعذر قراءة ملف PDF")
+                }
+            }
     }
 }
 
@@ -130,15 +168,37 @@ fun LessonPdfViewer(
     maxHeightDp: Int = 380,
     onOpenFullscreen: (() -> Unit)? = null
 ) {
+    val context = LocalContext.current
     var currentPage by remember(pdfPath) { mutableIntStateOf(0) }
     var pageCount by remember(pdfPath) { mutableIntStateOf(0) }
     var fileBytes by remember(pdfPath) { mutableStateOf(0L) }
     var renderedBitmap by remember(pdfPath) { mutableStateOf<Bitmap?>(null) }
     var errorText by remember(pdfPath) { mutableStateOf<String?>(null) }
+    var session by remember(pdfPath) { mutableStateOf<PdfRenderSession?>(null) }
     var internalFullscreen by remember(pdfPath) { mutableStateOf(false) }
 
-    LaunchedEffect(pdfPath, currentPage) {
-        val result = renderPdfPage(pdfPath, currentPage, targetWidthPx = 960)
+    DisposableEffect(pdfPath) {
+        val currentSession = session
+        onDispose {
+            currentSession?.close()
+        }
+    }
+
+    LaunchedEffect(pdfPath) {
+        session?.close()
+        session = null
+        renderedBitmap = null
+        errorText = null
+        val (opened, err) = PdfRenderSession.open(context, pdfPath)
+        session = opened
+        errorText = err
+        pageCount = opened?.pageCount ?: 0
+        fileBytes = opened?.fileBytes ?: 0L
+    }
+
+    LaunchedEffect(session, currentPage) {
+        val active = session ?: return@LaunchedEffect
+        val result = active.renderPage(pdfPath.orEmpty(), currentPage, targetWidthPx = 1024)
         pageCount = result.pageCount
         renderedBitmap = result.bitmap
         errorText = result.error
@@ -280,7 +340,7 @@ fun LessonPdfViewer(
                     )
                     Text(
                         text = if (isLikelyScanHeavy) {
-                            "$pageCount صفحة (${sizeKb} KB) • ملف مصوّر عالي الدقة — يُنصح بإبقاء «إرفاق صفحات PDF» مفعّلاً أو كتابة مقتطف نصي."
+                            "$pageCount صفحة (${sizeKb} KB) • ملف مصوّر عالي الدقة — يُقرأ مباشرةً من مساحة العمل."
                         } else {
                             "جاهزية المصدر: $pageCount صفحة (${sizeKb} KB) • اضغط على الصفحة للتكبير والتصفح الكامل."
                         },
@@ -310,18 +370,47 @@ fun PdfReaderDialog(
     initialPage: Int = 0,
     onDismiss: () -> Unit
 ) {
+    val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     var currentPage by remember(pdfPath) { mutableIntStateOf(initialPage) }
     var pageCount by remember(pdfPath) { mutableIntStateOf(0) }
     var fileBytes by remember(pdfPath) { mutableStateOf(0L) }
     var renderedBitmap by remember(pdfPath) { mutableStateOf<Bitmap?>(null) }
     var errorText by remember(pdfPath) { mutableStateOf<String?>(null) }
+    var session by remember(pdfPath) { mutableStateOf<PdfRenderSession?>(null) }
     var zoomScale by remember(pdfPath, currentPage) { mutableFloatStateOf(1f) }
     var offsetX by remember(pdfPath, currentPage) { mutableFloatStateOf(0f) }
     var offsetY by remember(pdfPath, currentPage) { mutableFloatStateOf(0f) }
 
-    LaunchedEffect(pdfPath, currentPage) {
-        val result = renderPdfPage(pdfPath, currentPage, targetWidthPx = 1280)
+    DisposableEffect(pdfPath) {
+        val currentSession = session
+        onDispose {
+            currentSession?.close()
+        }
+    }
+
+    LaunchedEffect(pdfPath) {
+        session?.close()
+        session = null
+        renderedBitmap = null
+        val (opened, err) = PdfRenderSession.open(context, pdfPath)
+        session = opened
+        errorText = err
+        pageCount = opened?.pageCount ?: 0
+        fileBytes = opened?.fileBytes ?: 0L
+    }
+
+    val targetRenderWidth = remember(zoomScale) {
+        when {
+            zoomScale >= 2.0f -> 2048
+            zoomScale >= 1.4f -> 1536
+            else -> 1280
+        }
+    }
+
+    LaunchedEffect(session, currentPage, targetRenderWidth) {
+        val active = session ?: return@LaunchedEffect
+        val result = active.renderPage(pdfPath.orEmpty(), currentPage, targetWidthPx = targetRenderWidth)
         pageCount = result.pageCount
         renderedBitmap = result.bitmap
         errorText = result.error

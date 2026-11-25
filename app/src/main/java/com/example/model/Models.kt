@@ -55,6 +55,91 @@ data class ProviderConfig(
     val strictModel: Boolean = false
 )
 
+@Serializable
+enum class UserRole(val id: String, val labelAr: String) {
+    ENTRY("entry", "اختيار الدخول"),
+    LEARNER("learner", "متعلّم"),
+    ADMIN("admin", "مدير / معلم");
+
+    companion object {
+        fun fromId(id: String): UserRole = entries.firstOrNull { it.id == id } ?: ENTRY
+    }
+}
+
+enum class MasteryStatus(val labelAr: String) {
+    UNSEEN("لم يُختبَر"),
+    MASTERED("مُتقَن"),
+    NEEDS_REINFORCEMENT("يحتاج تقوية")
+}
+
+@Serializable
+data class LearnerProfile(
+    val userId: String,
+    val displayName: String
+) {
+    companion object {
+        const val DEFAULT_USER_ID = "learner_default"
+        val DEFAULT = LearnerProfile(
+            userId = DEFAULT_USER_ID,
+            displayName = "المتعلّم الأساسي"
+        )
+    }
+}
+
+data class QuestionAttemptRecord(
+    val id: String,
+    val workspaceId: String,
+    val userId: String = LearnerProfile.DEFAULT_USER_ID,
+    val questionId: String,
+    val conceptTag: String,
+    val selectedAnswer: String,
+    val isCorrect: Boolean,
+    val sourceMode: String = "lesson_quiz",
+    val answeredAt: String
+)
+
+data class QuestionMasteryStats(
+    val questionId: String,
+    val conceptTag: String,
+    val attemptsCount: Int,
+    val correctCount: Int,
+    val wrongCount: Int,
+    val lastSelectedAnswer: String?,
+    val lastIsCorrect: Boolean?,
+    val status: MasteryStatus
+) {
+    fun sameAsPrevious(candidateAnswer: String): Boolean {
+        val prev = lastSelectedAnswer?.trim().orEmpty()
+        val curr = candidateAnswer.trim()
+        return prev.isNotEmpty() && curr.isNotEmpty() && prev.equals(curr, ignoreCase = true)
+    }
+}
+
+data class ConceptMasterySummary(
+    val conceptTag: String,
+    val lessonKey: String? = null,
+    val lessonTitle: String? = null,
+    val bookTitle: String? = null,
+    val questionsCount: Int,
+    val attemptsCount: Int,
+    val correctCount: Int,
+    val wrongCount: Int,
+    val accuracyPercent: Int,
+    val status: MasteryStatus
+)
+
+data class LessonQuizCompletionResult(
+    val lessonKey: String,
+    val correctCount: Int,
+    val totalQuestions: Int,
+    val scorePercent: Int,
+    val passed: Boolean,
+    val lessonMarkedCompleted: Boolean,
+    val earnedXp: Int,
+    val weakConcepts: List<ConceptMasterySummary>,
+    val masteredConcepts: List<ConceptMasterySummary>
+)
+
 data class BookRef(
     val bookKey: String,
     val title: String,
@@ -80,7 +165,25 @@ data class LessonRef(
     val partKey: String? = null,
     val pageRange: String? = null,
     val pdfPath: String? = null,
-    val workspaceId: String = ""
+    val workspaceId: String = "",
+    val sourceTextPath: String? = null,
+    val interactivePath: String? = null
+)
+
+data class DirectGradeChoice(
+    val gradeKey: String,
+    val booksCount: Int,
+    val lessonsCount: Int,
+    val bookTitles: List<String>
+)
+
+data class DirectWorkspaceInspection(
+    val rootUriOrPath: String,
+    val displayTitle: String,
+    val isSafUri: Boolean,
+    val grades: List<DirectGradeChoice>,
+    val totalFilesIndexed: Int,
+    val warnings: List<String> = emptyList()
 )
 
 data class ImportedWorkspace(
@@ -107,7 +210,9 @@ data class GeneratedResult(
     val text: String,
     val providerLabel: String,
     val model: String,
-    val createdAt: String
+    val createdAt: String,
+    val durationMs: Long = 0L,
+    val tokensUsed: Int = 0
 )
 
 data class DraftRecord(
@@ -138,7 +243,9 @@ data class GenerationRunRecord(
     val model: String,
     val status: String,
     val errorSummary: String?,
-    val createdAt: String
+    val createdAt: String,
+    val durationMs: Long = 0L,
+    val tokensUsed: Int = 0
 )
 
 @Serializable
@@ -226,6 +333,27 @@ enum class LearningNodeStatus(val labelAr: String) {
     COMPLETED("مكتمل")
 }
 
+enum class UnitCompletionStatus(val labelAr: String) {
+    NOT_STARTED("لم تبدأ"),
+    IN_PROGRESS("قيد الدراسة"),
+    COMPLETED("مكتملة بالاختبار")
+}
+
+enum class DashboardLessonFilter(val labelAr: String) {
+    ALL("الكل"),
+    PENDING("المتبقية"),
+    IN_PROGRESS("قيد التعلّم"),
+    READY_FOR_QUIZ("جاهزة للاختبار"),
+    COMPLETED("المكتملة")
+}
+
+data class StudentDashboardState(
+    val selectedBookKey: String = "",
+    val lessonFilter: DashboardLessonFilter = DashboardLessonFilter.ALL,
+    val collapsedUnitKeys: Set<String> = emptySet(),
+    val recentlyCompletedUnitTitle: String? = null
+)
+
 data class LearningLessonNode(
     val lesson: LessonRef,
     val status: LearningNodeStatus,
@@ -235,7 +363,15 @@ data class LearningLessonNode(
     val packagesCount: Int,
     val publishedPackagesCount: Int,
     val pointsEarned: Int,
-    val maxPossiblePoints: Int
+    val maxPossiblePoints: Int,
+    val questionsCount: Int = 0,
+    val quizAttemptedCount: Int = 0,
+    val quizPassed: Boolean = isCompleted,
+    val hasGeneratedMaterials: Boolean = draftsCount > 0 ||
+        approvedDraftsCount > 0 ||
+        packagesCount > 0 ||
+        publishedPackagesCount > 0 ||
+        questionsCount > 0
 )
 
 data class LearningUnitPath(
@@ -245,7 +381,15 @@ data class LearningUnitPath(
     val completedCount: Int,
     val totalCount: Int,
     val completionPercent: Int,
-    val nodes: List<LearningLessonNode>
+    val nodes: List<LearningLessonNode>,
+    val status: UnitCompletionStatus = when {
+        totalCount > 0 && completedCount == totalCount -> UnitCompletionStatus.COMPLETED
+        completedCount > 0 -> UnitCompletionStatus.IN_PROGRESS
+        else -> UnitCompletionStatus.NOT_STARTED
+    },
+    val questionsCount: Int = 0,
+    val generatedContentCount: Int = 0,
+    val inProgressCount: Int = 0
 )
 
 data class BookProgressSummary(
@@ -298,7 +442,10 @@ data class DashboardSummary(
     val bookProgress: List<BookProgressSummary> = emptyList(),
     val unitPaths: List<LearningUnitPath> = emptyList(),
     val badges: List<AchievementBadge> = emptyList(),
-    val nextRecommendedLesson: LessonRef? = null
+    val nextRecommendedLesson: LessonRef? = null,
+    val weakConcepts: List<ConceptMasterySummary> = emptyList(),
+    val masteredConceptsCount: Int = 0,
+    val weakConceptsCount: Int = 0
 )
 
 enum class QuestionType(val id: String, val labelAr: String) {
@@ -346,7 +493,8 @@ data class QuestionItem(
     val fingerprint: String = "",
     val reviewed: Boolean = false,
     val createdAt: String = "",
-    val isDuplicate: Boolean = false
+    val isDuplicate: Boolean = false,
+    val conceptTag: String = ""
 )
 
 enum class AssessmentKind(val id: String, val labelAr: String) {
@@ -412,7 +560,8 @@ data class InteractiveStepItem(
     val body: String,
     val checkpointQuestion: String = "",
     val checkpointOptions: List<String> = emptyList(),
-    val checkpointAnswer: String = ""
+    val checkpointAnswer: String = "",
+    val conceptTag: String = ""
 )
 
 data class InteractiveMatchPair(
@@ -497,6 +646,7 @@ data class Indexer2SchemaSpec(
 
 enum class AppPage {
     DASHBOARD,
+    LEARNER_MASTERY,
     LIBRARY,
     STUDIO,
     QUIZ_BANK,

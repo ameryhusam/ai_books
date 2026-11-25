@@ -50,6 +50,7 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Publish
 import androidx.compose.material.icons.rounded.School
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material.icons.rounded.UploadFile
@@ -103,6 +104,7 @@ import com.example.model.QuestionDifficulty
 import com.example.model.TaskType
 import com.example.model.TeacherNoteRecord
 import com.example.ui.components.BookCoverImage
+import com.example.ui.components.EduMarkdownReader
 import com.example.ui.components.EduPanel
 import com.example.ui.components.EduPill
 import com.example.ui.components.EduYellowButton
@@ -160,9 +162,11 @@ fun StudioScreen(
     onGeneratedResultChange: (String) -> Unit,
     onPackageSourcePagesChange: (String) -> Unit,
     onGenerate: () -> Unit,
+    onCancelGeneration: () -> Unit = {},
     onSaveEditedDraft: () -> Unit,
     onSaveToQuestionBank: () -> Unit,
     onLaunchInteractiveActivity: (String, String) -> Unit = { _, _ -> },
+    onPublishInteractiveBundle: (String?) -> Unit = {},
     onOpenStudentStudy: () -> Unit = {},
     onSaveTeacherNote: (String, Boolean) -> Unit = { _, _ -> },
     onApplyPromptTemplate: (PromptTemplateRecord) -> Unit = {},
@@ -259,9 +263,11 @@ fun StudioScreen(
                     onGeneratedResultChange = onGeneratedResultChange,
                     onPackageSourcePagesChange = onPackageSourcePagesChange,
                     onGenerate = onGenerate,
+                    onCancelGeneration = onCancelGeneration,
                     onSaveEditedDraft = onSaveEditedDraft,
                     onSaveToQuestionBank = onSaveToQuestionBank,
                     onLaunchInteractiveActivity = onLaunchInteractiveActivity,
+                    onPublishInteractiveBundle = onPublishInteractiveBundle,
                     onOpenStudentStudy = onOpenStudentStudy,
                     onSaveTeacherNote = onSaveTeacherNote,
                     onApplyPromptTemplate = onApplyPromptTemplate,
@@ -315,9 +321,11 @@ fun StudioScreen(
                     onGeneratedResultChange = onGeneratedResultChange,
                     onPackageSourcePagesChange = onPackageSourcePagesChange,
                     onGenerate = onGenerate,
+                    onCancelGeneration = onCancelGeneration,
                     onSaveEditedDraft = onSaveEditedDraft,
                     onSaveToQuestionBank = onSaveToQuestionBank,
                     onLaunchInteractiveActivity = onLaunchInteractiveActivity,
+                    onPublishInteractiveBundle = onPublishInteractiveBundle,
                     onOpenStudentStudy = onOpenStudentStudy,
                     onSaveTeacherNote = onSaveTeacherNote,
                     onApplyPromptTemplate = onApplyPromptTemplate,
@@ -386,9 +394,11 @@ private fun StudioWorkbench(
     onGeneratedResultChange: (String) -> Unit,
     onPackageSourcePagesChange: (String) -> Unit,
     onGenerate: () -> Unit,
+    onCancelGeneration: () -> Unit = {},
     onSaveEditedDraft: () -> Unit,
     onSaveToQuestionBank: () -> Unit,
     onLaunchInteractiveActivity: (String, String) -> Unit,
+    onPublishInteractiveBundle: (String?) -> Unit,
     onOpenStudentStudy: () -> Unit,
     onSaveTeacherNote: (String, Boolean) -> Unit,
     onApplyPromptTemplate: (PromptTemplateRecord) -> Unit,
@@ -1027,6 +1037,31 @@ private fun StudioWorkbench(
                                 testTag = "generate_button",
                                 modifier = Modifier.padding(top = 4.dp)
                             )
+                            if (isBusy) {
+                                OutlinedButton(
+                                    onClick = onCancelGeneration,
+                                    shape = RoundedCornerShape(12.dp),
+                                    border = BorderStroke(1.dp, EduRed),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .minimumInteractiveComponentSize()
+                                        .testTag("cancel_generation_button")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Stop,
+                                        contentDescription = null,
+                                        tint = EduRed,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "إيقاف التوليد الحالي",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        color = EduRed,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
                         }
 
                         if (generatedResult.isNotBlank()) {
@@ -1160,7 +1195,7 @@ private fun StudioWorkbench(
                                             .testTag("editable_draft_output")
                                     )
                                 } else {
-                                    FormattedOutputReader(
+                                    EduMarkdownReader(
                                         text = generatedResult,
                                         onSwitchToEdit = { rawEditorMode = true }
                                     )
@@ -1214,23 +1249,44 @@ private fun StudioWorkbench(
                                 }
 
                                 if (task == TaskType.INTERACTIVE) {
-                                    Button(
-                                        onClick = {
-                                            onLaunchInteractiveActivity(
-                                                generatedResult,
-                                                selectedLesson?.title ?: "نشاط تفاعلي"
+                                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Button(
+                                            onClick = {
+                                                onLaunchInteractiveActivity(
+                                                    generatedResult,
+                                                    selectedLesson?.title ?: "نشاط تفاعلي"
+                                                )
+                                            },
+                                            shape = RoundedCornerShape(12.dp),
+                                            colors = ButtonDefaults.buttonColors(containerColor = EduPurple, contentColor = EduWhite),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .minimumInteractiveComponentSize()
+                                                .testTag("run_interactive_json_button")
+                                        ) {
+                                            Icon(Icons.Rounded.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("تشغيل النشاط التفاعلي (JSON)", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                                        }
+                                        OutlinedButton(
+                                            onClick = { onPublishInteractiveBundle(generatedResult) },
+                                            enabled = !isBusy,
+                                            shape = RoundedCornerShape(12.dp),
+                                            border = BorderStroke(1.dp, EduGreen),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .minimumInteractiveComponentSize()
+                                                .testTag("publish_interactive_bundle_button")
+                                        ) {
+                                            Icon(Icons.Rounded.Publish, contentDescription = null, tint = EduGreenDark, modifier = Modifier.size(18.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(
+                                                text = "تصدير ونشر كحزمة HTML + JS + JSON للطالب",
+                                                color = EduGreenDark,
+                                                style = MaterialTheme.typography.labelLarge,
+                                                fontWeight = FontWeight.Bold
                                             )
-                                        },
-                                        shape = RoundedCornerShape(12.dp),
-                                        colors = ButtonDefaults.buttonColors(containerColor = EduPurple, contentColor = EduWhite),
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .minimumInteractiveComponentSize()
-                                            .testTag("run_interactive_json_button")
-                                    ) {
-                                        Icon(Icons.Rounded.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text("تشغيل النشاط التفاعلي (JSON)", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                                        }
                                     }
                                 }
                             }
@@ -1290,6 +1346,16 @@ private fun StudioWorkbench(
                                                     imageVector = Icons.Rounded.PlayArrow,
                                                     contentDescription = "تشغيل النشاط التفاعلي",
                                                     tint = EduPurple
+                                                )
+                                            }
+                                            IconButton(
+                                                onClick = { onPublishInteractiveBundle(draft.content) },
+                                                modifier = Modifier.minimumInteractiveComponentSize()
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Rounded.Publish,
+                                                    contentDescription = "تصدير ونشر HTML + JS + JSON",
+                                                    tint = EduGreenDark
                                                 )
                                             }
                                         }
@@ -1735,83 +1801,6 @@ private fun StudioBookQuickReferenceCard(
                 Icon(Icons.Rounded.Terminal, contentDescription = null, tint = EduPurple, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(4.dp))
                 Text("مصادر البرومبت", color = EduPurple, style = MaterialTheme.typography.labelSmall)
-            }
-        }
-    }
-}
-
-@Composable
-private fun FormattedOutputReader(
-    text: String,
-    onSwitchToEdit: () -> Unit
-) {
-    val lines = remember(text) { text.trim().lines() }
-    Surface(
-        shape = RoundedCornerShape(14.dp),
-        color = EduFieldBg,
-        border = BorderStroke(1.dp, EduLine),
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("formatted_draft_output")
-    ) {
-        Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(5.dp)
-                ) {
-                    Icon(Icons.Rounded.Visibility, contentDescription = null, tint = EduGreenDark, modifier = Modifier.size(16.dp))
-                    Text("قراءة منظمة للمحتوى", style = MaterialTheme.typography.labelMedium, color = EduGreenDark)
-                }
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = EduWhite,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable(onClick = onSwitchToEdit)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Icon(Icons.Rounded.Edit, contentDescription = null, tint = EduInk, modifier = Modifier.size(13.dp))
-                        Text("تعديل النص", style = MaterialTheme.typography.labelSmall, color = EduInk)
-                    }
-                }
-            }
-            lines.forEach { rawLine ->
-                val line = rawLine.trim()
-                if (line.isBlank()) {
-                    Spacer(modifier = Modifier.size(2.dp))
-                } else if (line.startsWith("#") || (line.startsWith("**") && line.endsWith("**"))) {
-                    val clean = line.trimStart('#').trim().removePrefix("**").removeSuffix("**").trim()
-                    Text(
-                        text = clean,
-                        style = MaterialTheme.typography.titleSmall,
-                        color = EduGreenDark,
-                        fontWeight = FontWeight.Bold
-                    )
-                } else if (line.startsWith("{") || line.startsWith("[") || line.startsWith("}") || line.startsWith("]") || line.startsWith("\"")) {
-                    Text(
-                        text = line,
-                        style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                        color = EduPurple
-                    )
-                } else {
-                    Text(
-                        text = line,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = EduInk
-                    )
-                }
             }
         }
     }

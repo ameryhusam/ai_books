@@ -1,5 +1,6 @@
 package com.example.data.repository
 
+import android.content.Context
 import android.net.Uri
 import com.example.data.ai.AiGenerationService
 import com.example.data.local.AssessmentAttemptEntity
@@ -12,14 +13,20 @@ import com.example.data.local.InteractivePackageEntity
 import com.example.data.local.LessonEntity
 import com.example.data.local.LessonProgressEntity
 import com.example.data.local.PromptTemplateEntity
+import com.example.data.local.QuestionAttemptEntity
 import com.example.data.local.QuestionEntity
 import com.example.data.local.StudyDayEntity
 import com.example.data.local.TeacherNoteEntity
 import com.example.data.local.WorkspaceEntity
+import com.example.data.packageimport.InteractiveBundleBuilder
 import com.example.data.packageimport.InteractivePackageImporter
+import com.example.model.InteractiveActivityModel
+import com.example.model.LearnerProfile
 import com.example.data.security.ProviderStorage
+import com.example.data.workspace.DirectWorkspaceBinder
 import com.example.data.workspace.ExportReceipt
 import com.example.data.workspace.PdfBookSplitter
+import com.example.data.workspace.UriIO
 import com.example.data.workspace.WorkspaceExporter
 import com.example.data.workspace.WorkspaceImporter
 import com.example.model.AssessmentAttemptRecord
@@ -27,7 +34,9 @@ import com.example.model.AssessmentKind
 import com.example.model.AssessmentRecord
 import com.example.model.BookProgressSummary
 import com.example.model.BookRef
+import com.example.model.ConceptMasterySummary
 import com.example.model.DashboardSummary
+import com.example.model.DirectWorkspaceInspection
 import com.example.model.DraftRecord
 import com.example.model.DraftStatus
 import com.example.model.GeneratedResult
@@ -38,17 +47,21 @@ import com.example.model.InteractivePackageReport
 import com.example.model.LearningLessonNode
 import com.example.model.LearningNodeStatus
 import com.example.model.LearningUnitPath
+import com.example.model.LessonQuizCompletionResult
 import com.example.model.LessonRef
 import com.example.model.LessonSplitDraft
+import com.example.model.MasteryStatus
 import com.example.model.PackageKind
 import com.example.model.PdfBookInfo
 import com.example.model.PromptTemplateRecord
 import com.example.model.ProviderConfig
+import com.example.model.QuestionAttemptRecord
 import com.example.model.QuestionDifficulty
 import com.example.model.QuestionItem
 import com.example.model.QuestionType
 import com.example.model.StagedWorkspacePreview
 import com.example.model.TaskType
+import com.example.model.UnitCompletionStatus
 import com.example.model.TeacherNoteRecord
 import com.example.model.WorkspaceSummary
 import kotlinx.coroutines.Dispatchers
@@ -77,10 +90,13 @@ class EduMiniRepository(
     private val workspaceImporter: WorkspaceImporter,
     private val aiGenerationService: AiGenerationService,
     private val pdfBookSplitter: PdfBookSplitter,
-    private val interactivePackageImporter: InteractivePackageImporter
+    private val interactivePackageImporter: InteractivePackageImporter,
+    private val directWorkspaceBinder: DirectWorkspaceBinder? = null,
+    private val appContext: Context? = null
 ) {
 
     private val json = Json { ignoreUnknownKeys = true }
+    val questionBankService = QuestionBankService(dao, json)
 
     val allWorkspaces: Flow<List<WorkspaceSummary>> = dao.observeAllWorkspaces().map { entities ->
         entities.map { entity ->
@@ -105,7 +121,9 @@ class EduMiniRepository(
                 model = entity.model,
                 status = entity.status,
                 errorSummary = entity.errorSummary,
-                createdAt = entity.createdAt
+                createdAt = entity.createdAt,
+                durationMs = entity.durationMs,
+                tokensUsed = entity.tokensUsed
             )
         }
     }
@@ -175,9 +193,44 @@ class EduMiniRepository(
         return imported
     }
 
+    suspend fun inspectDirectTreeUri(treeUri: Uri): DirectWorkspaceInspection {
+        val binder = directWorkspaceBinder
+            ?: throw IllegalStateException("أداة ربط مساحة العمل المباشرة غير مهيأة")
+        return binder.inspectTreeUri(treeUri)
+    }
+
+    suspend fun bindDirectWorkspace(rootUriOrPath: String, gradeKey: String): ImportedWorkspace {
+        val binder = directWorkspaceBinder
+            ?: throw IllegalStateException("أداة ربط مساحة العمل المباشرة غير مهيأة")
+        val bound = binder.bindSingleGrade(rootUriOrPath, gradeKey)
+        saveImportedWorkspace(bound.workspace)
+        if (bound.preloadedQuestions.isNotEmpty()) {
+            val existingFingerprints = dao.observeQuestionsForWorkspace(bound.workspace.workspaceId)
+                .first()
+                .map { "${it.bookKey}|${it.unitKey}|${it.lessonKey}|${it.fingerprint}" }
+                .toHashSet()
+            val toInsert = bound.preloadedQuestions.filter {
+                "${it.bookKey}|${it.unitKey}|${it.lessonKey}|${it.fingerprint}" !in existingFingerprints
+            }
+            if (toInsert.isNotEmpty()) {
+                dao.insertQuestions(toInsert.map { it.toEntity() })
+            }
+        }
+        if (bound.preloadedInteractivePackages.isNotEmpty()) {
+            val existingIds = dao.observePackagesForWorkspace(bound.workspace.workspaceId)
+                .first()
+                .map { it.id }
+                .toHashSet()
+            bound.preloadedInteractivePackages
+                .filter { it.id !in existingIds }
+                .forEach { dao.insertInteractivePackage(it) }
+        }
+        return bound.workspace
+    }
+
     suspend fun deleteWorkspace(workspaceId: String, rootPath: String) = withContext(Dispatchers.IO) {
         dao.deleteWorkspaceGraph(workspaceId)
-        if (rootPath.isNotBlank()) {
+        if (rootPath.isNotBlank() && !UriIO.isContentUri(rootPath)) {
             val dir = File(rootPath)
             val normalized = dir.canonicalPath.replace('\\', '/')
             if (normalized.contains("/edumini/workspaces/")) {
@@ -187,7 +240,7 @@ class EduMiniRepository(
     }
 
     suspend fun computeWorkspaceDiskBytes(rootPath: String): Long = withContext(Dispatchers.IO) {
-        if (rootPath.isBlank()) return@withContext 0L
+        if (rootPath.isBlank() || UriIO.isContentUri(rootPath)) return@withContext 0L
         val dir = File(rootPath)
         if (!dir.exists()) return@withContext 0L
         dir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
@@ -255,7 +308,9 @@ class EduMiniRepository(
                 title = lesson.title,
                 partKey = lesson.partKey,
                 pageRange = lesson.pageRange,
-                pdfPath = lesson.pdfPath
+                pdfPath = lesson.pdfPath,
+                sourceTextPath = lesson.sourceTextPath,
+                interactivePath = lesson.interactivePath
             )
         }
         dao.saveWorkspaceGraph(workspaceEntity, bookEntities, lessonEntities)
@@ -288,28 +343,21 @@ class EduMiniRepository(
         questionStyleHint: String = "",
         difficultyHint: String = ""
     ): GeneratedResult {
-        val extractionMethod = if (!lesson.pdfPath.isNullOrBlank()) {
+        val extractedText = if (!lesson.sourceTextPath.isNullOrBlank() && appContext != null) {
+            UriIO.readText(appContext, lesson.sourceTextPath).orEmpty().trim()
+        } else if (!lesson.pdfPath.isNullOrBlank() && !UriIO.isContentUri(lesson.pdfPath)) {
             val pdf = File(lesson.pdfPath)
             val metaFile = File(pdf.parentFile, pdf.nameWithoutExtension + ".extraction.json")
-            runCatching {
+            val extractionMethod = runCatching {
                 json.parseToJsonElement(metaFile.readText(Charsets.UTF_8))
                     .jsonObject["method"]?.jsonPrimitive?.content
             }.getOrNull()
-        } else null
-        val extractedText = if (!lesson.pdfPath.isNullOrBlank() &&
-            extractionMethod !in setOf("OCR_LOW_CONFIDENCE", "OCR_REQUIRED")
-        ) {
-            val pdf = File(lesson.pdfPath)
-            val textFile = File(pdf.parentFile, pdf.nameWithoutExtension + ".txt")
-            if (textFile.isFile) textFile.readText(Charsets.UTF_8).trim() else ""
+            if (extractionMethod !in setOf("OCR_LOW_CONFIDENCE", "OCR_REQUIRED")) {
+                val textFile = File(pdf.parentFile, pdf.nameWithoutExtension + ".txt")
+                if (textFile.isFile) textFile.readText(Charsets.UTF_8).trim() else ""
+            } else ""
         } else ""
-        val extractionNotice = if (extractionMethod == "TESSERACT_ARA_ENG") {
-            "تنبيه: النص التالي مستخرج بتقنية OCR وقد يحتوي أخطاء؛ طابق الأجزاء الملتبسة مع صفحات PDF المرفقة."
-        } else ""
-        val effectiveSource = listOf(
-            source.trim(),
-            listOf(extractionNotice, extractedText).filter { it.isNotBlank() }.joinToString("\n")
-        )
+        val effectiveSource = listOf(source.trim(), extractedText)
             .filter { it.isNotBlank() }
             .distinct()
             .joinToString("\n\n")
@@ -321,7 +369,8 @@ class EduMiniRepository(
         require(effectiveSource.isNotBlank() || pageImages.isNotEmpty()) {
             "لم يتم استخراج نص أو صفحات من PDF؛ أعد فحص الملف قبل إرسال الطلب إلى AI."
         }
-        return aiGenerationService.generate(
+        val startedMs = System.currentTimeMillis()
+        val result = aiGenerationService.generate(
             lesson = lesson,
             task = task,
             source = effectiveSource,
@@ -342,11 +391,14 @@ class EduMiniRepository(
                         model = model,
                         status = if (success) "SUCCESS" else "FAILED",
                         errorSummary = error?.take(220),
-                        createdAt = Instant.now().toString()
+                        createdAt = Instant.now().toString(),
+                        durationMs = (System.currentTimeMillis() - startedMs).coerceAtLeast(1L),
+                        tokensUsed = 0
                     )
                 )
             }
         )
+        return result
     }
 
     suspend fun persistDraft(
@@ -371,8 +423,10 @@ class EduMiniRepository(
         val nextVersion = maxVer + 1
         val id = "draft-${System.currentTimeMillis()}-${UUID.randomUUID().toString().take(6)}"
         val createdAt = Instant.now().toString()
-        val extractedPdfText = lesson.pdfPath?.let { path ->
-            val pdf = File(path)
+        val extractedPdfText = if (!lesson.sourceTextPath.isNullOrBlank() && appContext != null) {
+            UriIO.readText(appContext, lesson.sourceTextPath).orEmpty()
+        } else if (!lesson.pdfPath.isNullOrBlank() && !UriIO.isContentUri(lesson.pdfPath)) {
+            val pdf = File(lesson.pdfPath)
             val metaFile = File(pdf.parentFile, pdf.nameWithoutExtension + ".extraction.json")
             val extractionMethod = runCatching {
                 json.parseToJsonElement(metaFile.readText(Charsets.UTF_8))
@@ -386,11 +440,11 @@ class EduMiniRepository(
                     ?.readText(Charsets.UTF_8)
                     .orEmpty()
             }
-        }.orEmpty()
+        } else ""
         val provenanceSource = listOf(sourceText.trim(), extractedPdfText.trim())
             .filter { it.isNotBlank() }
             .distinct()
-            .joinToString("\\n\\n")
+            .joinToString("\n\n")
         val sourceHash = sha256Short(provenanceSource)
         val record = DraftRecord(
             id = id,
@@ -434,8 +488,134 @@ class EduMiniRepository(
         return record
     }
 
-    suspend fun approveDraft(draftId: String) {
+    suspend fun approveDraft(draftId: String): Int {
         dao.updateDraftStatus(draftId, DraftStatus.APPROVED.id)
+        val draft = dao.getDraftById(draftId) ?: return 0
+        val task = TaskType.fromId(draft.task)
+        if (task != TaskType.QUESTIONS && task != TaskType.INTERACTIVE) return 0
+        val lessonRef = dao.getLessonsForWorkspaceSnapshot(draft.workspaceId)
+            .firstOrNull {
+                it.bookKey == draft.bookKey &&
+                    it.unitKey == draft.unitKey &&
+                    it.lessonKey == draft.lessonKey
+            }?.toModel(draft.workspaceId)
+            ?: LessonRef(
+                grade = draft.gradeKey,
+                rootPath = draft.workspaceId,
+                bookKey = draft.bookKey,
+                bookTitle = draft.bookKey,
+                subjectKey = draft.bookKey,
+                unitKey = draft.unitKey,
+                unitTitle = draft.unitKey,
+                lessonKey = draft.lessonKey,
+                title = draft.title,
+                pageRange = draft.sourcePages,
+                workspaceId = draft.workspaceId
+            )
+        if (task == TaskType.INTERACTIVE) {
+            val activity = InteractiveActivityParser.parse(draft.content, lessonRef.title) ?: return 0
+            val synced = questionBankService.syncInteractiveCheckpointsToQuestionBank(
+                workspaceId = draft.workspaceId,
+                lesson = lessonRef,
+                activity = activity
+            )
+            runCatching {
+                buildAndPublishInteractiveBundle(
+                    workspaceId = draft.workspaceId,
+                    lesson = lessonRef,
+                    activity = activity,
+                    publishForStudents = true
+                )
+            }
+            return synced.size
+        }
+        return saveQuestionsFromDraftText(
+            workspaceId = draft.workspaceId,
+            lesson = lessonRef,
+            rawText = draft.content
+        ).size
+    }
+
+    suspend fun buildAndPublishInteractiveBundle(
+        workspaceId: String,
+        lesson: LessonRef,
+        activity: InteractiveActivityModel,
+        publishForStudents: Boolean = true
+    ): InteractivePackageRecord? {
+        val ctx = appContext ?: return null
+        val canonicalWs = workspaceId.ifBlank { lesson.workspaceId }.ifBlank { lesson.rootPath }
+        val maxVer = dao.getMaxPackageVersion(
+            workspaceId = canonicalWs,
+            bookKey = lesson.bookKey,
+            unitKey = lesson.unitKey,
+            lessonKey = lesson.lessonKey
+        )
+        val nextVersion = maxVer + 1
+        val staged = InteractiveBundleBuilder.materializePackage(
+            context = ctx,
+            importer = interactivePackageImporter,
+            activity = activity,
+            lesson = lesson,
+            nextVersion = nextVersion
+        )
+        val id = "pkg-${System.currentTimeMillis()}-${UUID.randomUUID().toString().take(6)}"
+        val createdAt = Instant.now().toString()
+        val hasBlockers = staged.report.hasBlockers
+        val shouldPublish = publishForStudents && !hasBlockers
+        val record = InteractivePackageRecord(
+            id = id,
+            workspaceId = canonicalWs,
+            gradeKey = lesson.grade,
+            bookKey = lesson.bookKey,
+            unitKey = lesson.unitKey,
+            lessonKey = lesson.lessonKey,
+            kind = staged.kind,
+            title = staged.title,
+            rootDir = staged.rootDir,
+            entryFile = staged.entryFile,
+            sourcePages = lesson.pageRange,
+            version = nextVersion,
+            status = if (hasBlockers) "BLOCKED" else if (shouldPublish) "APPROVED" else "PREVIEW",
+            publishedForStudents = shouldPublish,
+            report = staged.report,
+            createdAt = createdAt
+        )
+        dao.insertInteractivePackage(
+            InteractivePackageEntity(
+                id = record.id,
+                workspaceId = record.workspaceId,
+                gradeKey = record.gradeKey,
+                bookKey = record.bookKey,
+                unitKey = record.unitKey,
+                lessonKey = record.lessonKey,
+                kind = record.kind.id,
+                title = record.title,
+                rootDir = record.rootDir,
+                entryFile = record.entryFile,
+                sourcePages = record.sourcePages,
+                version = record.version,
+                status = record.status,
+                publishedForStudents = record.publishedForStudents,
+                reportJson = json.encodeToString(record.report),
+                createdAt = record.createdAt
+            )
+        )
+        if (shouldPublish) {
+            dao.publishPackageVersion(
+                workspaceId = canonicalWs,
+                bookKey = lesson.bookKey,
+                unitKey = lesson.unitKey,
+                lessonKey = lesson.lessonKey,
+                packageId = record.id
+            )
+        }
+        questionBankService.syncInteractiveCheckpointsToQuestionBank(
+            workspaceId = canonicalWs,
+            lesson = lesson,
+            activity = activity
+        )
+        recordStudyActivity()
+        return record
     }
 
     fun observeDraftsForLesson(workspaceId: String, lesson: LessonRef): Flow<List<DraftRecord>> {
@@ -612,7 +792,10 @@ class EduMiniRepository(
         runCatching { File(pkg.rootDir).deleteRecursively() }
     }
 
-    fun observeDashboardSummary(workspace: ImportedWorkspace?): Flow<DashboardSummary> {
+    fun observeDashboardSummary(
+        workspace: ImportedWorkspace?,
+        userId: String = LearnerProfile.DEFAULT_USER_ID
+    ): Flow<DashboardSummary> {
         if (workspace == null) {
             return dao.observeStudyDays().map { studyDays ->
                 val activityDates = MilestoneBadgeEngine.collectActivityDates(
@@ -643,18 +826,30 @@ class EduMiniRepository(
                 )
             }
         }
+        val safeUserId = userId.ifBlank { LearnerProfile.DEFAULT_USER_ID }
         return combine(
             dao.observeDraftsForWorkspace(workspace.workspaceId, workspace.rootPath),
             dao.observePackagesForWorkspace(workspace.workspaceId),
             dao.observeProgressForWorkspace(workspace.workspaceId),
-            dao.observeStudyDays()
-        ) { drafts, packages, progressRows, studyDays ->
+            dao.observeStudyDays(),
+            combine(
+                dao.observeAssessmentAttempts(workspace.workspaceId),
+                dao.observeQuestionsForWorkspace(workspace.workspaceId),
+                dao.observeQuestionAttemptsForWorkspaceAndUser(workspace.workspaceId, safeUserId)
+            ) { aAttempts, qEntities, qAttempts ->
+                Triple(aAttempts, qEntities, qAttempts)
+            }
+        ) { drafts, packages, progressRows, studyDays, extras ->
+            val (aAttempts, qEntities, qAttempts) = extras
             computeDashboardSummary(
                 workspace = workspace,
                 drafts = drafts,
                 packages = packages,
                 progressRows = progressRows,
-                studyDayStrings = studyDays.map { it.activityDate }
+                studyDayStrings = studyDays.map { it.activityDate },
+                assessmentAttempts = aAttempts,
+                questions = qEntities.map { it.toModel() },
+                questionAttempts = qAttempts.map { it.toModel() }
             )
         }
     }
@@ -682,6 +877,140 @@ class EduMiniRepository(
         }
     }
 
+    fun observeQuestionAttempts(
+        workspaceId: String,
+        userId: String = LearnerProfile.DEFAULT_USER_ID
+    ): Flow<List<QuestionAttemptRecord>> {
+        return questionBankService.observeUserAttempts(workspaceId, userId)
+    }
+
+    suspend fun recordLessonQuizAttempt(
+        workspaceId: String,
+        lesson: LessonRef,
+        questions: List<QuestionItem>,
+        selectedAnswers: Map<String, String>,
+        sourceMode: String = "lesson_quiz",
+        userId: String = LearnerProfile.DEFAULT_USER_ID
+    ): LessonQuizCompletionResult {
+        val canonicalWs = workspaceId.ifBlank { lesson.workspaceId }.ifBlank { lesson.rootPath }
+        val safeUserId = userId.ifBlank { LearnerProfile.DEFAULT_USER_ID }
+        val summary = QuestionBankEngine.gradeQuiz(questions, selectedAnswers)
+        val passed = summary.totalQuestions > 0 && summary.scorePercent >= LESSON_QUIZ_PASS_PERCENT
+        val now = Instant.now().toString()
+
+        val recorded = questionBankService.recordBatchAttemptsForUser(
+            workspaceId = canonicalWs,
+            userId = safeUserId,
+            questions = questions,
+            selectedAnswers = selectedAnswers,
+            sourceMode = sourceMode
+        )
+
+        val existingProgress = dao.observeProgressForWorkspace(canonicalWs).first()
+            .firstOrNull {
+                it.bookKey == lesson.bookKey &&
+                    it.unitKey == lesson.unitKey &&
+                    it.lessonKey == lesson.lessonKey
+            }
+
+        val bonusXp = if (passed) summary.earnedXp else (summary.correctCount * 5)
+        if (passed && existingProgress?.completed != true) {
+            dao.upsertLessonProgress(
+                LessonProgressEntity(
+                    workspaceId = canonicalWs,
+                    bookKey = lesson.bookKey,
+                    unitKey = lesson.unitKey,
+                    lessonKey = lesson.lessonKey,
+                    completed = true,
+                    pointsEarned = POINTS_LESSON_COMPLETED + bonusXp,
+                    completedAt = now
+                )
+            )
+        } else if (existingProgress != null) {
+            dao.upsertLessonProgress(
+                existingProgress.copy(pointsEarned = existingProgress.pointsEarned + bonusXp)
+            )
+        } else if (bonusXp > 0) {
+            dao.upsertLessonProgress(
+                LessonProgressEntity(
+                    workspaceId = canonicalWs,
+                    bookKey = lesson.bookKey,
+                    unitKey = lesson.unitKey,
+                    lessonKey = lesson.lessonKey,
+                    completed = false,
+                    pointsEarned = bonusXp,
+                    completedAt = null
+                )
+            )
+        }
+
+        if (recorded.isNotEmpty()) {
+            recordStudyActivity()
+        }
+
+        val allAttempts = questionBankService.observeUserAttempts(canonicalWs, safeUserId).first()
+        val conceptSummaries = ConceptMasteryEngine.computeConceptSummaries(questions, allAttempts)
+        return LessonQuizCompletionResult(
+            lessonKey = lesson.lessonKey,
+            correctCount = summary.correctCount,
+            totalQuestions = summary.totalQuestions,
+            scorePercent = summary.scorePercent,
+            passed = passed,
+            lessonMarkedCompleted = passed,
+            earnedXp = bonusXp + if (passed && existingProgress?.completed != true) POINTS_LESSON_COMPLETED else 0,
+            weakConcepts = conceptSummaries.filter { it.status == MasteryStatus.NEEDS_REINFORCEMENT },
+            masteredConcepts = conceptSummaries.filter { it.status == MasteryStatus.MASTERED }
+        )
+    }
+
+    suspend fun recordStandaloneQuestionAttempts(
+        workspaceId: String,
+        questions: List<QuestionItem>,
+        selectedAnswers: Map<String, String>,
+        sourceMode: String,
+        userId: String = LearnerProfile.DEFAULT_USER_ID
+    ) {
+        val recorded = questionBankService.recordBatchAttemptsForUser(
+            workspaceId = workspaceId,
+            userId = userId,
+            questions = questions,
+            selectedAnswers = selectedAnswers,
+            sourceMode = sourceMode
+        )
+        if (recorded.isNotEmpty()) {
+            recordStudyActivity()
+        }
+    }
+
+    suspend fun recordInteractiveCheckpointAttempt(
+        workspaceId: String,
+        userId: String = LearnerProfile.DEFAULT_USER_ID,
+        lesson: LessonRef,
+        prompt: String,
+        conceptTag: String,
+        selectedAnswer: String,
+        correctAnswer: String,
+        isCorrect: Boolean,
+        options: List<String> = emptyList(),
+        sourceMode: String = "interactive_html"
+    ) {
+        val recorded = questionBankService.recordInteractiveCheckpointResultForUser(
+            workspaceId = workspaceId,
+            userId = userId,
+            lesson = lesson,
+            prompt = prompt,
+            conceptTag = conceptTag,
+            selectedAnswer = selectedAnswer,
+            correctAnswer = correctAnswer,
+            isCorrect = isCorrect,
+            options = options,
+            sourceMode = sourceMode
+        )
+        if (recorded != null) {
+            recordStudyActivity()
+        }
+    }
+
     suspend fun recordStudyActivity(date: LocalDate = LocalDate.now()) {
         val dateIso = date.toString()
         val existing = dao.getStudyDay(dateIso)
@@ -700,26 +1029,33 @@ class EduMiniRepository(
         packages: List<InteractivePackageEntity>,
         progressRows: List<LessonProgressEntity>,
         studyDayStrings: List<String> = emptyList(),
-        today: LocalDate = LocalDate.now()
+        today: LocalDate = LocalDate.now(),
+        assessmentAttempts: List<AssessmentAttemptEntity> = emptyList(),
+        questions: List<QuestionItem> = emptyList(),
+        questionAttempts: List<QuestionAttemptRecord> = emptyList()
     ): DashboardSummary {
         val draftsByLesson = drafts.groupBy { Triple(it.bookKey, it.unitKey, it.lessonKey) }
         val pkgsByLesson = packages.groupBy { Triple(it.bookKey, it.unitKey, it.lessonKey) }
         val progressByLesson = progressRows.associateBy { Triple(it.bookKey, it.unitKey, it.lessonKey) }
+        val questionsByLesson = questions.groupBy { Triple(it.bookKey, it.unitKey, it.lessonKey) }
+        val attemptsByQuestionId = questionAttempts.groupBy { it.questionId }
 
         val nodes = workspace.lessons.map { lesson ->
             val key = Triple(lesson.bookKey, lesson.unitKey, lesson.lessonKey)
             val lDrafts = draftsByLesson[key].orEmpty()
             val lPkgs = pkgsByLesson[key].orEmpty()
+            val lQuestions = questionsByLesson[key].orEmpty()
             val prog = progressByLesson[key]
 
+            val lessonAttemptCount = lQuestions.sumOf { q -> attemptsByQuestionId[q.id]?.size ?: 0 }
             val approvedDraftsCount = lDrafts.count { it.status == DraftStatus.APPROVED.id }
             val publishedPkgsCount = lPkgs.count { it.publishedForStudents }
             val isCompleted = prog?.completed == true
 
             val status = when {
                 isCompleted -> LearningNodeStatus.COMPLETED
-                approvedDraftsCount > 0 || publishedPkgsCount > 0 -> LearningNodeStatus.READY
-                lDrafts.isNotEmpty() || lPkgs.isNotEmpty() -> LearningNodeStatus.IN_PROGRESS
+                approvedDraftsCount > 0 || publishedPkgsCount > 0 || lQuestions.isNotEmpty() -> LearningNodeStatus.READY
+                lDrafts.isNotEmpty() || lPkgs.isNotEmpty() || lessonAttemptCount > 0 -> LearningNodeStatus.IN_PROGRESS
                 else -> LearningNodeStatus.NOT_STARTED
             }
 
@@ -745,7 +1081,11 @@ class EduMiniRepository(
                 packagesCount = lPkgs.size,
                 publishedPackagesCount = publishedPkgsCount,
                 pointsEarned = lessonPoints,
-                maxPossiblePoints = POINTS_MAX_PER_LESSON
+                maxPossiblePoints = POINTS_MAX_PER_LESSON,
+                questionsCount = lQuestions.size,
+                quizAttemptedCount = lessonAttemptCount,
+                quizPassed = isCompleted,
+                hasGeneratedMaterials = lDrafts.isNotEmpty() || lPkgs.isNotEmpty() || lQuestions.isNotEmpty()
             )
         }
 
@@ -784,6 +1124,16 @@ class EduMiniRepository(
             .map { (key, uNodes) ->
                 val uCompleted = uNodes.count { it.isCompleted }
                 val uTotal = uNodes.size
+                val uInProgress = uNodes.count {
+                    !it.isCompleted && (it.status == LearningNodeStatus.IN_PROGRESS || it.quizAttemptedCount > 0)
+                }
+                val uQuestions = uNodes.sumOf { it.questionsCount }
+                val uGenerated = uNodes.sumOf { it.draftsCount + it.packagesCount + it.questionsCount }
+                val uStatus = when {
+                    uTotal > 0 && uCompleted == uTotal -> UnitCompletionStatus.COMPLETED
+                    uCompleted > 0 || uInProgress > 0 -> UnitCompletionStatus.IN_PROGRESS
+                    else -> UnitCompletionStatus.NOT_STARTED
+                }
                 LearningUnitPath(
                     unitKey = "${key.first}_${key.second}",
                     unitTitle = key.third,
@@ -791,7 +1141,11 @@ class EduMiniRepository(
                     completedCount = uCompleted,
                     totalCount = uTotal,
                     completionPercent = if (uTotal == 0) 0 else ((uCompleted * 100f) / uTotal).toInt(),
-                    nodes = uNodes
+                    nodes = uNodes,
+                    status = uStatus,
+                    questionsCount = uQuestions,
+                    generatedContentCount = uGenerated,
+                    inProgressCount = uInProgress
                 )
             }
 
@@ -820,9 +1174,26 @@ class EduMiniRepository(
             streak = streak
         )
 
-        val lessonPointsSum = nodes.sumOf { it.pointsEarned }
+        val bookTitleByKey = workspace.books.associate { it.bookKey to it.title }
+        val conceptSummaries = ConceptMasteryEngine.computeConceptSummaries(
+            questions = questions,
+            attempts = questionAttempts,
+            bookTitleByKey = bookTitleByKey
+        )
+        val weakConcepts = conceptSummaries.filter { it.status == MasteryStatus.NEEDS_REINFORCEMENT }
+        val masteredConceptsCount = conceptSummaries.count { it.status == MasteryStatus.MASTERED }
+
+        val lessonPointsSum = nodes.sumOf { node ->
+            val bonus = progressByLesson[Triple(node.lesson.bookKey, node.lesson.unitKey, node.lesson.lessonKey)]
+                ?.pointsEarned
+                ?.let { saved ->
+                    if (node.isCompleted) (saved - POINTS_LESSON_COMPLETED).coerceAtLeast(0) else saved.coerceAtLeast(0)
+                } ?: 0
+            node.pointsEarned + bonus
+        }
+        val assessmentXpSum = assessmentAttempts.sumOf { it.earnedXp.coerceAtLeast(0) }
         val badgeBonusSum = badges.filter { it.unlocked }.sumOf { it.pointsBonus }
-        val totalPoints = lessonPointsSum + badgeBonusSum
+        val totalPoints = lessonPointsSum + badgeBonusSum + assessmentXpSum
         val pointsPerLevel = 150
         val level = (totalPoints / pointsPerLevel) + 1
         val pointsIntoLevel = totalPoints % pointsPerLevel
@@ -857,7 +1228,10 @@ class EduMiniRepository(
             bookProgress = bookProgress,
             unitPaths = unitPaths,
             badges = badges,
-            nextRecommendedLesson = nextRecommended
+            nextRecommendedLesson = nextRecommended,
+            weakConcepts = weakConcepts,
+            masteredConceptsCount = masteredConceptsCount,
+            weakConceptsCount = weakConcepts.size
         )
     }
 
@@ -874,12 +1248,14 @@ class EduMiniRepository(
         lesson: LessonRef,
         rawText: String
     ): List<QuestionItem> {
-        val parsed = QuestionBankEngine.parseQuestionsFromText(rawText, workspaceId, lesson)
-        if (parsed.isNotEmpty()) {
-            dao.insertQuestions(parsed.map { it.toEntity() })
+        val canonicalWs = workspaceId.ifBlank { lesson.workspaceId }.ifBlank { lesson.rootPath }
+        val parsed = QuestionBankEngine.parseQuestionsFromText(rawText, canonicalWs, lesson)
+        if (parsed.isEmpty()) return emptyList()
+        val saved = questionBankService.saveQuestionsWithConceptTags(canonicalWs, lesson, parsed)
+        if (saved.isNotEmpty()) {
             recordStudyActivity()
         }
-        return parsed
+        return saved
     }
 
     suspend fun addManualQuestion(
@@ -890,7 +1266,8 @@ class EduMiniRepository(
         options: List<String>,
         correctAnswer: String,
         rationale: String,
-        difficulty: QuestionDifficulty
+        difficulty: QuestionDifficulty,
+        conceptTag: String = ""
     ): QuestionItem {
         val canonicalWs = workspaceId.ifBlank { lesson.workspaceId }.ifBlank { lesson.rootPath }
         val item = QuestionItem(
@@ -910,11 +1287,37 @@ class EduMiniRepository(
             sourcePages = lesson.pageRange,
             fingerprint = QuestionBankEngine.computeFingerprint(prompt),
             reviewed = true,
-            createdAt = Instant.now().toString()
+            createdAt = Instant.now().toString(),
+            conceptTag = conceptTag.trim().ifBlank { lesson.title }
         )
         dao.insertQuestions(listOf(item.toEntity()))
         recordStudyActivity()
         return item
+    }
+
+    suspend fun updateQuestion(
+        questionId: String,
+        type: QuestionType,
+        prompt: String,
+        options: List<String>,
+        correctAnswer: String,
+        rationale: String,
+        difficulty: QuestionDifficulty,
+        conceptTag: String,
+        reviewed: Boolean
+    ) {
+        val cleanOpts = options.map { it.trim() }.filter { it.isNotBlank() }
+        dao.updateQuestionDetails(
+            questionId = questionId,
+            prompt = prompt.trim(),
+            optionsJson = json.encodeToString(cleanOpts),
+            correctAnswer = correctAnswer.trim(),
+            rationale = rationale.trim(),
+            difficulty = difficulty.id,
+            conceptTag = conceptTag.trim(),
+            type = type.id,
+            reviewed = reviewed
+        )
     }
 
     suspend fun toggleQuestionReviewed(questionId: String, reviewed: Boolean) {
@@ -930,9 +1333,11 @@ class EduMiniRepository(
         workspace: ImportedWorkspace
     ): ExportReceipt = withContext(Dispatchers.IO) {
         val drafts = dao.observeDraftsForWorkspace(workspace.workspaceId, workspace.rootPath).first()
-        val questions = dao.observeQuestionsForWorkspace(workspace.workspaceId).first().map { it.toModel() }
+        val questionEntities = dao.observeQuestionsForWorkspace(workspace.workspaceId).first()
+        val questions = questionEntities.map { it.toModel() }
         val assessments = dao.observeAssessmentsForWorkspace(workspace.workspaceId).first()
         val attempts = dao.observeAssessmentAttempts(workspace.workspaceId).first()
+        val qAttempts = dao.observeQuestionAttemptsForWorkspace(workspace.workspaceId).first()
         val progress = dao.observeProgressForWorkspace(workspace.workspaceId).first()
         val notes = dao.observeTeacherNotesForWorkspace(workspace.workspaceId).first()
         val studyDays = dao.observeStudyDays().first()
@@ -940,13 +1345,14 @@ class EduMiniRepository(
         val fullBackup = WorkspaceExporter.serializeFullBackup(
             workspaceId = workspace.workspaceId,
             drafts = drafts,
-            questions = dao.observeQuestionsForWorkspace(workspace.workspaceId).first(),
+            questions = questionEntities,
             assessments = assessments,
             attempts = attempts,
             progress = progress,
             notes = notes,
             studyDays = studyDays,
-            templates = templates
+            templates = templates,
+            questionAttempts = qAttempts
         )
         WorkspaceExporter.exportIndexer2CompatibleZip(
             outputStream = outputStream,
@@ -954,7 +1360,8 @@ class EduMiniRepository(
             drafts = drafts,
             questions = questions,
             assessments = assessments,
-            fullBackupJson = fullBackup
+            fullBackupJson = fullBackup,
+            context = appContext
         )
     }
 
@@ -966,6 +1373,7 @@ class EduMiniRepository(
         val questions = dao.observeQuestionsForWorkspace(workspace.workspaceId).first()
         val assessments = dao.observeAssessmentsForWorkspace(workspace.workspaceId).first()
         val attempts = dao.observeAssessmentAttempts(workspace.workspaceId).first()
+        val qAttempts = dao.observeQuestionAttemptsForWorkspace(workspace.workspaceId).first()
         val progress = dao.observeProgressForWorkspace(workspace.workspaceId).first()
         val notes = dao.observeTeacherNotesForWorkspace(workspace.workspaceId).first()
         val studyDays = dao.observeStudyDays().first()
@@ -979,12 +1387,13 @@ class EduMiniRepository(
             progress = progress,
             notes = notes,
             studyDays = studyDays,
-            templates = templates
+            templates = templates,
+            questionAttempts = qAttempts
         )
         outputStream.writer(Charsets.UTF_8).use { writer ->
             writer.write(payload)
         }
-        drafts.size + questions.size + assessments.size + notes.size
+        drafts.size + questions.size + assessments.size + notes.size + qAttempts.size
     }
 
     suspend fun importFullBackupJson(
@@ -1040,7 +1449,25 @@ class EduMiniRepository(
                         sourcePages = q.sourcePages,
                         fingerprint = q.fingerprint,
                         reviewed = q.reviewed,
-                        createdAt = q.createdAt
+                        createdAt = q.createdAt,
+                        conceptTag = q.conceptTag
+                    )
+                }
+            )
+        }
+        if (bundle.questionAttempts.isNotEmpty()) {
+            dao.insertQuestionAttempts(
+                bundle.questionAttempts.map { qa ->
+                    QuestionAttemptEntity(
+                        id = if (remapIds) "qa-import-${UUID.randomUUID()}" else qa.id,
+                        workspaceId = wsId.ifBlank { qa.workspaceId },
+                        userId = qa.userId.ifBlank { LearnerProfile.DEFAULT_USER_ID },
+                        questionId = questionIdMap[qa.questionId] ?: qa.questionId,
+                        conceptTag = qa.conceptTag,
+                        selectedAnswer = qa.selectedAnswer,
+                        isCorrect = qa.isCorrect,
+                        sourceMode = qa.sourceMode,
+                        answeredAt = qa.answeredAt
                     )
                 }
             )
@@ -1374,7 +1801,8 @@ class EduMiniRepository(
             sourcePages = sourcePages,
             fingerprint = fingerprint,
             reviewed = reviewed,
-            createdAt = createdAt
+            createdAt = createdAt,
+            conceptTag = conceptTag.ifBlank { lessonTitle }
         )
     }
 
@@ -1395,7 +1823,20 @@ class EduMiniRepository(
         sourcePages = sourcePages,
         fingerprint = fingerprint,
         reviewed = reviewed,
-        createdAt = createdAt
+        createdAt = createdAt,
+        conceptTag = conceptTag.ifBlank { lessonTitle }
+    )
+
+    private fun QuestionAttemptEntity.toModel() = QuestionAttemptRecord(
+        id = id,
+        workspaceId = workspaceId,
+        userId = userId,
+        questionId = questionId,
+        conceptTag = conceptTag,
+        selectedAnswer = selectedAnswer,
+        isCorrect = isCorrect,
+        sourceMode = sourceMode,
+        answeredAt = answeredAt
     )
 
     private fun sha256Short(text: String): String? {
@@ -1430,10 +1871,13 @@ class EduMiniRepository(
         partKey = partKey,
         pageRange = pageRange,
         pdfPath = pdfPath,
-        workspaceId = wsId
+        workspaceId = wsId,
+        sourceTextPath = sourceTextPath,
+        interactivePath = interactivePath
     )
 
     companion object {
+        const val LESSON_QUIZ_PASS_PERCENT = 60
         const val POINTS_LESSON_COMPLETED = 50
         const val POINTS_APPROVED_DRAFT = 20
         const val POINTS_DRAFT_CREATED = 10
@@ -1465,9 +1909,9 @@ class EduMiniRepository(
             ),
             PromptTemplateRecord(
                 id = "builtin_interactive_steps",
-                title = "محطات تعلم JSON تفاعلية",
+                title = "درس تفاعلي متكامل (JSON + JS + HTML)",
                 task = TaskType.INTERACTIVE,
-                instructions = "أنشئ 3 محطات تفاعلية مع نقطة تحقق اختيار من متعدد لكل محطة ومهمة ترتيب نهائية بصيغة JSON.",
+                instructions = "أنشئ 3 محطات تفاعلية بصيغة JSON بحيث تحتوي كل محطة conceptTag صريحاً ونقطة تحقق اختيار من متعدد مرتبطة ببنك الأسئلة ومهمة ترتيب وتوصيل ليُعرض عبر محرك JS و HTML.",
                 isBuiltIn = true
             )
         )

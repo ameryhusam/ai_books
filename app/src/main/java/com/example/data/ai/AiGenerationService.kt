@@ -6,13 +6,16 @@ import android.graphics.Color
 import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
 import android.util.Base64
+import com.example.data.workspace.UriIO
 import com.example.model.GeneratedResult
 import com.example.model.LessonRef
 import com.example.model.ProviderConfig
 import com.example.model.ProviderType
 import com.example.model.TaskType
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -21,12 +24,16 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
@@ -34,6 +41,8 @@ import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.time.Instant
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 class AiGenerationService(
     private val context: Context? = null,
@@ -84,12 +93,20 @@ class AiGenerationService(
         maxPages: Int = 4
     ): List<String> = withContext(Dispatchers.IO) {
         require(!pdfPath.isNullOrBlank()) { "مسار PDF غير محدد" }
-        val file = File(pdfPath)
-        require(file.isFile) { "ملف PDF الخاص بالدرس غير موجود: $pdfPath" }
         require(maxPages > 0) { "عدد صفحات PDF المطلوب يجب أن يكون أكبر من صفر" }
 
+        val descriptor = if (context != null) {
+            require(UriIO.exists(context, pdfPath)) { "ملف PDF الخاص بالدرس غير موجود: $pdfPath" }
+            UriIO.openReadPfd(context, pdfPath)
+                ?: throw IllegalStateException("تعذر فتح ملف PDF للقراءة: $pdfPath")
+        } else {
+            val file = File(pdfPath)
+            require(file.isFile) { "ملف PDF الخاص بالدرس غير موجود: $pdfPath" }
+            ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+        }
+
         val encodedPages = mutableListOf<String>()
-        ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { pfd ->
+        descriptor.use { pfd ->
             PdfRenderer(pfd).use { renderer ->
                 require(renderer.pageCount > 0) { "ملف PDF لا يحتوي صفحات" }
                 val selectedCount = renderer.pageCount.coerceAtMost(maxPages)
@@ -170,23 +187,35 @@ class AiGenerationService(
 
             for (modelName in modelCandidates) {
                 val candidateProfile = profile.copy(model = modelName)
+                val expectJson = task == TaskType.QUESTIONS || task == TaskType.INTERACTIVE
                 var retry = 0
                 while (retry < 2) {
+                    val callStart = System.currentTimeMillis()
                     try {
-                        val outputText = callProvider(candidateProfile, prompt, pdfPageImagesBase64)
+                        val (outputText, tokens) = callProvider(
+                            profile = candidateProfile,
+                            prompt = prompt,
+                            pdfPageImagesBase64 = pdfPageImagesBase64,
+                            expectJson = expectJson
+                        )
+                        val durationMs = (System.currentTimeMillis() - callStart).coerceAtLeast(1L)
                         onAttemptFinished?.invoke(profile.label, modelName, true, null)
                         return@withContext GeneratedResult(
                             text = outputText,
                             providerLabel = profile.label,
                             model = modelName,
-                            createdAt = Instant.now().toString()
+                            createdAt = Instant.now().toString(),
+                            durationMs = durationMs,
+                            tokensUsed = tokens
                         )
+                    } catch (e: CancellationException) {
+                        throw e
                     } catch (e: ProviderCallException) {
                         val reason = e.message?.takeIf { it.isNotBlank() } ?: "فشل"
                         errors.add("${profile.label}/$modelName: $reason")
                         onAttemptFinished?.invoke(profile.label, modelName, false, reason)
                         if (!e.isTransient) {
-                            break // Do not retry permanent 400/401/403/404 errors
+                            break
                         }
                         if (retry == 0) {
                             delay(650L)
@@ -217,31 +246,34 @@ class AiGenerationService(
             throw IllegalArgumentException("أدخل النموذج ومفتاح API أولاً")
         }
         val started = System.currentTimeMillis()
-        val reply = callProvider(
+        val (reply, _) = callProvider(
             profile = profile,
             prompt = "أجب بكلمة واحدة فقط: جاهز",
-            pdfPageImagesBase64 = emptyList()
+            pdfPageImagesBase64 = emptyList(),
+            expectJson = false
         )
         val elapsed = (System.currentTimeMillis() - started).coerceAtLeast(1L)
         "اتصال ناجح بـ ${profile.model} (${elapsed}ms): ${reply.trim().take(40)}"
     }
 
-    private fun callProvider(
+    private suspend fun callProvider(
         profile: ProviderConfig,
         prompt: String,
-        pdfPageImagesBase64: List<String>
-    ): String {
+        pdfPageImagesBase64: List<String>,
+        expectJson: Boolean
+    ): Pair<String, Int> {
         return when (profile.provider) {
-            ProviderType.GEMINI -> callGemini(profile, prompt, pdfPageImagesBase64)
-            ProviderType.OPENAI_COMPATIBLE -> callOpenAiCompatible(profile, prompt, pdfPageImagesBase64)
+            ProviderType.GEMINI -> callGemini(profile, prompt, pdfPageImagesBase64, expectJson)
+            ProviderType.OPENAI_COMPATIBLE -> callOpenAiCompatible(profile, prompt, pdfPageImagesBase64, expectJson)
         }
     }
 
-    private fun callGemini(
+    private suspend fun callGemini(
         profile: ProviderConfig,
         prompt: String,
-        pdfPageImagesBase64: List<String>
-    ): String {
+        pdfPageImagesBase64: List<String>,
+        expectJson: Boolean
+    ): Pair<String, Int> {
         val encodedModel = URLEncoder.encode(profile.model.trim(), StandardCharsets.UTF_8.name())
             .replace("+", "%20")
         val url = "${geminiEndpointBase.trimEnd('/')}/$encodedModel:generateContent"
@@ -267,6 +299,9 @@ class AiGenerationService(
             })
             put("generationConfig", buildJsonObject {
                 put("temperature", 0.3)
+                if (expectJson) {
+                    put("responseMimeType", "application/json")
+                }
             })
         }.toString()
 
@@ -277,7 +312,7 @@ class AiGenerationService(
             .post(payload.toRequestBody(mediaTypeJson))
             .build()
 
-        client.newCall(request).execute().use { response ->
+        executeCancellable(request).use { response ->
             val rawBody = response.body?.string().orEmpty()
             val jsonObj = runCatching { json.parseToJsonElement(rawBody).jsonObject }.getOrNull()
             if (!response.isSuccessful) {
@@ -297,19 +332,25 @@ class AiGenerationService(
             val text = parts?.joinToString("") { part ->
                 ((part as? JsonObject)?.get("text") as? JsonPrimitive)?.contentOrNull.orEmpty()
             }.orEmpty()
+            val tokens = (jsonObj?.get("usageMetadata") as? JsonObject)
+                ?.get("totalTokenCount")
+                ?.let { it as? JsonPrimitive }
+                ?.intOrNull
+                ?: 0
 
             if (text.isBlank()) {
                 throw ProviderCallException("استجابة فارغة", isTransient = true)
             }
-            return text
+            return text to tokens
         }
     }
 
-    private fun callOpenAiCompatible(
+    private suspend fun callOpenAiCompatible(
         profile: ProviderConfig,
         prompt: String,
-        pdfPageImagesBase64: List<String>
-    ): String {
+        pdfPageImagesBase64: List<String>,
+        expectJson: Boolean
+    ): Pair<String, Int> {
         val cleanBase = profile.baseUrl.trim().trimEnd('/')
         if (cleanBase.isBlank()) {
             throw ProviderCallException("يرجى إدخال Base URL صالح", isTransient = false)
@@ -346,6 +387,11 @@ class AiGenerationService(
                 })
             })
             put("temperature", 0.3)
+            if (expectJson) {
+                put("response_format", buildJsonObject {
+                    put("type", "json_object")
+                })
+            }
         }.toString()
 
         val request = Request.Builder()
@@ -355,7 +401,7 @@ class AiGenerationService(
             .post(payload.toRequestBody(mediaTypeJson))
             .build()
 
-        client.newCall(request).execute().use { response ->
+        executeCancellable(request).use { response ->
             val rawBody = response.body?.string().orEmpty()
             val jsonObj = runCatching { json.parseToJsonElement(rawBody).jsonObject }.getOrNull()
             if (!response.isSuccessful) {
@@ -372,13 +418,41 @@ class AiGenerationService(
             val firstChoice = choices?.firstOrNull() as? JsonObject
             val messageObj = firstChoice?.get("message") as? JsonObject
             val text = (messageObj?.get("content") as? JsonPrimitive)?.contentOrNull.orEmpty()
+            val tokens = (jsonObj?.get("usage") as? JsonObject)
+                ?.get("total_tokens")
+                ?.let { it as? JsonPrimitive }
+                ?.intOrNull
+                ?: 0
 
             if (text.isBlank()) {
                 throw ProviderCallException("استجابة فارغة", isTransient = true)
             }
-            return text
+            return text to tokens
         }
     }
+
+    private suspend fun executeCancellable(request: Request): Response =
+        suspendCancellableCoroutine { continuation ->
+            val call = client.newCall(request)
+            continuation.invokeOnCancellation {
+                call.cancel()
+            }
+            call.enqueue(object : Callback {
+                override fun onFailure(call: Call, e: IOException) {
+                    if (continuation.isActive) {
+                        continuation.resumeWithException(e)
+                    }
+                }
+
+                override fun onResponse(call: Call, response: Response) {
+                    if (continuation.isActive) {
+                        continuation.resume(response)
+                    } else {
+                        response.close()
+                    }
+                }
+            })
+        }
 
     private fun isTransientHttp(code: Int): Boolean {
         return code == 408 || code == 429 || code >= 500

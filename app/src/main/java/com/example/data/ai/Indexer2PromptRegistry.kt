@@ -81,20 +81,23 @@ object Indexer2PromptRegistry {
         PromptBlueprintSpec(
             id = "prompt_interactive",
             task = TaskType.INTERACTIVE,
-            titleAr = "مخطط النشاط التفاعلي JSON (indexer2)",
-            subtitleAr = "محطات تعلم تفاعلية + نقاط تحقق + ترتيب + توصيل بصيغة متوافقة مع المشغّل",
+            titleAr = "مخطط الدرس التفاعلي المترابط (JSON + JS + HTML)",
+            subtitleAr = "محطات تعلم تفاعلية + conceptTag + نقاط تحقق مرتبطة ببنك الأسئلة ومشغل HTML/JS",
             sourcePath = "prompts/indexer2/interactive_activity.prompt.md",
-            roleInstruction = "نشاطاً تعليمياً تفاعلياً منظماً بصيغة JSON آمنة تتضمن خطوات تفاعلية، ونقاط تحقق، ومهمة ترتيب أو توصيل",
-            outputContract = "JSON صريح يحتوي title, objective, steps[], ordering[], matching[]",
+            roleInstruction = "نشاطاً تعليمياً تفاعلياً منظماً بصيغة JSON آمنة تتضمن خطوات تفاعلية، وconceptTag لكل محطة، ونقاط تحقق مرتبطة ببنك الأسئلة، ومهمة ترتيب أو توصيل ليتم تصديره وتشغيله عبر JSON + JS + HTML",
+            outputContract = "JSON صريح يحتوي schemaVersion, title, objective, steps[](conceptTag, checkpoint), ordering[], matching[]",
             schemaSnippet = """
                 {
+                  "schemaVersion": 1,
                   "title": "عنوان النشاط التفاعلي",
                   "objective": "الهدف التعليمي للنشاط",
                   "steps": [
                     {
                       "title": "المحطة الأولى",
+                      "conceptTag": "المفهوم الأساسي المستهدف",
                       "body": "شرح مختصر للمفهوم في هذه المحطة",
                       "checkpoint": {
+                        "conceptTag": "المفهوم الأساسي المستهدف",
                         "question": "سؤال تحقق سريع؟",
                         "options": ["خيار أ", "خيار ب", "خيار ج"],
                         "answer": "خيار أ"
@@ -107,7 +110,7 @@ object Indexer2PromptRegistry {
                   ]
                 }
             """.trimIndent(),
-            quickInstructions = "أخرج النشاط بصيغة JSON مطابقة للمخطط القياسي مع محطتين تفاعليتين على الأقل ومهمة ترتيب وتوصيل."
+            quickInstructions = "أخرج النشاط بصيغة JSON مع conceptTag صريح لكل محطة ونقطة تحقق متوافقة مع بنك الأسئلة ومشغّل JS/HTML الموحد."
         ),
         PromptBlueprintSpec(
             id = "prompt_questions",
@@ -118,19 +121,22 @@ object Indexer2PromptRegistry {
             roleInstruction = "بنك أسئلة مع الخيارات والإجابة الصحيحة والتفسير ومستوى الصعوبة وربط كل سؤال بالصفحة المرجعية",
             outputContract = "رقم السؤال + الخيارات أو صيغة التوصيل/الترتيب + الإجابة: + التفسير: + الصعوبة: أو مصفوفة JSON",
             schemaSnippet = """
-                [
-                  {
-                    "type": "mcq",
-                    "prompt": "نص السؤال المرتبط بصفحات الدرس",
-                    "options": ["أ", "ب", "ج", "د"],
-                    "correctAnswer": "أ",
-                    "rationale": "تعليل الإجابة استناداً إلى الدرس",
-                    "difficulty": "medium",
-                    "sourcePages": "5–8"
-                  }
-                ]
+                {
+                  "questions": [
+                    {
+                      "type": "mcq",
+                      "conceptTag": "المفهوم الأساسي في الدرس",
+                      "prompt": "نص السؤال المرتبط بصفحات الدرس",
+                      "options": ["أ", "ب", "ج", "د"],
+                      "correctAnswer": "أ",
+                      "rationale": "تعليل الإجابة استناداً إلى الدرس",
+                      "difficulty": "medium",
+                      "sourcePages": "5–8"
+                    }
+                  ]
+                }
             """.trimIndent(),
-            quickInstructions = "نوّع الأسئلة بين اختيار من متعدد، صح أم خطأ، إكمال الفراغ، وترتيب مع كتابة الإجابة والتفسير لكل سؤال."
+            quickInstructions = "نوّع الأسئلة بين اختيار من متعدد، صح أم خطأ، إكمال الفراغ، وترتيب مع تحديد conceptTag لكل سؤال."
         )
     )
 
@@ -183,39 +189,70 @@ object Indexer2PromptRegistry {
             id = "schema_questions",
             fileName = "questions/<unit>/<lesson>/ai_generated.json",
             titleAr = "مخطط بنك الأسئلة التفاعلي (questions.json)",
-            descriptionAr = "يدعم 6 أنماط: mcq, true_false, fill_blank, ordering, matching, short_answer.",
+            descriptionAr = "يدعم 6 أنماط: mcq, true_false, fill_blank, ordering, matching, short_answer مع تصنيف المفهوم conceptTag.",
             schemaJson = """
-                [
-                  {
-                    "type": "mcq",
-                    "prompt": "ما الفكرة الرئيسة في الفقرة الأولى؟",
-                    "options": ["الخيار الأول", "الخيار الثاني", "الخيار الثالث", "الخيار الرابع"],
-                    "correctAnswer": "الخيار الأول",
-                    "rationale": "ورد ذلك في الصفحة 6 من الكتاب.",
-                    "difficulty": "easy"
-                  },
-                  {
-                    "type": "fill_blank",
-                    "prompt": "يتكون الماء من ذرتي ___ وذرة أكسجين.",
-                    "correctAnswer": "هيدروجين",
-                    "difficulty": "medium"
-                  },
-                  {
-                    "type": "ordering",
-                    "prompt": "رتب مراحل التجربة:",
-                    "options": ["الملاحظة", "الفرضية", "التجربة", "الاستنتاج"],
-                    "correctAnswer": "الملاحظة | الفرضية | التجربة | الاستنتاج",
-                    "difficulty": "hard"
-                  }
-                ]
+                {
+                  "questions": [
+                    {
+                      "type": "mcq",
+                      "conceptTag": "استخلاص الفكرة الرئيسة",
+                      "prompt": "ما الفكرة الرئيسة في الفقرة الأولى؟",
+                      "options": ["الخيار الأول", "الخيار الثاني", "الخيار الثالث", "الخيار الرابع"],
+                      "correctAnswer": "الخيار الأول",
+                      "rationale": "ورد ذلك في الصفحة 6 من الكتاب.",
+                      "difficulty": "easy"
+                    },
+                    {
+                      "type": "fill_blank",
+                      "conceptTag": "تركيب الماء الكيميائي",
+                      "prompt": "يتكون الماء من ذرتي ___ وذرة أكسجين.",
+                      "correctAnswer": "هيدروجين",
+                      "difficulty": "medium"
+                    },
+                    {
+                      "type": "ordering",
+                      "conceptTag": "خطوات المنهج العلمي",
+                      "prompt": "رتب مراحل التجربة:",
+                      "options": ["الملاحظة", "الفرضية", "التجربة", "الاستنتاج"],
+                      "correctAnswer": "الملاحظة | الفرضية | التجربة | الاستنتاج",
+                      "difficulty": "hard"
+                    }
+                  ]
+                }
             """.trimIndent()
         ),
         Indexer2SchemaSpec(
             id = "schema_interactive",
-            fileName = "edu_mini_generated/<unit>/<lesson>/interactive.json",
-            titleAr = "مخطط النشاط التفاعلي الأصيل (interactive.json)",
-            descriptionAr = "مخطط JSON تصريحي يشغّله مشغّل الأنشطة المدمج بالخطوات ونقاط التحقق.",
+            fileName = "edu_mini_generated/<unit>/<lesson>/lesson.interactive.json",
+            titleAr = "مخطط النشاط التفاعلي الأصيل (lesson.interactive.json)",
+            descriptionAr = "مخطط JSON تصريحي مزوّد بـ conceptTag يشغّله مشغّل الأنشطة المدمج وباني حزمة JS+HTML.",
             schemaJson = blueprints.first { it.task == TaskType.INTERACTIVE }.schemaSnippet
+        ),
+        Indexer2SchemaSpec(
+            id = "schema_interactive_bundle",
+            fileName = "interactive/<book>/<unit>/<lesson>/{index.html, interactive-engine.js, lesson.interactive.json}",
+            titleAr = "مخطط تخزين حزمة الدرس التفاعلي المتكاملة (HTML + JS + JSON + Room DB)",
+            descriptionAr = "يخزّن الحزمة التفاعلية في 3 ملفات مترابطة (HTML عارض + محرك JavaScript + بيانات JSON) ويربط نقاط التحقق بجداول questions و question_attempts لكل متعلّم.",
+            schemaJson = """
+                {
+                  "storageLayout": {
+                    "packageRoot": "edumini/packages/<grade>_<book>_<unit>_<lesson>/v<N>/",
+                    "files": [
+                      "index.html",
+                      "interactive-engine.js",
+                      "lesson.interactive.json"
+                    ]
+                  },
+                  "databaseSync": {
+                    "questionsTable": "id, workspace_id, lesson_key, concept_tag, prompt, options_json, correct_answer",
+                    "questionAttemptsTable": "id, workspace_id, user_id, question_id, concept_tag, selected_answer, is_correct, source_mode"
+                  },
+                  "jsBridgeContract": {
+                    "recordAttempt": "window.EduMiniBridge.recordQuestionAttempt(prompt, conceptTag, selected, correct, isCorrect)",
+                    "complete": "window.EduMiniBridge.completeInteractive(scorePercent, earnedXp)"
+                  }
+                }
+            """.trimIndent()
         ),
         Indexer2SchemaSpec(
             id = "schema_export_manifest",

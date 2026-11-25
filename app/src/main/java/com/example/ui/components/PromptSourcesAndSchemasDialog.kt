@@ -82,8 +82,13 @@ fun PromptSourcesAndSchemasDialog(
 ) {
     var activeTab by remember { mutableIntStateOf(0) } // 0: Prompt Sources, 1: indexer2 Schemas, 2: Live Prompt
     val clipboard = LocalClipboardManager.current
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     val livePrompt = remember(selectedLesson, activeTask, questionCount, sourceText, extraInstructions) {
+        val bp = Indexer2PromptRegistry.blueprintFor(activeTask)
+        val templateText = runCatching {
+            context.assets.open(bp.sourcePath).bufferedReader(Charsets.UTF_8).use { it.readText() }
+        }.getOrDefault("")
         if (selectedLesson != null) {
             Indexer2PromptRegistry.assemblePrompt(
                 lesson = selectedLesson,
@@ -91,11 +96,11 @@ fun PromptSourcesAndSchemasDialog(
                 source = sourceText,
                 extra = extraInstructions,
                 questionCount = questionCount,
-                attachedPdfPagesCount = if (!selectedLesson.pdfPath.isNullOrBlank()) 1 else 0
+                attachedPdfPagesCount = if (!selectedLesson.pdfPath.isNullOrBlank()) 1 else 0,
+                promptTemplate = templateText
             )
         } else {
-            val bp = Indexer2PromptRegistry.blueprintFor(activeTask)
-            "المخطط المختار: ${bp.titleAr}\nالمصدر: ${bp.sourcePath}\nالدور: ${bp.roleInstruction}\nالمخرجات المتوقعة: ${bp.outputContract}"
+            "المخطط المختار: ${bp.titleAr}\nالمصدر: ${bp.sourcePath}\nالدور: ${bp.roleInstruction}\nالمخرجات المتوقعة: ${bp.outputContract}\n\n${templateText}".trim()
         }
     }
 

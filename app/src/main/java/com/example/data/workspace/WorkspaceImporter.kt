@@ -499,6 +499,28 @@ class WorkspaceImporter(private val context: Context) {
                 }
 
                 val matchedPdfRel = candidates.firstOrNull { it in zipNameSet }
+                val txtCandidates = buildList {
+                    if (p == "P01" || p == "P02") {
+                        add("$bookRel/$p/units/$uk/lesson_$lessonNumStr.txt")
+                        add("$bookRel/$p/units/$uk/lesson_$lessonNumStr.md")
+                        add("$bookRel/$p/units/$uk/$lk.txt")
+                    }
+                    add("$bookRel/P01/units/$uk/lesson_$lessonNumStr.txt")
+                    add("$bookRel/P02/units/$uk/lesson_$lessonNumStr.txt")
+                    add("$bookRel/units/$uk/lesson_$lessonNumStr.txt")
+                    add("$bookRel/units/$uk/lesson_$lessonNumStr.md")
+                }
+                val matchedTxtRel = txtCandidates.firstOrNull { it in zipNameSet }
+                val htmlCandidates = buildList {
+                    if (p == "P01" || p == "P02") {
+                        add("$bookRel/$p/units/$uk/lesson_$lessonNumStr/index.html")
+                        add("$bookRel/$p/units/$uk/lesson_$lessonNumStr.html")
+                    }
+                    add("$bookRel/interactive/$uk/$lk/index.html")
+                    add("$bookRel/units/$uk/$lk/index.html")
+                    add("$bookRel/units/$uk/lesson_$lessonNumStr.html")
+                }
+                val matchedHtmlRel = htmlCandidates.firstOrNull { it in zipNameSet }
                 val pageRange = if (startPage.isNotBlank() && endPage.isNotBlank()) {
                     "$startPage–$endPage"
                 } else null
@@ -517,7 +539,9 @@ class WorkspaceImporter(private val context: Context) {
                         title = lt,
                         partKey = p.ifBlank { null },
                         pageRange = pageRange,
-                        pdfPath = matchedPdfRel?.let { File(rootPath, it).absolutePath }
+                        pdfPath = matchedPdfRel?.let { File(rootPath, it).absolutePath },
+                        sourceTextPath = matchedTxtRel?.let { File(rootPath, it).absolutePath },
+                        interactivePath = matchedHtmlRel?.let { File(rootPath, it).absolutePath }
                     )
                 )
             }

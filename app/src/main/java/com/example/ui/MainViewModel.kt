@@ -1,16 +1,19 @@
 package com.example.ui
 
 import android.app.Application
+import android.content.Context
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.ai.AiGenerationService
 import com.example.data.local.EduMiniDatabase
 import com.example.data.packageimport.InteractivePackageImporter
+import com.example.data.repository.ConceptMasteryEngine
 import com.example.data.repository.EduMiniRepository
 import com.example.data.repository.InteractiveActivityParser
 import com.example.data.repository.QuestionBankEngine
 import com.example.data.security.ProviderStorage
+import com.example.data.workspace.DirectWorkspaceBinder
 import com.example.data.workspace.PdfBookSplitter
 import com.example.data.workspace.WorkspaceImporter
 import com.example.model.AppPage
@@ -18,13 +21,18 @@ import com.example.model.AssessmentAttemptRecord
 import com.example.model.AssessmentKind
 import com.example.model.AssessmentRecord
 import com.example.model.BookRef
+import com.example.model.ConceptMasterySummary
+import com.example.model.DashboardLessonFilter
 import com.example.model.DashboardSummary
+import com.example.model.DirectWorkspaceInspection
 import com.example.model.DraftRecord
 import com.example.model.DraftStatus
 import com.example.model.GenerationRunRecord
 import com.example.model.ImportedWorkspace
 import com.example.model.InteractiveActivityModel
 import com.example.model.InteractivePackageRecord
+import com.example.model.LearnerProfile
+import com.example.model.LessonQuizCompletionResult
 import com.example.model.LessonRef
 import com.example.model.LessonSplitDraft
 import com.example.model.PdfBookInfo
@@ -32,18 +40,26 @@ import com.example.model.PromptBlueprintSpec
 import com.example.model.PromptTemplateRecord
 import com.example.model.ProviderConfig
 import com.example.model.ProviderType
+import com.example.model.QuestionAttemptRecord
 import com.example.model.QuestionDifficulty
 import com.example.model.QuestionItem
+import com.example.model.QuestionMasteryStats
 import com.example.model.QuestionType
 import com.example.model.StagedWorkspacePreview
+import com.example.model.StudentDashboardState
 import com.example.model.TaskType
 import com.example.model.TeacherNoteRecord
+import com.example.model.UnitCompletionStatus
+import com.example.model.UserRole
 import com.example.model.WorkspaceSummary
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -51,6 +67,9 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import java.util.UUID
 
 data class AlertMessage(
     val title: String,
@@ -84,6 +103,9 @@ data class PdfSplitterUiState(
 )
 
 data class MainUiState(
+    val userRole: UserRole = UserRole.ENTRY,
+    val availableLearners: List<LearnerProfile> = listOf(LearnerProfile.DEFAULT),
+    val activeLearner: LearnerProfile = LearnerProfile.DEFAULT,
     val page: AppPage = AppPage.DASHBOARD,
     val selectedWorkspaceId: String? = null,
     val workspace: ImportedWorkspace? = null,
@@ -106,6 +128,10 @@ data class MainUiState(
     val studentPreviewMode: Boolean = false,
     val activeInteractiveActivity: InteractiveActivityModel? = null,
     val studentStudyLesson: LessonRef? = null,
+    val lastLessonQuizResult: LessonQuizCompletionResult? = null,
+    val reinforcementConceptTitle: String? = null,
+    val reinforcementQuestions: List<QuestionItem> = emptyList(),
+    val directInspection: DirectWorkspaceInspection? = null,
     val previewingPdf: PdfPreviewPayload? = null,
     val previewingBookCover: BookRef? = null,
     val promptSourcesOpen: Boolean = false,
@@ -129,11 +155,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         workspaceImporter = WorkspaceImporter(application),
         aiGenerationService = AiGenerationService(application),
         pdfBookSplitter = PdfBookSplitter(application),
-        interactivePackageImporter = InteractivePackageImporter(application)
+        interactivePackageImporter = InteractivePackageImporter(application),
+        directWorkspaceBinder = DirectWorkspaceBinder(application),
+        appContext = application
     )
+
+    private var generationJob: Job? = null
 
     private val _uiState = MutableStateFlow(MainUiState())
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
+
+    private val _studentDashboardState = MutableStateFlow(StudentDashboardState())
+    val studentDashboardState: StateFlow<StudentDashboardState> = _studentDashboardState.asStateFlow()
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val lessonDrafts: StateFlow<List<DraftRecord>> = _uiState
@@ -163,9 +196,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val dashboardSummary: StateFlow<DashboardSummary> = _uiState
-        .map { it.workspace }
+        .map { it.workspace to it.activeLearner.userId }
         .distinctUntilChanged()
-        .flatMapLatest { ws -> repository.observeDashboardSummary(ws) }
+        .flatMapLatest { (ws, userId) -> repository.observeDashboardSummary(ws, userId) }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
@@ -250,7 +283,43 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             initialValue = EduMiniRepository.DEFAULT_PROMPT_TEMPLATES
         )
 
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val workspaceQuestionAttempts: StateFlow<List<QuestionAttemptRecord>> = _uiState
+        .map { it.workspace?.workspaceId.orEmpty() to it.activeLearner.userId }
+        .distinctUntilChanged()
+        .flatMapLatest { (wsId, userId) -> repository.observeQuestionAttempts(wsId, userId) }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
+    val questionMasteryStats: StateFlow<Map<String, QuestionMasteryStats>> =
+        combine(workspaceQuestions, workspaceQuestionAttempts) { questions, attempts ->
+            ConceptMasteryEngine.computeQuestionStats(questions, attempts)
+        }.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyMap()
+        )
+
+    val conceptMasterySummaries: StateFlow<List<ConceptMasterySummary>> =
+        combine(workspaceQuestions, workspaceQuestionAttempts, _uiState.map { it.workspace }) { questions, attempts, ws ->
+            val bookTitles = ws?.books?.associate { it.bookKey to it.title }.orEmpty()
+            ConceptMasteryEngine.computeConceptSummaries(questions, attempts, bookTitles)
+        }.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
+    private val profilePrefs by lazy {
+        application.getSharedPreferences(LEARNER_PREFS_NAME, Context.MODE_PRIVATE)
+    }
+    private val profileJson = Json { ignoreUnknownKeys = true }
+
     init {
+        loadLearnerProfiles()
         viewModelScope.launch {
             runCatching { repository.loadProviders() }
                 .onSuccess { loaded ->
@@ -302,11 +371,198 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun selectRole(role: UserRole) {
+        _uiState.update { state ->
+            val targetPage = when (role) {
+                UserRole.LEARNER -> AppPage.DASHBOARD
+                UserRole.ADMIN -> AppPage.LIBRARY
+                UserRole.ENTRY -> state.page
+            }
+            state.copy(
+                userRole = role,
+                page = targetPage,
+                studentStudyLesson = null,
+                globalSearchOpen = false,
+                promptSourcesOpen = false
+            )
+        }
+    }
+
+    fun switchToRoleEntry() {
+        _uiState.update {
+            it.copy(
+                userRole = UserRole.ENTRY,
+                studentStudyLesson = null,
+                globalSearchOpen = false,
+                promptSourcesOpen = false,
+                reinforcementQuestions = emptyList(),
+                reinforcementConceptTitle = null
+            )
+        }
+    }
+
+    fun selectLearnerProfile(userId: String) {
+        val current = _uiState.value.availableLearners
+        val match = current.firstOrNull { it.userId == userId } ?: return
+        profilePrefs.edit().putString(KEY_ACTIVE_LEARNER_ID, match.userId).apply()
+        _uiState.update {
+            it.copy(
+                activeLearner = match,
+                toastMessage = "تم التبديل إلى ملف المتعلّم: ${match.displayName}"
+            )
+        }
+    }
+
+    fun addLearnerProfile(displayName: String) {
+        val cleanName = displayName.trim()
+        if (cleanName.isBlank()) return
+        val existing = _uiState.value.availableLearners
+        val duplicate = existing.firstOrNull { it.displayName.equals(cleanName, ignoreCase = true) }
+        if (duplicate != null) {
+            selectLearnerProfile(duplicate.userId)
+            return
+        }
+        val newProfile = LearnerProfile(
+            userId = "learner_${System.currentTimeMillis()}_${UUID.randomUUID().toString().take(4)}",
+            displayName = cleanName
+        )
+        val updatedList = existing + newProfile
+        saveLearnerProfiles(updatedList, newProfile.userId)
+        _uiState.update {
+            it.copy(
+                availableLearners = updatedList,
+                activeLearner = newProfile,
+                toastMessage = "تم إنشاء وتفعيل ملف المتعلّم «${newProfile.displayName}»"
+            )
+        }
+    }
+
+    private fun loadLearnerProfiles() {
+        val raw = profilePrefs.getString(KEY_LEARNER_PROFILES_JSON, null)
+        val parsed = if (!raw.isNullOrBlank()) {
+            runCatching { profileJson.decodeFromString<List<LearnerProfile>>(raw) }
+                .getOrDefault(emptyList())
+        } else emptyList()
+        val list = parsed
+            .distinctBy { it.userId }
+            .ifEmpty { listOf(LearnerProfile.DEFAULT) }
+            .let { items ->
+                if (items.any { it.userId == LearnerProfile.DEFAULT_USER_ID }) items
+                else listOf(LearnerProfile.DEFAULT) + items
+            }
+        val savedActiveId = profilePrefs.getString(KEY_ACTIVE_LEARNER_ID, LearnerProfile.DEFAULT_USER_ID)
+        val active = list.firstOrNull { it.userId == savedActiveId } ?: list.first()
+        _uiState.update {
+            it.copy(availableLearners = list, activeLearner = active)
+        }
+    }
+
+    private fun saveLearnerProfiles(profiles: List<LearnerProfile>, activeId: String) {
+        runCatching {
+            profilePrefs.edit()
+                .putString(KEY_LEARNER_PROFILES_JSON, profileJson.encodeToString(profiles))
+                .putString(KEY_ACTIVE_LEARNER_ID, activeId)
+                .apply()
+        }
+    }
+
     fun navigateTo(page: AppPage) {
-        _uiState.update { it.copy(page = page) }
+        _uiState.update { state ->
+            val allowed = when (state.userRole) {
+                UserRole.LEARNER -> if (page == AppPage.DASHBOARD || page == AppPage.LEARNER_MASTERY) page else AppPage.DASHBOARD
+                UserRole.ADMIN -> if (page == AppPage.LIBRARY || page == AppPage.STUDIO || page == AppPage.QUIZ_BANK || page == AppPage.SETTINGS) page else AppPage.LIBRARY
+                UserRole.ENTRY -> page
+            }
+            state.copy(page = allowed)
+        }
+    }
+
+    fun inspectDirectFolderUri(treeUri: Uri) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isBusy = true) }
+            try {
+                val inspection = repository.inspectDirectTreeUri(treeUri)
+                if (inspection.grades.size == 1) {
+                    val onlyGrade = inspection.grades.first().gradeKey
+                    val bound = repository.bindDirectWorkspace(inspection.rootUriOrPath, onlyGrade)
+                    _studentDashboardState.value = StudentDashboardState()
+                    _uiState.update { state ->
+                        val nextPage = when (state.userRole) {
+                            UserRole.LEARNER -> AppPage.DASHBOARD
+                            UserRole.ADMIN -> AppPage.LIBRARY
+                            UserRole.ENTRY -> state.page
+                        }
+                        state.copy(
+                            directInspection = null,
+                            selectedWorkspaceId = bound.workspaceId,
+                            workspace = bound,
+                            selectedBookKey = bound.books.firstOrNull()?.bookKey.orEmpty(),
+                            selectedLesson = null,
+                            page = nextPage,
+                            alert = AlertMessage(
+                                "تم ربط مساحة العمل محلياً (بدون نسخ)",
+                                "الصف: ${bound.gradeKey} • ${bound.books.size} مادة • ${bound.lessons.size} درس"
+                            )
+                        )
+                    }
+                } else {
+                    _uiState.update { it.copy(directInspection = inspection) }
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(alert = AlertMessage("تعذر ربط المجلد", e.message ?: "لم يتم العثور على ملفات منهج صالحة"))
+                }
+            } finally {
+                _uiState.update { it.copy(isBusy = false) }
+            }
+        }
+    }
+
+    fun confirmDirectGradeBinding(gradeKey: String) {
+        val inspection = _uiState.value.directInspection ?: return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isBusy = true) }
+            try {
+                val bound = repository.bindDirectWorkspace(inspection.rootUriOrPath, gradeKey)
+                _studentDashboardState.value = StudentDashboardState()
+                _uiState.update { state ->
+                    val nextPage = when (state.userRole) {
+                        UserRole.LEARNER -> AppPage.DASHBOARD
+                        UserRole.ADMIN -> AppPage.LIBRARY
+                        UserRole.ENTRY -> state.page
+                    }
+                    state.copy(
+                        directInspection = null,
+                        selectedWorkspaceId = bound.workspaceId,
+                        workspace = bound,
+                        selectedBookKey = bound.books.firstOrNull()?.bookKey.orEmpty(),
+                        selectedLesson = null,
+                        page = nextPage,
+                        alert = AlertMessage(
+                            "تم ربط الصف $gradeKey مباشرة",
+                            "${bound.books.size} مادة • ${bound.lessons.size} درس • تتم القراءة مباشرة دون نسخ الملفات"
+                        )
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        directInspection = null,
+                        alert = AlertMessage("تعذر ربط الصف", e.message ?: "حدث خطأ غير متوقع")
+                    )
+                }
+            } finally {
+                _uiState.update { it.copy(isBusy = false) }
+            }
+        }
+    }
+
+    fun dismissDirectInspection() {
+        _uiState.update { it.copy(directInspection = null) }
     }
 
     fun selectWorkspace(workspaceId: String) {
+        _studentDashboardState.value = StudentDashboardState()
         _uiState.update {
             it.copy(
                 selectedWorkspaceId = workspaceId,
@@ -321,6 +577,51 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             it.copy(
                 selectedBookKey = bookKey,
                 selectedLesson = null
+            )
+        }
+    }
+
+    fun selectDashboardBookFilter(bookKey: String) {
+        _studentDashboardState.update { it.copy(selectedBookKey = bookKey) }
+    }
+
+    fun selectDashboardLessonFilter(filter: DashboardLessonFilter) {
+        _studentDashboardState.update { it.copy(lessonFilter = filter) }
+    }
+
+    fun toggleDashboardUnitExpanded(unitKey: String) {
+        _studentDashboardState.update { state ->
+            val next = if (unitKey in state.collapsedUnitKeys) {
+                state.collapsedUnitKeys - unitKey
+            } else {
+                state.collapsedUnitKeys + unitKey
+            }
+            state.copy(collapsedUnitKeys = next)
+        }
+    }
+
+    fun toggleExpandCollapseAllDashboardUnits(allUnitKeys: List<String>) {
+        _studentDashboardState.update { state ->
+            val allSet = allUnitKeys.toSet()
+            val shouldExpandAll = state.collapsedUnitKeys.size >= (allSet.size + 1) / 2
+            state.copy(collapsedUnitKeys = if (shouldExpandAll) emptySet() else allSet)
+        }
+    }
+
+    fun dismissCompletedUnitBanner() {
+        _studentDashboardState.update { it.copy(recentlyCompletedUnitTitle = null) }
+    }
+
+    fun openLessonQuestionsInStudio(lesson: LessonRef) {
+        _uiState.update {
+            it.copy(
+                selectedLesson = lesson,
+                selectedBookKey = lesson.bookKey,
+                packageSourcePages = lesson.pageRange.orEmpty(),
+                task = TaskType.QUESTIONS,
+                studentStudyLesson = null,
+                lastLessonQuizResult = null,
+                page = AppPage.STUDIO
             )
         }
     }
@@ -435,13 +736,161 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 selectedLesson = lesson,
                 selectedBookKey = lesson.bookKey,
                 packageSourcePages = lesson.pageRange.orEmpty(),
-                studentStudyLesson = lesson
+                studentStudyLesson = lesson,
+                lastLessonQuizResult = null
             )
         }
     }
 
     fun closeStudentStudy() {
-        _uiState.update { it.copy(studentStudyLesson = null) }
+        _uiState.update { it.copy(studentStudyLesson = null, lastLessonQuizResult = null) }
+    }
+
+    fun submitLessonQuiz(lesson: LessonRef, questions: List<QuestionItem>, answers: Map<String, String>) {
+        val wsId = _uiState.value.workspace?.workspaceId.orEmpty()
+        val activeUserId = _uiState.value.activeLearner.userId
+        val unitCompoundKey = "${lesson.bookKey}_${lesson.unitKey}"
+        val unitBefore = dashboardSummary.value.unitPaths.firstOrNull { it.unitKey == unitCompoundKey }
+        val unitAlreadyCompleted = unitBefore?.status == UnitCompletionStatus.COMPLETED
+        val otherIncompleteCount = unitBefore?.nodes?.count {
+            !it.isCompleted && it.lesson.lessonKey != lesson.lessonKey
+        } ?: 1
+
+        viewModelScope.launch {
+            val result = repository.recordLessonQuizAttempt(
+                workspaceId = wsId,
+                lesson = lesson,
+                questions = questions,
+                selectedAnswers = answers,
+                userId = activeUserId
+            )
+            val completedWholeUnitNow = result.passed &&
+                !unitAlreadyCompleted &&
+                unitBefore != null &&
+                unitBefore.totalCount > 0 &&
+                otherIncompleteCount == 0
+
+            if (completedWholeUnitNow) {
+                _studentDashboardState.update {
+                    it.copy(recentlyCompletedUnitTitle = unitBefore?.unitTitle)
+                }
+            }
+
+            _uiState.update {
+                it.copy(
+                    lastLessonQuizResult = result,
+                    toastMessage = when {
+                        completedWholeUnitNow ->
+                            "🎉 مبروك! اجتزت الاختبار وأكملت وحدة «${unitBefore?.unitTitle}» بالكامل (+${result.earnedXp} XP)"
+                        result.passed ->
+                            "اجتزت الاختبار واكتمل الدرس (+${result.earnedXp} XP)"
+                        else ->
+                            "نتيجتك ${result.scorePercent}% — أعد المحاولة (${EduMiniRepository.LESSON_QUIZ_PASS_PERCENT}%+) لإكمال الدرس"
+                    }
+                )
+            }
+        }
+    }
+
+    fun openNextLessonInStudy(currentLesson: LessonRef) {
+        val lessons = _uiState.value.workspace?.lessons.orEmpty()
+        if (lessons.isEmpty()) return
+        val currentIdx = lessons.indexOfFirst {
+            it.bookKey == currentLesson.bookKey &&
+                it.unitKey == currentLesson.unitKey &&
+                it.lessonKey == currentLesson.lessonKey
+        }
+        val nextLesson = if (currentIdx >= 0 && currentIdx + 1 < lessons.size) {
+            lessons[currentIdx + 1]
+        } else {
+            null
+        }
+        if (nextLesson != null) {
+            openStudentStudy(nextLesson)
+        } else {
+            closeStudentStudy()
+            _uiState.update { it.copy(toastMessage = "أحسنت! وصلت إلى نهاية قائمة الدروس") }
+        }
+    }
+
+    fun launchConceptReinforcement(conceptTag: String?) {
+        val questions = workspaceQuestions.value
+        val attempts = workspaceQuestionAttempts.value
+        val selected = ConceptMasteryEngine.selectReinforcementQuestions(
+            questions = questions,
+            attempts = attempts,
+            targetConceptTag = conceptTag
+        ).take(12)
+        if (selected.isEmpty()) {
+            _uiState.update {
+                it.copy(alert = AlertMessage("لا توجد أسئلة", "لا توجد أسئلة مرتبطة بهذا المفهوم حالياً."))
+            }
+            return
+        }
+        val title = if (conceptTag.isNullOrBlank()) "جلسة تقوية شاملة" else "تقوية: $conceptTag"
+        _uiState.update {
+            it.copy(
+                reinforcementConceptTitle = title,
+                reinforcementQuestions = selected
+            )
+        }
+    }
+
+    fun dismissReinforcementQuiz() {
+        _uiState.update {
+            it.copy(
+                reinforcementConceptTitle = null,
+                reinforcementQuestions = emptyList()
+            )
+        }
+    }
+
+    fun recordStandaloneQuestionAttempts(
+        questions: List<QuestionItem>,
+        answers: Map<String, String>,
+        sourceMode: String
+    ) {
+        val snapshot = _uiState.value
+        val wsId = snapshot.workspace?.workspaceId.orEmpty()
+        val activeUserId = snapshot.activeLearner.userId
+        viewModelScope.launch {
+            repository.recordStandaloneQuestionAttempts(
+                workspaceId = wsId,
+                questions = questions,
+                selectedAnswers = answers,
+                sourceMode = sourceMode,
+                userId = activeUserId
+            )
+        }
+    }
+
+    fun recordInteractiveQuestionAttempt(
+        lesson: LessonRef,
+        prompt: String,
+        conceptTag: String,
+        selectedAnswer: String,
+        correctAnswer: String,
+        isCorrect: Boolean,
+        options: List<String> = emptyList(),
+        sourceMode: String = "interactive_html"
+    ) {
+        val snapshot = _uiState.value
+        val wsId = snapshot.workspace?.workspaceId.orEmpty().ifBlank { lesson.workspaceId }.ifBlank { lesson.rootPath }
+        val activeUserId = snapshot.activeLearner.userId
+        viewModelScope.launch {
+            repository.recordInteractiveCheckpointAttempt(
+                workspaceId = wsId,
+                userId = activeUserId,
+                lesson = lesson,
+                prompt = prompt,
+                conceptTag = conceptTag,
+                selectedAnswer = selectedAnswer,
+                correctAnswer = correctAnswer,
+                isCorrect = isCorrect,
+                options = options,
+                sourceMode = sourceMode
+            )
+        }
     }
 
     fun saveTeacherNote(noteText: String, bookmarked: Boolean) {
@@ -511,6 +960,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun recordStudentInteractiveCompletion(earnedXp: Int) {
+        viewModelScope.launch {
+            repository.recordStudyActivity()
+            _uiState.update {
+                it.copy(
+                    toastMessage = "أحسنت! أتممت النشاط التفاعلي (+$earnedXp XP) — انتقل الآن لاختبار نهاية الدرس"
+                )
+            }
+        }
+    }
+
     fun openGlobalSearch() {
         _uiState.update { it.copy(globalSearchOpen = true) }
     }
@@ -520,6 +980,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun handleSearchSelectLesson(lesson: LessonRef) {
+        if (_uiState.value.userRole == UserRole.LEARNER) {
+            _uiState.update { it.copy(globalSearchOpen = false) }
+            openStudentStudy(lesson)
+            return
+        }
         _uiState.update {
             it.copy(
                 globalSearchOpen = false,
@@ -532,6 +997,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun handleSearchSelectDraft(draft: DraftRecord, lesson: LessonRef?) {
+        if (_uiState.value.userRole == UserRole.LEARNER) {
+            _uiState.update { it.copy(globalSearchOpen = false) }
+            if (lesson != null) openStudentStudy(lesson)
+            return
+        }
         _uiState.update {
             it.copy(
                 globalSearchOpen = false,
@@ -546,7 +1016,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun handleSearchSelectQuestion(@Suppress("UNUSED_PARAMETER") question: QuestionItem) {
+    fun handleSearchSelectQuestion(question: QuestionItem) {
+        if (_uiState.value.userRole == UserRole.LEARNER) {
+            val matchedLesson = _uiState.value.workspace?.lessons?.firstOrNull {
+                it.bookKey == question.bookKey &&
+                    it.unitKey == question.unitKey &&
+                    it.lessonKey == question.lessonKey
+            }
+            _uiState.update { it.copy(globalSearchOpen = false) }
+            if (matchedLesson != null) {
+                openStudentStudy(matchedLesson)
+            } else {
+                launchConceptReinforcement(ConceptMasteryEngine.effectiveConceptTag(question))
+            }
+            return
+        }
         _uiState.update {
             it.copy(
                 globalSearchOpen = false,
@@ -556,10 +1040,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun toggleLessonCompletion(lesson: LessonRef, currentlyCompleted: Boolean) {
-        val wsId = _uiState.value.workspace?.workspaceId.orEmpty()
-        viewModelScope.launch {
-            repository.toggleLessonCompleted(wsId, lesson, currentlyCompleted)
+        if (!currentlyCompleted) {
+            _uiState.update {
+                it.copy(
+                    toastMessage = "يكتمل الدرس تلقائياً فقط بعد اجتياز اختبار نهاية الدرس (${EduMiniRepository.LESSON_QUIZ_PASS_PERCENT}%+)"
+                )
+            }
+            openStudentStudy(lesson)
+            return
         }
+        openStudentStudy(lesson)
     }
 
     fun selectTask(task: TaskType) {
@@ -620,8 +1110,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         viewModelScope.launch {
+            val wsId = snapshot.workspace?.workspaceId.orEmpty()
             repository.persistDraft(
-                workspaceId = snapshot.workspace?.workspaceId.orEmpty(),
+                workspaceId = wsId,
                 lesson = lesson,
                 task = snapshot.task,
                 providerLabel = snapshot.activeDraftProvider,
@@ -631,17 +1122,98 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 sourceText = snapshot.sourceText,
                 status = DraftStatus.DRAFT
             )
+            val syncedCount = when (snapshot.task) {
+                TaskType.QUESTIONS -> repository.saveQuestionsFromDraftText(wsId, lesson, content).size
+                TaskType.INTERACTIVE -> {
+                    val activity = InteractiveActivityParser.parse(content, lesson.title)
+                    if (activity != null) {
+                        repository.questionBankService.syncInteractiveCheckpointsToQuestionBank(
+                            workspaceId = wsId,
+                            lesson = lesson,
+                            activity = activity
+                        ).size
+                    } else 0
+                }
+                else -> 0
+            }
             _uiState.update {
-                it.copy(toastMessage = "تم حفظ نسخة جديدة من المسودة")
+                it.copy(
+                    toastMessage = if (syncedCount > 0) {
+                        "تم حفظ المسودة وإضافة $syncedCount أسئلة/نقاط تحقق لبنك الأسئلة ✓"
+                    } else {
+                        "تم حفظ نسخة جديدة من المسودة"
+                    }
+                )
+            }
+        }
+    }
+
+    fun buildAndPublishInteractiveBundle(rawTextOverride: String? = null) {
+        val snapshot = _uiState.value
+        val lesson = snapshot.selectedLesson
+        if (lesson == null) {
+            _uiState.update {
+                it.copy(alert = AlertMessage("حدد الدرس", "اختر درساً من المكتبة أولاً."))
+            }
+            return
+        }
+        val raw = (rawTextOverride ?: snapshot.generatedResult).trim()
+        val activity = InteractiveActivityParser.parse(raw, lesson.title)
+        if (activity == null) {
+            _uiState.update {
+                it.copy(
+                    alert = AlertMessage(
+                        "تعذر بناء الحزمة التفاعلية",
+                        "أدخل JSON تفاعلياً صالحاً أو محطات مرقمة قبل التصدير إلى حزمة HTML + JS + JSON."
+                    )
+                )
+            }
+            return
+        }
+        val wsId = snapshot.workspace?.workspaceId.orEmpty().ifBlank { lesson.workspaceId }.ifBlank { lesson.rootPath }
+        viewModelScope.launch {
+            _uiState.update { it.copy(isBusy = true) }
+            try {
+                val pkg = repository.buildAndPublishInteractiveBundle(
+                    workspaceId = wsId,
+                    lesson = lesson,
+                    activity = activity,
+                    publishForStudents = true
+                )
+                if (pkg == null) {
+                    _uiState.update {
+                        it.copy(alert = AlertMessage("تعذر الحفظ", "تعذر الوصول إلى مجلد الحزم المحلي."))
+                    }
+                } else {
+                    _uiState.update {
+                        it.copy(
+                            previewingPackage = pkg,
+                            studentPreviewMode = false,
+                            toastMessage = "تم بناء ونشر حزمة HTML + JS + JSON (v${pkg.version}) للطالب ✓"
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(alert = AlertMessage("تعذر بناء الحزمة", e.message ?: "حدث خطأ غير متوقع"))
+                }
+            } finally {
+                _uiState.update { it.copy(isBusy = false) }
             }
         }
     }
 
     fun approveDraft(draftId: String) {
         viewModelScope.launch {
-            repository.approveDraft(draftId)
+            val syncedQuestions = repository.approveDraft(draftId)
             _uiState.update {
-                it.copy(toastMessage = "تم اعتماد النسخة للدرس ✓")
+                it.copy(
+                    toastMessage = if (syncedQuestions > 0) {
+                        "تم اعتماد النسخة ومزامنة $syncedQuestions أسئلة مع اختبار الدرس ✓"
+                    } else {
+                        "تم اعتماد النسخة للدرس ✓"
+                    }
+                )
             }
         }
     }
@@ -791,9 +1363,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             return
         }
+        val canonicalWs = snapshot.workspace?.workspaceId.orEmpty().ifBlank { lesson.workspaceId }.ifBlank { lesson.rootPath }
+        val parsed = QuestionBankEngine.parseQuestionsFromText(text, canonicalWs, lesson)
+        if (parsed.isEmpty()) {
+            _uiState.update {
+                it.copy(
+                    alert = AlertMessage(
+                        "تعذر استخراج الأسئلة",
+                        "تأكد من ترقيم الأسئلة (1. ... أو JSON) مع كتابة «الإجابة: ...» ثم أعد المحاولة."
+                    )
+                )
+            }
+            return
+        }
         viewModelScope.launch {
             val saved = repository.saveQuestionsFromDraftText(
-                workspaceId = snapshot.workspace?.workspaceId.orEmpty(),
+                workspaceId = canonicalWs,
                 lesson = lesson,
                 rawText = text
             )
@@ -801,19 +1386,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _uiState.update {
                     it.copy(
                         alert = AlertMessage(
-                            "تعذر استخراج الأسئلة",
-                            "تأكد من ترقيم الأسئلة (1. ... أو JSON) مع كتابة «الإجابة: ...» ثم أعد المحاولة."
+                            "الأسئلة محفوظة مسبقاً",
+                            "جميع الأسئلة المستخرجة (${parsed.size}) مرتبطة بالفعل ببنك أسئلة واختبار درس «${lesson.title}»."
                         )
                     )
                 }
             } else {
-                val dups = com.example.data.repository.QuestionBankEngine.markDuplicates(saved).count { it.isDuplicate }
-                val dupNote = if (dups > 0) " (بينها $dups تكرار محتمل)" else ""
+                val dups = QuestionBankEngine.markDuplicates(saved).count { it.isDuplicate }
+                val dupNote = if (dups > 0) " (بينها $dups تشابه داخلي)" else ""
                 _uiState.update {
                     it.copy(
                         alert = AlertMessage(
                             "تم الحفظ في بنك الأسئلة",
-                            "تم استخراج وحفظ ${saved.size} سؤال لدرس «${lesson.title}»$dupNote."
+                            "تمت إضافة ${saved.size} سؤال جديد لدرس «${lesson.title}» وربطها باختبار الطالب$dupNote."
                         )
                     )
                 }
@@ -827,7 +1412,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         options: List<String>,
         correctAnswer: String,
         rationale: String,
-        difficulty: QuestionDifficulty
+        difficulty: QuestionDifficulty,
+        conceptTag: String = ""
     ) {
         val snapshot = _uiState.value
         val lesson = snapshot.selectedLesson ?: return
@@ -840,8 +1426,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 options = options,
                 correctAnswer = correctAnswer,
                 rationale = rationale,
-                difficulty = difficulty
+                difficulty = difficulty,
+                conceptTag = conceptTag
             )
+        }
+    }
+
+    fun updateQuestion(
+        questionId: String,
+        type: QuestionType,
+        prompt: String,
+        options: List<String>,
+        correctAnswer: String,
+        rationale: String,
+        difficulty: QuestionDifficulty,
+        conceptTag: String,
+        reviewed: Boolean
+    ) {
+        viewModelScope.launch {
+            repository.updateQuestion(
+                questionId = questionId,
+                type = type,
+                prompt = prompt,
+                options = options,
+                correctAnswer = correctAnswer,
+                rationale = rationale,
+                difficulty = difficulty,
+                conceptTag = conceptTag,
+                reviewed = reviewed
+            )
+            _uiState.update { it.copy(toastMessage = "تم تحديث السؤال والمفهوم المرتبط") }
         }
     }
 
@@ -1359,7 +1973,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
-        viewModelScope.launch {
+        generationJob?.cancel()
+        generationJob = viewModelScope.launch {
             _uiState.update { it.copy(isBusy = true) }
             try {
                 val out = repository.generateContent(
@@ -1374,8 +1989,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     questionStyleHint = snapshot.questionStyle.takeIf { snapshot.task == TaskType.QUESTIONS && it != "متنوعة" }.orEmpty(),
                     difficultyHint = if (snapshot.task == TaskType.QUESTIONS) snapshot.questionDifficulty.labelAr else ""
                 )
+                val wsId = snapshot.workspace?.workspaceId.orEmpty()
                 repository.persistDraft(
-                    workspaceId = snapshot.workspace?.workspaceId.orEmpty(),
+                    workspaceId = wsId,
                     lesson = lesson,
                     task = snapshot.task,
                     providerLabel = out.providerLabel,
@@ -1385,16 +2001,54 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     sourceText = snapshot.sourceText,
                     status = DraftStatus.DRAFT
                 )
+                val syncedQuestionsCount = if (snapshot.task == TaskType.QUESTIONS) {
+                    repository.saveQuestionsFromDraftText(
+                        workspaceId = wsId,
+                        lesson = lesson,
+                        rawText = out.text
+                    ).size
+                } else {
+                    0
+                }
+                val interactiveParsed = if (snapshot.task == TaskType.INTERACTIVE) {
+                    InteractiveActivityParser.parse(out.text, lesson.title)
+                } else {
+                    null
+                }
+                val publishedBundle = if (interactiveParsed != null) {
+                    runCatching {
+                        repository.buildAndPublishInteractiveBundle(
+                            workspaceId = wsId,
+                            lesson = lesson,
+                            activity = interactiveParsed,
+                            publishForStudents = true
+                        )
+                    }.getOrNull()
+                } else null
+                val resultMessage = when {
+                    snapshot.task == TaskType.QUESTIONS && syncedQuestionsCount > 0 ->
+                        "تم التوليد عبر ${out.providerLabel} (${out.model})، وحُفظت المسودة وأُضيفت $syncedQuestionsCount أسئلة تلقائياً لبنك الأسئلة واختبار الدرس."
+                    snapshot.task == TaskType.INTERACTIVE && publishedBundle != null ->
+                        "تم التوليد عبر ${out.providerLabel} (${out.model}) وبناء حزمة HTML + JS + JSON (${interactiveParsed?.steps?.size ?: 0} محطة) ونشرها للطالب مع مزامنة المفاهيم."
+                    snapshot.task == TaskType.INTERACTIVE && interactiveParsed != null ->
+                        "تم التوليد عبر ${out.providerLabel} (${out.model}) وأصبح النشاط التفاعلي (${interactiveParsed.steps.size} محطة) جاهزاً للتشغيل في شاشة المتعلم والاستوديو."
+                    else ->
+                        "تم التوليد عبر ${out.providerLabel} (${out.model}) وحفظ النسخة وربطها بمسار الدرس."
+                }
                 _uiState.update {
                     it.copy(
                         generatedResult = out.text,
                         activeDraftProvider = out.providerLabel,
                         activeDraftModel = out.model,
                         alert = AlertMessage(
-                            title = "تم حفظ المسودة",
-                            message = "تم التوليد عبر ${out.providerLabel} (${out.model}) وحفظ النسخة في قاعدة البيانات."
+                            title = "تم الحفظ والربط",
+                            message = resultMessage
                         )
                     )
+                }
+            } catch (_: CancellationException) {
+                _uiState.update {
+                    it.copy(toastMessage = "تم إلغاء عملية التوليد")
                 }
             } catch (e: Exception) {
                 _uiState.update {
@@ -1406,9 +2060,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
             } finally {
+                generationJob = null
                 _uiState.update { it.copy(isBusy = false) }
             }
         }
+    }
+
+    fun cancelActiveGeneration() {
+        generationJob?.cancel()
+        generationJob = null
+        _uiState.update { it.copy(isBusy = false, toastMessage = "تم إيقاف التوليد") }
     }
 
     fun importInteractivePackage(uri: Uri) {
@@ -1609,5 +2270,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun dismissAlert() {
         _uiState.update { it.copy(alert = null) }
+    }
+
+    companion object {
+        private const val LEARNER_PREFS_NAME = "edumini_learner_profiles"
+        private const val KEY_LEARNER_PROFILES_JSON = "profiles_json"
+        private const val KEY_ACTIVE_LEARNER_ID = "active_learner_id"
     }
 }

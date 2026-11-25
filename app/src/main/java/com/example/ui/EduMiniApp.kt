@@ -1,6 +1,7 @@
 package com.example.ui
 
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -8,7 +9,9 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -29,13 +32,17 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Dashboard
 import androidx.compose.material.icons.outlined.LibraryBooks
+import androidx.compose.material.icons.outlined.Psychology
 import androidx.compose.material.icons.outlined.Quiz
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.rounded.AdminPanelSettings
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Dashboard
 import androidx.compose.material.icons.rounded.LibraryBooks
+import androidx.compose.material.icons.rounded.Psychology
 import androidx.compose.material.icons.rounded.Quiz
+import androidx.compose.material.icons.rounded.School
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.AlertDialog
@@ -59,9 +66,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -74,6 +84,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.R
 import com.example.model.AppPage
+import com.example.model.UserRole
 import com.example.ui.components.BookCoverPreviewDialog
 import com.example.ui.components.GlobalSearchDialog
 import com.example.ui.components.InteractiveJsonActivityDialog
@@ -82,20 +93,26 @@ import com.example.ui.components.PdfBookSplitterDialog
 import com.example.ui.components.PdfReaderDialog
 import com.example.ui.components.PreImportPreviewDialog
 import com.example.ui.components.PromptSourcesAndSchemasDialog
+import com.example.ui.components.SingleGradePickerDialog
 import com.example.ui.components.StudentStudyDialog
+import com.example.ui.screens.ConceptReinforcementQuizDialog
 import com.example.ui.screens.DashboardScreen
+import com.example.ui.screens.LearnerMasteryScreen
 import com.example.ui.screens.LibraryScreen
 import com.example.ui.screens.QuestionBankScreen
+import com.example.ui.screens.RoleEntryScreen
 import com.example.ui.screens.SettingsScreen
 import com.example.ui.screens.StudioScreen
 import com.example.ui.theme.EduBg
 import com.example.ui.theme.EduGreen
 import com.example.ui.theme.EduGreenDark
 import com.example.ui.theme.EduInk
+import com.example.ui.theme.EduLilac
 import com.example.ui.theme.EduLine
 import com.example.ui.theme.EduMiniTheme
 import com.example.ui.theme.EduMint
 import com.example.ui.theme.EduMuted
+import com.example.ui.theme.EduPurple
 import com.example.ui.theme.EduWhite
 import kotlinx.coroutines.delay
 
@@ -104,6 +121,7 @@ fun EduMiniApp(
     viewModel: MainViewModel = viewModel()
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val dashboardState by viewModel.studentDashboardState.collectAsStateWithLifecycle()
     val lessonDrafts by viewModel.lessonDrafts.collectAsStateWithLifecycle()
     val lessonPackages by viewModel.lessonPackages.collectAsStateWithLifecycle()
     val dashboardSummary by viewModel.dashboardSummary.collectAsStateWithLifecycle()
@@ -114,6 +132,8 @@ fun EduMiniApp(
     val workspaceTeacherNotes by viewModel.workspaceTeacherNotes.collectAsStateWithLifecycle()
     val currentTeacherNote by viewModel.currentTeacherNote.collectAsStateWithLifecycle()
     val promptTemplates by viewModel.promptTemplates.collectAsStateWithLifecycle()
+    val questionStats by viewModel.questionMasteryStats.collectAsStateWithLifecycle()
+    val conceptSummaries by viewModel.conceptMasterySummaries.collectAsStateWithLifecycle()
 
     val bookmarkedLessons = remember(state.workspace, workspaceTeacherNotes) {
         val lessons = state.workspace?.lessons.orEmpty()
@@ -126,6 +146,14 @@ fun EduMiniApp(
 
     val bookCoversByKey = remember(state.workspace) {
         state.workspace?.books?.associate { it.bookKey to it.coverPath }.orEmpty()
+    }
+
+    val folderPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            viewModel.inspectDirectFolderUri(uri)
+        }
     }
 
     val zipPickerLauncher = rememberLauncherForActivityResult(
@@ -206,258 +234,309 @@ fun EduMiniApp(
             BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                 val isWide = maxWidth >= 720.dp
 
-                Scaffold(
-                    containerColor = EduBg,
-                    contentWindowInsets = WindowInsets(0, 0, 0, 0),
-                    topBar = {
-                        EduTopBar(
-                            hasWorkspace = state.workspace != null,
-                            onOpenSearch = viewModel::openGlobalSearch,
-                            onOpenSettings = { viewModel.navigateTo(AppPage.SETTINGS) }
-                        )
-                    },
-                    bottomBar = {
-                        if (!isWide) {
-                            EduBottomNavigationBar(
-                                currentPage = state.page,
-                                onSelectPage = { page ->
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    viewModel.navigateTo(page)
-                                }
-                            )
-                        }
+                if (state.userRole == UserRole.ENTRY) {
+                    RoleEntryScreen(
+                        workspace = state.workspace,
+                        isBusy = state.isBusy,
+                        onSelectRole = viewModel::selectRole,
+                        onBindDirectFolder = { folderPickerLauncher.launch(null) }
+                    )
+                } else {
+                    val isSecondaryTab = when (state.userRole) {
+                        UserRole.LEARNER -> state.page == AppPage.LEARNER_MASTERY
+                        UserRole.ADMIN -> state.page == AppPage.STUDIO ||
+                            state.page == AppPage.QUIZ_BANK ||
+                            state.page == AppPage.SETTINGS
+                        UserRole.ENTRY -> false
                     }
-                ) { innerPadding ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(innerPadding)
-                    ) {
-                        if (isWide) {
-                            EduNavigationRail(
-                                currentPage = state.page,
-                                onSelectPage = viewModel::navigateTo
-                            )
-                        }
+                    BackHandler(enabled = isSecondaryTab) {
+                        val fallback = if (state.userRole == UserRole.LEARNER) AppPage.DASHBOARD else AppPage.LIBRARY
+                        viewModel.navigateTo(fallback)
+                    }
 
-                        Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
-                            AnimatedVisibility(visible = state.isBusy) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 16.dp, vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    CircularProgressIndicator(
-                                        color = EduGreen,
-                                        strokeWidth = 2.5.dp,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Text(
-                                        text = stringResource(R.string.busy_working),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = EduMuted
-                                    )
-                                }
+                    Scaffold(
+                        containerColor = EduBg,
+                        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+                        topBar = {
+                            EduTopBar(
+                                userRole = state.userRole,
+                                hasWorkspace = state.workspace != null,
+                                onOpenSearch = viewModel::openGlobalSearch,
+                                onOpenSettings = { viewModel.navigateTo(AppPage.SETTINGS) },
+                                onSwitchRole = viewModel::switchToRoleEntry
+                            )
+                        },
+                        bottomBar = {
+                            if (!isWide) {
+                                EduBottomNavigationBar(
+                                    userRole = state.userRole,
+                                    currentPage = state.page,
+                                    onSelectPage = { page ->
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        viewModel.navigateTo(page)
+                                    }
+                                )
+                            }
+                        }
+                    ) { innerPadding ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(innerPadding)
+                        ) {
+                            if (isWide) {
+                                EduNavigationRail(
+                                    userRole = state.userRole,
+                                    currentPage = state.page,
+                                    onSelectPage = viewModel::navigateTo
+                                )
                             }
 
-                            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                                when (state.page) {
-                                    AppPage.DASHBOARD -> DashboardScreen(
-                                        summary = dashboardSummary,
-                                        bookmarkedLessons = bookmarkedLessons,
-                                        bookCoversByKey = bookCoversByKey,
-                                        onOpenLessonInStudio = viewModel::selectLessonAndOpenStudio,
-                                        onOpenStudentStudy = viewModel::openStudentStudy,
-                                        onPreviewLessonPdf = { lesson ->
-                                            lesson.pdfPath?.takeIf { it.isNotBlank() }?.let { pdf ->
-                                                viewModel.openPdfPreview(
-                                                    path = pdf,
-                                                    title = lesson.title,
-                                                    subtitle = "${lesson.bookTitle} • ${lesson.unitTitle}"
+                            Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                                AnimatedVisibility(visible = state.isBusy) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        CircularProgressIndicator(
+                                            color = EduGreen,
+                                            strokeWidth = 2.5.dp,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Text(
+                                            text = stringResource(R.string.busy_working),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = EduMuted
+                                        )
+                                    }
+                                }
+
+                                Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                                    when (state.page) {
+                                        AppPage.DASHBOARD -> DashboardScreen(
+                                            summary = dashboardSummary,
+                                            userRole = state.userRole,
+                                            dashboardState = dashboardState,
+                                            conceptMasterySummaries = conceptSummaries,
+                                            activeLearner = state.activeLearner,
+                                            availableLearners = state.availableLearners,
+                                            selectedBookFilterKey = dashboardState.selectedBookKey,
+                                            bookmarkedLessons = bookmarkedLessons,
+                                            bookCoversByKey = bookCoversByKey,
+                                            onSelectLearner = viewModel::selectLearnerProfile,
+                                            onAddLearner = viewModel::addLearnerProfile,
+                                            onSelectBookFilter = viewModel::selectDashboardBookFilter,
+                                            onSelectLessonFilter = viewModel::selectDashboardLessonFilter,
+                                            onToggleUnitExpanded = viewModel::toggleDashboardUnitExpanded,
+                                            onToggleAllUnitsExpanded = viewModel::toggleExpandCollapseAllDashboardUnits,
+                                            onDismissCompletedUnitBanner = viewModel::dismissCompletedUnitBanner,
+                                            onOpenLessonInStudio = viewModel::selectLessonAndOpenStudio,
+                                            onOpenStudentStudy = viewModel::openStudentStudy,
+                                            onPreviewLessonPdf = { lesson ->
+                                                lesson.pdfPath?.takeIf { it.isNotBlank() }?.let { pdf ->
+                                                    viewModel.openPdfPreview(
+                                                        path = pdf,
+                                                        title = lesson.title,
+                                                        subtitle = "${lesson.bookTitle} • ${lesson.unitTitle}"
+                                                    )
+                                                }
+                                            },
+                                            onLaunchConceptReinforcement = viewModel::launchConceptReinforcement,
+                                            onOpenGlobalSearch = viewModel::openGlobalSearch,
+                                            onBindDirectFolder = { folderPickerLauncher.launch(null) },
+                                            onOpenLibrary = { viewModel.navigateTo(AppPage.LIBRARY) }
+                                        )
+
+                                        AppPage.LEARNER_MASTERY -> LearnerMasteryScreen(
+                                            concepts = conceptSummaries,
+                                            questions = workspaceQuestions,
+                                            questionStats = questionStats,
+                                            totalPoints = dashboardSummary.totalPoints,
+                                            onLaunchReinforcement = viewModel::launchConceptReinforcement,
+                                            activeLearner = state.activeLearner
+                                        )
+
+                                        AppPage.LIBRARY -> LibraryScreen(
+                                            workspace = state.workspace,
+                                            workspaces = state.workspaces,
+                                            selectedBookKey = state.selectedBookKey,
+                                            selectedLesson = state.selectedLesson,
+                                            activeProvidersCount = state.providers.count { it.enabled },
+                                            diskUsageBytes = state.activeWorkspaceDiskBytes,
+                                            bookProgress = dashboardSummary.bookProgress,
+                                            onBindDirectFolder = { folderPickerLauncher.launch(null) },
+                                            onPickZip = {
+                                                zipPickerLauncher.launch(
+                                                    arrayOf(
+                                                        "application/zip",
+                                                        "application/x-zip-compressed",
+                                                        "application/octet-stream"
+                                                    )
                                                 )
+                                            },
+                                            onPickBookPdf = {
+                                                pdfPickerLauncher.launch(arrayOf("application/pdf"))
+                                            },
+                                            onPickStandalonePdf = {
+                                                standalonePdfPickerLauncher.launch(arrayOf("application/pdf"))
+                                            },
+                                            onSelectWorkspace = viewModel::selectWorkspace,
+                                            onDeleteWorkspace = viewModel::deleteWorkspace,
+                                            onSelectBook = viewModel::selectBook,
+                                            onPreviewBookCover = viewModel::openBookCoverPreview,
+                                            onOpenLesson = viewModel::selectLessonAndOpenStudio,
+                                            onOpenStudentStudy = viewModel::openStudentStudy,
+                                            onPreviewPdf = viewModel::openPdfPreview,
+                                            onOpenGlobalSearch = viewModel::openGlobalSearch,
+                                            onExportWorkspace = {
+                                                val grade = state.workspace?.gradeKey ?: "workspace"
+                                                exportZipLauncher.launch("edu-mini-$grade-indexer2.zip")
+                                            },
+                                            onExportBackupJson = {
+                                                val grade = state.workspace?.gradeKey ?: "workspace"
+                                                exportBackupLauncher.launch("edu-mini-$grade-backup.json")
+                                            },
+                                            onRestoreBackupJson = {
+                                                restoreBackupLauncher.launch(arrayOf("application/json", "text/plain", "*/*"))
                                             }
-                                        },
-                                        onToggleLessonCompleted = viewModel::toggleLessonCompletion,
-                                        onOpenGlobalSearch = viewModel::openGlobalSearch,
-                                        onPickBookPdf = {
-                                            pdfPickerLauncher.launch(arrayOf("application/pdf"))
-                                        },
-                                        onPickZip = {
-                                            zipPickerLauncher.launch(
-                                                arrayOf(
-                                                    "application/zip",
-                                                    "application/x-zip-compressed",
-                                                    "application/octet-stream"
+                                        )
+
+                                        AppPage.STUDIO -> StudioScreen(
+                                            selectedLesson = state.selectedLesson,
+                                            workspaceBooks = state.workspace?.books.orEmpty(),
+                                            workspaceLessons = state.workspace?.lessons.orEmpty(),
+                                            task = state.task,
+                                            questionCount = state.questionCount,
+                                            questionStyle = state.questionStyle,
+                                            questionDifficulty = state.questionDifficulty,
+                                            attachPdfPages = state.attachPdfPages,
+                                            sourceText = state.sourceText,
+                                            extraInstructions = state.extraInstructions,
+                                            generatedResult = state.generatedResult,
+                                            packageSourcePages = state.packageSourcePages,
+                                            lessonDrafts = lessonDrafts,
+                                            lessonPackages = lessonPackages,
+                                            teacherNote = currentTeacherNote,
+                                            promptTemplates = promptTemplates,
+                                            isBusy = state.isBusy,
+                                            onBackToLibrary = { viewModel.navigateTo(AppPage.LIBRARY) },
+                                            onSelectLesson = viewModel::selectLessonInStudio,
+                                            onOpenPromptSourcesDialog = viewModel::openPromptSourcesDialog,
+                                            onPreviewPdf = viewModel::openPdfPreview,
+                                            onShowFeedback = viewModel::showToast,
+                                            onSelectTask = viewModel::selectTask,
+                                            onQuestionCountChange = viewModel::updateQuestionCount,
+                                            onQuestionStyleChange = viewModel::updateQuestionStyle,
+                                            onQuestionDifficultyChange = viewModel::updateQuestionDifficulty,
+                                            onToggleAttachPdfPages = viewModel::toggleAttachPdfPages,
+                                            onSourceChange = viewModel::updateSourceText,
+                                            onExtraChange = viewModel::updateExtraInstructions,
+                                            onGeneratedResultChange = viewModel::updateGeneratedResult,
+                                            onPackageSourcePagesChange = viewModel::updatePackageSourcePages,
+                                            onGenerate = viewModel::generateContent,
+                                            onCancelGeneration = viewModel::cancelActiveGeneration,
+                                            onSaveEditedDraft = viewModel::saveEditedDraftVersion,
+                                            onSaveToQuestionBank = viewModel::saveGeneratedDraftToQuestionBank,
+                                            onLaunchInteractiveActivity = viewModel::launchInteractiveActivity,
+                                            onPublishInteractiveBundle = viewModel::buildAndPublishInteractiveBundle,
+                                            onOpenStudentStudy = {
+                                                state.selectedLesson?.let(viewModel::openStudentStudy)
+                                            },
+                                            onSaveTeacherNote = viewModel::saveTeacherNote,
+                                            onApplyPromptTemplate = { tpl ->
+                                                viewModel.applyPromptTemplate(tpl, openStudio = false)
+                                            },
+                                            onApproveDraft = viewModel::approveDraft,
+                                            onLoadDraft = viewModel::loadDraftIntoEditor,
+                                            onDeleteDraft = viewModel::deleteDraft,
+                                            onPickInteractivePackage = {
+                                                packagePickerLauncher.launch(
+                                                    arrayOf(
+                                                        "text/html",
+                                                        "application/xhtml+xml",
+                                                        "application/zip",
+                                                        "application/x-zip-compressed",
+                                                        "application/octet-stream"
+                                                    )
                                                 )
-                                            )
-                                        },
-                                        onOpenLibrary = { viewModel.navigateTo(AppPage.LIBRARY) }
-                                    )
+                                            },
+                                            onPreviewPackage = viewModel::openPackagePreview,
+                                            onPublishPackage = viewModel::approveAndPublishPackage,
+                                            onDeletePackage = viewModel::deletePackage
+                                        )
 
-                                    AppPage.LIBRARY -> LibraryScreen(
-                                        workspace = state.workspace,
-                                        workspaces = state.workspaces,
-                                        selectedBookKey = state.selectedBookKey,
-                                        selectedLesson = state.selectedLesson,
-                                        activeProvidersCount = state.providers.count { it.enabled },
-                                        diskUsageBytes = state.activeWorkspaceDiskBytes,
-                                        bookProgress = dashboardSummary.bookProgress,
-                                        onPickZip = {
-                                            zipPickerLauncher.launch(
-                                                arrayOf(
-                                                    "application/zip",
-                                                    "application/x-zip-compressed",
-                                                    "application/octet-stream"
-                                                )
-                                            )
-                                        },
-                                        onPickBookPdf = {
-                                            pdfPickerLauncher.launch(arrayOf("application/pdf"))
-                                        },
-                                        onPickStandalonePdf = {
-                                            standalonePdfPickerLauncher.launch(arrayOf("application/pdf"))
-                                        },
-                                        onSelectWorkspace = viewModel::selectWorkspace,
-                                        onDeleteWorkspace = viewModel::deleteWorkspace,
-                                        onSelectBook = viewModel::selectBook,
-                                        onPreviewBookCover = viewModel::openBookCoverPreview,
-                                        onOpenLesson = viewModel::selectLessonAndOpenStudio,
-                                        onOpenStudentStudy = viewModel::openStudentStudy,
-                                        onPreviewPdf = viewModel::openPdfPreview,
-                                        onOpenGlobalSearch = viewModel::openGlobalSearch,
-                                        onExportWorkspace = {
-                                            val grade = state.workspace?.gradeKey ?: "workspace"
-                                            exportZipLauncher.launch("edu-mini-$grade-indexer2.zip")
-                                        },
-                                        onExportBackupJson = {
-                                            val grade = state.workspace?.gradeKey ?: "workspace"
-                                            exportBackupLauncher.launch("edu-mini-$grade-backup.json")
-                                        },
-                                        onRestoreBackupJson = {
-                                            restoreBackupLauncher.launch(arrayOf("application/json", "text/plain", "*/*"))
-                                        }
-                                    )
+                                        AppPage.QUIZ_BANK -> QuestionBankScreen(
+                                            questions = workspaceQuestions,
+                                            assessments = workspaceAssessments,
+                                            attempts = workspaceAttempts,
+                                            questionStats = questionStats,
+                                            selectedLesson = state.selectedLesson,
+                                            hasWorkspace = state.workspace != null,
+                                            onAddManualQuestion = viewModel::addManualQuestion,
+                                            onUpdateQuestion = viewModel::updateQuestion,
+                                            onToggleReviewed = viewModel::toggleQuestionReviewed,
+                                            onDeleteQuestion = viewModel::deleteQuestion,
+                                            onQuizCompleted = viewModel::recordQuizCompleted,
+                                            onRecordQuestionAttempts = viewModel::recordStandaloneQuestionAttempts,
+                                            onCreateAssessment = viewModel::createAssessment,
+                                            onDeleteAssessment = viewModel::deleteAssessment,
+                                            onRecordAssessmentAttempt = viewModel::recordAssessmentAttempt,
+                                            onExportAssessmentMarkdown = { assessment ->
+                                                viewModel.prepareExportAssessmentMarkdown(assessment)
+                                                val safeName = assessment.title
+                                                    .replace(Regex("[\\\\/:*?\"<>|\\s]+"), "_")
+                                                    .take(36)
+                                                    .ifBlank { "assessment" }
+                                                exportAssessmentMdLauncher.launch("$safeName.md")
+                                            },
+                                            onOpenStudio = { viewModel.navigateTo(AppPage.STUDIO) }
+                                        )
 
-                                    AppPage.STUDIO -> StudioScreen(
-                                        selectedLesson = state.selectedLesson,
-                                        workspaceBooks = state.workspace?.books.orEmpty(),
-                                        workspaceLessons = state.workspace?.lessons.orEmpty(),
-                                        task = state.task,
-                                        questionCount = state.questionCount,
-                                        questionStyle = state.questionStyle,
-                                        questionDifficulty = state.questionDifficulty,
-                                        attachPdfPages = state.attachPdfPages,
-                                        sourceText = state.sourceText,
-                                        extraInstructions = state.extraInstructions,
-                                        generatedResult = state.generatedResult,
-                                        packageSourcePages = state.packageSourcePages,
-                                        lessonDrafts = lessonDrafts,
-                                        lessonPackages = lessonPackages,
-                                        teacherNote = currentTeacherNote,
-                                        promptTemplates = promptTemplates,
-                                        isBusy = state.isBusy,
-                                        onBackToLibrary = { viewModel.navigateTo(AppPage.LIBRARY) },
-                                        onSelectLesson = viewModel::selectLessonInStudio,
-                                        onOpenPromptSourcesDialog = viewModel::openPromptSourcesDialog,
-                                        onPreviewPdf = viewModel::openPdfPreview,
-                                        onShowFeedback = viewModel::showToast,
-                                        onSelectTask = viewModel::selectTask,
-                                        onQuestionCountChange = viewModel::updateQuestionCount,
-                                        onQuestionStyleChange = viewModel::updateQuestionStyle,
-                                        onQuestionDifficultyChange = viewModel::updateQuestionDifficulty,
-                                        onToggleAttachPdfPages = viewModel::toggleAttachPdfPages,
-                                        onSourceChange = viewModel::updateSourceText,
-                                        onExtraChange = viewModel::updateExtraInstructions,
-                                        onGeneratedResultChange = viewModel::updateGeneratedResult,
-                                        onPackageSourcePagesChange = viewModel::updatePackageSourcePages,
-                                        onGenerate = viewModel::generateContent,
-                                        onSaveEditedDraft = viewModel::saveEditedDraftVersion,
-                                        onSaveToQuestionBank = viewModel::saveGeneratedDraftToQuestionBank,
-                                        onLaunchInteractiveActivity = viewModel::launchInteractiveActivity,
-                                        onOpenStudentStudy = {
-                                            state.selectedLesson?.let(viewModel::openStudentStudy)
-                                        },
-                                        onSaveTeacherNote = viewModel::saveTeacherNote,
-                                        onApplyPromptTemplate = { tpl ->
-                                            viewModel.applyPromptTemplate(tpl, openStudio = false)
-                                        },
-                                        onApproveDraft = viewModel::approveDraft,
-                                        onLoadDraft = viewModel::loadDraftIntoEditor,
-                                        onDeleteDraft = viewModel::deleteDraft,
-                                        onPickInteractivePackage = {
-                                            packagePickerLauncher.launch(
-                                                arrayOf(
-                                                    "text/html",
-                                                    "application/xhtml+xml",
-                                                    "application/zip",
-                                                    "application/x-zip-compressed",
-                                                    "application/octet-stream"
-                                                )
-                                            )
-                                        },
-                                        onPreviewPackage = viewModel::openPackagePreview,
-                                        onPublishPackage = viewModel::approveAndPublishPackage,
-                                        onDeletePackage = viewModel::deletePackage
-                                    )
-
-                                    AppPage.QUIZ_BANK -> QuestionBankScreen(
-                                        questions = workspaceQuestions,
-                                        assessments = workspaceAssessments,
-                                        attempts = workspaceAttempts,
-                                        selectedLesson = state.selectedLesson,
-                                        hasWorkspace = state.workspace != null,
-                                        onAddManualQuestion = viewModel::addManualQuestion,
-                                        onToggleReviewed = viewModel::toggleQuestionReviewed,
-                                        onDeleteQuestion = viewModel::deleteQuestion,
-                                        onQuizCompleted = viewModel::recordQuizCompleted,
-                                        onCreateAssessment = viewModel::createAssessment,
-                                        onDeleteAssessment = viewModel::deleteAssessment,
-                                        onRecordAssessmentAttempt = viewModel::recordAssessmentAttempt,
-                                        onExportAssessmentMarkdown = { assessment ->
-                                            viewModel.prepareExportAssessmentMarkdown(assessment)
-                                            val safeName = assessment.title
-                                                .replace(Regex("[\\\\/:*?\"<>|\\s]+"), "_")
-                                                .take(36)
-                                                .ifBlank { "assessment" }
-                                            exportAssessmentMdLauncher.launch("$safeName.md")
-                                        },
-                                        onOpenStudio = { viewModel.navigateTo(AppPage.STUDIO) }
-                                    )
-
-                                    AppPage.SETTINGS -> SettingsScreen(
-                                        form = state.providerForm,
-                                        providers = state.providers,
-                                        recentRuns = state.recentRuns,
-                                        promptTemplates = promptTemplates,
-                                        onBackToLibrary = { viewModel.navigateTo(AppPage.LIBRARY) },
-                                        onSelectProviderType = viewModel::updateProviderType,
-                                        onLabelChange = viewModel::updateFormLabel,
-                                        onModelChange = viewModel::updateFormModel,
-                                        onFallbackModelsChange = viewModel::updateFormFallbackModels,
-                                        onBaseUrlChange = viewModel::updateFormBaseUrl,
-                                        onApiKeyChange = viewModel::updateFormApiKey,
-                                        onToggleStrictModel = viewModel::toggleFormStrictModel,
-                                        onAddOrUpdateProvider = viewModel::addOrUpdateProvider,
-                                        onCancelEditProvider = viewModel::cancelEditProvider,
-                                        onEditProvider = viewModel::startEditProvider,
-                                        onTestFormProvider = viewModel::testFormProvider,
-                                        onTestSavedProvider = viewModel::testSavedProvider,
-                                        onToggleProvider = viewModel::toggleProvider,
-                                        onMoveProvider = viewModel::moveProviderPriority,
-                                        onDeleteProvider = viewModel::deleteProvider,
-                                        onClearRecentRuns = viewModel::clearRecentRuns,
-                                        onSavePromptTemplate = viewModel::savePromptTemplate,
-                                        onDeletePromptTemplate = viewModel::deletePromptTemplate,
-                                        onUseTemplateInStudio = { tpl ->
-                                            viewModel.applyPromptTemplate(tpl, openStudio = true)
-                                        }
-                                    )
+                                        AppPage.SETTINGS -> SettingsScreen(
+                                            form = state.providerForm,
+                                            providers = state.providers,
+                                            recentRuns = state.recentRuns,
+                                            promptTemplates = promptTemplates,
+                                            onBackToLibrary = { viewModel.navigateTo(AppPage.LIBRARY) },
+                                            onSelectProviderType = viewModel::updateProviderType,
+                                            onLabelChange = viewModel::updateFormLabel,
+                                            onModelChange = viewModel::updateFormModel,
+                                            onFallbackModelsChange = viewModel::updateFormFallbackModels,
+                                            onBaseUrlChange = viewModel::updateFormBaseUrl,
+                                            onApiKeyChange = viewModel::updateFormApiKey,
+                                            onToggleStrictModel = viewModel::toggleFormStrictModel,
+                                            onAddOrUpdateProvider = viewModel::addOrUpdateProvider,
+                                            onCancelEditProvider = viewModel::cancelEditProvider,
+                                            onEditProvider = viewModel::startEditProvider,
+                                            onTestFormProvider = viewModel::testFormProvider,
+                                            onTestSavedProvider = viewModel::testSavedProvider,
+                                            onToggleProvider = viewModel::toggleProvider,
+                                            onMoveProvider = viewModel::moveProviderPriority,
+                                            onDeleteProvider = viewModel::deleteProvider,
+                                            onClearRecentRuns = viewModel::clearRecentRuns,
+                                            onSavePromptTemplate = viewModel::savePromptTemplate,
+                                            onDeletePromptTemplate = viewModel::deletePromptTemplate,
+                                            onUseTemplateInStudio = { tpl ->
+                                                viewModel.applyPromptTemplate(tpl, openStudio = true)
+                                            }
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
+                }
+
+                state.directInspection?.let { inspection ->
+                    SingleGradePickerDialog(
+                        inspection = inspection,
+                        isBusy = state.isBusy,
+                        onConfirmGrade = viewModel::confirmDirectGradeBinding,
+                        onDismiss = viewModel::dismissDirectInspection
+                    )
                 }
 
                 state.stagedPreview?.let { preview ->
@@ -521,15 +600,56 @@ fun EduMiniApp(
                             }
                             ?.isCompleted == true
                     }
+                    val allLessons = state.workspace?.lessons.orEmpty()
+                    val currentIdx = remember(allLessons, studyLesson) {
+                        allLessons.indexOfFirst {
+                            it.bookKey == studyLesson.bookKey &&
+                                it.unitKey == studyLesson.unitKey &&
+                                it.lessonKey == studyLesson.lessonKey
+                        }
+                    }
+                    val hasNextLesson = currentIdx >= 0 && currentIdx + 1 < allLessons.size
                     StudentStudyDialog(
                         lesson = studyLesson,
                         drafts = lessonDrafts,
                         packages = lessonPackages,
                         lessonQuestions = lessonQuestions,
+                        questionStats = questionStats,
                         isCompleted = isCompleted,
-                        onToggleCompleted = { viewModel.toggleLessonCompletion(studyLesson, isCompleted) },
-                        onQuizCompleted = viewModel::recordQuizCompleted,
+                        hasNextLesson = hasNextLesson,
+                        lastQuizResult = state.lastLessonQuizResult,
+                        showAdminShortcuts = state.userRole == UserRole.ADMIN,
+                        onOpenGenerateQuestions = { viewModel.openLessonQuestionsInStudio(studyLesson) },
+                        onSubmitLessonQuiz = { answers ->
+                            viewModel.submitLessonQuiz(studyLesson, lessonQuestions, answers)
+                        },
+                        onOpenNextLesson = { viewModel.openNextLessonInStudy(studyLesson) },
+                        onInteractiveXpEarned = viewModel::recordStudentInteractiveCompletion,
+                        onInteractiveQuestionAnswered = { prompt, conceptTag, selectedAnswer, correctAnswer, isCorrect, options, sourceMode ->
+                            viewModel.recordInteractiveQuestionAttempt(
+                                lesson = studyLesson,
+                                prompt = prompt,
+                                conceptTag = conceptTag,
+                                selectedAnswer = selectedAnswer,
+                                correctAnswer = correctAnswer,
+                                isCorrect = isCorrect,
+                                options = options,
+                                sourceMode = sourceMode
+                            )
+                        },
                         onDismiss = viewModel::closeStudentStudy
+                    )
+                }
+
+                if (state.reinforcementQuestions.isNotEmpty()) {
+                    ConceptReinforcementQuizDialog(
+                        title = state.reinforcementConceptTitle ?: "جلسة تقوية",
+                        questions = state.reinforcementQuestions,
+                        questionStats = questionStats,
+                        onRecordAttempts = { qs, ans ->
+                            viewModel.recordStandaloneQuestionAttempts(qs, ans, "reinforcement")
+                        },
+                        onDismiss = viewModel::dismissReinforcementQuiz
                     )
                 }
 
@@ -654,10 +774,13 @@ fun EduMiniApp(
 
 @Composable
 private fun EduTopBar(
+    userRole: UserRole,
     hasWorkspace: Boolean,
     onOpenSearch: () -> Unit,
-    onOpenSettings: () -> Unit
+    onOpenSettings: () -> Unit,
+    onSwitchRole: () -> Unit
 ) {
+    val isAdmin = userRole == UserRole.ADMIN
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -696,7 +819,37 @@ private fun EduTopBar(
                     color = EduMuted
                 )
             }
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = if (isAdmin) EduLilac else EduMint,
+                border = BorderStroke(1.dp, if (isAdmin) EduPurple.copy(alpha = 0.4f) else EduGreen.copy(alpha = 0.4f)),
+                modifier = Modifier
+                    .clip(RoundedCornerShape(12.dp))
+                    .minimumInteractiveComponentSize()
+                    .clickable(onClick = onSwitchRole)
+                    .testTag("top_role_switch_chip")
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    Icon(
+                        imageVector = if (isAdmin) Icons.Rounded.AdminPanelSettings else Icons.Rounded.School,
+                        contentDescription = "تبديل المسار",
+                        tint = if (isAdmin) EduPurple else EduGreenDark,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = userRole.labelAr,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (isAdmin) EduPurple else EduGreenDark,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
             if (hasWorkspace) {
+                Spacer(modifier = Modifier.width(6.dp))
                 Surface(
                     shape = RoundedCornerShape(12.dp),
                     color = EduWhite
@@ -714,23 +867,25 @@ private fun EduTopBar(
                         )
                     }
                 }
-                Spacer(modifier = Modifier.width(6.dp))
             }
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = EduWhite
-            ) {
-                IconButton(
-                    onClick = onOpenSettings,
-                    modifier = Modifier
-                        .minimumInteractiveComponentSize()
-                        .testTag("top_settings_button")
+            if (isAdmin) {
+                Spacer(modifier = Modifier.width(6.dp))
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = EduWhite
                 ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Settings,
-                        contentDescription = stringResource(R.string.cd_settings_button),
-                        tint = EduInk
-                    )
+                    IconButton(
+                        onClick = onOpenSettings,
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("top_settings_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Settings,
+                            contentDescription = stringResource(R.string.cd_settings_button),
+                            tint = EduInk
+                        )
+                    }
                 }
             }
         }
@@ -739,9 +894,18 @@ private fun EduTopBar(
 
 @Composable
 private fun EduBottomNavigationBar(
+    userRole: UserRole,
     currentPage: AppPage,
     onSelectPage: (AppPage) -> Unit
 ) {
+    val navColors = NavigationBarItemDefaults.colors(
+        selectedIconColor = EduGreenDark,
+        selectedTextColor = EduGreenDark,
+        indicatorColor = EduMint,
+        unselectedIconColor = EduMuted,
+        unselectedTextColor = EduMuted
+    )
+
     Column {
         HorizontalDivider(color = EduLine, thickness = 1.dp)
         NavigationBar(
@@ -749,7 +913,166 @@ private fun EduBottomNavigationBar(
             windowInsets = WindowInsets.navigationBars,
             tonalElevation = 0.dp
         ) {
-            NavigationBarItem(
+            if (userRole == UserRole.LEARNER) {
+                NavigationBarItem(
+                    selected = currentPage == AppPage.DASHBOARD,
+                    onClick = { onSelectPage(AppPage.DASHBOARD) },
+                    icon = {
+                        Icon(
+                            imageVector = if (currentPage == AppPage.DASHBOARD) {
+                                Icons.Rounded.Dashboard
+                            } else {
+                                Icons.Outlined.Dashboard
+                            },
+                            contentDescription = stringResource(R.string.nav_dashboard)
+                        )
+                    },
+                    label = {
+                        Text(
+                            text = stringResource(R.string.nav_dashboard),
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    },
+                    colors = navColors,
+                    modifier = Modifier.testTag("nav_dashboard")
+                )
+                NavigationBarItem(
+                    selected = currentPage == AppPage.LEARNER_MASTERY,
+                    onClick = { onSelectPage(AppPage.LEARNER_MASTERY) },
+                    icon = {
+                        Icon(
+                            imageVector = if (currentPage == AppPage.LEARNER_MASTERY) {
+                                Icons.Rounded.Psychology
+                            } else {
+                                Icons.Outlined.Psychology
+                            },
+                            contentDescription = stringResource(R.string.nav_mastery)
+                        )
+                    },
+                    label = {
+                        Text(
+                            text = stringResource(R.string.nav_mastery),
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    },
+                    colors = navColors,
+                    modifier = Modifier.testTag("nav_mastery")
+                )
+            } else {
+                NavigationBarItem(
+                    selected = currentPage == AppPage.LIBRARY,
+                    onClick = { onSelectPage(AppPage.LIBRARY) },
+                    icon = {
+                        Icon(
+                            imageVector = if (currentPage == AppPage.LIBRARY) {
+                                Icons.Rounded.LibraryBooks
+                            } else {
+                                Icons.Outlined.LibraryBooks
+                            },
+                            contentDescription = stringResource(R.string.nav_library)
+                        )
+                    },
+                    label = {
+                        Text(
+                            text = stringResource(R.string.nav_library),
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    },
+                    colors = navColors,
+                    modifier = Modifier.testTag("nav_library")
+                )
+                NavigationBarItem(
+                    selected = currentPage == AppPage.STUDIO,
+                    onClick = { onSelectPage(AppPage.STUDIO) },
+                    icon = {
+                        Icon(
+                            imageVector = if (currentPage == AppPage.STUDIO) {
+                                Icons.Rounded.AutoAwesome
+                            } else {
+                                Icons.Outlined.AutoAwesome
+                            },
+                            contentDescription = stringResource(R.string.nav_studio)
+                        )
+                    },
+                    label = {
+                        Text(
+                            text = stringResource(R.string.nav_studio),
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    },
+                    colors = navColors,
+                    modifier = Modifier.testTag("nav_studio")
+                )
+                NavigationBarItem(
+                    selected = currentPage == AppPage.QUIZ_BANK,
+                    onClick = { onSelectPage(AppPage.QUIZ_BANK) },
+                    icon = {
+                        Icon(
+                            imageVector = if (currentPage == AppPage.QUIZ_BANK) {
+                                Icons.Rounded.Quiz
+                            } else {
+                                Icons.Outlined.Quiz
+                            },
+                            contentDescription = stringResource(R.string.nav_quiz_bank)
+                        )
+                    },
+                    label = {
+                        Text(
+                            text = stringResource(R.string.nav_quiz_bank),
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    },
+                    colors = navColors,
+                    modifier = Modifier.testTag("nav_quiz_bank")
+                )
+                NavigationBarItem(
+                    selected = currentPage == AppPage.SETTINGS,
+                    onClick = { onSelectPage(AppPage.SETTINGS) },
+                    icon = {
+                        Icon(
+                            imageVector = if (currentPage == AppPage.SETTINGS) {
+                                Icons.Rounded.Settings
+                            } else {
+                                Icons.Outlined.Settings
+                            },
+                            contentDescription = stringResource(R.string.nav_settings)
+                        )
+                    },
+                    label = {
+                        Text(
+                            text = stringResource(R.string.nav_settings),
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    },
+                    colors = navColors,
+                    modifier = Modifier.testTag("nav_settings")
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun EduNavigationRail(
+    userRole: UserRole,
+    currentPage: AppPage,
+    onSelectPage: (AppPage) -> Unit
+) {
+    val railColors = NavigationRailItemDefaults.colors(
+        selectedIconColor = EduGreenDark,
+        selectedTextColor = EduGreenDark,
+        indicatorColor = EduMint,
+        unselectedIconColor = EduMuted,
+        unselectedTextColor = EduMuted
+    )
+
+    NavigationRail(
+        containerColor = EduWhite,
+        modifier = Modifier.fillMaxHeight()
+    ) {
+        Spacer(modifier = Modifier.size(12.dp))
+        if (userRole == UserRole.LEARNER) {
+            NavigationRailItem(
                 selected = currentPage == AppPage.DASHBOARD,
                 onClick = { onSelectPage(AppPage.DASHBOARD) },
                 icon = {
@@ -762,22 +1085,27 @@ private fun EduBottomNavigationBar(
                         contentDescription = stringResource(R.string.nav_dashboard)
                     )
                 },
-                label = {
-                    Text(
-                        text = stringResource(R.string.nav_dashboard),
-                        style = MaterialTheme.typography.labelSmall
+                label = { Text(stringResource(R.string.nav_dashboard)) },
+                colors = railColors
+            )
+            NavigationRailItem(
+                selected = currentPage == AppPage.LEARNER_MASTERY,
+                onClick = { onSelectPage(AppPage.LEARNER_MASTERY) },
+                icon = {
+                    Icon(
+                        imageVector = if (currentPage == AppPage.LEARNER_MASTERY) {
+                            Icons.Rounded.Psychology
+                        } else {
+                            Icons.Outlined.Psychology
+                        },
+                        contentDescription = stringResource(R.string.nav_mastery)
                     )
                 },
-                colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = EduGreenDark,
-                    selectedTextColor = EduGreenDark,
-                    indicatorColor = EduMint,
-                    unselectedIconColor = EduMuted,
-                    unselectedTextColor = EduMuted
-                ),
-                modifier = Modifier.testTag("nav_dashboard")
+                label = { Text(stringResource(R.string.nav_mastery)) },
+                colors = railColors
             )
-            NavigationBarItem(
+        } else {
+            NavigationRailItem(
                 selected = currentPage == AppPage.LIBRARY,
                 onClick = { onSelectPage(AppPage.LIBRARY) },
                 icon = {
@@ -790,22 +1118,10 @@ private fun EduBottomNavigationBar(
                         contentDescription = stringResource(R.string.nav_library)
                     )
                 },
-                label = {
-                    Text(
-                        text = stringResource(R.string.nav_library),
-                        style = MaterialTheme.typography.labelSmall
-                    )
-                },
-                colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = EduGreenDark,
-                    selectedTextColor = EduGreenDark,
-                    indicatorColor = EduMint,
-                    unselectedIconColor = EduMuted,
-                    unselectedTextColor = EduMuted
-                ),
-                modifier = Modifier.testTag("nav_library")
+                label = { Text(stringResource(R.string.nav_library)) },
+                colors = railColors
             )
-            NavigationBarItem(
+            NavigationRailItem(
                 selected = currentPage == AppPage.STUDIO,
                 onClick = { onSelectPage(AppPage.STUDIO) },
                 icon = {
@@ -818,22 +1134,10 @@ private fun EduBottomNavigationBar(
                         contentDescription = stringResource(R.string.nav_studio)
                     )
                 },
-                label = {
-                    Text(
-                        text = stringResource(R.string.nav_studio),
-                        style = MaterialTheme.typography.labelSmall
-                    )
-                },
-                colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = EduGreenDark,
-                    selectedTextColor = EduGreenDark,
-                    indicatorColor = EduMint,
-                    unselectedIconColor = EduMuted,
-                    unselectedTextColor = EduMuted
-                ),
-                modifier = Modifier.testTag("nav_studio")
+                label = { Text(stringResource(R.string.nav_studio)) },
+                colors = railColors
             )
-            NavigationBarItem(
+            NavigationRailItem(
                 selected = currentPage == AppPage.QUIZ_BANK,
                 onClick = { onSelectPage(AppPage.QUIZ_BANK) },
                 icon = {
@@ -846,22 +1150,10 @@ private fun EduBottomNavigationBar(
                         contentDescription = stringResource(R.string.nav_quiz_bank)
                     )
                 },
-                label = {
-                    Text(
-                        text = stringResource(R.string.nav_quiz_bank),
-                        style = MaterialTheme.typography.labelSmall
-                    )
-                },
-                colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = EduGreenDark,
-                    selectedTextColor = EduGreenDark,
-                    indicatorColor = EduMint,
-                    unselectedIconColor = EduMuted,
-                    unselectedTextColor = EduMuted
-                ),
-                modifier = Modifier.testTag("nav_quiz_bank")
+                label = { Text(stringResource(R.string.nav_quiz_bank)) },
+                colors = railColors
             )
-            NavigationBarItem(
+            NavigationRailItem(
                 selected = currentPage == AppPage.SETTINGS,
                 onClick = { onSelectPage(AppPage.SETTINGS) },
                 icon = {
@@ -874,144 +1166,9 @@ private fun EduBottomNavigationBar(
                         contentDescription = stringResource(R.string.nav_settings)
                     )
                 },
-                label = {
-                    Text(
-                        text = stringResource(R.string.nav_settings),
-                        style = MaterialTheme.typography.labelSmall
-                    )
-                },
-                colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = EduGreenDark,
-                    selectedTextColor = EduGreenDark,
-                    indicatorColor = EduMint,
-                    unselectedIconColor = EduMuted,
-                    unselectedTextColor = EduMuted
-                ),
-                modifier = Modifier.testTag("nav_settings")
+                label = { Text(stringResource(R.string.nav_settings)) },
+                colors = railColors
             )
         }
-    }
-}
-
-@Composable
-private fun EduNavigationRail(
-    currentPage: AppPage,
-    onSelectPage: (AppPage) -> Unit
-) {
-    NavigationRail(
-        containerColor = EduWhite,
-        modifier = Modifier.fillMaxHeight()
-    ) {
-        Spacer(modifier = Modifier.size(12.dp))
-        NavigationRailItem(
-            selected = currentPage == AppPage.DASHBOARD,
-            onClick = { onSelectPage(AppPage.DASHBOARD) },
-            icon = {
-                Icon(
-                    imageVector = if (currentPage == AppPage.DASHBOARD) {
-                        Icons.Rounded.Dashboard
-                    } else {
-                        Icons.Outlined.Dashboard
-                    },
-                    contentDescription = stringResource(R.string.nav_dashboard)
-                )
-            },
-            label = { Text(stringResource(R.string.nav_dashboard)) },
-            colors = NavigationRailItemDefaults.colors(
-                selectedIconColor = EduGreenDark,
-                selectedTextColor = EduGreenDark,
-                indicatorColor = EduMint,
-                unselectedIconColor = EduMuted,
-                unselectedTextColor = EduMuted
-            )
-        )
-        NavigationRailItem(
-            selected = currentPage == AppPage.LIBRARY,
-            onClick = { onSelectPage(AppPage.LIBRARY) },
-            icon = {
-                Icon(
-                    imageVector = if (currentPage == AppPage.LIBRARY) {
-                        Icons.Rounded.LibraryBooks
-                    } else {
-                        Icons.Outlined.LibraryBooks
-                    },
-                    contentDescription = stringResource(R.string.nav_library)
-                )
-            },
-            label = { Text(stringResource(R.string.nav_library)) },
-            colors = NavigationRailItemDefaults.colors(
-                selectedIconColor = EduGreenDark,
-                selectedTextColor = EduGreenDark,
-                indicatorColor = EduMint,
-                unselectedIconColor = EduMuted,
-                unselectedTextColor = EduMuted
-            )
-        )
-        NavigationRailItem(
-            selected = currentPage == AppPage.STUDIO,
-            onClick = { onSelectPage(AppPage.STUDIO) },
-            icon = {
-                Icon(
-                    imageVector = if (currentPage == AppPage.STUDIO) {
-                        Icons.Rounded.AutoAwesome
-                    } else {
-                        Icons.Outlined.AutoAwesome
-                    },
-                    contentDescription = stringResource(R.string.nav_studio)
-                )
-            },
-            label = { Text(stringResource(R.string.nav_studio)) },
-            colors = NavigationRailItemDefaults.colors(
-                selectedIconColor = EduGreenDark,
-                selectedTextColor = EduGreenDark,
-                indicatorColor = EduMint,
-                unselectedIconColor = EduMuted,
-                unselectedTextColor = EduMuted
-            )
-        )
-        NavigationRailItem(
-            selected = currentPage == AppPage.QUIZ_BANK,
-            onClick = { onSelectPage(AppPage.QUIZ_BANK) },
-            icon = {
-                Icon(
-                    imageVector = if (currentPage == AppPage.QUIZ_BANK) {
-                        Icons.Rounded.Quiz
-                    } else {
-                        Icons.Outlined.Quiz
-                    },
-                    contentDescription = stringResource(R.string.nav_quiz_bank)
-                )
-            },
-            label = { Text(stringResource(R.string.nav_quiz_bank)) },
-            colors = NavigationRailItemDefaults.colors(
-                selectedIconColor = EduGreenDark,
-                selectedTextColor = EduGreenDark,
-                indicatorColor = EduMint,
-                unselectedIconColor = EduMuted,
-                unselectedTextColor = EduMuted
-            )
-        )
-        NavigationRailItem(
-            selected = currentPage == AppPage.SETTINGS,
-            onClick = { onSelectPage(AppPage.SETTINGS) },
-            icon = {
-                Icon(
-                    imageVector = if (currentPage == AppPage.SETTINGS) {
-                        Icons.Rounded.Settings
-                    } else {
-                        Icons.Outlined.Settings
-                    },
-                    contentDescription = stringResource(R.string.nav_settings)
-                )
-            },
-            label = { Text(stringResource(R.string.nav_settings)) },
-            colors = NavigationRailItemDefaults.colors(
-                selectedIconColor = EduGreenDark,
-                selectedTextColor = EduGreenDark,
-                indicatorColor = EduMint,
-                unselectedIconColor = EduMuted,
-                unselectedTextColor = EduMuted
-            )
-        )
     }
 }

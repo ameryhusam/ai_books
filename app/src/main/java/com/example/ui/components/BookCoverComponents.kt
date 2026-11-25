@@ -1,7 +1,9 @@
 package com.example.ui.components
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.util.LruCache
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -48,11 +50,13 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.example.data.workspace.UriIO
 import com.example.model.BookProgressSummary
 import com.example.model.BookRef
 import com.example.ui.theme.EduBlue
@@ -67,7 +71,6 @@ import com.example.ui.theme.EduWhite
 import com.example.ui.theme.EduYellow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.File
 import kotlin.math.abs
 
 @Composable
@@ -79,6 +82,7 @@ fun BookCoverImage(
     cornerRadius: Dp = 12.dp,
     targetWidthPx: Int = 420
 ) {
+    val context = LocalContext.current
     var bitmap by remember(coverPath) { mutableStateOf<Bitmap?>(null) }
 
     LaunchedEffect(coverPath, targetWidthPx) {
@@ -86,7 +90,7 @@ fun BookCoverImage(
             null
         } else {
             withContext(Dispatchers.IO) {
-                decodeScaledBitmap(coverPath, targetWidthPx)
+                decodeScaledBitmap(context, coverPath, targetWidthPx)
             }
         }
     }
@@ -305,12 +309,17 @@ fun BookCoverPreviewDialog(
     )
 }
 
-private fun decodeScaledBitmap(path: String, reqWidth: Int): Bitmap? {
-    val file = File(path)
-    if (!file.exists() || !file.isFile) return null
+private val coverCache = object : LruCache<String, Bitmap>(24) {}
+
+private fun decodeScaledBitmap(context: Context, pathOrUri: String, reqWidth: Int): Bitmap? {
+    val key = "$pathOrUri#$reqWidth"
+    coverCache.get(key)?.let { if (!it.isRecycled) return it }
+    if (!UriIO.exists(context, pathOrUri)) return null
     return runCatching {
         val boundsOpts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeFile(file.absolutePath, boundsOpts)
+        UriIO.openInputStream(context, pathOrUri)?.use { stream ->
+            BitmapFactory.decodeStream(stream, null, boundsOpts)
+        }
         var inSampleSize = 1
         if (boundsOpts.outWidth > reqWidth && reqWidth > 0) {
             var halfWidth = boundsOpts.outWidth / 2
@@ -323,6 +332,10 @@ private fun decodeScaledBitmap(path: String, reqWidth: Int): Bitmap? {
             this.inSampleSize = inSampleSize.coerceAtLeast(1)
             inPreferredConfig = Bitmap.Config.RGB_565
         }
-        BitmapFactory.decodeFile(file.absolutePath, decodeOpts)
+        UriIO.openInputStream(context, pathOrUri)?.use { stream ->
+            BitmapFactory.decodeStream(stream, null, decodeOpts)
+        }?.also { decoded ->
+            coverCache.put(key, decoded)
+        }
     }.getOrNull()
 }

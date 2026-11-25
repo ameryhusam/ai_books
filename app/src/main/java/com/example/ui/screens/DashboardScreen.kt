@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -29,24 +30,36 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.EmojiEvents
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Code
+import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.LocalFireDepartment
 import androidx.compose.material.icons.rounded.MenuBook
 import androidx.compose.material.icons.rounded.PictureAsPdf
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Psychology
+import androidx.compose.material.icons.rounded.Quiz
 import androidx.compose.material.icons.rounded.Route
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.School
 import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.UnfoldLess
+import androidx.compose.material.icons.rounded.UnfoldMore
+import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -79,17 +92,26 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.R
+import com.example.data.repository.EduMiniRepository
 import com.example.model.AchievementBadge
 import com.example.model.BadgeCategory
+import com.example.model.ConceptMasterySummary
+import com.example.model.DashboardLessonFilter
 import com.example.model.DashboardSummary
+import com.example.model.LearnerProfile
 import com.example.model.LearningLessonNode
 import com.example.model.LearningNodeStatus
+import com.example.model.LearningUnitPath
 import com.example.model.LessonRef
+import com.example.model.StudentDashboardState
+import com.example.model.UnitCompletionStatus
+import com.example.model.UserRole
 import com.example.ui.components.BookCoverImage
 import com.example.ui.components.EduPanel
 import com.example.ui.components.EduPill
 import com.example.ui.components.EduYellowButton
 import com.example.ui.components.LearningProgress
+import com.example.ui.components.StudentPerformanceChartCard
 import com.example.ui.theme.EduBg
 import com.example.ui.theme.EduBlue
 import com.example.ui.theme.EduGreen
@@ -103,27 +125,97 @@ import com.example.ui.theme.EduMint
 import com.example.ui.theme.EduMuted
 import com.example.ui.theme.EduOrange
 import com.example.ui.theme.EduPurple
+import com.example.ui.theme.EduRed
 import com.example.ui.theme.EduWhite
 import com.example.ui.theme.EduYellow
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun DashboardScreen(
     summary: DashboardSummary,
+    userRole: UserRole = UserRole.LEARNER,
+    dashboardState: StudentDashboardState = StudentDashboardState(),
+    conceptMasterySummaries: List<ConceptMasterySummary> = emptyList(),
+    activeLearner: LearnerProfile = LearnerProfile.DEFAULT,
+    availableLearners: List<LearnerProfile> = listOf(LearnerProfile.DEFAULT),
+    selectedBookFilterKey: String = "",
     bookmarkedLessons: List<LessonRef> = emptyList(),
     bookCoversByKey: Map<String, String?> = emptyMap(),
-    onOpenLessonInStudio: (LessonRef) -> Unit,
+    onSelectLearner: (String) -> Unit = {},
+    onAddLearner: (String) -> Unit = {},
+    onSelectBookFilter: (String) -> Unit = {},
+    onSelectLessonFilter: (DashboardLessonFilter) -> Unit = {},
+    onToggleUnitExpanded: (String) -> Unit = {},
+    onToggleAllUnitsExpanded: (List<String>) -> Unit = {},
+    onDismissCompletedUnitBanner: () -> Unit = {},
+    onOpenLessonInStudio: (LessonRef) -> Unit = {},
     onOpenStudentStudy: (LessonRef) -> Unit = {},
     onPreviewLessonPdf: (LessonRef) -> Unit = {},
-    onToggleLessonCompleted: (LessonRef, Boolean) -> Unit,
+    onLaunchConceptReinforcement: (String?) -> Unit = {},
     onOpenGlobalSearch: () -> Unit = {},
-    onPickBookPdf: () -> Unit,
-    onPickZip: () -> Unit,
-    onOpenLibrary: () -> Unit,
+    onBindDirectFolder: () -> Unit = {},
+    onPickBookPdf: () -> Unit = {},
+    onPickZip: () -> Unit = {},
+    onOpenLibrary: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var selectedBadge by remember { mutableStateOf<AchievementBadge?>(null) }
     var selectedCategory by remember { mutableStateOf<BadgeCategory?>(null) }
     val haptic = LocalHapticFeedback.current
+    val isLearner = userRole == UserRole.LEARNER
+    val activeBookKey = dashboardState.selectedBookKey.ifBlank { selectedBookFilterKey }
+
+    val bookFilteredUnits = remember(summary.unitPaths, activeBookKey) {
+        if (activeBookKey.isBlank()) {
+            summary.unitPaths
+        } else {
+            summary.unitPaths.filter { unitPath ->
+                unitPath.nodes.any { it.lesson.bookKey == activeBookKey }
+            }
+        }
+    }
+    val allBookNodes = remember(bookFilteredUnits) {
+        bookFilteredUnits.flatMap { it.nodes }
+    }
+    val filterCounts = remember(allBookNodes) {
+        mapOf(
+            DashboardLessonFilter.ALL to allBookNodes.size,
+            DashboardLessonFilter.PENDING to allBookNodes.count { !it.isCompleted },
+            DashboardLessonFilter.IN_PROGRESS to allBookNodes.count {
+                !it.isCompleted && (it.status == LearningNodeStatus.IN_PROGRESS || it.quizAttemptedCount > 0)
+            },
+            DashboardLessonFilter.READY_FOR_QUIZ to allBookNodes.count { !it.isCompleted && it.questionsCount > 0 },
+            DashboardLessonFilter.COMPLETED to allBookNodes.count { it.isCompleted }
+        )
+    }
+    val visibleUnitPaths = remember(bookFilteredUnits, dashboardState.lessonFilter) {
+        if (dashboardState.lessonFilter == DashboardLessonFilter.ALL) {
+            bookFilteredUnits
+        } else {
+            bookFilteredUnits.mapNotNull { unit ->
+                val filteredNodes = unit.nodes.filter { node ->
+                    when (dashboardState.lessonFilter) {
+                        DashboardLessonFilter.ALL -> true
+                        DashboardLessonFilter.PENDING -> !node.isCompleted
+                        DashboardLessonFilter.IN_PROGRESS ->
+                            !node.isCompleted && (node.status == LearningNodeStatus.IN_PROGRESS || node.quizAttemptedCount > 0)
+                        DashboardLessonFilter.READY_FOR_QUIZ -> !node.isCompleted && node.questionsCount > 0
+                        DashboardLessonFilter.COMPLETED -> node.isCompleted
+                    }
+                }
+                if (filteredNodes.isEmpty()) null else unit.copy(nodes = filteredNodes)
+            }
+        }
+    }
+    val completedUnitsCount = remember(bookFilteredUnits) {
+        bookFilteredUnits.count { it.status == UnitCompletionStatus.COMPLETED }
+    }
+    val inProgressUnitsCount = remember(bookFilteredUnits) {
+        bookFilteredUnits.count { it.status == UnitCompletionStatus.IN_PROGRESS }
+    }
+    val notStartedUnitsCount = remember(bookFilteredUnits) {
+        bookFilteredUnits.count { it.status == UnitCompletionStatus.NOT_STARTED }
+    }
 
     Box(
         modifier = modifier.fillMaxSize(),
@@ -146,8 +238,8 @@ fun DashboardScreen(
             if (!summary.hasWorkspace) {
                 item(key = "dashboard_empty") {
                     DashboardEmptyOnboarding(
-                        onPickBookPdf = onPickBookPdf,
-                        onPickZip = onPickZip,
+                        showAdminLibraryButton = !isLearner,
+                        onBindDirectFolder = onBindDirectFolder,
                         onOpenLibrary = onOpenLibrary
                     )
                 }
@@ -175,11 +267,21 @@ fun DashboardScreen(
                         NextRecommendedStepCard(
                             lesson = nextLesson,
                             coverPath = bookCoversByKey[nextLesson.bookKey],
+                            showStudioAction = !isLearner,
                             onOpenStudentStudy = { onOpenStudentStudy(nextLesson) },
                             onPreviewPdf = if (!nextLesson.pdfPath.isNullOrBlank()) {
                                 { onPreviewLessonPdf(nextLesson) }
                             } else null,
                             onOpenInStudio = { onOpenLessonInStudio(nextLesson) }
+                        )
+                    }
+                }
+
+                if (summary.weakConcepts.isNotEmpty()) {
+                    item(key = "weak_concepts_panel") {
+                        WeakConceptsReinforcementCard(
+                            weakConcepts = summary.weakConcepts,
+                            onLaunchConceptReinforcement = onLaunchConceptReinforcement
                         )
                     }
                 }
@@ -198,6 +300,19 @@ fun DashboardScreen(
                     DashboardKpiGrid(summary = summary)
                 }
 
+                item(key = "student_performance_chart") {
+                    StudentPerformanceChartCard(
+                        concepts = conceptMasterySummaries,
+                        unitPaths = bookFilteredUnits,
+                        overallCompletionPercent = summary.overallCompletionPercent,
+                        activeLearner = activeLearner,
+                        availableLearners = availableLearners,
+                        onSelectLearner = onSelectLearner,
+                        onAddLearner = onAddLearner,
+                        onSelectConceptForReinforcement = onLaunchConceptReinforcement
+                    )
+                }
+
                 if (summary.bookProgress.isNotEmpty()) {
                     item(key = "books_progress_heading") {
                         Text(
@@ -208,7 +323,40 @@ fun DashboardScreen(
                         )
                     }
                     item(key = "learning_progress") {
-                        LearningProgress(bookProgress = summary.bookProgress)
+                        LearningProgress(
+                            bookProgress = summary.bookProgress,
+                            selectedBookKey = activeBookKey.ifBlank { null },
+                            onSelectBook = { bookKey ->
+                                onSelectBookFilter(if (activeBookKey == bookKey) "" else bookKey)
+                            }
+                        )
+                    }
+                    if (summary.bookProgress.size > 1) {
+                        item(key = "book_filter_strip") {
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(7.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                EduPill(
+                                    text = "كل المواد (${summary.totalLessons})",
+                                    active = activeBookKey.isBlank(),
+                                    onClick = { onSelectBookFilter("") },
+                                    testTag = "dashboard_filter_all_books"
+                                )
+                                summary.bookProgress.forEach { bp ->
+                                    EduPill(
+                                        text = "${bp.book.title} (${bp.completedLessons}/${bp.totalLessons})",
+                                        active = activeBookKey == bp.book.bookKey,
+                                        onClick = {
+                                            onSelectBookFilter(
+                                                if (activeBookKey == bp.book.bookKey) "" else bp.book.bookKey
+                                            )
+                                        },
+                                        testTag = "dashboard_filter_book_${bp.book.bookKey}"
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -229,70 +377,128 @@ fun DashboardScreen(
                     )
                 }
 
-                item(key = "learning_path_heading") {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Route,
-                                contentDescription = null,
-                                tint = EduGreenDark,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Text(
-                                text = stringResource(R.string.dashboard_learning_path_heading),
-                                style = MaterialTheme.typography.titleMedium,
-                                color = EduInk
-                            )
-                        }
-                        Text(
-                            text = "${summary.completedLessons}/${summary.totalLessons} مكتمل",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = EduGreenDark
+                if (!dashboardState.recentlyCompletedUnitTitle.isNullOrBlank()) {
+                    item(key = "unit_celebration_banner") {
+                        UnitCompletedCelebrationBanner(
+                            unitTitle = dashboardState.recentlyCompletedUnitTitle,
+                            onDismiss = onDismissCompletedUnitBanner
                         )
                     }
                 }
 
-                summary.unitPaths.forEach { unitPath ->
-                    item(key = "unit_header_${unitPath.unitKey}") {
-                        val unitLesson = unitPath.nodes.firstOrNull()?.lesson
-                        val unitBookKey = unitLesson?.bookKey.orEmpty()
-                        UnitPathHeaderCard(
-                            unitTitle = unitPath.unitTitle,
-                            bookTitle = unitPath.bookTitle,
-                            coverPath = bookCoversByKey[unitBookKey],
-                            subjectKey = unitLesson?.subjectKey ?: unitBookKey,
-                            completedCount = unitPath.completedCount,
-                            totalCount = unitPath.totalCount,
-                            completionPercent = unitPath.completionPercent
-                        )
+                item(key = "learning_path_heading") {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Route,
+                                    contentDescription = null,
+                                    tint = EduGreenDark,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Text(
+                                    text = stringResource(R.string.dashboard_learning_path_heading),
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = EduInk
+                                )
+                            }
+                            Text(
+                                text = "${summary.completedLessons}/${summary.totalLessons} مكتمل بالاختبار",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = EduGreenDark
+                            )
+                        }
+
+                        if (bookFilteredUnits.isNotEmpty()) {
+                            UnitStatusSummaryStrip(
+                                completedUnits = completedUnitsCount,
+                                inProgressUnits = inProgressUnitsCount,
+                                notStartedUnits = notStartedUnitsCount,
+                                allCollapsed = dashboardState.collapsedUnitKeys.size >= bookFilteredUnits.size,
+                                onToggleExpandAll = {
+                                    onToggleAllUnitsExpanded(bookFilteredUnits.map { it.unitKey })
+                                }
+                            )
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(7.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                DashboardLessonFilter.entries.forEach { filter ->
+                                    val count = filterCounts[filter] ?: 0
+                                    EduPill(
+                                        text = "${filter.labelAr} ($count)",
+                                        active = dashboardState.lessonFilter == filter,
+                                        onClick = { onSelectLessonFilter(filter) },
+                                        testTag = "dashboard_lesson_filter_${filter.name.lowercase()}"
+                                    )
+                                }
+                            }
+                        }
                     }
-                    itemsIndexed(
-                        items = unitPath.nodes,
-                        key = { _, node -> "path_${node.lesson.bookKey}_${node.lesson.unitKey}_${node.lesson.lessonKey}" }
-                    ) { idx, node ->
-                        LearningPathNodeRow(
-                            stepNumber = idx + 1,
-                            isLast = idx == unitPath.nodes.lastIndex,
-                            node = node,
-                            onToggleCompleted = {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                onToggleLessonCompleted(node.lesson, node.isCompleted)
-                            },
-                            onOpenStudentStudy = { onOpenStudentStudy(node.lesson) },
-                            onPreviewPdf = if (!node.lesson.pdfPath.isNullOrBlank()) {
-                                { onPreviewLessonPdf(node.lesson) }
-                            } else null,
-                            onOpenInStudio = { onOpenLessonInStudio(node.lesson) }
-                        )
+                }
+
+                if (visibleUnitPaths.isEmpty()) {
+                    item(key = "empty_filtered_units") {
+                        EduPanel(modifier = Modifier.fillMaxWidth()) {
+                            Text(
+                                text = "لا توجد دروس مطابقة للتصفية الحالية.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = EduMuted
+                            )
+                            OutlinedButton(
+                                onClick = { onSelectLessonFilter(DashboardLessonFilter.ALL) },
+                                shape = RoundedCornerShape(10.dp),
+                                border = BorderStroke(1.dp, EduGreen),
+                                modifier = Modifier.minimumInteractiveComponentSize()
+                            ) {
+                                Text("عرض كل الدروس", color = EduGreenDark)
+                            }
+                        }
+                    }
+                } else {
+                    visibleUnitPaths.forEach { unitPath ->
+                        val isExpanded = unitPath.unitKey !in dashboardState.collapsedUnitKeys
+                        item(key = "unit_header_${unitPath.unitKey}") {
+                            val unitLesson = unitPath.nodes.firstOrNull()?.lesson
+                            val unitBookKey = unitLesson?.bookKey.orEmpty()
+                            UnitPathHeaderCard(
+                                unitPath = unitPath,
+                                coverPath = bookCoversByKey[unitBookKey],
+                                subjectKey = unitLesson?.subjectKey ?: unitBookKey,
+                                isExpanded = isExpanded,
+                                onToggleExpand = { onToggleUnitExpanded(unitPath.unitKey) }
+                            )
+                        }
+                        if (isExpanded) {
+                            itemsIndexed(
+                                items = unitPath.nodes,
+                                key = { _, node -> "path_${node.lesson.bookKey}_${node.lesson.unitKey}_${node.lesson.lessonKey}" }
+                            ) { idx, node ->
+                                LearningPathNodeRow(
+                                    stepNumber = idx + 1,
+                                    isLast = idx == unitPath.nodes.lastIndex,
+                                    node = node,
+                                    showStudioAction = !isLearner,
+                                    onOpenStudentStudy = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        onOpenStudentStudy(node.lesson)
+                                    },
+                                    onPreviewPdf = if (!node.lesson.pdfPath.isNullOrBlank()) {
+                                        { onPreviewLessonPdf(node.lesson) }
+                                    } else null,
+                                    onOpenInStudio = { onOpenLessonInStudio(node.lesson) }
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -666,6 +872,7 @@ private fun KpiCard(
 private fun NextRecommendedStepCard(
     lesson: LessonRef,
     coverPath: String?,
+    showStudioAction: Boolean,
     onOpenStudentStudy: () -> Unit,
     onPreviewPdf: (() -> Unit)?,
     onOpenInStudio: () -> Unit
@@ -757,26 +964,144 @@ private fun NextRecommendedStepCard(
                     )
                 }
             }
-            OutlinedButton(
-                onClick = onOpenInStudio,
-                shape = RoundedCornerShape(12.dp),
-                border = BorderStroke(1.dp, EduLine),
-                modifier = Modifier
-                    .minimumInteractiveComponentSize()
-                    .testTag("dashboard_continue_studio_button")
+            if (showStudioAction) {
+                OutlinedButton(
+                    onClick = onOpenInStudio,
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, EduLine),
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .testTag("dashboard_continue_studio_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.AutoAwesome,
+                        contentDescription = null,
+                        tint = EduMuted,
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "توليد في Studio",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = EduInk
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WeakConceptsReinforcementCard(
+    weakConcepts: List<ConceptMasterySummary>,
+    onLaunchConceptReinforcement: (String?) -> Unit
+) {
+    EduPanel(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("dashboard_weak_concepts_card"),
+        containerColor = EduOrange.copy(alpha = 0.08f),
+        borderColor = EduOrange.copy(alpha = 0.55f)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.weight(1f)
             ) {
-                Icon(
-                    imageVector = Icons.Rounded.AutoAwesome,
-                    contentDescription = null,
-                    tint = EduMuted,
-                    modifier = Modifier.size(15.dp)
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(
-                    text = "توليد في Studio",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = EduInk
-                )
+                Surface(
+                    shape = CircleShape,
+                    color = EduOrange.copy(alpha = 0.18f),
+                    modifier = Modifier.size(34.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Rounded.Psychology,
+                            contentDescription = null,
+                            tint = EduOrange,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+                Column {
+                    Text(
+                        text = "مفاهيم تحتاج تقوية ومراجعة (${weakConcepts.size})",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = EduInk,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "رُصدت من إجاباتك المتكررة أو المتذبذبة في الاختبارات",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = EduMuted
+                    )
+                }
+            }
+            OutlinedButton(
+                onClick = { onLaunchConceptReinforcement(null) },
+                shape = RoundedCornerShape(10.dp),
+                border = BorderStroke(1.dp, EduOrange),
+                modifier = Modifier.minimumInteractiveComponentSize()
+            ) {
+                Text("تقوية شاملة", style = MaterialTheme.typography.labelSmall, color = EduOrange)
+            }
+        }
+
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            weakConcepts.take(4).forEach { item ->
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = EduWhite,
+                    border = BorderStroke(1.dp, EduLine),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.WarningAmber,
+                            contentDescription = null,
+                            tint = EduRed,
+                            modifier = Modifier.size(17.dp)
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = item.conceptTag,
+                                style = MaterialTheme.typography.labelLarge,
+                                color = EduInk,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "${item.wrongCount} خطأ • ${item.correctCount} صحيح • دقة ${item.accuracyPercent}%",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = EduMuted
+                            )
+                        }
+                        Button(
+                            onClick = { onLaunchConceptReinforcement(item.conceptTag) },
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = EduPurple,
+                                contentColor = EduWhite
+                            ),
+                            modifier = Modifier
+                                .minimumInteractiveComponentSize()
+                                .testTag("reinforce_concept_${item.conceptTag}")
+                        ) {
+                            Icon(Icons.Rounded.PlayArrow, contentDescription = null, modifier = Modifier.size(15.dp))
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Text("تدريب", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                }
             }
         }
     }
@@ -1228,60 +1553,260 @@ private fun BadgeDetailDialog(
 private fun EduFieldSurfaceMuted(): Color = EduBg.copy(alpha = 0.7f)
 
 @Composable
-private fun UnitPathHeaderCard(
+private fun UnitCompletedCelebrationBanner(
     unitTitle: String,
-    bookTitle: String,
-    coverPath: String?,
-    subjectKey: String,
-    completedCount: Int,
-    totalCount: Int,
-    completionPercent: Int
+    onDismiss: () -> Unit
 ) {
-    Surface(
+    EduPanel(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 4.dp),
-        shape = RoundedCornerShape(14.dp),
-        color = EduLilac,
-        border = BorderStroke(1.dp, EduPurple.copy(alpha = 0.28f))
+            .testTag("dashboard_unit_celebration_banner"),
+        containerColor = EduMint,
+        borderColor = EduGreen
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 10.dp),
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            BookCoverImage(
-                coverPath = coverPath,
-                bookTitle = bookTitle,
-                subjectKey = subjectKey,
-                cornerRadius = 8.dp,
-                targetWidthPx = 140,
-                modifier = Modifier.size(width = 34.dp, height = 46.dp)
-            )
+            Surface(
+                shape = CircleShape,
+                color = EduGreen,
+                modifier = Modifier.size(38.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Outlined.EmojiEvents,
+                        contentDescription = null,
+                        tint = EduWhite,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = unitTitle,
+                    text = "إنجاز رائع! اكتملت وحدة «$unitTitle»",
                     style = MaterialTheme.typography.titleSmall,
-                    color = EduPurple
+                    color = EduGreenDark,
+                    fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = bookTitle,
+                    text = "اجتزت جميع اختبارات دروس هذه الوحدة بنجاح.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = EduMuted
+                    color = EduInk
                 )
             }
-            Surface(
-                shape = RoundedCornerShape(20.dp),
-                color = EduWhite
+            IconButton(
+                onClick = onDismiss,
+                modifier = Modifier
+                    .minimumInteractiveComponentSize()
+                    .testTag("dismiss_unit_celebration_button")
             ) {
-                Text(
-                    text = "$completedCount/$totalCount • $completionPercent%",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = EduPurple,
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                Icon(Icons.Outlined.Close, contentDescription = "إغلاق التنبيه", tint = EduGreenDark)
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun UnitStatusSummaryStrip(
+    completedUnits: Int,
+    inProgressUnits: Int,
+    notStartedUnits: Int,
+    allCollapsed: Boolean,
+    onToggleExpandAll: () -> Unit
+) {
+    EduPanel(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("dashboard_unit_status_strip"),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 9.dp),
+        containerColor = EduWhite
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            FlowRow(
+                modifier = Modifier.weight(1f),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
+                UnitStatChip(label = "مكتملة: $completedUnits", containerColor = EduMint, textColor = EduGreenDark)
+                UnitStatChip(label = "قيد الدراسة: $inProgressUnits", containerColor = EduOrange.copy(alpha = 0.14f), textColor = EduInk)
+                UnitStatChip(label = "لم تبدأ: $notStartedUnits", containerColor = EduBg, textColor = EduMuted)
+            }
+            TextButton(
+                onClick = onToggleExpandAll,
+                modifier = Modifier
+                    .minimumInteractiveComponentSize()
+                    .testTag("dashboard_toggle_all_units")
+            ) {
+                Icon(
+                    imageVector = if (allCollapsed) Icons.Rounded.UnfoldMore else Icons.Rounded.UnfoldLess,
+                    contentDescription = null,
+                    tint = EduPurple,
+                    modifier = Modifier.size(16.dp)
                 )
+                Spacer(modifier = Modifier.width(3.dp))
+                Text(
+                    text = if (allCollapsed) "توسيع الكل" else "طي الكل",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = EduPurple
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun UnitStatChip(
+    label: String,
+    containerColor: Color,
+    textColor: Color
+) {
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = containerColor
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = textColor,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+        )
+    }
+}
+
+@Composable
+private fun UnitPathHeaderCard(
+    unitPath: LearningUnitPath,
+    coverPath: String?,
+    subjectKey: String,
+    isExpanded: Boolean,
+    onToggleExpand: () -> Unit
+) {
+    val (statusContainer, statusTextColor) = when (unitPath.status) {
+        UnitCompletionStatus.COMPLETED -> EduMint to EduGreenDark
+        UnitCompletionStatus.IN_PROGRESS -> EduOrange.copy(alpha = 0.16f) to EduInk
+        UnitCompletionStatus.NOT_STARTED -> EduWhite to EduMuted
+    }
+    val cardBg = when (unitPath.status) {
+        UnitCompletionStatus.COMPLETED -> EduMint.copy(alpha = 0.55f)
+        UnitCompletionStatus.IN_PROGRESS -> EduLilac
+        UnitCompletionStatus.NOT_STARTED -> EduLilac.copy(alpha = 0.72f)
+    }
+    val cardBorder = when (unitPath.status) {
+        UnitCompletionStatus.COMPLETED -> EduGreen.copy(alpha = 0.5f)
+        UnitCompletionStatus.IN_PROGRESS -> EduPurple.copy(alpha = 0.35f)
+        UnitCompletionStatus.NOT_STARTED -> EduPurple.copy(alpha = 0.2f)
+    }
+    val shape = RoundedCornerShape(14.dp)
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 4.dp)
+            .clip(shape)
+            .minimumInteractiveComponentSize()
+            .clickable(onClick = onToggleExpand)
+            .testTag("unit_header_${unitPath.unitKey}"),
+        shape = shape,
+        color = cardBg,
+        border = BorderStroke(1.dp, cardBorder)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                BookCoverImage(
+                    coverPath = coverPath,
+                    bookTitle = unitPath.bookTitle,
+                    subjectKey = subjectKey,
+                    cornerRadius = 8.dp,
+                    targetWidthPx = 140,
+                    modifier = Modifier.size(width = 34.dp, height = 46.dp)
+                )
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        text = unitPath.unitTitle,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = if (unitPath.status == UnitCompletionStatus.COMPLETED) EduGreenDark else EduPurple
+                    )
+                    Text(
+                        text = buildString {
+                            append(unitPath.bookTitle)
+                            if (unitPath.questionsCount > 0) append(" • ${unitPath.questionsCount} سؤال")
+                            if (unitPath.generatedContentCount > 0) append(" • ${unitPath.generatedContentCount} مورد")
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = EduMuted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Column(
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = statusContainer
+                    ) {
+                        Text(
+                            text = unitPath.status.labelAr,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = statusTextColor,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp)
+                        )
+                    }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            text = "${unitPath.completedCount}/${unitPath.totalCount} (${unitPath.completionPercent}%)",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = EduInk
+                        )
+                        Icon(
+                            imageVector = if (isExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                            contentDescription = if (isExpanded) "طي الوحدة" else "توسيع الوحدة",
+                            tint = EduPurple,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+            }
+            val unitRatio = (unitPath.completionPercent / 100f).coerceIn(0f, 1f)
+            Canvas(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(5.dp)
+            ) {
+                drawRoundRect(
+                    color = EduWhite.copy(alpha = 0.8f),
+                    cornerRadius = CornerRadius(8f, 8f),
+                    size = size
+                )
+                if (unitRatio > 0f) {
+                    drawRoundRect(
+                        color = if (unitPath.status == UnitCompletionStatus.COMPLETED) EduGreen else EduPurple,
+                        cornerRadius = CornerRadius(8f, 8f),
+                        size = Size(width = size.width * unitRatio, height = size.height)
+                    )
+                }
             }
         }
     }
@@ -1293,7 +1818,7 @@ private fun LearningPathNodeRow(
     stepNumber: Int,
     isLast: Boolean,
     node: LearningLessonNode,
-    onToggleCompleted: () -> Unit,
+    showStudioAction: Boolean,
     onOpenStudentStudy: () -> Unit,
     onPreviewPdf: (() -> Unit)?,
     onOpenInStudio: () -> Unit
@@ -1340,7 +1865,7 @@ private fun LearningPathNodeRow(
                 Canvas(
                     modifier = Modifier
                         .width(3.dp)
-                        .height(86.dp)
+                        .height(92.dp)
                 ) {
                     drawLine(
                         color = if (node.isCompleted) EduGreen else EduLine,
@@ -1374,8 +1899,7 @@ private fun LearningPathNodeRow(
                     val details = buildString {
                         append(node.status.labelAr)
                         node.lesson.pageRange?.let { append(" • ص $it") }
-                        if (node.draftsCount > 0) append(" • ${node.draftsCount} مسودة")
-                        if (node.packagesCount > 0) append(" • ${node.packagesCount} حزمة")
+                        if (node.questionsCount > 0) append(" • ${node.questionsCount} سؤال")
                     }
                     Text(
                         text = details,
@@ -1393,6 +1917,35 @@ private fun LearningPathNodeRow(
                         color = EduInk,
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                     )
+                }
+            }
+
+            if (node.hasGeneratedMaterials || node.quizAttemptedCount > 0) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    if (node.draftsCount > 0) {
+                        LessonMetaChip(
+                            icon = Icons.Rounded.Description,
+                            label = "ملخص/شرح (${node.draftsCount})",
+                            tint = EduBlue
+                        )
+                    }
+                    if (node.packagesCount > 0) {
+                        LessonMetaChip(
+                            icon = Icons.Rounded.Code,
+                            label = "تفاعلي (${node.packagesCount})",
+                            tint = EduPurple
+                        )
+                    }
+                    if (node.questionsCount > 0) {
+                        LessonMetaChip(
+                            icon = Icons.Rounded.Quiz,
+                            label = "اختبار: ${node.questionsCount} سؤال",
+                            tint = EduGreenDark
+                        )
+                    }
                 }
             }
 
@@ -1418,7 +1971,7 @@ private fun LearningPathNodeRow(
                     )
                     Spacer(modifier = Modifier.width(5.dp))
                     Text(
-                        text = "دراسة الدرس",
+                        text = if (node.isCompleted) "مراجعة الدرس" else "دراسة الدرس والاختبار",
                         style = MaterialTheme.typography.labelMedium
                     )
                 }
@@ -1445,40 +1998,59 @@ private fun LearningPathNodeRow(
                         )
                     }
                 }
-                OutlinedButton(
-                    onClick = onToggleCompleted,
+                Surface(
                     shape = RoundedCornerShape(10.dp),
-                    border = BorderStroke(1.dp, if (node.isCompleted) EduGreen else EduLine),
-                    modifier = Modifier
-                        .minimumInteractiveComponentSize()
-                        .testTag("toggle_complete_${node.lesson.lessonKey}")
+                    color = when {
+                        node.isCompleted -> EduMint
+                        node.quizAttemptedCount > 0 -> EduOrange.copy(alpha = 0.14f)
+                        else -> EduBg
+                    },
+                    border = BorderStroke(
+                        1.dp,
+                        when {
+                            node.isCompleted -> EduGreen
+                            node.quizAttemptedCount > 0 -> EduOrange
+                            else -> EduLine
+                        }
+                    )
                 ) {
                     Text(
-                        text = if (node.isCompleted) "مكتمل ✓" else "إتمام (+50 XP)",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = if (node.isCompleted) EduGreenDark else EduInk
+                        text = when {
+                            node.isCompleted -> "مكتمل بالاختبار ✓"
+                            node.quizAttemptedCount > 0 -> "أعد الاختبار (${EduMiniRepository.LESSON_QUIZ_PASS_PERCENT}%+)"
+                            else -> "يُكمل باجتياز الاختبار"
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = when {
+                            node.isCompleted -> EduGreenDark
+                            node.quizAttemptedCount > 0 -> EduInk
+                            else -> EduMuted
+                        },
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
                     )
                 }
-                OutlinedButton(
-                    onClick = onOpenInStudio,
-                    shape = RoundedCornerShape(10.dp),
-                    border = BorderStroke(1.dp, EduLine),
-                    modifier = Modifier
-                        .minimumInteractiveComponentSize()
-                        .testTag("path_open_studio_${node.lesson.lessonKey}")
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.AutoAwesome,
-                        contentDescription = "تحرير في الاستوديو",
-                        tint = EduMuted,
-                        modifier = Modifier.size(15.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "Studio",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = EduMuted
-                    )
+                if (showStudioAction) {
+                    OutlinedButton(
+                        onClick = onOpenInStudio,
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, EduLine),
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("path_open_studio_${node.lesson.lessonKey}")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.AutoAwesome,
+                            contentDescription = "تحرير في الاستوديو",
+                            tint = EduMuted,
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Studio",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = EduMuted
+                        )
+                    }
                 }
             }
         }
@@ -1486,9 +2058,40 @@ private fun LearningPathNodeRow(
 }
 
 @Composable
+private fun LessonMetaChip(
+    icon: ImageVector,
+    label: String,
+    tint: Color
+) {
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = tint.copy(alpha = 0.12f)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = tint,
+                modifier = Modifier.size(13.dp)
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = tint,
+                fontWeight = FontWeight.Medium
+            )
+        }
+    }
+}
+
+@Composable
 private fun DashboardEmptyOnboarding(
-    onPickBookPdf: () -> Unit,
-    onPickZip: () -> Unit,
+    showAdminLibraryButton: Boolean,
+    onBindDirectFolder: () -> Unit,
     onOpenLibrary: () -> Unit
 ) {
     EduPanel(modifier = Modifier.fillMaxWidth()) {
@@ -1504,35 +2107,18 @@ private fun DashboardEmptyOnboarding(
         )
         Spacer(modifier = Modifier.height(4.dp))
         EduYellowButton(
-            text = stringResource(R.string.split_book_pdf_cta),
-            onClick = onPickBookPdf,
-            icon = Icons.Rounded.PictureAsPdf,
-            testTag = "dashboard_split_pdf_button"
+            text = stringResource(R.string.bind_direct_folder_cta),
+            onClick = onBindDirectFolder,
+            icon = Icons.Rounded.FolderOpen,
+            testTag = "dashboard_bind_folder_button"
         )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            OutlinedButton(
-                onClick = onPickZip,
-                shape = RoundedCornerShape(12.dp),
-                border = BorderStroke(1.dp, EduGreen),
-                modifier = Modifier
-                    .weight(1f)
-                    .minimumInteractiveComponentSize()
-            ) {
-                Text(
-                    text = stringResource(R.string.import_zip_cta),
-                    color = EduGreenDark,
-                    style = MaterialTheme.typography.labelMedium
-                )
-            }
+        if (showAdminLibraryButton) {
             OutlinedButton(
                 onClick = onOpenLibrary,
                 shape = RoundedCornerShape(12.dp),
                 border = BorderStroke(1.dp, EduLine),
                 modifier = Modifier
-                    .weight(1f)
+                    .fillMaxWidth()
                     .minimumInteractiveComponentSize()
             ) {
                 Text(

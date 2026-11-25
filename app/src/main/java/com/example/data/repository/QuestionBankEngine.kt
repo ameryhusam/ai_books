@@ -149,6 +149,9 @@ object QuestionBankEngine {
             // persistence and must be regenerated or corrected by the author.
             if (!answerIsValid) return@mapNotNull null
 
+            val conceptTag = firstStr(obj, "conceptTag", "concept", "topic", "skill")
+                .ifBlank { lesson.title }
+
             QuestionItem(
                 id = "q-${System.currentTimeMillis()}-${UUID.randomUUID().toString().take(6)}",
                 workspaceId = canonicalWs,
@@ -166,7 +169,8 @@ object QuestionBankEngine {
                 sourcePages = firstStr(obj, "sourcePages", "sourcePage", "page").ifBlank { lesson.pageRange },
                 fingerprint = computeFingerprint(prompt),
                 reviewed = false,
-                createdAt = now
+                createdAt = now,
+                conceptTag = conceptTag
             )
         }
     }
@@ -271,7 +275,8 @@ object QuestionBankEngine {
                 sourcePages = lesson.pageRange,
                 fingerprint = computeFingerprint(prompt),
                 reviewed = false,
-                createdAt = now
+                createdAt = now,
+                conceptTag = lesson.title
             )
         }
     }

@@ -64,7 +64,9 @@ data class LessonEntity(
     val title: String,
     val partKey: String?,
     val pageRange: String?,
-    val pdfPath: String?
+    val pdfPath: String?,
+    @ColumnInfo(name = "source_text_path") val sourceTextPath: String? = null,
+    @ColumnInfo(name = "interactive_path") val interactivePath: String? = null
 )
 
 @Entity(
@@ -136,7 +138,9 @@ data class GenerationRunEntity(
     @ColumnInfo(name = "model") val model: String,
     @ColumnInfo(name = "status") val status: String,
     @ColumnInfo(name = "error_summary") val errorSummary: String?,
-    @ColumnInfo(name = "created_at") val createdAt: String
+    @ColumnInfo(name = "created_at") val createdAt: String,
+    @ColumnInfo(name = "duration_ms") val durationMs: Long = 0L,
+    @ColumnInfo(name = "tokens_used") val tokensUsed: Int = 0
 )
 
 @Entity(
@@ -186,7 +190,37 @@ data class QuestionEntity(
     @ColumnInfo(name = "source_pages") val sourcePages: String?,
     @ColumnInfo(name = "fingerprint") val fingerprint: String,
     @ColumnInfo(name = "reviewed") val reviewed: Boolean = false,
-    @ColumnInfo(name = "created_at") val createdAt: String
+    @ColumnInfo(name = "created_at") val createdAt: String,
+    @ColumnInfo(name = "concept_tag") val conceptTag: String = ""
+)
+
+@Entity(
+    tableName = "question_attempts",
+    indices = [
+        Index(
+            name = "idx_q_attempts_ws_question",
+            value = ["workspace_id", "question_id", "answered_at"]
+        ),
+        Index(
+            name = "idx_q_attempts_ws_concept",
+            value = ["workspace_id", "concept_tag"]
+        ),
+        Index(
+            name = "idx_q_attempts_ws_user",
+            value = ["workspace_id", "user_id", "answered_at"]
+        )
+    ]
+)
+data class QuestionAttemptEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "workspace_id") val workspaceId: String,
+    @ColumnInfo(name = "user_id") val userId: String = "learner_default",
+    @ColumnInfo(name = "question_id") val questionId: String,
+    @ColumnInfo(name = "concept_tag") val conceptTag: String,
+    @ColumnInfo(name = "selected_answer") val selectedAnswer: String,
+    @ColumnInfo(name = "is_correct") val isCorrect: Boolean,
+    @ColumnInfo(name = "source_mode") val sourceMode: String = "lesson_quiz",
+    @ColumnInfo(name = "answered_at") val answeredAt: String
 )
 
 @Entity(
@@ -323,6 +357,12 @@ interface EduMiniDao {
     @Query("UPDATE generation_drafts SET status = :status WHERE id = :draftId")
     suspend fun updateDraftStatus(draftId: String, status: String)
 
+    @Query("SELECT * FROM generation_drafts WHERE id = :draftId LIMIT 1")
+    suspend fun getDraftById(draftId: String): DraftEntity?
+
+    @Query("SELECT * FROM lessons WHERE workspaceId = :workspaceId")
+    suspend fun getLessonsForWorkspaceSnapshot(workspaceId: String): List<LessonEntity>
+
     @Query("DELETE FROM generation_drafts WHERE id = :draftId")
     suspend fun deleteDraftById(draftId: String)
 
@@ -451,8 +491,56 @@ interface EduMiniDao {
     @Query("UPDATE questions SET reviewed = :reviewed WHERE id = :questionId")
     suspend fun updateQuestionReviewed(questionId: String, reviewed: Boolean)
 
+    @Query(
+        """
+        UPDATE questions
+        SET prompt = :prompt,
+            options_json = :optionsJson,
+            correct_answer = :correctAnswer,
+            rationale = :rationale,
+            difficulty = :difficulty,
+            concept_tag = :conceptTag,
+            type = :type,
+            reviewed = :reviewed
+        WHERE id = :questionId
+        """
+    )
+    suspend fun updateQuestionDetails(
+        questionId: String,
+        prompt: String,
+        optionsJson: String,
+        correctAnswer: String,
+        rationale: String,
+        difficulty: String,
+        conceptTag: String,
+        type: String,
+        reviewed: Boolean
+    )
+
+    @Query("UPDATE questions SET concept_tag = :conceptTag WHERE id = :questionId")
+    suspend fun updateQuestionConceptTag(questionId: String, conceptTag: String)
+
     @Query("DELETE FROM questions WHERE id = :questionId")
     suspend fun deleteQuestionById(questionId: String)
+
+    @Query("SELECT * FROM question_attempts WHERE workspace_id = :workspaceId ORDER BY answered_at DESC")
+    fun observeQuestionAttemptsForWorkspace(workspaceId: String): Flow<List<QuestionAttemptEntity>>
+
+    @Query("SELECT * FROM question_attempts WHERE workspace_id = :workspaceId AND user_id = :userId ORDER BY answered_at DESC")
+    fun observeQuestionAttemptsForWorkspaceAndUser(workspaceId: String, userId: String): Flow<List<QuestionAttemptEntity>>
+
+    @Query("SELECT * FROM question_attempts WHERE workspace_id = :workspaceId AND user_id = :userId AND concept_tag = :conceptTag ORDER BY answered_at DESC")
+    fun observeQuestionAttemptsForConceptAndUser(
+        workspaceId: String,
+        userId: String,
+        conceptTag: String
+    ): Flow<List<QuestionAttemptEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertQuestionAttempts(attempts: List<QuestionAttemptEntity>)
+
+    @Query("DELETE FROM question_attempts WHERE workspace_id = :workspaceId")
+    suspend fun deleteQuestionAttemptsByWorkspace(workspaceId: String)
 
     @Query("DELETE FROM generation_runs")
     suspend fun clearGenerationRuns()
@@ -550,6 +638,7 @@ interface EduMiniDao {
         deleteAttemptsByWorkspace(workspaceId)
         deleteNotesByWorkspace(workspaceId)
         deleteGenerationRunsByWorkspace(workspaceId)
+        deleteQuestionAttemptsByWorkspace(workspaceId)
     }
 }
 
@@ -564,12 +653,13 @@ interface EduMiniDao {
         LessonProgressEntity::class,
         StudyDayEntity::class,
         QuestionEntity::class,
+        QuestionAttemptEntity::class,
         AssessmentEntity::class,
         AssessmentAttemptEntity::class,
         TeacherNoteEntity::class,
         PromptTemplateEntity::class
     ],
-    version = 7,
+    version = 9,
     exportSchema = false
 )
 abstract class EduMiniDatabase : RoomDatabase() {
@@ -776,6 +866,54 @@ abstract class EduMiniDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE lessons ADD COLUMN source_text_path TEXT")
+                db.execSQL("ALTER TABLE lessons ADD COLUMN interactive_path TEXT")
+                db.execSQL("ALTER TABLE generation_runs ADD COLUMN duration_ms INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE generation_runs ADD COLUMN tokens_used INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE questions ADD COLUMN concept_tag TEXT NOT NULL DEFAULT ''")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS question_attempts (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        workspace_id TEXT NOT NULL,
+                        question_id TEXT NOT NULL,
+                        concept_tag TEXT NOT NULL,
+                        selected_answer TEXT NOT NULL,
+                        is_correct INTEGER NOT NULL,
+                        source_mode TEXT NOT NULL DEFAULT 'lesson_quiz',
+                        answered_at TEXT NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_q_attempts_ws_question
+                    ON question_attempts (workspace_id, question_id, answered_at)
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_q_attempts_ws_concept
+                    ON question_attempts (workspace_id, concept_tag)
+                    """.trimIndent()
+                )
+            }
+        }
+
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE question_attempts ADD COLUMN user_id TEXT NOT NULL DEFAULT 'learner_default'")
+                db.execSQL(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_q_attempts_ws_user
+                    ON question_attempts (workspace_id, user_id, answered_at)
+                    """.trimIndent()
+                )
+            }
+        }
+
         fun getInstance(context: Context): EduMiniDatabase {
             return instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -789,7 +927,9 @@ abstract class EduMiniDatabase : RoomDatabase() {
                         MIGRATION_3_4,
                         MIGRATION_4_5,
                         MIGRATION_5_6,
-                        MIGRATION_6_7
+                        MIGRATION_6_7,
+                        MIGRATION_7_8,
+                        MIGRATION_8_9
                     )
                     .build()
                     .also { instance = it }
