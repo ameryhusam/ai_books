@@ -4,6 +4,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.room.Room
 import com.example.data.ai.AiGenerationService
 import com.example.data.ai.Indexer2PromptRegistry
+import com.example.data.ai.TemplateResponseAdapter
 import com.example.data.local.DraftEntity
 import com.example.data.local.BookEntity
 import com.example.data.local.LessonEntity
@@ -2431,6 +2432,46 @@ class EduMiniCoreTest {
         assertEquals(setOf("learner_a", "learner_b"), restored.progress.map { it.userId }.toSet())
         assertEquals(setOf("learner_a", "learner_b"), restored.studyDayRecords.map { it.userId }.toSet())
         assertEquals(3, restored.studyDayRecords.first { it.userId == "learner_a" }.actionsCount)
+    }
+
+    @Test
+    fun templateResponseAdapterMapsProviderSpecificQuestionFields() {
+        val raw = """{"items":[{"stem":"ما ناتج 2+2؟","choices":["3","4"],"answer":"4","explanation":"الجمع","level":"easy"}]}"""
+        val mapping = """{"rootArray":"items","fields":{"prompt":"stem","options":"choices","correctAnswer":"answer","rationale":"explanation","difficulty":"level"}}"""
+
+        val adapted = TemplateResponseAdapter.adapt(raw, mapping)
+        val parsed = kotlinx.serialization.json.Json.parseToJsonElement(adapted).jsonObject
+        val questions = parsed["questions"] as kotlinx.serialization.json.JsonArray
+        val question = questions.first().jsonObject
+
+        assertEquals("ما ناتج 2+2؟", question["prompt"]?.jsonPrimitive?.content)
+        assertEquals("4", question["correctAnswer"]?.jsonPrimitive?.content)
+        assertEquals("الجمع", question["rationale"]?.jsonPrimitive?.content)
+        assertEquals(2, (question["options"] as kotlinx.serialization.json.JsonArray).size)
+    }
+
+    @Test
+    fun templateResponseAdapterLeavesPlainTextAndUnmappedJsonUntouched() {
+        val plain = "شرح تعليمي عادي"
+        assertEquals(plain, TemplateResponseAdapter.adapt(plain, """{"rootArray":"items"}"""))
+        val raw = """{"title":"نشاط","steps":[]}"""
+        assertEquals(raw, TemplateResponseAdapter.adapt(raw, ""))
+    }
+
+    @Test
+    fun extractLessonPdfBase64PreservesOriginalPdfDocument() {
+        val file = File.createTempFile("edu-mini-original-", ".pdf")
+        try {
+            createSamplePdf(file, 2)
+            val payload = kotlinx.coroutines.runBlocking {
+                AiGenerationService().extractLessonPdfBase64(file.absolutePath)
+            }
+            assertTrue(payload.base64.startsWith("JVBER"))
+            assertTrue(payload.byteCount > 0)
+            assertEquals(64, payload.sha256.length)
+        } finally {
+            file.delete()
+        }
     }
 
     private fun sampleLesson() = LessonRef(
