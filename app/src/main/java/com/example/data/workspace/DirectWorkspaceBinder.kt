@@ -308,8 +308,11 @@ class DirectWorkspaceBinder(private val context: Context) {
             lessons.addAll(parsedLessons)
         }
 
-        require(books.isNotEmpty()) {
-            "لم يجتز أي كتاب في الصف $gradeKey التحقق من الفهرس والهوية وملفات الدروس. راجع التحذيرات ثم أصلح المصدر."
+        require(books.isNotEmpty() && books.size == discoveredIndexes.size) {
+            val rejected = (discoveredIndexes.size - books.size).coerceAtLeast(0)
+            "لم تكتمل مزامنة فهارس الصف $gradeKey: تم قبول ${books.size} من ${discoveredIndexes.size} كتاباً، ورُفض $rejected. " +
+                "لم يتم اعتماد تحديث جزئي حتى لا تُحذف سجلات كتب صالحة من قاعدة البيانات. " +
+                warnings.distinct().take(6).joinToString("\n")
         }
 
         // Load pre-generated Question Bank JSON and Interactive HTML packages directly in-place
