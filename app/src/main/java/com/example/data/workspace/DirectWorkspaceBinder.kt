@@ -145,6 +145,13 @@ class DirectWorkspaceBinder(private val context: Context) {
 
         for (slot in discoveredIndexes) {
             val bookRel = slot.bookRelPath
+            if (!slot.componentKey.equals(slot.pathComponentKey, ignoreCase = true)) {
+                warnings.add(
+                    "$bookRel: componentKey في index.json أو book_manifest.json لا يطابق مجلد المكون في المسار " +
+                        "(${slot.componentKey ?: "بدون مكون"} مقابل ${slot.pathComponentKey ?: "بدون مكون"})."
+                )
+                continue
+            }
             val manifestEntry = firstExisting(
                 entryMap,
                 joinRel(bookRel, "book_manifest.json"),
@@ -447,6 +454,13 @@ class DirectWorkspaceBinder(private val context: Context) {
 
         slots.forEach { slot ->
             val bookLabel = slot.bookRelPath.ifBlank { slot.bookKey }
+            if (!slot.componentKey.equals(slot.pathComponentKey, ignoreCase = true)) {
+                warnings.add(
+                    "$bookLabel: componentKey في الفهرس أو manifest لا يطابق مجلد المكون " +
+                        "(${slot.componentKey ?: "بدون مكون"} مقابل ${slot.pathComponentKey ?: "بدون مكون"})."
+                )
+                return@forEach
+            }
             val manifestEntry = firstExisting(
                 entryMap,
                 joinRel(slot.bookRelPath, "book_manifest.json"),
@@ -574,6 +588,7 @@ class DirectWorkspaceBinder(private val context: Context) {
         val gradePrefixRel: String,
         val subjectKey: String,
         val componentKey: String?,
+        val pathComponentKey: String?,
         val bookKey: String,
         val bookRelPath: String,
         val indexEntry: IndexedEntry
@@ -597,53 +612,81 @@ class DirectWorkspaceBinder(private val context: Context) {
             val rel = entry.relativePath
             val bookRel = if (rel.equals("index.json", ignoreCase = true)) "" else rel.removeSuffix("/index.json").removeSuffix("/INDEX.JSON")
             val segments = if (bookRel.isBlank()) emptyList() else bookRel.split('/').filter { it.isNotBlank() }
+            val manifestEntry = firstExisting(
+                entryMap,
+                joinRel(bookRel, "book_manifest.json"),
+                joinRel(bookRel, "manifest.json")
+            )
+            val manifestObj = manifestEntry?.let { manifest ->
+                runCatching {
+                    json.parseToJsonElement(UriIO.readText(context, manifest.uriOrPath).orEmpty()).jsonObject
+                }.getOrNull()
+            }
+            val indexObj = runCatching {
+                json.parseToJsonElement(UriIO.readText(context, entry.uriOrPath).orEmpty()).jsonObject
+            }.getOrNull()
+            val indexComponentDeclared = indexObj?.containsKey("componentKey") == true
+            val manifestComponentDeclared = manifestObj?.containsKey("componentKey") == true
+
+            fun componentFromMetadata(pathFallback: String?): String? {
+                val declared = when {
+                    indexComponentDeclared -> indexObj?.get("componentKey")
+                    manifestComponentDeclared -> manifestObj?.get("componentKey")
+                    else -> null
+                }
+                if (indexComponentDeclared || manifestComponentDeclared) {
+                    return (declared as? JsonPrimitive)?.contentOrNull
+                        ?.trim()
+                        ?.takeIf { it.isNotBlank() }
+                }
+                return pathFallback?.trim()?.takeIf { it.isNotBlank() }
+            }
 
             when {
-                // Layout A: workspace/G04/MATH[/COMP]/index.json
+                // Canonical indexer2 layout: workspace/<grade>/<subject>/[component]/index.json.
                 segments.size >= 3 &&
                     segments[0].equals("workspace", ignoreCase = true) &&
                     GRADE_SEGMENT_REGEX.matches(segments[1]) -> {
                     val grade = segments[1].uppercase()
-                    val subject = segments[2]
-                    val comp = segments.getOrNull(3)
-                    val bk = segments.drop(2).joinToString("/")
-                    result.add(BookIndexSlot(grade, "workspace/$grade", subject, comp, bk, bookRel, entry))
+                    val subject = firstNonBlank(indexObj?.str("subjectKey"), manifestObj?.str("subjectKey"), segments[2])
+                    val pathComponent = segments.getOrNull(3)?.takeIf { it.isNotBlank() }
+                    val component = componentFromMetadata(pathComponent)
+                    val bookKey = segments.drop(2).joinToString("/")
+                    result.add(
+                        BookIndexSlot(
+                            grade, "workspace/$grade", subject, component, pathComponent,
+                            bookKey, bookRel, entry
+                        )
+                    )
                 }
-                // Layout B: G04/MATH[/COMP]/index.json
+                // Grade-root layout: <grade>/<subject>/[component]/index.json.
                 segments.size >= 2 && GRADE_SEGMENT_REGEX.matches(segments[0]) -> {
                     val grade = segments[0].uppercase()
-                    val subject = segments[1]
-                    val comp = segments.getOrNull(2)
-                    val bk = segments.drop(1).joinToString("/")
-                    result.add(BookIndexSlot(grade, grade, subject, comp, bk, bookRel, entry))
-                }
-                // Layout C/D: User picked G04 directly (<SUBJECT>[/<COMP>]/index.json) or single book root (index.json)
-                else -> {
-                    val manifestEntry = firstExisting(
-                        entryMap,
-                        joinRel(bookRel, "book_manifest.json"),
-                        joinRel(bookRel, "manifest.json")
+                    val subject = firstNonBlank(indexObj?.str("subjectKey"), manifestObj?.str("subjectKey"), segments[1])
+                    val pathComponent = segments.getOrNull(2)?.takeIf { it.isNotBlank() }
+                    val component = componentFromMetadata(pathComponent)
+                    val bookKey = segments.drop(1).joinToString("/")
+                    result.add(
+                        BookIndexSlot(
+                            grade, grade, subject, component, pathComponent,
+                            bookKey, bookRel, entry
+                        )
                     )
-                    val manifestObj = manifestEntry?.let { m ->
-                        runCatching {
-                            json.parseToJsonElement(UriIO.readText(context, m.uriOrPath).orEmpty()).jsonObject
-                        }.getOrNull()
-                    }
-                    val indexObj = runCatching {
-                        json.parseToJsonElement(UriIO.readText(context, entry.uriOrPath).orEmpty()).jsonObject
-                    }.getOrNull()
-
+                }
+                // Grade selected directly or a single book root: read identity from index/manifest,
+                // then use the remaining relative path only as a compatibility fallback.
+                else -> {
                     val detectedGrade = firstNonBlank(
-                        manifestObj?.str("gradeKey"),
-                        manifestObj?.str("grade"),
                         indexObj?.str("gradeKey"),
+                        manifestObj?.str("gradeKey"),
                         indexObj?.str("grade"),
+                        manifestObj?.str("grade"),
                         GRADE_EMBEDDED_REGEX.find(folderDisplayName)?.value?.uppercase(),
                         "G07"
                     ).uppercase()
                     val subject = firstNonBlank(
-                        manifestObj?.str("subjectKey"),
                         indexObj?.str("subjectKey"),
+                        manifestObj?.str("subjectKey"),
                         segments.getOrNull(0),
                         folderDisplayName.takeIf { it.isNotBlank() },
                         "BOOK"
@@ -653,13 +696,19 @@ class DirectWorkspaceBinder(private val context: Context) {
                     } else {
                         segments
                     }
-                    val comp = relativeBookSegments.firstOrNull()
-                    val bk = (listOf(subject) + relativeBookSegments).distinct().joinToString("/")
-                    result.add(BookIndexSlot(detectedGrade, "", subject, comp, bk, bookRel, entry))
+                    val pathComponent = relativeBookSegments.firstOrNull()?.takeIf { it.isNotBlank() }
+                    val component = componentFromMetadata(pathComponent)
+                    val bookKey = (listOf(subject) + relativeBookSegments).distinct().joinToString("/")
+                    result.add(
+                        BookIndexSlot(
+                            detectedGrade, "", subject, component, pathComponent,
+                            bookKey, bookRel, entry
+                        )
+                    )
                 }
             }
         }
-        return result.distinctBy { "${it.gradeKey}|${it.bookKey}|${it.bookRelPath}" }
+        return result.distinctBy { "\${it.gradeKey}|\${it.bookKey}|\${it.bookRelPath}" }
     }
 
     private fun isReadablePdf(path: String?): Boolean {
