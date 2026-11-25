@@ -30,6 +30,7 @@ object LearningProgressAnalytics {
     ): LearningProgressReport {
         val questionById = questions.associateBy { it.id }
         val ordered = attempts
+            .filterNot { it.sourceMode.equals("studio_preview", ignoreCase = true) }
             .filter { it.questionId.isNotBlank() && it.answeredAt.isNotBlank() }
             .sortedBy { parseInstant(it.answeredAt) ?: Instant.MIN }
 
@@ -192,7 +193,8 @@ object LearningProgressAnalytics {
 
     private fun isPracticeOnly(sourceMode: String): Boolean =
         sourceMode.equals("reinforcement", ignoreCase = true) ||
-            sourceMode.equals("bank_quiz", ignoreCase = true)
+            sourceMode.equals("bank_quiz", ignoreCase = true) ||
+            sourceMode.equals("studio_preview", ignoreCase = true)
 
     private fun parseInstant(value: String): Instant? = runCatching { Instant.parse(value) }.getOrNull()
     private fun percent(correct: Int, total: Int): Int? =
