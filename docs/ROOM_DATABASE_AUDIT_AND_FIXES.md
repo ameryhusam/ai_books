@@ -85,6 +85,7 @@ This is evidence-guided generation, not a trained predictive ML model. Mastery r
 3. **Learner profile metadata in backup:** learning records retain their local learner IDs, but the local profile names/list are currently stored separately in SharedPreferences and are not included in the workspace backup. Recreate matching profile IDs or implement a separate profile backup before moving data to a new device.
 4. **Book file registry:** PDF, extracted text, and related file references remain distributed across existing entities. A dedicated `BookFile` entity should follow the finalized PDF/OCR/splitting lifecycle, not be introduced speculatively.
 5. **Cloud learner separation:** Firestore remains account-scoped and its document contract is unchanged. To avoid merging multiple local learners into one account-wide progress record, the current client syncs progress only for `learner_default`; additional local profiles remain local-only. Do not interpret account-level cloud progress as per-profile progress until a separately versioned cloud contract is designed.
+6. **Adult-role authorization:** the detailed report is hidden in the learner UI, but `ADMIN` / `LEARNER` is currently a local UI role choice, not a server-enforced permission boundary. Do not treat this as secure protection for sensitive child records. Add authenticated parent/teacher permissions before shared-device or cloud deployment.
 
 ## Verification status
 
