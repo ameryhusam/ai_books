@@ -11,35 +11,187 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.nio.charset.StandardCharsets
 import java.security.KeyStore
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
+/**
+ * Encrypted provider profiles plus atomic per-key quota reservation.
+ * The same process-wide instance serializes reservation/update operations to prevent
+ * two concurrent generation jobs from consuming the same final request slot.
+ */
 class ProviderStorage(context: Context) {
 
     private val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     private val json = Json { ignoreUnknownKeys = true }
+    private val lock = Any()
 
     suspend fun loadProviders(): List<ProviderConfig> = withContext(Dispatchers.IO) {
-        val raw = prefs.getString(KEY_PROFILES, null) ?: return@withContext emptyList()
+        synchronized(lock) {
+            val stored = readProfilesLocked()
+            val normalized = stored.map { normalizeForCurrentDay(it, System.currentTimeMillis()) }
+            if (normalized != stored) writeProfilesLocked(normalized)
+            normalized
+        }
+    }
+
+    suspend fun saveProviders(items: List<ProviderConfig>) = withContext(Dispatchers.IO) {
+        synchronized(lock) { writeProfilesLocked(items) }
+    }
+
+    /**
+     * Reserves one daily request slot before a network request starts.
+     * Returns false when the key is disabled, invalid, rate-limited or out of quota.
+     */
+    suspend fun reserveProviderKey(providerId: String, nowMillis: Long = System.currentTimeMillis()): Boolean =
+        withContext(Dispatchers.IO) {
+            synchronized(lock) {
+                val profiles = readProfilesLocked()
+                var reserved = false
+                val updated = profiles.map { original ->
+                    if (original.id != providerId) return@map original
+                    var profile = normalizeForCurrentDay(original, nowMillis)
+                    val status = profile.runtimeStatus.uppercase()
+                    if (!profile.enabled || status == STATUS_DISABLED || status == STATUS_INVALID_KEY ||
+                        status == STATUS_QUOTA_EXHAUSTED ||
+                        (status == STATUS_RATE_LIMITED && profile.retryAfterEpochMs > nowMillis)
+                    ) return@map profile
+
+                    if (profile.dailyRequestLimit > 0 &&
+                        profile.dailyRequestsUsed >= profile.dailyRequestLimit
+                    ) {
+                        profile = profile.copy(runtimeStatus = STATUS_QUOTA_EXHAUSTED)
+                        return@map profile
+                    }
+
+                    val nextUsage = profile.dailyRequestsUsed + 1
+                    profile = profile.copy(
+                        dailyRequestsUsed = nextUsage,
+                        runtimeStatus = if (profile.dailyRequestLimit > 0 &&
+                            nextUsage >= profile.dailyRequestLimit
+                        ) STATUS_QUOTA_EXHAUSTED else STATUS_ACTIVE
+                    )
+                    reserved = true
+                    profile
+                }
+                if (updated != profiles) writeProfilesLocked(updated)
+                reserved
+            }
+        }
+
+    suspend fun updateProviderRuntimeState(
+        providerId: String,
+        status: String,
+        retryAfterEpochMs: Long = 0L
+    ) = withContext(Dispatchers.IO) {
+        synchronized(lock) {
+            val profiles = readProfilesLocked()
+            val updated = profiles.map { profile ->
+                if (profile.id == providerId && profile.enabled) {
+                    profile.copy(
+                        runtimeStatus = status,
+                        retryAfterEpochMs = retryAfterEpochMs
+                    )
+                } else profile
+            }
+            if (updated != profiles) writeProfilesLocked(updated)
+        }
+    }
+
+    suspend fun setProviderEnabled(providerId: String, enabled: Boolean) = withContext(Dispatchers.IO) {
+        synchronized(lock) {
+            val now = System.currentTimeMillis()
+            val profiles = readProfilesLocked()
+            val updated = profiles.map { profile ->
+                if (profile.id != providerId) profile else {
+                    val today = currentDate(profile.quotaTimeZone, now)
+                    profile.copy(
+                        enabled = enabled,
+                        runtimeStatus = if (enabled) STATUS_ACTIVE else STATUS_DISABLED,
+                        retryAfterEpochMs = 0L,
+                        dailyRequestsUsed = if (enabled) 0 else profile.dailyRequestsUsed,
+                        quotaDate = today
+                    )
+                }
+            }
+            writeProfilesLocked(updated)
+        }
+    }
+
+    suspend fun manuallyReactivateProvider(providerId: String) = withContext(Dispatchers.IO) {
+        synchronized(lock) {
+            val now = System.currentTimeMillis()
+            val profiles = readProfilesLocked()
+            val updated = profiles.map { profile ->
+                if (profile.id != providerId) profile else {
+                    val today = currentDate(profile.quotaTimeZone, now)
+                    profile.copy(
+                        enabled = true,
+                        runtimeStatus = STATUS_ACTIVE,
+                        retryAfterEpochMs = 0L,
+                        dailyRequestsUsed = 0,
+                        quotaDate = today
+                    )
+                }
+            }
+            writeProfilesLocked(updated)
+        }
+    }
+
+    private fun normalizeForCurrentDay(profile: ProviderConfig, nowMillis: Long): ProviderConfig {
+        val today = currentDate(profile.quotaTimeZone, nowMillis)
+        var next = profile
+        if (profile.quotaDate != today) {
+            next = next.copy(
+                dailyRequestsUsed = 0,
+                quotaDate = today,
+                runtimeStatus = when (profile.runtimeStatus.uppercase()) {
+                    STATUS_QUOTA_EXHAUSTED, STATUS_RATE_LIMITED, STATUS_ERROR -> STATUS_ACTIVE
+                    else -> profile.runtimeStatus
+                },
+                retryAfterEpochMs = 0L
+            )
+        } else if (profile.runtimeStatus.equals(STATUS_RATE_LIMITED, true) &&
+            profile.retryAfterEpochMs <= nowMillis
+        ) {
+            next = next.copy(runtimeStatus = STATUS_ACTIVE, retryAfterEpochMs = 0L)
+        }
+
+        if (!next.enabled) next = next.copy(runtimeStatus = STATUS_DISABLED)
+        else if (next.runtimeStatus.equals(STATUS_ACTIVE, true) &&
+            next.dailyRequestLimit > 0 && next.dailyRequestsUsed >= next.dailyRequestLimit
+        ) next = next.copy(runtimeStatus = STATUS_QUOTA_EXHAUSTED)
+
+        return next
+    }
+
+    private fun currentDate(zone: String, nowMillis: Long): String {
+        val zoneId = runCatching { ZoneId.of(zone) }.getOrDefault(ZoneId.of(DEFAULT_TIME_ZONE))
+        return Instant.ofEpochMilli(nowMillis).atZone(zoneId).toLocalDate().toString()
+    }
+
+    private fun readProfilesLocked(): List<ProviderConfig> {
+        val raw = prefs.getString(KEY_PROFILES, null) ?: return emptyList()
         val decrypted = decrypt(raw)
         val profiles = try {
             json.decodeFromString<List<ProviderConfig>>(decrypted)
         } catch (e: Exception) {
             throw IllegalStateException("تعذر قراءة إعدادات مزودي AI المحفوظة؛ لم يتم تجاهل البيانات أو استبدالها.", e)
         }
-        if (raw.startsWith(PREFIX_PLAIN)) {
-            // Migrate legacy Base64-only storage to authenticated AES-GCM immediately.
-            prefs.edit().putString(KEY_PROFILES, encrypt(decrypted)).apply()
-        }
-        profiles
+        if (raw.startsWith(PREFIX_PLAIN)) writeProfilesLocked(profiles)
+        return profiles
     }
 
-    suspend fun saveProviders(items: List<ProviderConfig>) = withContext(Dispatchers.IO) {
+    private fun writeProfilesLocked(items: List<ProviderConfig>) {
         val serialized = json.encodeToString(items)
         val encrypted = encrypt(serialized)
-        prefs.edit().putString(KEY_PROFILES, encrypted).apply()
+        check(prefs.edit().putString(KEY_PROFILES, encrypted).commit()) {
+            "تعذر حفظ حالة مفاتيح API بأمان"
+        }
     }
 
     private fun getOrCreateSecretKey(): SecretKey {
@@ -94,6 +246,13 @@ class ProviderStorage(context: Context) {
     }
 
     companion object {
+        const val STATUS_ACTIVE = "ACTIVE"
+        const val STATUS_DISABLED = "DISABLED"
+        const val STATUS_QUOTA_EXHAUSTED = "QUOTA_EXHAUSTED"
+        const val STATUS_RATE_LIMITED = "RATE_LIMITED"
+        const val STATUS_INVALID_KEY = "INVALID_KEY"
+        const val STATUS_ERROR = "ERROR"
+        private const val DEFAULT_TIME_ZONE = "Asia/Aden"
         private const val PREFS_NAME = "edu_mini_secure_prefs"
         private const val KEY_PROFILES = "edu_mini_ai_profiles_v1"
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
