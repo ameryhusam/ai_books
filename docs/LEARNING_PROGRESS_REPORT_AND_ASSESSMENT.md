@@ -101,7 +101,7 @@ AI-generated adaptive questions remain `reviewed = false`. They are not included
 3. **Question equivalence:** delayed recall should ultimately use equivalent but not identical questions, with concept and difficulty metadata. Reusing the exact same question can introduce answer-memory effects.
 4. **Misconception taxonomy:** exact repeated distractors are observable, but semantic misconception categories require teacher-authored tags or a reviewed classification step.
 5. **Weekly assessment schedule:** the current report groups existing attempts; a scheduled weekly assessment and reminders remain future work.
-6. **Parent-specific role:** the app currently has LEARNER and ADMIN roles. A parent role with read-only permissions should be introduced separately rather than granting parents authoring/admin access.
+6. **Parent-specific role and authorization:** the app currently has LEARNER and ADMIN roles; ADMIN combines parent/teacher/admin detail access and authoring. Role selection is currently a local UI choice, not a server-enforced permission boundary. Hiding diagnostics from the learner is a presentation rule, not a security guarantee. Before storing sensitive child-performance records in a shared or networked environment, add a parent-only read permission and enforce adult access with authenticated account roles (for example, Firebase custom claims) or a carefully designed local parent lock.
 7. **PDF report:** the current export is Markdown. A polished RTL PDF/HTML report can be added after the content and metrics stabilize.
 8. **Calibration:** thresholds (3 questions, 2 days, 80%, 7 days) are initial operational rules and should be configurable and validated against real student usage.
 
