@@ -271,6 +271,7 @@ fun DashboardScreen(
                     LearningProgressReportCard(
                         report = learningProgressReport,
                         isLearner = isLearner,
+                        learnerName = activeLearner.displayName,
                         onExport = onExportLearningReport
                     )
                 }
