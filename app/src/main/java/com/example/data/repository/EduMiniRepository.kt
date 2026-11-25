@@ -2269,13 +2269,32 @@ class EduMiniRepository(
                               "title": { "type": "STRING" },
                               "conceptTag": { "type": "STRING" },
                               "body": { "type": "STRING" },
-                              "checkpoint": { "type": "OBJECT" }
+                              "checkpoint": {
+                                "type": "OBJECT",
+                                "properties": {
+                                  "conceptTag": { "type": "STRING" },
+                                  "question": { "type": "STRING" },
+                                  "options": { "type": "ARRAY", "items": { "type": "STRING" } },
+                                  "answer": { "type": "STRING" }
+                                },
+                                "required": ["question", "options", "answer"]
+                              }
                             },
                             "required": ["title", "conceptTag", "body"]
                           }
                         },
                         "ordering": { "type": "ARRAY", "items": { "type": "STRING" } },
-                        "matching": { "type": "ARRAY", "items": { "type": "OBJECT" } }
+                        "matching": {
+                          "type": "ARRAY",
+                          "items": {
+                            "type": "OBJECT",
+                            "properties": {
+                              "left": { "type": "STRING" },
+                              "right": { "type": "STRING" }
+                            },
+                            "required": ["left", "right"]
+                          }
+                        }
                       },
                       "required": ["title", "steps"]
                     }
