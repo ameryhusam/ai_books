@@ -42,7 +42,8 @@ data class BookEntity(
     val relativePath: String,
     val lessonsCount: Int,
     val coverPath: String? = null,
-    val sourcePdfPath: String? = null
+    val sourcePdfPath: String? = null,
+    val subjectName: String? = null
 )
 
 @Entity(
@@ -90,7 +91,7 @@ data class WorkspaceIndexEntity(
 @Entity(
     tableName = "workspace_units",
     primaryKeys = ["workspace_id", "book_key", "unit_key"],
-    indices = [Index(value = ["workspace_id", "book_key", "part_key"])]
+    indices = [Index(name = "idx_workspace_units_part", value = ["workspace_id", "book_key", "part_key"])]
 )
 data class WorkspaceUnitEntity(
     @ColumnInfo(name = "workspace_id") val workspaceId: String,
@@ -732,7 +733,7 @@ interface EduMiniDao {
         TeacherNoteEntity::class,
         PromptTemplateEntity::class
     ],
-    version = 10,
+    version = 11,
     exportSchema = false
 )
 abstract class EduMiniDatabase : RoomDatabase() {
@@ -1030,6 +1031,12 @@ abstract class EduMiniDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE books ADD COLUMN subjectName TEXT")
+            }
+        }
+
         fun getInstance(context: Context): EduMiniDatabase {
             return instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -1046,7 +1053,8 @@ abstract class EduMiniDatabase : RoomDatabase() {
                         MIGRATION_6_7,
                         MIGRATION_7_8,
                         MIGRATION_8_9,
-                        MIGRATION_9_10
+                        MIGRATION_9_10,
+                        MIGRATION_10_11
                     )
                     .build()
                     .also { instance = it }
