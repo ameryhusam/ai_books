@@ -298,7 +298,8 @@ class EduMiniRepository(
                 relativePath = book.relativePath,
                 lessonsCount = book.lessonsCount,
                 coverPath = book.coverPath,
-                sourcePdfPath = book.sourcePdfPath
+                sourcePdfPath = book.sourcePdfPath,
+                subjectName = book.subjectName
             )
         }
         val lessonEntities = imported.lessons.map { lesson ->
@@ -1920,7 +1921,8 @@ class EduMiniRepository(
         relativePath = relativePath,
         lessonsCount = lessonsCount,
         coverPath = coverPath,
-        sourcePdfPath = sourcePdfPath
+        sourcePdfPath = sourcePdfPath,
+        subjectName = subjectName
     )
 
     private fun LessonEntity.toModel(wsId: String) = LessonRef(
