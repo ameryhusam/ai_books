@@ -1862,6 +1862,86 @@ class EduMiniCoreTest {
         assertEquals(UnitCompletionStatus.COMPLETED, afterQuizSummary.unitPaths.first().status)
     }
 
+    @Test
+    fun roomEnforcesStableBookAndLessonIdentityWithinWorkspace() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val db = Room.inMemoryDatabaseBuilder(context, EduMiniDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            val dao = db.eduMiniDao()
+            val workspaceId = "ws-unique-${System.nanoTime()}"
+
+            dao.insertBooks(
+                listOf(
+                    BookEntity(
+                        workspaceId = workspaceId,
+                        bookKey = "ENG/COURSE",
+                        title = "English Course - old",
+                        subjectKey = "ENG",
+                        componentKey = "COURSE",
+                        relativePath = "G07/ENG/COURSE",
+                        lessonsCount = 1
+                    ),
+                    BookEntity(
+                        workspaceId = workspaceId,
+                        bookKey = "ENG/COURSE",
+                        title = "English Course - updated",
+                        subjectKey = "ENG",
+                        componentKey = "COURSE",
+                        relativePath = "G07/ENG/COURSE",
+                        lessonsCount = 2
+                    )
+                )
+            )
+            val books = dao.observeBooksForWorkspace(workspaceId).first()
+            assertEquals(1, books.size)
+            assertEquals("English Course - updated", books.single().title)
+
+            dao.insertLessons(
+                listOf(
+                    LessonEntity(
+                        workspaceId = workspaceId,
+                        grade = "G07",
+                        rootPath = "/workspace",
+                        bookKey = "ENG/COURSE",
+                        bookTitle = "English Course",
+                        subjectKey = "ENG",
+                        componentKey = "COURSE",
+                        unitKey = "unit_01",
+                        unitTitle = "Unit 1",
+                        lessonKey = "lesson_01",
+                        title = "Lesson old",
+                        partKey = "P01",
+                        pageRange = "1-2",
+                        pdfPath = "lesson-old.pdf"
+                    ),
+                    LessonEntity(
+                        workspaceId = workspaceId,
+                        grade = "G07",
+                        rootPath = "/workspace",
+                        bookKey = "ENG/COURSE",
+                        bookTitle = "English Course",
+                        subjectKey = "ENG",
+                        componentKey = "COURSE",
+                        unitKey = "unit_01",
+                        unitTitle = "Unit 1",
+                        lessonKey = "lesson_01",
+                        title = "Lesson updated",
+                        partKey = "P01",
+                        pageRange = "1-3",
+                        pdfPath = "lesson-updated.pdf"
+                    )
+                )
+            )
+            val lessons = dao.observeLessonsForWorkspace(workspaceId).first()
+            assertEquals(1, lessons.size)
+            assertEquals("Lesson updated", lessons.single().title)
+        } finally {
+            db.close()
+        }
+    }
+
     private fun sampleLesson() = LessonRef(
         grade = "G04",
         rootPath = "/tmp/ws",
