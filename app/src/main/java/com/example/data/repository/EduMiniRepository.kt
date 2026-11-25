@@ -845,8 +845,9 @@ class EduMiniRepository(
         workspace: ImportedWorkspace?,
         userId: String = LearnerProfile.DEFAULT_USER_ID
     ): Flow<DashboardSummary> {
+        val safeUserId = userId.ifBlank { LearnerProfile.DEFAULT_USER_ID }
         if (workspace == null) {
-            return dao.observeStudyDays().map { studyDays ->
+            return dao.observeStudyDays(safeUserId).map { studyDays ->
                 val activityDates = MilestoneBadgeEngine.collectActivityDates(
                     studyDayStrings = studyDays.map { it.activityDate },
                     drafts = emptyList(),
@@ -875,14 +876,13 @@ class EduMiniRepository(
                 )
             }
         }
-        val safeUserId = userId.ifBlank { LearnerProfile.DEFAULT_USER_ID }
         return combine(
             dao.observeDraftsForWorkspace(workspace.workspaceId, workspace.rootPath),
             dao.observePackagesForWorkspace(workspace.workspaceId),
-            dao.observeProgressForWorkspace(workspace.workspaceId),
-            dao.observeStudyDays(),
+            dao.observeProgressForWorkspace(workspace.workspaceId, safeUserId),
+            dao.observeStudyDays(safeUserId),
             combine(
-                dao.observeAssessmentAttempts(workspace.workspaceId),
+                dao.observeAssessmentAttempts(workspace.workspaceId, safeUserId),
                 dao.observeQuestionsForWorkspace(workspace.workspaceId),
                 dao.observeQuestionAttemptsForWorkspaceAndUser(workspace.workspaceId, safeUserId)
             ) { aAttempts, qEntities, qAttempts ->
@@ -906,7 +906,8 @@ class EduMiniRepository(
     suspend fun toggleLessonCompleted(
         workspaceId: String,
         lesson: LessonRef,
-        currentlyCompleted: Boolean
+        currentlyCompleted: Boolean,
+        userId: String = LearnerProfile.DEFAULT_USER_ID
     ) {
         val nextCompleted = !currentlyCompleted
         val canonicalWorkspaceId = workspaceId.ifBlank { lesson.workspaceId }.ifBlank { lesson.rootPath }
@@ -918,11 +919,12 @@ class EduMiniRepository(
                 lessonKey = lesson.lessonKey,
                 completed = nextCompleted,
                 pointsEarned = if (nextCompleted) POINTS_LESSON_COMPLETED else 0,
-                completedAt = if (nextCompleted) Instant.now().toString() else null
+                completedAt = if (nextCompleted) Instant.now().toString() else null,
+                userId = userId.ifBlank { LearnerProfile.DEFAULT_USER_ID }
             )
         )
         if (nextCompleted) {
-            recordStudyActivity()
+            recordStudyActivity(userId = userId)
         }
     }
 
@@ -955,7 +957,7 @@ class EduMiniRepository(
             sourceMode = sourceMode
         )
 
-        val existingProgress = dao.observeProgressForWorkspace(canonicalWs).first()
+        val existingProgress = dao.observeProgressForWorkspace(canonicalWs, safeUserId).first()
             .firstOrNull {
                 it.bookKey == lesson.bookKey &&
                     it.unitKey == lesson.unitKey &&
@@ -972,7 +974,8 @@ class EduMiniRepository(
                     lessonKey = lesson.lessonKey,
                     completed = true,
                     pointsEarned = POINTS_LESSON_COMPLETED + bonusXp,
-                    completedAt = now
+                    completedAt = now,
+                    userId = safeUserId
                 )
             )
         } else if (existingProgress != null) {
@@ -988,13 +991,14 @@ class EduMiniRepository(
                     lessonKey = lesson.lessonKey,
                     completed = false,
                     pointsEarned = bonusXp,
-                    completedAt = null
+                    completedAt = null,
+                    userId = safeUserId
                 )
             )
         }
 
         if (recorded.isNotEmpty()) {
-            recordStudyActivity()
+            recordStudyActivity(userId = safeUserId)
         }
 
         val allAttempts = questionBankService.observeUserAttempts(canonicalWs, safeUserId).first()
@@ -1027,7 +1031,7 @@ class EduMiniRepository(
             sourceMode = sourceMode
         )
         if (recorded.isNotEmpty()) {
-            recordStudyActivity()
+            recordStudyActivity(userId = userId)
         }
     }
 
@@ -1056,18 +1060,23 @@ class EduMiniRepository(
             sourceMode = sourceMode
         )
         if (recorded != null) {
-            recordStudyActivity()
+            recordStudyActivity(userId = userId)
         }
     }
 
-    suspend fun recordStudyActivity(date: LocalDate = LocalDate.now()) {
+    suspend fun recordStudyActivity(
+        date: LocalDate = LocalDate.now(),
+        userId: String = LearnerProfile.DEFAULT_USER_ID
+    ) {
+        val safeUserId = userId.ifBlank { LearnerProfile.DEFAULT_USER_ID }
         val dateIso = date.toString()
-        val existing = dao.getStudyDay(dateIso)
+        val existing = dao.getStudyDay(dateIso, safeUserId)
         dao.upsertStudyDay(
             StudyDayEntity(
                 activityDate = dateIso,
                 actionsCount = (existing?.actionsCount ?: 0) + 1,
-                lastUpdatedAt = Instant.now().toString()
+                lastUpdatedAt = Instant.now().toString(),
+                userId = safeUserId
             )
         )
     }
@@ -1666,9 +1675,13 @@ class EduMiniRepository(
         dao.deleteAssessmentById(assessmentId)
     }
 
-    fun observeAssessmentAttempts(workspaceId: String): Flow<List<AssessmentAttemptRecord>> {
+    fun observeAssessmentAttempts(
+        workspaceId: String,
+        userId: String = LearnerProfile.DEFAULT_USER_ID
+    ): Flow<List<AssessmentAttemptRecord>> {
         if (workspaceId.isBlank()) return flowOf(emptyList())
-        return dao.observeAssessmentAttempts(workspaceId).map { list ->
+        val safeUserId = userId.ifBlank { LearnerProfile.DEFAULT_USER_ID }
+        return dao.observeAssessmentAttempts(workspaceId, safeUserId).map { list ->
             list.map { e ->
                 AssessmentAttemptRecord(
                     id = e.id,
@@ -1693,7 +1706,8 @@ class EduMiniRepository(
         totalQuestions: Int,
         scorePercent: Int,
         durationSeconds: Int,
-        earnedXp: Int
+        earnedXp: Int,
+        userId: String = LearnerProfile.DEFAULT_USER_ID
     ): AssessmentAttemptRecord {
         val passed = scorePercent >= assessment.passScorePercent
         val record = AssessmentAttemptRecord(
@@ -1721,10 +1735,11 @@ class EduMiniRepository(
                 passed = record.passed,
                 durationSeconds = record.durationSeconds,
                 earnedXp = record.earnedXp,
-                completedAt = record.completedAt
+                completedAt = record.completedAt,
+                userId = userId.ifBlank { LearnerProfile.DEFAULT_USER_ID }
             )
         )
-        recordStudyActivity()
+        recordStudyActivity(userId = userId)
         return record
     }
 
