@@ -1,6 +1,8 @@
 package com.example.data.workspace
 
 import android.content.Context
+import android.graphics.pdf.PdfRenderer
+import android.os.ParcelFileDescriptor
 import android.net.Uri
 import android.provider.OpenableColumns
 import com.example.model.BookRef
@@ -355,6 +357,18 @@ class WorkspaceImporter(private val context: Context) {
                 zipNameSet = zipNameSet
             )
 
+            val missingLessonPdfs = parsedLessons.filter { it.pdfPath.isNullOrBlank() }
+            val unreadableLessonPdfs = parsedLessons.filter { lesson ->
+                !lesson.pdfPath.isNullOrBlank() && !isReadablePdf(lesson.pdfPath)
+            }
+            if (validation.canonicalContract && (missingLessonPdfs.isNotEmpty() || unreadableLessonPdfs.isNotEmpty())) {
+                warningsOut.add("$bookRel: تعذر فتح أو مطابقة ملفات PDF لبعض الدروس؛ تم إيقاف استيراد هذا الكتاب.")
+                continue
+            }
+            unreadableLessonPdfs.forEach { lesson ->
+                warningsOut.add("$bookRel: ملف PDF غير قابل للفتح للدرس ${lesson.title}.")
+            }
+
             val manifestCover = manifestObj?.str("cover")
                 ?.trim()
                 ?.removePrefix("./")
@@ -628,6 +642,16 @@ class WorkspaceImporter(private val context: Context) {
             }
         }
         return result
+    }
+
+    private fun isReadablePdf(path: String): Boolean {
+        val file = File(path)
+        if (!file.isFile || file.length() < 8L) return false
+        return runCatching {
+            ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
+                PdfRenderer(descriptor).use { renderer -> renderer.pageCount > 0 }
+            }
+        }.getOrDefault(false)
     }
 
     private fun queryFileSize(uri: Uri): Long? {
