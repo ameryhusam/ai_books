@@ -1336,7 +1336,7 @@ class EduMiniCoreTest {
                 componentKey = null,
                 relativePath = "G07/SCI",
                 lessonsCount = 1,
-                subjectName = "العلوم"
+                subjectName = "العلوم والحياة"
             )
             val lesson = LessonEntity(
                 workspaceId = workspace.workspaceId,
@@ -1360,7 +1360,7 @@ class EduMiniCoreTest {
                 indexUri = "content://test/document/index.json",
                 indexRelativePath = "G07/SCI/index.json",
                 manifestUri = "content://test/document/book_manifest.json",
-                manifestRelativePath = "G07/SCI/COURSE/BOOK/book_manifest.json",
+                manifestRelativePath = "G07/SCI/book_manifest.json",
                 indexSha256 = "a".repeat(64),
                 manifestSha256 = "b".repeat(64),
                 indexSchemaVersion = "1",
