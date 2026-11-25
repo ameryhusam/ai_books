@@ -1302,10 +1302,58 @@ class EduMiniCoreTest {
                 setOf("SCI", "ENG/COURSE", "ENG/WORKBOOK", "SOC/GEO", "SOC/HIST", "SOC/TARBIA"),
                 boundScience.workspace.books.map { it.bookKey }.toSet()
             )
+            val englishCourse = boundScience.workspace.books.single { it.subjectKey == "ENG" && it.componentKey == "COURSE" }
+            val englishWorkbook = boundScience.workspace.books.single { it.subjectKey == "ENG" && it.componentKey == "WORKBOOK" }
+            assertEquals("اللغة الإنجليزية", englishCourse.subjectName)
+            assertEquals("English Course", englishCourse.title)
+            assertEquals("English Workbook", englishWorkbook.title)
+            assertEquals("الجغرافيا", boundScience.workspace.books.single { it.componentKey == "GEO" }.subjectName)
+            assertEquals("التاريخ", boundScience.workspace.books.single { it.componentKey == "HIST" }.subjectName)
+            assertEquals("التربية الوطنية", boundScience.workspace.books.single { it.componentKey == "TARBIA" }.subjectName)
 
             // Verify zero-copy: PDF file was NOT duplicated inside filesDir/edumini/workspaces
             val privateWorkspacesDir = File(context.filesDir, "edumini/workspaces/${bound.workspace.workspaceId}")
             assertFalse(privateWorkspacesDir.exists())
+        } finally {
+            rootDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun directWorkspaceBinderRejectsComponentKeyThatConflictsWithIndexPath() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val rootDir = File(context.cacheDir, "direct_ws_component_mismatch_${System.currentTimeMillis()}").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        try {
+            val bookDir = File(rootDir, "workspace/G07/ENG/COURSE").apply { mkdirs() }
+            File(bookDir, "index.json").writeText(
+                """
+                {
+                  "gradeKey": "G07",
+                  "subjectKey": "ENG",
+                  "componentKey": "WORKBOOK",
+                  "units": [{
+                    "unitKey": "unit_01",
+                    "title": "Unit One",
+                    "lessons": [{"lessonKey": "lesson_01", "title": "Lesson One"}]
+                  }]
+                }
+                """.trimIndent()
+            )
+            File(bookDir, "book_manifest.json").writeText(
+                """{"gradeKey":"G07","subjectKey":"ENG","componentKey":"WORKBOOK","title":"English Workbook"}"""
+            )
+
+            val failure = runCatching {
+                DirectWorkspaceBinder(context).inspectDirectory(rootDir)
+            }.exceptionOrNull()
+
+            assertNotNull(failure)
+            assertTrue(failure?.message?.contains("componentKey") == true)
+            assertTrue(failure?.message?.contains("COURSE") == true)
+            assertTrue(failure?.message?.contains("WORKBOOK") == true)
         } finally {
             rootDir.deleteRecursively()
         }
