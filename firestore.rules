@@ -50,6 +50,12 @@ service cloud.firestore {
              data.provider is string && data.provider.size() >= 1 && data.provider.size() <= 100 &&
              data.model is string && data.model.size() >= 1 && data.model.size() <= 120 &&
              data.content is string && data.content.size() >= 1 && data.content.size() <= 200000 &&
+             (!('templateId' in data) || (data.templateId is string && data.templateId.size() <= 160)) &&
+             (!('templateVersion' in data) || (data.templateVersion is int && data.templateVersion >= 1 && data.templateVersion <= 10000)) &&
+             (!('responseSchemaHash' in data) || (data.responseSchemaHash is string && (data.responseSchemaHash == '' || data.responseSchemaHash.matches('^[a-f0-9]{64}$')))) &&
+             (!('requestFingerprint' in data) || (data.requestFingerprint is string && (data.requestFingerprint == '' || data.requestFingerprint.matches('^[a-f0-9]{64}$')))) &&
+             (!('contentHash' in data) || (data.contentHash is string && (data.contentHash == '' || data.contentHash.matches('^[a-f0-9]{64}$')))) &&
+             (!('sourcePdfHash' in data) || (data.sourcePdfHash is string && (data.sourcePdfHash == '' || data.sourcePdfHash.matches('^[a-f0-9]{64}$')))) &&
              data.status in ['DRAFT', 'APPROVED', 'ARCHIVED'] &&
              data.version is int && data.version >= 1 && data.version <= 10000 &&
              data.createdAt is timestamp && data.createdAt <= request.time &&
@@ -86,7 +92,9 @@ service cloud.firestore {
                        incoming().keys().hasOnly([
                          'userId', 'workspaceId', 'grade', 'bookKey', 'unitKey',
                          'lessonKey', 'task', 'title', 'provider', 'model',
-                         'content', 'status', 'version', 'createdAt', 'updatedAt'
+                         'content', 'templateId', 'templateVersion', 'responseSchemaHash',
+                         'requestFingerprint', 'contentHash', 'sourcePdfHash',
+                         'status', 'version', 'createdAt', 'updatedAt'
                        ]) &&
                        isValidCloudDraft(incoming());
 
@@ -97,7 +105,11 @@ service cloud.firestore {
                        incoming().createdAt == existing().createdAt &&
                        (
                          incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']) ||
-                         incoming().diff(existing()).affectedKeys().hasOnly(['title', 'content', 'status', 'version', 'updatedAt'])
+                         incoming().diff(existing()).affectedKeys().hasOnly([
+                           'title', 'content', 'status', 'version', 'updatedAt',
+                           'templateId', 'templateVersion', 'responseSchemaHash',
+                           'requestFingerprint', 'contentHash', 'sourcePdfHash'
+                         ])
                        );
 
       allow delete: if isOwner(userId) && isValidId(draftId);
