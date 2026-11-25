@@ -2900,7 +2900,8 @@ class EduMiniCoreTest {
             workspaceImporter = WorkspaceImporter(context),
             aiGenerationService = AiGenerationService(),
             pdfBookSplitter = PdfBookSplitter(context),
-            interactivePackageImporter = InteractivePackageImporter(context)
+            interactivePackageImporter = InteractivePackageImporter(context),
+            appContext = context
         )
         val backup = WorkspaceExporter.serializeFullBackup(
             workspaceId = "ws-profile-restore",
