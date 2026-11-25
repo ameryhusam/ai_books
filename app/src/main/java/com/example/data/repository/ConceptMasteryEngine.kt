@@ -28,6 +28,7 @@ object ConceptMasteryEngine {
         attempts: List<QuestionAttemptRecord>
     ): Map<String, QuestionMasteryStats> {
         val grouped = attempts
+            .filterNot { it.sourceMode.equals("studio_preview", ignoreCase = true) }
             .sortedBy { it.answeredAt }
             .groupBy { it.questionId }
 
@@ -61,7 +62,10 @@ object ConceptMasteryEngine {
     ): List<ConceptMasterySummary> {
         if (questions.isEmpty()) return emptyList()
         val questionById = questions.associateBy { it.id }
-        val attemptsByConcept = attempts.groupBy { att ->
+        val learnerAttempts = attempts.filterNot {
+            it.sourceMode.equals("studio_preview", ignoreCase = true)
+        }
+        val attemptsByConcept = learnerAttempts.groupBy { att ->
             att.conceptTag.trim().ifBlank {
                 questionById[att.questionId]?.let { effectiveConceptTag(it) } ?: att.questionId
             }
@@ -71,7 +75,7 @@ object ConceptMasteryEngine {
         return questionsByConcept.map { (concept, qList) ->
             val qIds = qList.map { it.id }.toSet()
             val relevantAttempts = (attemptsByConcept[concept].orEmpty() +
-                attempts.filter { it.questionId in qIds })
+                learnerAttempts.filter { it.questionId in qIds })
                 .distinctBy { it.id }
 
             val correct = relevantAttempts.count { it.isCorrect }
