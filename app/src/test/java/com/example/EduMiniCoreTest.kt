@@ -216,7 +216,6 @@ class EduMiniCoreTest {
     }
 
     @Test
-    @Test
     fun importerRejectsZipSlipPath() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val importer = WorkspaceImporter(context)
