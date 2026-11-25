@@ -36,9 +36,7 @@ object LearningProgressAnalytics {
 
         // Do not let reinforcement-practice responses inflate the main learning score.
         // Practice attempts remain available for error-pattern and support-impact analysis.
-        val measuredAttempts = ordered.filterNot {
-            it.sourceMode.equals("reinforcement", ignoreCase = true)
-        }
+        val measuredAttempts = ordered.filterNot { isPracticeOnly(it.sourceMode) }
         val byQuestion = measuredAttempts.groupBy { it.questionId }
         val firstPerQuestion = byQuestion.values.mapNotNull { rows ->
             rows.minByOrNull { parseInstant(it.answeredAt) ?: Instant.MAX }
@@ -142,11 +140,11 @@ object LearningProgressAnalytics {
                     .mapNotNull { parseInstant(it.answeredAt) }
                     .minOrNull() ?: return@mapNotNull null
                 val before = latestPerQuestion(rows.filter {
-                    !it.sourceMode.equals("reinforcement", ignoreCase = true) &&
+                    !isPracticeOnly(it.sourceMode) &&
                         (parseInstant(it.answeredAt)?.isBefore(firstSupport) == true)
                 }).associateBy { it.questionId }
                 val after = latestPerQuestion(rows.filter {
-                    !it.sourceMode.equals("reinforcement", ignoreCase = true) &&
+                    !isPracticeOnly(it.sourceMode) &&
                         (parseInstant(it.answeredAt)?.isAfter(firstSupport) == true)
                 }).associateBy { it.questionId }
                 val sharedIds = before.keys.intersect(after.keys)
@@ -187,6 +185,10 @@ object LearningProgressAnalytics {
                 )
             }
     }
+
+    private fun isPracticeOnly(sourceMode: String): Boolean =
+        sourceMode.equals("reinforcement", ignoreCase = true) ||
+            sourceMode.equals("bank_quiz", ignoreCase = true)
 
     private fun parseInstant(value: String): Instant? = runCatching { Instant.parse(value) }.getOrNull()
     private fun percent(correct: Int, total: Int): Int? =
