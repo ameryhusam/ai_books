@@ -14,6 +14,8 @@ import com.example.model.DirectWorkspaceInspection
 import com.example.model.ImportedWorkspace
 import com.example.model.InteractivePackageReport
 import com.example.model.LessonRef
+import com.example.model.WorkspaceIndexRef
+import com.example.model.WorkspaceUnitRef
 import com.example.model.PackageKind
 import com.example.model.QuestionItem
 import com.example.model.SecurityFinding
@@ -29,6 +31,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import java.io.File
+import java.security.MessageDigest
 import java.time.Instant
 import java.util.UUID
 
@@ -55,11 +58,21 @@ class DirectWorkspaceBinder(private val context: Context) {
     )
 
     fun takePersistableReadPermission(treeUri: Uri) {
-        runCatching {
+        try {
             context.contentResolver.takePersistableUriPermission(
                 treeUri,
                 Intent.FLAG_GRANT_READ_URI_PERMISSION
             )
+        } catch (e: SecurityException) {
+            val alreadyGranted = context.contentResolver.persistedUriPermissions.any {
+                it.uri == treeUri && it.isReadPermission
+            }
+            if (!alreadyGranted) {
+                throw IllegalStateException(
+                    "لم يتمكن التطبيق من حفظ صلاحية الوصول الدائم إلى مساحة العمل. أعد اختيار المجلد وامنح صلاحية القراءة.",
+                    e
+                )
+            }
         }
     }
 
@@ -95,6 +108,7 @@ class DirectWorkspaceBinder(private val context: Context) {
         gradeKey: String
     ): DirectBoundWorkspaceResult = withContext(Dispatchers.IO) {
         val isSaf = UriIO.isContentUri(rootUriOrPath)
+        if (isSaf) takePersistableReadPermission(Uri.parse(rootUriOrPath))
         val entries: List<IndexedEntry>
         val folderName: String
         if (isSaf) {
@@ -123,6 +137,8 @@ class DirectWorkspaceBinder(private val context: Context) {
         val workspaceId = computeStableWorkspaceId(rootUriOrPath, gradeKey)
         val books = mutableListOf<BookRef>()
         val lessons = mutableListOf<LessonRef>()
+        val indexRecords = mutableListOf<WorkspaceIndexRef>()
+        val unitRefs = mutableListOf<WorkspaceUnitRef>()
         val preloadedQuestions = mutableListOf<QuestionItem>()
         val preloadedDrafts = mutableListOf<DraftEntity>()
         val preloadedPackages = mutableListOf<InteractivePackageEntity>()
@@ -238,6 +254,37 @@ class DirectWorkspaceBinder(private val context: Context) {
                 warnings.add("$bookRel: ملف PDF غير قابل للفتح للدرس ${lesson.title}.")
             }
 
+            val syncTimestamp = System.currentTimeMillis()
+            indexRecords.add(
+                WorkspaceIndexRef(
+                    bookKey = slot.bookKey,
+                    indexUriOrPath = slot.indexEntry.uriOrPath,
+                    indexRelativePath = slot.indexEntry.relativePath,
+                    manifestUriOrPath = manifestEntry?.uriOrPath,
+                    manifestRelativePath = manifestEntry?.relativePath,
+                    indexSha256 = sha256(indexRaw),
+                    manifestSha256 = manifestRaw?.let(::sha256),
+                    indexSchemaVersion = firstNonBlank(indexObj.str("indexVersion"), indexObj.str("schemaVersion")).ifBlank { null },
+                    manifestVersion = manifestObj?.str("manifestVersion")?.ifBlank { null },
+                    lastSyncedAt = syncTimestamp
+                )
+            )
+            (indexObj["units"] as? JsonArray).orEmpty().forEachIndexed { unitOrder, unitElement ->
+                val unit = unitElement as? JsonObject ?: return@forEachIndexed
+                val unitKey = WorkspaceContractValidator.sourceUnitKey(unit)
+                if (unitKey.isBlank()) return@forEachIndexed
+                unitRefs.add(
+                    WorkspaceUnitRef(
+                        bookKey = slot.bookKey,
+                        unitKey = unitKey,
+                        title = firstNonBlank(unit.str("title"), unit.str("unitTitle"), unit.str("name"), unitKey),
+                        partKey = firstNonBlank(unit.str("partKey"), unit.str("part")).ifBlank { null },
+                        sortOrder = unitOrder,
+                        sourceIndexPath = slot.indexEntry.uriOrPath
+                    )
+                )
+            }
+
             books.add(
                 BookRef(
                     bookKey = slot.bookKey,
@@ -351,7 +398,9 @@ class DirectWorkspaceBinder(private val context: Context) {
             lessons = lessons,
             filesCount = relevantFilesCount,
             warnings = warnings.distinct(),
-            importedAt = System.currentTimeMillis()
+            importedAt = System.currentTimeMillis(),
+            indexRecords = indexRecords,
+            units = unitRefs
         )
 
         DirectBoundWorkspaceResult(
@@ -847,6 +896,11 @@ class DirectWorkspaceBinder(private val context: Context) {
         val encodedRel = Uri.encode(baseRel)
         return "safroot::$treeUri::$encodedRel"
     }
+
+    private fun sha256(value: String): String =
+        MessageDigest.getInstance("SHA-256")
+            .digest(value.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
 
     private fun computeStableWorkspaceId(rootUriOrPath: String, gradeKey: String): String {
         val stableHash = UUID.nameUUIDFromBytes("$rootUriOrPath|$gradeKey".toByteArray(Charsets.UTF_8))
