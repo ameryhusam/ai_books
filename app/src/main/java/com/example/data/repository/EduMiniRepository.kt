@@ -406,25 +406,8 @@ class EduMiniRepository(
         if (providers.none { it.enabled && it.apiKey.isNotBlank() && it.model.isNotBlank() }) {
             throw IllegalStateException("لا يوجد مفتاح API مفعّل بنموذج صالح. أضف مفتاحاً أو أعد تفعيل أحد المفاتيح من الإعدادات.")
         }
-        val extractedText = if (!lesson.sourceTextPath.isNullOrBlank() && appContext != null) {
-            UriIO.readText(appContext, lesson.sourceTextPath).orEmpty().trim()
-        } else if (!lesson.pdfPath.isNullOrBlank() && !UriIO.isContentUri(lesson.pdfPath)) {
-            val pdf = File(lesson.pdfPath)
-            val metaFile = File(pdf.parentFile, pdf.nameWithoutExtension + ".extraction.json")
-            val extractionMethod = runCatching {
-                json.parseToJsonElement(metaFile.readText(Charsets.UTF_8))
-                    .jsonObject["method"]?.jsonPrimitive?.content
-            }.getOrNull()
-            if (extractionMethod !in setOf("OCR_LOW_CONFIDENCE", "OCR_REQUIRED")) {
-                val textFile = File(pdf.parentFile, pdf.nameWithoutExtension + ".txt")
-                if (textFile.isFile) textFile.readText(Charsets.UTF_8).trim() else ""
-            } else ""
-        } else ""
-        onProgress(8, "قراءة نص الدرس ومعلومات المصدر")
-        val effectiveSource = listOf(source.trim(), extractedText)
-            .filter { it.isNotBlank() }
-            .distinct()
-            .joinToString("\n\n")
+        onProgress(8, "قراءة بيانات الدرس وتجهيز المصدر")
+        val effectiveSource = source.trim()
         val activeTemplate = template ?: dao.observePromptTemplates().first()
             .firstOrNull { it.task == task.id }
             ?.let { entity ->
@@ -567,28 +550,7 @@ class EduMiniRepository(
         val nextVersion = maxVer + 1
         val id = "draft-${System.currentTimeMillis()}-${UUID.randomUUID().toString().take(6)}"
         val createdAt = Instant.now().toString()
-        val extractedPdfText = if (!lesson.sourceTextPath.isNullOrBlank() && appContext != null) {
-            UriIO.readText(appContext, lesson.sourceTextPath).orEmpty()
-        } else if (!lesson.pdfPath.isNullOrBlank() && !UriIO.isContentUri(lesson.pdfPath)) {
-            val pdf = File(lesson.pdfPath)
-            val metaFile = File(pdf.parentFile, pdf.nameWithoutExtension + ".extraction.json")
-            val extractionMethod = runCatching {
-                json.parseToJsonElement(metaFile.readText(Charsets.UTF_8))
-                    .jsonObject["method"]?.jsonPrimitive?.content
-            }.getOrNull()
-            if (extractionMethod in setOf("OCR_LOW_CONFIDENCE", "OCR_REQUIRED")) {
-                ""
-            } else {
-                File(pdf.parentFile, pdf.nameWithoutExtension + ".txt")
-                    .takeIf { it.isFile }
-                    ?.readText(Charsets.UTF_8)
-                    .orEmpty()
-            }
-        } else ""
-        val provenanceSource = listOf(sourceText.trim(), extractedPdfText.trim())
-            .filter { it.isNotBlank() }
-            .distinct()
-            .joinToString("\n\n")
+        val provenanceSource = sourceText.trim()
         val sourceHash = sha256Short(provenanceSource)
         val record = DraftRecord(
             id = id,
