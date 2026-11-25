@@ -1,6 +1,7 @@
 package com.example.data.workspace
 
 import android.content.Context
+import android.graphics.pdf.PdfRenderer
 import android.content.Intent
 import android.net.Uri
 import android.provider.DocumentsContract
@@ -224,6 +225,18 @@ class DirectWorkspaceBinder(private val context: Context) {
                 entries = entries,
                 entryMap = entryMap
             )
+
+            val missingLessonPdfs = parsedLessons.filter { it.pdfPath.isNullOrBlank() }
+            val unreadableLessonPdfs = parsedLessons.filter { lesson ->
+                !lesson.pdfPath.isNullOrBlank() && !isReadablePdf(lesson.pdfPath)
+            }
+            if (validation.canonicalContract && (missingLessonPdfs.isNotEmpty() || unreadableLessonPdfs.isNotEmpty())) {
+                warnings.add("$bookRel: تعذر فتح أو مطابقة ملفات PDF لبعض الدروس؛ تم إيقاف ربط هذا الكتاب.")
+                continue
+            }
+            unreadableLessonPdfs.forEach { lesson ->
+                warnings.add("$bookRel: ملف PDF غير قابل للفتح للدرس ${lesson.title}.")
+            }
 
             books.add(
                 BookRef(
@@ -500,6 +513,15 @@ class DirectWorkspaceBinder(private val context: Context) {
             }
         }
         return result.distinctBy { "${it.gradeKey}|${it.bookKey}|${it.bookRelPath}" }
+    }
+
+    private fun isReadablePdf(path: String?): Boolean {
+        val descriptor = UriIO.openReadPfd(context, path) ?: return false
+        return runCatching {
+            descriptor.use { pfd ->
+                PdfRenderer(pfd).use { renderer -> renderer.pageCount > 0 }
+            }
+        }.getOrDefault(false)
     }
 
     private fun parseLessonsForBook(
