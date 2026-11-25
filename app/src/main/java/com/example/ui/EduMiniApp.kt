@@ -406,16 +406,23 @@ private fun AuthenticatedEduMiniContent(
                                                     color = EduMuted
                                                 )
                                                 Text(
-                                                    text = "${state.generationProgressPercent}%",
+                                                    text = if (state.generationStage?.startsWith("إرسال") == true) "انتظار الاستجابة" else "${state.generationProgressPercent}%",
                                                     style = MaterialTheme.typography.labelSmall,
                                                     color = EduGreenDark
                                                 )
                                             }
-                                            LinearProgressIndicator(
-                                                progress = { (state.generationProgressPercent / 100f).coerceIn(0f, 1f) },
-                                                modifier = Modifier.fillMaxWidth(),
-                                                color = EduGreen
-                                            )
+                                            if (state.generationStage?.startsWith("إرسال") == true) {
+                                                LinearProgressIndicator(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    color = EduGreen
+                                                )
+                                            } else {
+                                                LinearProgressIndicator(
+                                                    progress = { (state.generationProgressPercent / 100f).coerceIn(0f, 1f) },
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    color = EduGreen
+                                                )
+                                            }
                                         }
                                     } else {
                                         Row(
