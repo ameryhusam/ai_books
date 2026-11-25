@@ -42,6 +42,7 @@ import com.example.model.BookRef
 import com.example.model.BookProgressSummary
 import com.example.model.ImportedWorkspace
 import com.example.model.LearningNodeStatus
+import com.example.model.LearnerProfile
 import com.example.model.LessonRef
 import com.example.model.MasteryStatus
 import com.example.model.PackageKind
@@ -2446,15 +2447,28 @@ class EduMiniCoreTest {
             progress = progress,
             notes = emptyList(),
             studyDays = studyDays,
-            templates = emptyList()
+            templates = emptyList(),
+            learnerProfiles = listOf(
+                LearnerProfile.DEFAULT,
+                LearnerProfile(userId = "learner_a", displayName = "أحمد"),
+                LearnerProfile(userId = "learner_b", displayName = "سارة")
+            ),
+            activeLearnerId = "learner_b"
         )
         val restored = WorkspaceExporter.parseFullBackup(raw)
 
-        assertEquals("edu-mini-backup-1.2", restored.formatVersion)
+        assertEquals("edu-mini-backup-1.3", restored.formatVersion)
+        assertEquals(setOf("learner_default", "learner_a", "learner_b"), restored.learnerProfiles.map { it.userId }.toSet())
+        assertEquals("learner_b", restored.activeLearnerId)
         assertEquals(setOf("learner_a", "learner_b"), restored.attempts.map { it.userId }.toSet())
         assertEquals(setOf("learner_a", "learner_b"), restored.progress.map { it.userId }.toSet())
         assertEquals(setOf("learner_a", "learner_b"), restored.studyDayRecords.map { it.userId }.toSet())
         assertEquals(3, restored.studyDayRecords.first { it.userId == "learner_a" }.actionsCount)
+        val legacy = WorkspaceExporter.parseFullBackup(
+            """{"formatVersion":"edu-mini-backup-1.2","workspaceId":"ws-legacy"}"""
+        )
+        assertTrue(legacy.learnerProfiles.isEmpty())
+        assertEquals(LearnerProfile.DEFAULT_USER_ID, legacy.activeLearnerId)
     }
 
     @Test
