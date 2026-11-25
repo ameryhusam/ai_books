@@ -58,7 +58,8 @@ data class ProviderConfig(
     val quotaDate: String = "",
     val runtimeStatus: String = "ACTIVE",
     val retryAfterEpochMs: Long = 0L,
-    val quotaTimeZone: String = "Asia/Aden"
+    val quotaTimeZone: String = "Asia/Aden",
+    val lastUsedAtEpochMs: Long = 0L
 )
 
 @Serializable
