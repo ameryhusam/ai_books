@@ -1024,7 +1024,7 @@ class EduMiniRepository(
             selectedAnswers = selectedAnswers,
             sourceMode = sourceMode
         )
-        if (recorded.isNotEmpty()) {
+        if (recorded.isNotEmpty() && !sourceMode.equals("timed_assessment", ignoreCase = true)) {
             recordStudyActivity(userId = userId)
         }
     }
