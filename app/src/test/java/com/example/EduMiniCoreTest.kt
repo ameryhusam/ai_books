@@ -1594,7 +1594,7 @@ class EduMiniCoreTest {
 
         // Mixed history on both concepts keeps them in NEEDS_REINFORCEMENT (because earlier attempt was wrong)
         val recordedAttempts = db.eduMiniDao().observeQuestionAttemptsForWorkspace(wsId).first()
-        assertEquals(4, recordedAttempts.size)
+        assertEquals(6, recordedAttempts.size)
         assertEquals(2, passResult.weakConcepts.size)
     }
 
