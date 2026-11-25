@@ -366,6 +366,7 @@ class MainViewModel(
     init {
         loadLearnerProfiles()
         viewModelScope.launch {
+            runCatching { repository.ensureDefaultPromptTemplates() }
             runCatching { repository.loadProviders() }
                 .onSuccess { loaded ->
                     _uiState.update { it.copy(providers = loaded) }
