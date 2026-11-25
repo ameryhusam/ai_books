@@ -819,7 +819,7 @@ interface EduMiniDao {
         PromptTemplateEntity::class
     ],
     version = 16,
-    exportSchema = false
+    exportSchema = true
 )
 abstract class EduMiniDatabase : RoomDatabase() {
     abstract fun eduMiniDao(): EduMiniDao
