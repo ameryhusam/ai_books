@@ -574,7 +574,7 @@ class WorkspaceImporter(private val context: Context) {
                     l.str("endPage")
                 )
                 val p = firstNonBlank(l.str("partKey"), l.str("part"), unitPart)
-                val lessonNumStr = lessonNumber(lk).let { num ->
+                val lessonNumStr = (l.str("lessonNumber").toIntOrNull() ?: lessonNumber(lk)).let { num ->
                     if (num >= 0) num.toString().padStart(2, '0') else "-1"
                 }
 
