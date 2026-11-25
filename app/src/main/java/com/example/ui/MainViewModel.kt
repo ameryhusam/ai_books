@@ -8,6 +8,7 @@ import com.example.data.firebase.FirestoreSyncRepository
 import com.example.data.repository.ConceptMasteryEngine
 import com.example.data.repository.EduMiniRepository
 import com.example.data.repository.InteractiveActivityParser
+import com.example.data.repository.LearningProgressAnalytics
 import com.example.data.repository.QuestionBankEngine
 import com.example.model.AppPage
 import com.example.model.AssessmentAttemptRecord
@@ -26,6 +27,7 @@ import com.example.model.ImportedWorkspace
 import com.example.model.InteractiveActivityModel
 import com.example.model.InteractivePackageRecord
 import com.example.model.LearnerProfile
+import com.example.model.LearningProgressReport
 import com.example.model.LessonProgress
 import com.example.model.LessonQuizCompletionResult
 import com.example.model.LessonRef
@@ -278,6 +280,19 @@ class MainViewModel(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = emptyList()
+        )
+
+    val learningProgressReport: StateFlow<LearningProgressReport> =
+        combine(workspaceQuestions, workspaceQuestionAttempts, workspaceAttempts) { questions, questionAttempts, assessmentAttempts ->
+            LearningProgressAnalytics.calculate(
+                questions = questions,
+                attempts = questionAttempts,
+                assessments = assessmentAttempts
+            )
+        }.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = LearningProgressReport()
         )
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -1941,6 +1956,73 @@ class MainViewModel(
                         pendingExportAssessment = null,
                         alert = AlertMessage("تعذر التصدير", e.message ?: "حدث خطأ أثناء الحفظ")
                     )
+                }
+            }
+        }
+    }
+
+    fun exportLearningProgressReport(uri: Uri) {
+        val snapshot = _uiState.value
+        val learner = snapshot.activeLearner
+        val report = learningProgressReport.value
+        val summary = dashboardSummary.value
+        val markdown = buildString {
+            appendLine("# تقرير متابعة التعلّم")
+            appendLine()
+            appendLine("- المتعلّم: ${learner.displayName}")
+            appendLine("- المكتبة: ${snapshot.workspace?.title.orEmpty()}")
+            appendLine("- تاريخ التقرير: ${java.time.LocalDate.now()}")
+            appendLine()
+            appendLine("## ملخص الأداء")
+            appendLine("- الدروس المكتملة: ${summary.completedLessons} من ${summary.totalLessons}")
+            appendLine("- المحاولات المسجلة: ${report.questionAttemptsCount}")
+            appendLine("- المفاهيم التي جرى قياسها: ${report.conceptsObserved}")
+            appendLine("- دقة المحاولة الأولى: ${report.firstTryAccuracyPercent?.let { "$it%" } ?: "بيانات غير كافية"}")
+            appendLine("- دقة أحدث المحاولات: ${report.latestAccuracyPercent?.let { "$it%" } ?: "بيانات غير كافية"}")
+            appendLine("- المفاهيم ذات الإتقان المستقر: ${report.stableConceptsCount} من ${report.eligibleConceptsCount}")
+            appendLine("- نسبة الإتقان المستقر: ${report.stableConceptsPercent?.let { "$it%" } ?: "لم تتوفر عينة كافية"}")
+            appendLine("- الاسترجاع بعد أسبوع أو أكثر: ${report.delayedRecallPercent?.let { "$it%" } ?: "لم تتوفر عينة كافية"}")
+            appendLine("- فارق الاسترجاع المؤجل: ${report.estimatedRecallDropPercent?.let { "$it%" } ?: "غير قابل للحساب حالياً"}")
+            appendLine()
+            appendLine("## أثر جلسات التقوية")
+            appendLine(
+                report.reinforcementImpactPercent?.let {
+                    "- التغير في الأداء اللاحق على الأسئلة نفسها: ${if (it >= 0) "+" else ""}$it% عبر ${report.reinforcementImpactConceptCount} مفهوماً."
+                } ?: "- لا توجد قياسات قبل جلسة التقوية وبعدها على عدد كافٍ من الأسئلة نفسها."
+            )
+            appendLine("هذا مؤشر ارتباطي بعد التدريب، وليس دليلاً سببياً على أثر الشرح وحده.")
+            appendLine()
+            appendLine("## الأخطاء المتكررة")
+            appendLine("- المفاهيم ذات الأخطاء المتكررة: ${report.conceptsWithRecurringErrorsCount}")
+            report.recurringMistakes.forEach { mistake ->
+                appendLine("- ${mistake.conceptTag}: تكررت الإجابة «${mistake.selectedAnswer}» ${mistake.occurrences} مرات.")
+                if (mistake.questionPrompt.isNotBlank()) appendLine("  - السؤال: ${mistake.questionPrompt}")
+                if (mistake.expectedAnswer.isNotBlank()) appendLine("  - الإجابة المعتمدة: ${mistake.expectedAnswer}")
+            }
+            appendLine()
+            appendLine("## نتائج التقييم الأسبوعية")
+            if (report.weeklyAssessments.isEmpty()) appendLine("- لا توجد اختبارات مسجلة خلال الأسابيع الثمانية الأخيرة.")
+            report.weeklyAssessments.forEach { week ->
+                appendLine("- أسبوع ${week.label}: متوسط ${week.averageScorePercent}%، ${week.attemptsCount} اختبار، ${week.passedCount} اجتياز.")
+            }
+            appendLine()
+            appendLine("## حدود التقرير")
+            appendLine("- نسبة الاسترجاع المؤجل تُحسب فقط عند إعادة قياس السؤال نفسه بعد سبعة أيام على الأقل، وبعينة لا تقل عن ثلاثة أسئلة.")
+            appendLine("- الإتقان المستقر يتطلب ثلاثة أسئلة على الأقل وقياساً في يومين مختلفين.")
+            appendLine("- بيانات جلسات التقوية تقيس التحسن اللاحق في الأسئلة المشتركة، ولا تثبت بمفردها أن الشرح المولد هو سبب التحسن.")
+            appendLine("- غياب البيانات لا يعني أن مستوى الطالب صفر؛ بل يعني أن القياس لم يكتمل.")
+        }
+        viewModelScope.launch {
+            try {
+                val out = repository.openOutputStreamForUri(uri)
+                    ?: throw IllegalStateException("تعذر فتح ملف التقرير")
+                out.writer(Charsets.UTF_8).use { it.write(markdown) }
+                _uiState.update {
+                    it.copy(alert = AlertMessage("تم إنشاء التقرير", "تم تصدير تقرير متابعة التعلّم للمتعلّم «${learner.displayName}»."))
+                }
+            } catch (error: Exception) {
+                _uiState.update {
+                    it.copy(alert = AlertMessage("تعذر تصدير التقرير", error.message ?: "حدث خطأ أثناء حفظ التقرير"))
                 }
             }
         }
