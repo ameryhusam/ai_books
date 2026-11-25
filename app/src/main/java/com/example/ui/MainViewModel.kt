@@ -1319,6 +1319,11 @@ class MainViewModel(
                 generatedResult = draft.content,
                 activeDraftProvider = draft.provider,
                 activeDraftModel = draft.model,
+                activeDraftTemplateId = draft.templateId,
+                activeDraftTemplateVersion = draft.templateVersion,
+                activeDraftResponseSchemaHash = draft.responseSchemaHash,
+                activeDraftRequestFingerprint = draft.requestFingerprint,
+                activeDraftSourcePdfHash = draft.sourcePdfHash,
                 page = AppPage.STUDIO
             )
         }
@@ -1403,7 +1408,12 @@ class MainViewModel(
                 task = draft.task,
                 generatedResult = draft.content,
                 activeDraftProvider = draft.provider,
-                activeDraftModel = draft.model
+                activeDraftModel = draft.model,
+                activeDraftTemplateId = draft.templateId,
+                activeDraftTemplateVersion = draft.templateVersion,
+                activeDraftResponseSchemaHash = draft.responseSchemaHash,
+                activeDraftRequestFingerprint = draft.requestFingerprint,
+                activeDraftSourcePdfHash = draft.sourcePdfHash
             )
         }
     }
@@ -1429,7 +1439,18 @@ class MainViewModel(
                 text = content,
                 title = lesson.title,
                 sourceText = snapshot.sourceText,
-                status = DraftStatus.DRAFT
+                status = DraftStatus.DRAFT,
+                generation = GeneratedResult(
+                    text = content,
+                    providerLabel = snapshot.activeDraftProvider,
+                    model = snapshot.activeDraftModel,
+                    createdAt = java.time.Instant.now().toString(),
+                    templateId = snapshot.activeDraftTemplateId,
+                    templateVersion = snapshot.activeDraftTemplateVersion,
+                    responseSchemaHash = snapshot.activeDraftResponseSchemaHash,
+                    requestFingerprint = snapshot.activeDraftRequestFingerprint,
+                    sourcePdfHash = snapshot.activeDraftSourcePdfHash
+                )
             )
             val cloudSyncResult = firestoreSync.upsertDraft(currentUserId, savedDraft)
             val syncedCount = when (snapshot.task) {
@@ -1621,6 +1642,11 @@ class MainViewModel(
                 generatedResult = cloudDraft.content,
                 activeDraftProvider = cloudDraft.provider,
                 activeDraftModel = cloudDraft.model,
+                activeDraftTemplateId = "",
+                activeDraftTemplateVersion = 1,
+                activeDraftResponseSchemaHash = "",
+                activeDraftRequestFingerprint = "",
+                activeDraftSourcePdfHash = "",
                 page = AppPage.STUDIO,
                 toastMessage = "تم تحميل المسودة السحابية «${cloudDraft.title}»"
             )
@@ -2582,6 +2608,11 @@ class MainViewModel(
                         generatedResult = out.text,
                         activeDraftProvider = out.providerLabel,
                         activeDraftModel = out.model,
+                        activeDraftTemplateId = out.templateId,
+                        activeDraftTemplateVersion = out.templateVersion,
+                        activeDraftResponseSchemaHash = out.responseSchemaHash,
+                        activeDraftRequestFingerprint = out.requestFingerprint,
+                        activeDraftSourcePdfHash = out.sourcePdfHash,
                         alert = AlertMessage(
                             title = "تم الحفظ والربط",
                             message = resultMessage
