@@ -101,6 +101,14 @@ fun LearningProgressReportCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
+                if (report.recurringConceptTags.isNotEmpty()) {
+                    Text(
+                        text = "مفاهيم تكرر التعثر فيها: ${report.recurringConceptTags.take(5).joinToString("، ")}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
                 if (report.reinforcementImpactPercent != null) {
                     Text(
                         text = "التغير بعد جلسات التقوية: ${if (report.reinforcementImpactPercent >= 0) "+" else ""}${report.reinforcementImpactPercent}% عبر ${report.reinforcementImpactConceptCount} مفهوماً.",
