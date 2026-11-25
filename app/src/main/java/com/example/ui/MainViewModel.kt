@@ -555,8 +555,8 @@ class MainViewModel(
                         selectedLesson = null,
                         page = nextPage,
                         alert = AlertMessage(
-                            "تم ربط الصف $gradeKey مباشرة",
-                            "${bound.books.size} مادة • ${bound.lessons.size} درس • تتم القراءة مباشرة دون نسخ الملفات"
+                            "تمت مزامنة فهرس الصف $gradeKey",
+                            "${bound.indexRecords.size} فهرس • ${bound.books.size} مادة/كتاب • ${bound.units.size} وحدة • ${bound.lessons.size} درس. ملفات PDF بقيت في مساحة التخزين الأصلية وتم حفظ مراجعها فقط."
                         )
                     )
                 }
