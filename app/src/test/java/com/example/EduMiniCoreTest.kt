@@ -1409,6 +1409,8 @@ class EduMiniCoreTest {
             )
 
             dao.syncDirectWorkspaceCatalog(workspace, listOf(book), listOf(lesson), listOf(index), listOf(unit))
+            val originalBookRowId = dao.observeBooksForWorkspace(workspace.workspaceId).first().single().rowId
+            val originalLessonRowId = dao.observeLessonsForWorkspace(workspace.workspaceId).first().single().rowId
             val changedIndex = index.copy(indexSha256 = "c".repeat(64), lastSyncedAt = 20L)
             val changedUnit = unit.copy(title = "الوحدة الأولى المعدلة")
             val changedLesson = lesson.copy(title = "الدرس الأول المعدل")
@@ -1421,6 +1423,8 @@ class EduMiniCoreTest {
             )
 
             assertEquals(1, dao.observeBooksForWorkspace(workspace.workspaceId).first().size)
+            assertEquals(originalBookRowId, dao.observeBooksForWorkspace(workspace.workspaceId).first().single().rowId)
+            assertEquals(originalLessonRowId, dao.observeLessonsForWorkspace(workspace.workspaceId).first().single().rowId)
             assertEquals("الدرس الأول المعدل", dao.observeLessonsForWorkspace(workspace.workspaceId).first().single().title)
             assertEquals("c".repeat(64), dao.observeWorkspaceIndexes(workspace.workspaceId).first().single().indexSha256)
             assertEquals("الوحدة الأولى المعدلة", dao.observeWorkspaceUnits(workspace.workspaceId).first().single().title)
