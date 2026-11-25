@@ -559,11 +559,17 @@ interface EduMiniDao {
     @Query("SELECT * FROM lesson_progress WHERE workspace_id = :workspaceId AND user_id = :userId")
     fun observeProgressForWorkspace(workspaceId: String, userId: String = "learner_default"): Flow<List<LessonProgressEntity>>
 
+    @Query("SELECT * FROM lesson_progress WHERE workspace_id = :workspaceId")
+    fun observeAllProgressForWorkspace(workspaceId: String): Flow<List<LessonProgressEntity>>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertLessonProgress(progress: LessonProgressEntity)
 
     @Query("SELECT * FROM study_days WHERE user_id = :userId ORDER BY activity_date DESC")
     fun observeStudyDays(userId: String = "learner_default"): Flow<List<StudyDayEntity>>
+
+    @Query("SELECT * FROM study_days ORDER BY activity_date DESC")
+    fun observeAllStudyDays(): Flow<List<StudyDayEntity>>
 
     @Query("SELECT * FROM study_days WHERE activity_date = :dateIso AND user_id = :userId LIMIT 1")
     suspend fun getStudyDay(dateIso: String, userId: String = "learner_default"): StudyDayEntity?
@@ -648,6 +654,9 @@ interface EduMiniDao {
 
     @Query("SELECT * FROM assessment_attempts WHERE workspace_id = :workspaceId AND user_id = :userId ORDER BY completed_at DESC LIMIT 30")
     fun observeAssessmentAttempts(workspaceId: String, userId: String = "learner_default"): Flow<List<AssessmentAttemptEntity>>
+
+    @Query("SELECT * FROM assessment_attempts WHERE workspace_id = :workspaceId ORDER BY completed_at DESC")
+    fun observeAllAssessmentAttempts(workspaceId: String): Flow<List<AssessmentAttemptEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAssessmentAttempt(attempt: AssessmentAttemptEntity)
