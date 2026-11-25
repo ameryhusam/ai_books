@@ -188,7 +188,14 @@ class DirectWorkspaceBinder(private val context: Context) {
                 continue
             }
 
-            val fallbackTitle = slot.subjectKey + (if (slot.componentKey != null) " / ${slot.componentKey}" else "")
+            val indexMetadata = indexObj["metadata"] as? JsonObject
+            val subjectName = firstNonBlank(
+                indexMetadata?.str("subjectName"),
+                manifestObj?.str("subjectName"),
+                indexObj.str("subjectName"),
+                slot.subjectKey
+            )
+            val fallbackTitle = subjectName + (if (slot.componentKey != null) " / ${slot.componentKey}" else "")
             val bookTitle = firstNonBlank(
                 manifestObj?.str("title"),
                 manifestObj?.str("bookTitle"),
@@ -294,7 +301,8 @@ class DirectWorkspaceBinder(private val context: Context) {
                     relativePath = bookRel.ifBlank { slot.bookKey },
                     lessonsCount = parsedLessons.size,
                     coverPath = resolvedCoverEntry?.uriOrPath,
-                    sourcePdfPath = resolvedBookPdfEntry?.uriOrPath
+                    sourcePdfPath = resolvedBookPdfEntry?.uriOrPath,
+                    subjectName = subjectName
                 )
             )
             lessons.addAll(parsedLessons)
