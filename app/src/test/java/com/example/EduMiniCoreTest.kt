@@ -2,6 +2,9 @@ package com.example
 
 import androidx.test.core.app.ApplicationProvider
 import androidx.room.Room
+import androidx.sqlite.db.SupportSQLiteDatabase
+import androidx.sqlite.db.SupportSQLiteOpenHelper
+import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import com.example.data.ai.AiGenerationService
 import com.example.data.ai.Indexer2PromptRegistry
 import com.example.data.ai.TemplateResponseAdapter
@@ -2804,6 +2807,60 @@ class EduMiniCoreTest {
         val malformedSchema = """{"type":"OBJECT","properties":{"prompt":{"type":"MAGIC"}}}"""
         assertTrue(TemplateOutputValidator.validateSchema(malformedSchema).isNotEmpty())
         assertTrue(TemplateOutputValidator.validateOutput("not-json", schema).isNotEmpty())
+    }
+
+
+    @Test
+    fun roomMigrations13To16PreserveRowsAndApplyLearnerAndTemplateDefaults() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val dbName = "migration-13-16-test.db"
+        context.deleteDatabase(dbName)
+        val configuration = SupportSQLiteOpenHelper.Configuration.builder(context)
+            .name(dbName)
+            .callback(object : SupportSQLiteOpenHelper.Callback(13) {
+                override fun onCreate(db: SupportSQLiteDatabase) {
+                    db.execSQL("CREATE TABLE books (rowId INTEGER NOT NULL PRIMARY KEY, workspaceId TEXT NOT NULL, bookKey TEXT NOT NULL)")
+                    db.execSQL("CREATE TABLE lessons (rowId INTEGER NOT NULL PRIMARY KEY, workspaceId TEXT NOT NULL, bookKey TEXT NOT NULL, unitKey TEXT NOT NULL, lessonKey TEXT NOT NULL)")
+                    db.execSQL("CREATE TABLE lesson_progress (workspace_id TEXT NOT NULL, book_key TEXT NOT NULL, unit_key TEXT NOT NULL, lesson_key TEXT NOT NULL, completed INTEGER NOT NULL, points_earned INTEGER NOT NULL, completed_at TEXT, PRIMARY KEY(workspace_id, book_key, unit_key, lesson_key))")
+                    db.execSQL("CREATE TABLE study_days (activity_date TEXT NOT NULL PRIMARY KEY, actions_count INTEGER NOT NULL, last_updated_at TEXT NOT NULL)")
+                    db.execSQL("CREATE TABLE assessment_attempts (id TEXT NOT NULL PRIMARY KEY, workspace_id TEXT NOT NULL, completed_at TEXT NOT NULL)")
+                    db.execSQL("CREATE TABLE prompt_templates (id TEXT NOT NULL PRIMARY KEY)")
+                    db.execSQL("CREATE TABLE generation_drafts (id TEXT NOT NULL PRIMARY KEY)")
+                    db.execSQL("INSERT INTO books (rowId, workspaceId, bookKey) VALUES (1, 'ws', 'SCI'), (2, 'ws', 'SCI')")
+                    db.execSQL("INSERT INTO lessons (rowId, workspaceId, bookKey, unitKey, lessonKey) VALUES (1, 'ws', 'SCI', 'u1', 'l1'), (2, 'ws', 'SCI', 'u1', 'l1')")
+                    db.execSQL("INSERT INTO lesson_progress VALUES ('ws', 'SCI', 'u1', 'l1', 1, 50, '2026-11-25T10:00:00Z')")
+                    db.execSQL("INSERT INTO study_days VALUES ('2026-11-25', 3, '2026-11-25T10:00:00Z')")
+                    db.execSQL("INSERT INTO assessment_attempts (id, workspace_id, completed_at) VALUES ('attempt-1', 'ws', '2026-11-25T10:00:00Z')")
+                    db.execSQL("INSERT INTO prompt_templates (id) VALUES ('template-1')")
+                    db.execSQL("INSERT INTO generation_drafts (id) VALUES ('draft-1')")
+                }
+                override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+            })
+            .build()
+        val helper = FrameworkSQLiteOpenHelperFactory().create(configuration)
+        try {
+            val db = helper.writableDatabase
+            EduMiniDatabase.MIGRATION_13_14.migrate(db)
+            EduMiniDatabase.MIGRATION_14_15.migrate(db)
+            EduMiniDatabase.MIGRATION_15_16.migrate(db)
+
+            fun scalar(sql: String): Int = db.query(sql).use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                cursor.getInt(0)
+            }
+            assertEquals(1, scalar("SELECT COUNT(*) FROM books"))
+            assertEquals(1, scalar("SELECT COUNT(*) FROM lessons"))
+            assertEquals(1, scalar("SELECT rowId FROM books"))
+            assertEquals(1, scalar("SELECT rowId FROM lessons"))
+            assertEquals(1, scalar("SELECT COUNT(*) FROM lesson_progress WHERE user_id = 'learner_default' AND completed = 1 AND points_earned = 50"))
+            assertEquals(1, scalar("SELECT COUNT(*) FROM study_days WHERE user_id = 'learner_default' AND actions_count = 3"))
+            assertEquals(1, scalar("SELECT COUNT(*) FROM assessment_attempts WHERE user_id = 'learner_default'"))
+            assertEquals(1, scalar("SELECT COUNT(*) FROM prompt_templates WHERE response_schema_json = '' AND response_mapping_json = '' AND response_format = 'text' AND source_attachment_mode = 'pdf_native' AND version = 1"))
+            assertEquals(1, scalar("SELECT COUNT(*) FROM generation_drafts WHERE template_id = '' AND template_version = 1 AND response_schema_hash = '' AND request_fingerprint = '' AND content_hash = '' AND source_pdf_hash = ''"))
+        } finally {
+            helper.close()
+            context.deleteDatabase(dbName)
+        }
     }
 
 }
