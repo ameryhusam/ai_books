@@ -1526,7 +1526,13 @@ class EduMiniRepository(
                     status = d.status,
                     version = d.version,
                     sourcePages = d.sourcePages,
-                    sourceHash = d.sourceHash
+                    sourceHash = d.sourceHash,
+                    templateId = d.templateId,
+                    templateVersion = d.templateVersion,
+                    responseSchemaHash = d.responseSchemaHash,
+                    requestFingerprint = d.requestFingerprint,
+                    contentHash = d.contentHash,
+                    sourcePdfHash = d.sourcePdfHash
                 )
             )
         }
@@ -1671,7 +1677,12 @@ class EduMiniRepository(
                     title = t.title,
                     task = t.task,
                     instructions = t.instructions,
-                    createdAt = t.createdAt
+                    createdAt = t.createdAt,
+                    responseSchemaJson = t.responseSchemaJson,
+                    responseMappingJson = t.responseMappingJson,
+                    responseFormat = t.responseFormat,
+                    sourceAttachmentMode = t.sourceAttachmentMode,
+                    version = t.version
                 )
             )
         }
