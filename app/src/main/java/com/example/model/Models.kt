@@ -271,7 +271,13 @@ data class DraftRecord(
     val status: String = DraftStatus.DRAFT.id,
     val version: Int = 1,
     val sourcePages: String? = null,
-    val sourceHash: String? = null
+    val sourceHash: String? = null,
+    val templateId: String = "",
+    val templateVersion: Int = 1,
+    val responseSchemaHash: String = "",
+    val requestFingerprint: String = "",
+    val contentHash: String = "",
+    val sourcePdfHash: String = ""
 )
 
 data class GenerationRunRecord(
