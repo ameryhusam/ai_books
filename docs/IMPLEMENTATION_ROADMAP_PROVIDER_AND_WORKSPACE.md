@@ -46,7 +46,7 @@ Implemented on `feat/provider-isolation-local-workspace`:
 - Filtered active provider profiles before generation. Gemini requests can only use Gemini profiles and OpenAI requests can only use OpenAI-compatible profiles.
 - Restricted PDF attachment preparation to the selected provider's supported path: native PDF for Gemini; rendered page images for OpenAI-compatible endpoints.
 - Added `ProviderRoutingPolicy` to centralize provider-scoped profile ordering and model fallback candidates.
-- On Gemini HTTP 429, apply a model-scoped cooldown (profile + model) and immediately try the next configured Gemini model/key; sibling models on the same key remain eligible. Quota-exhausted keys are marked and skipped.
+- On Gemini HTTP 429, apply an in-memory model-scoped cooldown (profile + model) and immediately try the next configured Gemini model/key; sibling models on the same key remain eligible. Cooldown state currently resets when the process restarts. Quota-exhausted keys are marked and skipped.
 - Transient non-429 failures use bounded exponential backoff with jitter; every actual dispatch reserves its own request slot.
 - Added tests for provider isolation, strict-model behavior, and persistence of the selected provider.
 - Added the missing `MessageDigest` import in `AiGenerationService.kt`.
