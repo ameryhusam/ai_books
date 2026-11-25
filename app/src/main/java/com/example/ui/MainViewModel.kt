@@ -115,6 +115,7 @@ data class MainUiState(
     val selectedBookKey: String = "",
     val selectedLesson: LessonRef? = null,
     val task: TaskType = TaskType.QUESTIONS,
+    val activePromptTemplateId: String = "",
     val questionCount: Int = 5,
     val questionStyle: String = "متنوعة",
     val questionDifficulty: QuestionDifficulty = QuestionDifficulty.MEDIUM,
@@ -1061,9 +1062,10 @@ class MainViewModel(
                     extra = taskInstructions,
                     providers = snapshot.providers,
                     questionCount = 5,
-                    attachPdfPages = false,
+                    attachPdfPages = true,
                     questionStyleHint = if (task == TaskType.QUESTIONS) "أسئلة تشخيصية تكيفية ومشتتات قائمة على الخطأ" else "",
-                    difficultyHint = if (task == TaskType.QUESTIONS) "متدرجة من التأسيسي إلى التطبيق" else ""
+                    difficultyHint = if (task == TaskType.QUESTIONS) "متدرجة من التأسيسي إلى التطبيق" else "",
+                    template = promptTemplates.value.firstOrNull { it.task == task }
                 )
                 val draft = repository.persistDraft(
                     workspaceId = workspace.workspaceId,
@@ -1074,7 +1076,8 @@ class MainViewModel(
                     text = output.text,
                     title = "علاج المفهوم: $conceptTitle",
                     sourceText = evidence,
-                    status = DraftStatus.DRAFT
+                    status = DraftStatus.DRAFT,
+                    generation = output
                 )
                 firestoreSync.upsertDraft(currentUserId, draft)
 
@@ -1209,6 +1212,7 @@ class MainViewModel(
         _uiState.update { state ->
             state.copy(
                 task = template.task,
+                activePromptTemplateId = template.id,
                 extraInstructions = template.instructions,
                 page = if (openStudio) AppPage.STUDIO else state.page,
                 toastMessage = "تم تطبيق قالب «${template.title}»"
@@ -1346,7 +1350,8 @@ class MainViewModel(
     }
 
     fun selectTask(task: TaskType) {
-        _uiState.update { it.copy(task = task) }
+        val defaultTemplate = promptTemplates.value.firstOrNull { it.task == task }
+        _uiState.update { it.copy(task = task, activePromptTemplateId = defaultTemplate?.id.orEmpty()) }
     }
 
     fun updateQuestionCount(count: Int) {
@@ -1748,10 +1753,10 @@ class MainViewModel(
         }
     }
 
-    fun savePromptTemplate(title: String, task: TaskType, instructions: String) {
+    fun savePromptTemplate(title: String, task: TaskType, instructions: String, responseSchemaJson: String) {
         if (title.isBlank() || instructions.isBlank()) return
         viewModelScope.launch {
-            repository.savePromptTemplate(title, task, instructions)
+            repository.savePromptTemplate(title, task, instructions, responseSchemaJson = responseSchemaJson, responseFormat = if (responseSchemaJson.isBlank()) "text" else "json")
             _uiState.update {
                 it.copy(alert = AlertMessage("تم الحفظ", "تمت إضافة قالب التوجيه «${title.trim()}»."))
             }
@@ -2476,7 +2481,9 @@ class MainViewModel(
                     questionCount = snapshot.questionCount,
                     attachPdfPages = snapshot.attachPdfPages,
                     questionStyleHint = snapshot.questionStyle.takeIf { snapshot.task == TaskType.QUESTIONS && it != "متنوعة" }.orEmpty(),
-                    difficultyHint = if (snapshot.task == TaskType.QUESTIONS) snapshot.questionDifficulty.labelAr else ""
+                    difficultyHint = if (snapshot.task == TaskType.QUESTIONS) snapshot.questionDifficulty.labelAr else "",
+                    template = promptTemplates.value.firstOrNull { it.id == snapshot.activePromptTemplateId }
+                        ?: promptTemplates.value.firstOrNull { it.task == snapshot.task }
                 )
                 val wsId = snapshot.workspace?.workspaceId.orEmpty()
                 val persistedDraft = repository.persistDraft(
@@ -2488,7 +2495,8 @@ class MainViewModel(
                     text = out.text,
                     title = lesson.title,
                     sourceText = snapshot.sourceText,
-                    status = DraftStatus.DRAFT
+                    status = DraftStatus.DRAFT,
+                    generation = out
                 )
                 firestoreSync.upsertDraft(currentUserId, persistedDraft)
                 val syncedQuestionsCount = if (snapshot.task == TaskType.QUESTIONS) {
