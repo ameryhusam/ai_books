@@ -71,7 +71,8 @@ class AiGenerationService(
         attachedPdfPagesCount: Int = 0,
         questionStyleHint: String = "",
         difficultyHint: String = "",
-        responseSchemaJson: String = ""
+        responseSchemaJson: String = "",
+        responseFormat: String = "text"
     ): String {
         val blueprint = Indexer2PromptRegistry.blueprintFor(task)
         val promptTemplate = context?.let { appContext ->
@@ -90,7 +91,8 @@ class AiGenerationService(
         questionStyleHint = questionStyleHint,
         difficultyHint = difficultyHint,
         promptTemplate = promptTemplate,
-        responseSchemaJson = responseSchemaJson
+        responseSchemaJson = responseSchemaJson,
+        responseFormat = responseFormat
         )
     }
 
@@ -219,7 +221,8 @@ class AiGenerationService(
             attachedPdfPagesCount = if (!pdfDocumentBase64.isNullOrBlank()) 1 else pdfPageImagesBase64.size,
             questionStyleHint = questionStyleHint,
             difficultyHint = difficultyHint,
-            responseSchemaJson = responseSchemaJson
+            responseSchemaJson = responseSchemaJson,
+            responseFormat = responseFormat
         )
         val errors = mutableListOf<String>()
 
