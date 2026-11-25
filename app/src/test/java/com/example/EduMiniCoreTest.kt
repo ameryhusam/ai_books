@@ -115,6 +115,62 @@ class EduMiniCoreTest {
     }
 
     @Test
+    fun workspaceContractValidatorBlocksUnverifiedIndexer2Source() {
+        val index = """
+            {
+              "gradeKey": "G04",
+              "subjectKey": "SCI",
+              "approvalStatus": "APPROVED",
+              "sourceLayout": "MERGED_PARTS_FILE",
+              "units": [{
+                "unitNumber": 1,
+                "title": "الوحدة الأولى",
+                "partKey": "P01",
+                "assignmentStatus": "assigned",
+                "lessons": [{
+                  "lessonNumber": 1,
+                  "title": "الدرس الأول",
+                  "pdfPageStart": 2,
+                  "pdfPageEnd": 5,
+                  "sliceFile": {"workspaceUri": "workspace/G04/SCI/P01/units/unit_01/lesson_01.pdf"}
+                }]
+              }]
+            }
+        """.trimIndent()
+        val indexHash = MessageDigest.getInstance("SHA-256").digest(index.toByteArray())
+            .joinToString("") { "%02x".format(it) }
+        val manifest = """
+            {
+              "manifestVersion": "edu.book_manifest.v1",
+              "gradeKey": "G04",
+              "subjectKey": "SCI",
+              "sourceLayout": "MERGED_PARTS_FILE",
+              "sourceReviewStatus": "NEEDS_REVIEW",
+              "sourceSha256": "${"a".repeat(64)}",
+              "indexSha256": "$indexHash"
+            }
+        """.trimIndent()
+        val result = com.example.data.workspace.WorkspaceContractValidator.validate(
+            indexRaw = index,
+            manifestRaw = manifest,
+            expectedGrade = "G04",
+            expectedSubject = "SCI",
+            bookRelativePath = "workspace/G04/SCI",
+            availableRelativePaths = setOf("workspace/G04/SCI/P01/units/unit_01/lesson_01.pdf")
+        )
+        assertFalse(result.isValid)
+        assertTrue(result.errors.any { it.contains("sourceReviewStatus") })
+    }
+
+    @Test
+    fun workspaceContractValidatorUsesSourceNumbersInsteadOfArrayPosition() {
+        val unit = Json.parseToJsonElement("""{"unitNumber":7,"title":"الوحدة"}""").jsonObject
+        val lesson = Json.parseToJsonElement("""{"lessonNumber":12,"title":"درس"}""").jsonObject
+        assertEquals("unit_07", com.example.data.workspace.WorkspaceContractValidator.sourceUnitKey(unit))
+        assertEquals("lesson_12", com.example.data.workspace.WorkspaceContractValidator.sourceLessonKey(lesson))
+    }
+
+    @Test
     fun importerRejectsZipSlipPath() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val importer = WorkspaceImporter(context)
