@@ -117,7 +117,7 @@ fun LearnerMasteryScreen(
         }
         item {
             Text(
-                "يظهر هنا ملخص تقدمك فقط. تفاصيل الإجابات والمفاهيم التي تحتاج متابعة تُستخدم لمساعدتك في خطة التعلم ويطلع عليها ولي الأمر أو المعلم.",
+                "كل تدريب يساعدنا على اختيار مراجعة تناسب تقدمك. ركّز على خطوتك القادمة واستمتع بالتعلّم.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
