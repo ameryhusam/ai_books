@@ -10,7 +10,6 @@ import java.time.DayOfWeek
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
-import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.time.temporal.TemporalAdjusters
 import java.util.Locale
@@ -26,7 +25,8 @@ object LearningProgressAnalytics {
         questions: List<QuestionItem>,
         attempts: List<QuestionAttemptRecord>,
         assessments: List<AssessmentAttemptRecord>,
-        now: Instant = Instant.now()
+        now: Instant = Instant.now(),
+        zoneId: ZoneId = ZoneId.systemDefault()
     ): LearningProgressReport {
         val questionById = questions.associateBy { it.id }
         val ordered = attempts
@@ -53,7 +53,7 @@ object LearningProgressAnalytics {
             val latestByQuestion = rows.groupBy { it.questionId }.values.mapNotNull { group ->
                 group.maxByOrNull { parseInstant(it.answeredAt) ?: Instant.MIN }
             }
-            val days = rows.mapNotNull { parseInstant(it.answeredAt)?.atZone(ZoneOffset.UTC)?.toLocalDate() }.distinct()
+            val days = rows.mapNotNull { parseInstant(it.answeredAt)?.atZone(zoneId)?.toLocalDate() }.distinct()
             latestByQuestion.size >= MIN_QUESTIONS_FOR_STABILITY &&
                 days.size >= 2 &&
                 latestByQuestion.count { it.isCorrect } * 100 >= latestByQuestion.size * STABLE_ACCURACY_PERCENT
@@ -108,7 +108,7 @@ object LearningProgressAnalytics {
             .sorted()
 
         val reinforcementImpact = calculateReinforcementImpact(ordered)
-        val weekly = calculateWeeklyAssessments(assessments, now)
+        val weekly = calculateWeeklyAssessments(assessments, now, zoneId)
 
         return LearningProgressReport(
             questionAttemptsCount = ordered.size,
@@ -165,9 +165,10 @@ object LearningProgressAnalytics {
 
     private fun calculateWeeklyAssessments(
         attempts: List<AssessmentAttemptRecord>,
-        now: Instant
+        now: Instant,
+        zoneId: ZoneId
     ): List<WeeklyAssessmentSummary> {
-        val reportZone = ZoneId.systemDefault()
+        val reportZone = zoneId
         val currentWeek = now.atZone(reportZone).toLocalDate()
             .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
         val earliestWeek = currentWeek.minusWeeks(WEEK_WINDOW - 1L)
