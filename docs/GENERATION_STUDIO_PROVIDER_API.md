@@ -10,6 +10,16 @@ Generation Studio is the core feature, rebuilt for Edu Mini. Notebook-like flow:
 - Runtime settings return masked keys; raw keys are not exposed. UI supports add/enable/disable/delete key profiles.
 - Edu Mini should reproduce the provider/model fallback strategy, not the `.env` management interface.
 
+
+## Current implementation notes (2026-11-25)
+
+- Gemini receives the original lesson PDF as `application/pdf` inline data beside the prompt. OpenAI-compatible chat endpoints receive rendered page images because there is no portable PDF part in the common Chat Completions contract.
+- Response schema, response field mapping, output format and template version are stored with each prompt template. Gemini gets a provider-native `responseSchema` when the stored JSON is a supported schema object; all providers also receive the contract in the assembled prompt.
+- The adapter maps provider field names into the app's canonical question/activity payload before existing parsers persist it.
+- Per-key request quota, timezone reset, atomic request reservation, status tracking and least-recently-used rotation are persisted in the encrypted provider store.
+- Generation drafts retain template/model/source/content fingerprints locally and in full local backups. Firestore draft sync does not yet carry these provenance fields.
+- Persistent lesson text/JSON snapshots remain a future optional feature. Current source-of-truth remains the PDF reference plus workspace index.
+
 ## Provider profiles
 Initial providers: Gemini REST and OpenAI-compatible chat completions with configurable base URL. A profile has label, provider, model, endpoint (compatible API), API key, enabled state, and priority. Store profiles in Android SecureStore; never commit API keys. Keys are masked. Direct-from-device API is acceptable for a personal prototype only—keys can be extracted from APK. Public distribution requires a secure backend.
 
