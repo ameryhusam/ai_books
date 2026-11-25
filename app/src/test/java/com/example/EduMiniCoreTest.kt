@@ -168,6 +168,15 @@ class EduMiniCoreTest {
         val lesson = Json.parseToJsonElement("""{"lessonNumber":12,"title":"درس"}""").jsonObject
         assertEquals("unit_07", com.example.data.workspace.WorkspaceContractValidator.sourceUnitKey(unit))
         assertEquals("lesson_12", com.example.data.workspace.WorkspaceContractValidator.sourceLessonKey(lesson))
+
+        val p01Unit = Json.parseToJsonElement("""{"unitNumber":1,"partKey":"P01"}""").jsonObject
+        val p02Unit = Json.parseToJsonElement("""{"unitNumber":1,"partKey":"P02"}""").jsonObject
+        assertEquals("P01_unit_01", com.example.data.workspace.WorkspaceContractValidator.sourceUnitKey(p01Unit))
+        assertEquals("P02_unit_01", com.example.data.workspace.WorkspaceContractValidator.sourceUnitKey(p02Unit))
+        assertEquals(
+            "unit_01",
+            com.example.data.workspace.WorkspaceContractValidator.sourceUnitFolderKey(p01Unit)
+        )
     }
 
     @Test
