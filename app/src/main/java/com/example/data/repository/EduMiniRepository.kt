@@ -461,6 +461,10 @@ class EduMiniRepository(
             responseSchemaHash = schemaHash,
             requestFingerprint = requestSeedHash,
             sourcePdfHash = pdfHash,
+            onReserveProvider = { profile -> providerStorage.reserveProviderKey(profile.id) },
+            onProviderStateChanged = { providerId, status, retryAfter ->
+                providerStorage.updateProviderRuntimeState(providerId, status, retryAfter)
+            },
             questionStyleHint = questionStyleHint,
             difficultyHint = difficultyHint,
             onAttemptFinished = { providerLabel, model, success, error ->
