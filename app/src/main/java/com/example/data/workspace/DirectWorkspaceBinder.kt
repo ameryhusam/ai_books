@@ -271,6 +271,7 @@ class DirectWorkspaceBinder(private val context: Context) {
                     manifestRelativePath = manifestEntry?.relativePath,
                     indexSha256 = sha256(indexRaw),
                     manifestSha256 = manifestRaw?.let(::sha256),
+                    sourceSha256 = manifestObj?.str("sourceSha256")?.takeIf { it.isNotBlank() },
                     indexSchemaVersion = firstNonBlank(indexObj.str("indexVersion"), indexObj.str("schemaVersion")).takeIf { it.isNotBlank() },
                     manifestVersion = manifestObj?.str("manifestVersion")?.takeIf { it.isNotBlank() },
                     lastSyncedAt = syncTimestamp
