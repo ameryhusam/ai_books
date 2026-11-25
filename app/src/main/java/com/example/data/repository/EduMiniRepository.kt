@@ -575,7 +575,7 @@ class EduMiniRepository(
             templateVersion = generation?.templateVersion ?: 1,
             responseSchemaHash = generation?.responseSchemaHash.orEmpty(),
             requestFingerprint = generation?.requestFingerprint.orEmpty(),
-            contentHash = generation?.contentHash ?: sha256Full(text),
+            contentHash = generation?.contentHash?.takeIf { it.isNotBlank() } ?: sha256Full(text),
             sourcePdfHash = generation?.sourcePdfHash.orEmpty()
         )
         dao.insertDraft(
