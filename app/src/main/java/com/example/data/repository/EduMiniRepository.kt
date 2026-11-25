@@ -371,6 +371,16 @@ class EduMiniRepository(
         providerStorage.saveProviders(providers)
     }
 
+    suspend fun setProviderEnabled(providerId: String, enabled: Boolean): List<ProviderConfig> {
+        providerStorage.setProviderEnabled(providerId, enabled)
+        return providerStorage.loadProviders()
+    }
+
+    suspend fun reactivateProvider(providerId: String): List<ProviderConfig> {
+        providerStorage.manuallyReactivateProvider(providerId)
+        return providerStorage.loadProviders()
+    }
+
     suspend fun testProviderConnection(profile: ProviderConfig): String {
         return aiGenerationService.testProviderConnection(profile)
     }
