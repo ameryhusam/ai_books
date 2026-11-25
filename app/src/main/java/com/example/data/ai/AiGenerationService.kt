@@ -7,7 +7,6 @@ import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
 import android.util.Base64
 import com.example.data.workspace.UriIO
-import com.example.data.ai.PromptPrivacySanitizer
 import com.example.model.GeneratedResult
 import com.example.model.LessonRef
 import com.example.model.ProviderConfig
