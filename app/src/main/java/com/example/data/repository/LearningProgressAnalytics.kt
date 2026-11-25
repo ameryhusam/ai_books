@@ -9,6 +9,7 @@ import com.example.model.QuestionItem
 import java.time.DayOfWeek
 import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneId
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.time.temporal.TemporalAdjusters
@@ -166,11 +167,12 @@ object LearningProgressAnalytics {
         attempts: List<AssessmentAttemptRecord>,
         now: Instant
     ): List<WeeklyAssessmentSummary> {
-        val currentWeek = now.atZone(ZoneOffset.UTC).toLocalDate()
+        val reportZone = ZoneId.systemDefault()
+        val currentWeek = now.atZone(reportZone).toLocalDate()
             .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
         val earliestWeek = currentWeek.minusWeeks(WEEK_WINDOW - 1L)
         return attempts.mapNotNull { attempt ->
-            val date = parseInstant(attempt.completedAt)?.atZone(ZoneOffset.UTC)?.toLocalDate()
+            val date = parseInstant(attempt.completedAt)?.atZone(reportZone)?.toLocalDate()
                 ?: return@mapNotNull null
             val week = date.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
             if (week.isBefore(earliestWeek) || week.isAfter(currentWeek)) null else week to attempt
