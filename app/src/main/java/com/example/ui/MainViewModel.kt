@@ -271,9 +271,9 @@ class MainViewModel(
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val workspaceAttempts: StateFlow<List<AssessmentAttemptRecord>> = _uiState
-        .map { it.workspace?.workspaceId.orEmpty() }
+        .map { it.workspace?.workspaceId.orEmpty() to it.activeLearner.userId }
         .distinctUntilChanged()
-        .flatMapLatest { wsId -> repository.observeAssessmentAttempts(wsId) }
+        .flatMapLatest { (wsId, userId) -> repository.observeAssessmentAttempts(wsId, userId) }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
@@ -1650,8 +1650,9 @@ class MainViewModel(
     }
 
     fun recordQuizCompleted(correct: Int, total: Int, earnedXp: Int) {
+        val activeUserId = _uiState.value.activeLearner.userId
         viewModelScope.launch {
-            repository.recordStudyActivity()
+            repository.recordStudyActivity(userId = activeUserId)
             _uiState.update {
                 it.copy(
                     alert = AlertMessage(
@@ -1706,6 +1707,7 @@ class MainViewModel(
         durationSeconds: Int,
         earnedXp: Int
     ) {
+        val activeUserId = _uiState.value.activeLearner.userId
         viewModelScope.launch {
             val record = repository.recordAssessmentAttempt(
                 assessment = assessment,
@@ -1713,7 +1715,8 @@ class MainViewModel(
                 totalQuestions = totalQuestions,
                 scorePercent = scorePercent,
                 durationSeconds = durationSeconds,
-                earnedXp = earnedXp
+                earnedXp = earnedXp,
+                userId = activeUserId
             )
             val passLabel = if (record.passed) "اجتزت التقييم بنجاح" else "لم تصل لدرجة النجاح (${assessment.passScorePercent}%)"
             _uiState.update {
