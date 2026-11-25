@@ -444,9 +444,23 @@ class EduMiniRepository(
         require(effectiveSource.isNotBlank() || pdfPayload != null || pageImages.isNotEmpty()) {
             "لم يتم تجهيز نص أو ملف PDF صالح؛ تحقق من مسار ملف الدرس ثم أعد المحاولة."
         }
-        val activeTemplate = template ?: DEFAULT_PROMPT_TEMPLATES.firstOrNull { it.task == task }
-        val responseSchema = activeTemplate?.responseSchemaJson
-            ?: Indexer2PromptRegistry.blueprintFor(task).schemaSnippet
+        val activeTemplate = template ?: dao.observePromptTemplates().first()
+            .firstOrNull { it.task == task.id }
+            ?.let { entity ->
+                PromptTemplateRecord(
+                    id = entity.id,
+                    title = entity.title,
+                    task = TaskType.fromId(entity.task),
+                    instructions = entity.instructions,
+                    isBuiltIn = entity.id.startsWith("builtin_"),
+                    responseSchemaJson = entity.responseSchemaJson,
+                    responseMappingJson = entity.responseMappingJson,
+                    responseFormat = entity.responseFormat,
+                    sourceAttachmentMode = entity.sourceAttachmentMode,
+                    version = entity.version
+                )
+            }
+        val responseSchema = activeTemplate?.responseSchemaJson.orEmpty()
         val responseFormat = activeTemplate?.responseFormat
             ?: if (responseSchema.isNotBlank()) "json" else "text"
         val templateInstructions = activeTemplate?.instructions.orEmpty().trim()
