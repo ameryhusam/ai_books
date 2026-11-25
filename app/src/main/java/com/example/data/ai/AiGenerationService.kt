@@ -19,6 +19,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
@@ -390,7 +391,7 @@ class AiGenerationService(
                         json.parseToJsonElement(responseSchemaJson).jsonObject
                     }.getOrNull()?.takeIf { schema ->
                         schema["type"] != null && schema["properties"] != null
-                    }
+                    }?.let { normalizeGeminiSchema(it) as? JsonObject }
                     if (providerSchema != null) put("responseSchema", providerSchema)
                 }
             })
@@ -544,6 +545,15 @@ class AiGenerationService(
                 }
             })
         }
+
+    private fun normalizeGeminiSchema(element: JsonElement): JsonElement = when (element) {
+        is JsonObject -> JsonObject(element.mapValues { (key, value) ->
+            if (key == "type" && value is JsonPrimitive) JsonPrimitive(value.content.uppercase())
+            else normalizeGeminiSchema(value)
+        })
+        is JsonArray -> JsonArray(element.map(::normalizeGeminiSchema))
+        else -> element
+    }
 
     private fun retryAfterEpochMs(response: Response): Long {
         val seconds = response.header("Retry-After")?.toLongOrNull()
