@@ -450,7 +450,7 @@ private fun AuthenticatedEduMiniContent(
                                             concepts = conceptSummaries,
                                             questions = workspaceQuestions,
                                             questionStats = questionStats,
-                                            totalPoints = dashboardSummary.totalPoints,
+                                            totalPoints = dashboardSummary.learnerPoints,
                                             onLaunchReinforcement = viewModel::launchConceptReinforcement,
                                             activeLearner = state.activeLearner,
                                             learningProgressReport = learningProgressReport
