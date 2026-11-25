@@ -155,7 +155,7 @@ data class BackupPromptTemplateDto(
 
 @Serializable
 data class EduMiniBackupBundle(
-    val formatVersion: String = "edu-mini-backup-1.1",
+    val formatVersion: String = "edu-mini-backup-1.2",
     val exportedAt: String = "",
     val workspaceId: String = "",
     val drafts: List<BackupDraftDto> = emptyList(),
