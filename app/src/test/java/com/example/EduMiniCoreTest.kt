@@ -2462,7 +2462,7 @@ class EduMiniCoreTest {
 
             val nextDay = java.time.Instant.parse("2026-11-26T00:01:00Z").toEpochMilli()
             assertTrue(storage.reserveProviderKey(provider.id, nextDay))
-            assertEquals(1, storage.loadProviders().single().dailyRequestsUsed)
+            assertFalse(storage.reserveProviderKey(provider.id, nextDay + 60_000L))
         }
     }
 
