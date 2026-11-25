@@ -421,3 +421,17 @@ The latest Android CI run observed during this pass is [run 45715165859](https:/
   - `4d06003` analytics exclusion.
   - `34da389` regression test.
 - **Verification boundary:** no Gradle compile or test execution was performed. Source-level integration was checked against the existing callback and ViewModel method signatures; runtime behavior remains unverified.
+
+## 2026-11-26 — P2 continuation: strict template output validation
+
+- Added `TemplateOutputValidator` for the JSON Schema subset used by persisted JSON templates: root/object/array types, nested properties, required fields, array items, enum values, and `additionalProperties`.
+- JSON templates are checked before the provider request. An invalid/empty schema raises `INVALID_TEMPLATE_SCHEMA` and does not send a generation request.
+- Provider output is checked against the selected template schema before response mapping and before it can be returned to the caller for draft persistence.
+- Invalid provider JSON or schema mismatch raises `INVALID_AI_OUTPUT`; a `VALIDATION_FAILED` generation-run record is also written with bounded issue text for diagnosis.
+- Added tests for a valid nested schema/output, wrong field type, malformed schema, and malformed AI JSON.
+- Commits:
+  - `197854b` — validator implementation.
+  - `1a93946` — validation gates in repository generation flow.
+  - `c7a89fc` — validator regression tests.
+- **Scope note:** this validator enforces the structural keyword subset listed above; it is not a full JSON Schema implementation. Constraints outside that subset are not claimed as enforced.
+- **Verification boundary:** no Gradle compilation or test execution was performed. The new validator and tests are source changes pending local build verification.
