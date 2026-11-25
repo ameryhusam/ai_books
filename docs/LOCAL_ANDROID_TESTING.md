@@ -23,7 +23,7 @@ These focused tests exercise:
 - A science index at `G07/SCI/index.json` with no component.
 - English Course and Workbook indexes at `G07/ENG/COURSE/index.json` and `G07/ENG/WORKBOOK/index.json`.
 - Social Studies indexes at `G07/SOC/GEO/index.json`, `G07/SOC/HIST/index.json`, and `G07/SOC/TARBIA/index.json`.
-- Index/manifest component identity, PDF references, grade discovery, and zero-copy binding.
+- Index/manifest component identity, nested component-root binding, grade discovery, and zero-copy binding.
 
 ## Run the full JVM unit-test suite
 
