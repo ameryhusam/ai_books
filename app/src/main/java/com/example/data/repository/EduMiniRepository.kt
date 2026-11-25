@@ -5,6 +5,7 @@ import android.net.Uri
 import com.example.data.ai.AiGenerationService
 import com.example.data.ai.Indexer2PromptRegistry
 import com.example.data.ai.TemplateResponseAdapter
+import com.example.data.ai.TemplateOutputValidator
 import com.example.data.local.AssessmentAttemptEntity
 import com.example.data.local.AssessmentEntity
 import com.example.data.local.BookEntity
@@ -455,6 +456,15 @@ class EduMiniRepository(
         val responseSchema = activeTemplate?.responseSchemaJson.orEmpty()
         val responseFormat = activeTemplate?.responseFormat
             ?: if (responseSchema.isNotBlank()) "json" else "text"
+        if (responseFormat.equals("json", ignoreCase = true)) {
+            val schemaIssues = TemplateOutputValidator.validateSchema(responseSchema)
+            if (schemaIssues.isNotEmpty()) {
+                throw TemplateOutputValidator.ValidationException(
+                    TemplateOutputValidator.FailureCode.INVALID_TEMPLATE_SCHEMA,
+                    schemaIssues
+                )
+            }
+        }
         val templateInstructions = activeTemplate?.instructions.orEmpty().trim()
         val effectiveExtra = if (templateInstructions.isNotBlank() && extra.contains(templateInstructions)) {
             extra.trim()
@@ -528,6 +538,30 @@ class EduMiniRepository(
             }
         )
         onProgress(88, "التحقق من الاستجابة ومواءمة الحقول مع نموذج التطبيق")
+        if (responseFormat.equals("json", ignoreCase = true)) {
+            val outputIssues = TemplateOutputValidator.validateOutput(result.text, responseSchema)
+            if (outputIssues.isNotEmpty()) {
+                dao.insertGenerationRun(
+                    GenerationRunEntity(
+                        id = "run-validation-" + System.currentTimeMillis() + "-" + UUID.randomUUID().toString().take(6),
+                        workspaceId = workspaceId.ifBlank { lesson.rootPath },
+                        lessonKey = lesson.lessonKey,
+                        task = task.id,
+                        providerLabel = result.providerLabel,
+                        model = result.model,
+                        status = "VALIDATION_FAILED",
+                        errorSummary = outputIssues.joinToString("; ").take(220),
+                        createdAt = Instant.now().toString(),
+                        durationMs = result.durationMs.coerceAtLeast(1L),
+                        tokensUsed = result.tokensUsed
+                    )
+                )
+                throw TemplateOutputValidator.ValidationException(
+                    TemplateOutputValidator.FailureCode.INVALID_AI_OUTPUT,
+                    outputIssues
+                )
+            }
+        }
         val adaptedText = TemplateResponseAdapter.adapt(result.text, activeTemplate?.responseMappingJson.orEmpty())
         onProgress(96, "حساب بصمات المصدر والقالب والمحتوى")
         return if (adaptedText == result.text) result else result.copy(
