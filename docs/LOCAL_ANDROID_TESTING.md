@@ -12,20 +12,22 @@ Linux / macOS:
   --tests "com.example.EduMiniCoreTest.directWorkspaceBinderRejectsComponentKeyThatConflictsWithIndexPath" \
   --tests "com.example.EduMiniCoreTest.directWorkspaceCatalogSyncUpdatesIndexAndUnitRowsWithoutDuplicates" \
   --tests "com.example.EduMiniCoreTest.roomEnforcesStableBookAndLessonIdentityWithinWorkspace" \
-  --tests "com.example.EduMiniCoreTest.learnerProgressStudyDaysAndAssessmentAttemptsAreIsolated"
+  --tests "com.example.EduMiniCoreTest.learnerProgressStudyDaysAndAssessmentAttemptsAreIsolated" \
+  --tests "com.example.EduMiniCoreTest.fullBackupPreservesLocalLearnerOwnership"
 ```
 
 Windows:
 
 ```bat
-gradlew.bat :app:testDebugUnitTest --tests "com.example.EduMiniCoreTest.directWorkspaceBinderInspectsMultiGradeAndBindsSingleGradeInPlaceWithoutCopying" --tests "com.example.EduMiniCoreTest.directWorkspaceBinderRejectsComponentKeyThatConflictsWithIndexPath" --tests "com.example.EduMiniCoreTest.directWorkspaceCatalogSyncUpdatesIndexAndUnitRowsWithoutDuplicates" --tests "com.example.EduMiniCoreTest.roomEnforcesStableBookAndLessonIdentityWithinWorkspace" --tests "com.example.EduMiniCoreTest.learnerProgressStudyDaysAndAssessmentAttemptsAreIsolated"
+gradlew.bat :app:testDebugUnitTest --tests "com.example.EduMiniCoreTest.directWorkspaceBinderInspectsMultiGradeAndBindsSingleGradeInPlaceWithoutCopying" --tests "com.example.EduMiniCoreTest.directWorkspaceBinderRejectsComponentKeyThatConflictsWithIndexPath" --tests "com.example.EduMiniCoreTest.directWorkspaceCatalogSyncUpdatesIndexAndUnitRowsWithoutDuplicates" --tests "com.example.EduMiniCoreTest.roomEnforcesStableBookAndLessonIdentityWithinWorkspace" --tests "com.example.EduMiniCoreTest.learnerProgressStudyDaysAndAssessmentAttemptsAreIsolated" --tests "com.example.EduMiniCoreTest.fullBackupPreservesLocalLearnerOwnership"
 ```
 
 The focused tests exercise:
 - Science indexes without a component, English COURSE/WORKBOOK components, and Social Studies GEO/HIST/TARBIA components.
 - Index/manifest component identity, nested component-root binding, grade discovery, and zero-copy binding.
-- Stable Room uniqueness for workspace/book and workspace/book/unit/lesson identities.
+- Stable Room uniqueness and preservation of book/lesson row IDs during catalog refresh.
 - Isolation of lesson completion, study-day activity, and assessment results between local learner profiles.
+- Preservation of local learner IDs and study-day counts in full backup serialization.
 
 ## Run the full JVM unit-test suite
 
@@ -53,13 +55,14 @@ On Windows use `gradlew.bat :app:assembleDebug`.
 
 ## Verify the Room 14-to-15 upgrade
 
-Before release, back up the app data on a test device that has an existing version-14 database. Install the new build without clearing app data, open the app, and verify:
+Before release, back up app data on a test device that has an existing version-14 database. Install the new build without clearing app data, open the app, and verify:
 
 1. The database opens without a Room schema-validation error.
 2. Existing progress, study days, and assessment attempts appear under the default local learner profile (`learner_default`).
 3. Two non-default learner profiles can complete the same lesson independently.
 4. Assessment history and study streaks change when switching local learner profiles.
-5. Firebase sign-in and the existing Firestore sync still work as before.
+5. Full backup export/import preserves the learner IDs and separate study-day records.
+6. Firebase sign-in and the existing Firestore sync still work as before.
 
 Do not use "Clear storage" for this upgrade test; that would bypass the migration.
 
