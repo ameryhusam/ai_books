@@ -38,6 +38,7 @@ import okhttp3.Response
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
+import java.io.InputStream
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.time.Instant
@@ -163,9 +164,9 @@ class AiGenerationService(
             "حجم PDF (${knownLength / (1024 * 1024)} MB) يتجاوز الحد المحلي ${maxBytes / (1024 * 1024)} MB؛ اختر صفحات أقل أو ملفاً أصغر."
         }
         val bytes = if (context != null) {
-            UriIO.readBytes(context, pdfPath)
+            UriIO.openInputStream(context, pdfPath)?.use { readBounded(it, maxBytes) }
         } else {
-            File(pdfPath).takeIf { it.isFile }?.readBytes()
+            File(pdfPath).takeIf { it.isFile }?.inputStream()?.use { readBounded(it, maxBytes) }
         } ?: throw IllegalStateException("تعذر قراءة ملف PDF")
         require(bytes.isNotEmpty()) { "ملف PDF فارغ" }
         require(bytes.size <= maxBytes) {
@@ -545,6 +546,22 @@ class AiGenerationService(
                 }
             })
         }
+
+    private fun readBounded(input: InputStream, maxBytes: Int): ByteArray {
+        val output = ByteArrayOutputStream()
+        val buffer = ByteArray(8 * 1024)
+        var total = 0
+        while (true) {
+            val count = input.read(buffer)
+            if (count < 0) break
+            total += count
+            require(total <= maxBytes) {
+                "حجم PDF يتجاوز الحد المحلي ${maxBytes / (1024 * 1024)} MB؛ اختر صفحات أقل أو ملفاً أصغر."
+            }
+            output.write(buffer, 0, count)
+        }
+        return output.toByteArray()
+    }
 
     private fun normalizeGeminiSchema(element: JsonElement): JsonElement = when (element) {
         is JsonObject -> JsonObject(element.mapValues { (key, value) ->
