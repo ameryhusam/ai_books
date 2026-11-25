@@ -63,7 +63,7 @@ Generated drafts now persist:
 
 The request fingerprint includes the template identity/version, task and lesson identity, page range, source PDF hash, source text, extra instructions, assembled prompt, provider and actual model. API keys are never included.
 
-The new provenance fields are included in full backups. The cloud draft contract has not yet been extended with these provenance fields, so this provenance is currently authoritative in local Room and local backup.
+The new provenance fields are included in full backups and are written as optional additive fields in Firestore cloud drafts. Older cloud draft documents remain readable because the fields have defaults. API keys and secret material are never synchronized.
 
 ### API key lifecycle
 
