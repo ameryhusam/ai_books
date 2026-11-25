@@ -142,6 +142,54 @@ test("Authenticated owner: valid Kotlin draft CRUD, partial update, and @Documen
   await assertSucceeds(draftsRef.doc("draft_1").delete());
 });
 
+test("Draft provenance: optional legacy fields, validated create, and provenance update", async () => {
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  const draftsRef = aliceDb.collection(`users/${ALICE_UID}/drafts`);
+
+  // Legacy documents remain valid because provenance fields are optional.
+  await assertSucceeds(draftsRef.doc("draft_legacy").set(buildDraftPayload(ALICE_UID)));
+
+  const provenance = {
+    templateId: "lesson-explanation-v1",
+    templateVersion: 3,
+    responseSchemaHash: "a".repeat(64),
+    requestFingerprint: "b".repeat(64),
+    contentHash: "c".repeat(64),
+    sourcePdfHash: "d".repeat(64),
+  };
+  await assertSucceeds(
+    draftsRef.doc("draft_provenance").set(buildDraftPayload(ALICE_UID, provenance))
+  );
+
+  // Match FirestoreSyncRepository.upsertDraft: content and all provenance values
+  // can be refreshed together without changing ownership or createdAt.
+  await assertSucceeds(
+    draftsRef.doc("draft_provenance").update({
+      title: "نسخة محدثة",
+      content: "محتوى جديد",
+      version: 2,
+      templateId: "lesson-explanation-v2",
+      templateVersion: 4,
+      responseSchemaHash: "e".repeat(64),
+      requestFingerprint: "f".repeat(64),
+      contentHash: "1".repeat(64),
+      sourcePdfHash: "2".repeat(64),
+      updatedAt: new Date(Date.now() - 500),
+    })
+  );
+
+  await assertFails(
+    draftsRef.doc("draft_invalid_hash").set(
+      buildDraftPayload(ALICE_UID, { ...provenance, contentHash: "not-a-sha256" })
+    )
+  );
+  await assertFails(
+    draftsRef.doc("draft_invalid_template_version").set(
+      buildDraftPayload(ALICE_UID, { ...provenance, templateVersion: 0 })
+    )
+  );
+});
+
 test("Authenticated owner: valid LessonProgress CRUD with optional notes", async () => {
   const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
   const progressRef = aliceDb.collection(`users/${ALICE_UID}/progress`);
