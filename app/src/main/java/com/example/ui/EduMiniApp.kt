@@ -455,6 +455,7 @@ private fun AuthenticatedEduMiniContent(
                                             cloudProgressState = cloudProgressState,
                                             onSyncWorkspaceToCloud = viewModel::syncWorkspaceToCloud,
                                             onBindDirectFolder = { folderPickerLauncher.launch(null) },
+                                            onRefreshIndex = viewModel::refreshDirectWorkspaceCatalog,
                                             onPickZip = {
                                                 zipPickerLauncher.launch(
                                                     arrayOf(
