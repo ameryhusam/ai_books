@@ -204,7 +204,7 @@ class AiGenerationService(
     ): GeneratedResult = withContext(Dispatchers.IO) {
         val active = providers
             .filter { it.enabled && it.apiKey.isNotBlank() && it.model.isNotBlank() }
-            .sortedWith(compareBy<ProviderConfig> { it.priority }.thenBy { it.createdAt })
+            .sortedWith(compareBy<ProviderConfig> { it.lastUsedAtEpochMs }.thenBy { it.priority }.thenBy { it.createdAt })
 
         if (active.isEmpty()) {
             throw IllegalStateException("أضف مفتاح API فعّال في الإعدادات")
@@ -242,7 +242,7 @@ class AiGenerationService(
                         val reserved = onReserveProvider?.invoke(candidateProfile) ?: true
                         if (!reserved) {
                             errors.add("${profile.label}/$modelName: المفتاح معطّل أو مقيّد أو استنفد حصته اليومية")
-                            break
+                            break@modelLoop
                         }
                         val (outputText, tokens) = callProvider(
                             profile = candidateProfile,
