@@ -303,3 +303,66 @@ Additional targeted checks:
 - Verify ZIP manifest validation still rejects path traversal, missing files, byte-count mismatches, and SHA-256 mismatches after helper deduplication.
 
 **Status:** implementation committed; compile, unit tests, and Android assembly remain pending until CI or a local Android/Gradle environment returns inspectable results.
+
+---
+
+## 10. Phase P0 — Build, reinforcement dialog, and Firestore provenance audit (2026-11-26)
+
+### 10.1 Six Kotlin files named in the AI Studio report
+
+The current `main` source was re-inspected. The following records distinguish a verified source correction from a pre-existing correct implementation; they do **not** claim a successful compiler run.
+
+| File | Audit result |
+|---|---|
+| `data/local/EduMiniDatabase.kt` | The Room singleton now explicitly returns `EduMiniDatabase`. The database version and migration declarations were not changed in this pass. |
+| `data/ai/AiGenerationService.kt` | `java.security.MessageDigest` is imported and used by the SHA-256 helpers. No second import or duplicate helper was added. Provider-specific Gemini/OpenAI routing remains separate. |
+| `data/workspace/WorkspaceImporter.kt` | `MessageDigest` is imported; exactly one `verifyExportManifest`, one `collectRelativeFiles`, and one shared `importFirstGrade` implementation are present. |
+| `ui/MainViewModel.kt` | `workspaceQuestionAttempts` is declared before `learningProgressReport`; the six active-draft provenance properties exist in `MainUiState` and are populated from generated, local, and cloud draft records. |
+| `ui/EduMiniApp.kt` | The nullable generation progress value is captured locally before it is used by the Compose progress indicator. The concept-remediation callback is passed to `DashboardScreen`, and the reinforcement dialog call at the existing integration point supplies the same five arguments as its declaration. |
+| `ui/screens/DashboardScreen.kt` | `onGenerateConceptRemediation: (String?, TaskType) -> Unit` exists and is invoked for explanation and question remediation actions. It was already wired; no duplicate callback was introduced. |
+
+### 10.2 Reinforcement dialog
+
+- `ConceptReinforcementQuizDialog.kt` is present and its signature matches the invocation in `EduMiniApp.kt`: title, question list, question statistics, attempt-recording callback, and dismiss callback.
+- It uses the existing shared answer widgets and `QuestionBankEngine.gradeQuiz`.
+- Added a completion guard so the final attempt-recording callback is submitted once per dialog session, even if the finish action is tapped repeatedly before recomposition.
+- Dismissing before completion does not call the attempt-recording callback.
+
+### 10.3 Firestore provenance contract — mismatch found and corrected
+
+The Kotlin `CloudDraft` model and `FirestoreSyncRepository.upsertDraft` already serialize these six fields:
+
+- `templateId`
+- `templateVersion`
+- `responseSchemaHash`
+- `requestFingerprint`
+- `contentHash`
+- `sourcePdfHash`
+
+The previous Firestore rules did not allow these fields in the draft `hasOnly` allowlist or in the content/provenance update allowlist. This meant valid Kotlin writes could be rejected with `PERMISSION_DENIED`. The blueprint also omitted the six properties.
+
+Corrections applied:
+
+- `firestore.rules`: added optional-field validation, create allowlist support, and update allowlist support. Template IDs are bounded to 160 characters; template versions are integers in the range 1–10000; hash values are empty or 64-character lowercase SHA-256 hex strings.
+- `firebase-blueprint.json`: added the six optional properties and matching bounds/patterns. They remain optional in `required` so older cloud drafts remain readable and valid.
+- `firestore.test.js`: retained the legacy draft case without provenance; added valid provenance create/update coverage and rejection cases for malformed SHA-256 and invalid template version.
+- `FirestoreSyncRepository.kt`: validates and normalizes SHA-256 provenance before writing, rather than truncating a potentially malformed value to 128 characters and allowing the security rules to reject it later.
+
+### 10.4 Quick audit of adjacent integration points
+
+- Confirmed the Firestore model field names and types match the Kotlin serializer and blueprint.
+- Confirmed local draft persistence computes a full SHA-256 content hash and generation computes schema/request/PDF hashes using the same lowercase hexadecimal representation expected by the rules.
+- Confirmed the old cloud-draft shape remains accepted because provenance fields are optional.
+- Confirmed the existing CI workflow runs Android tests/build only; it does not execute `firestore.test.js`. The repository currently has no root `package.json`, so the Firestore emulator test dependencies are not pinned in a reproducible Node test manifest. The new Firestore tests are therefore **added but not executed** in this pass.
+
+### 10.5 Validation status
+
+- Source-level audit and cross-file contract checks: completed.
+- JSON parse of `firebase-blueprint.json`: passed.
+- Static consistency checks for the six provenance names across blueprint, rules allowlists, and test cases: passed.
+- Firestore emulator tests: pending; not executed.
+- `:app:compileDebugKotlin`, `:app:testDebugUnitTest`, and `:app:assembleDebug`: pending; not executed successfully.
+
+The latest Android CI run observed during this pass is [run 45715165859](https://github.com/ameryhusam/ai_books/actions/runs/45715165859) on commit `1d920a4faab662ba3765b320de2280759b40d6c2`. Its job reports failure with `steps=null` and `logs_url=null`, so it provides no Kotlin compiler diagnostic. This must not be represented as a passing or source-level failing build.
+
+**Phase P0 status:** source corrections and Firestore contract alignment committed on `main`; build and emulator validation remain open acceptance gates.
