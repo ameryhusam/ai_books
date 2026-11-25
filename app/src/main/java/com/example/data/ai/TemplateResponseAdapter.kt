@@ -3,8 +3,7 @@ package com.example.data.ai
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
+import kotlinx.serialization.json.contentOrNull
 
 /**
  * Adapts provider output into the app's stable internal contract.
