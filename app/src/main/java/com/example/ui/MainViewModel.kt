@@ -509,38 +509,24 @@ class MainViewModel(
 
     fun inspectDirectFolderUri(treeUri: Uri) {
         viewModelScope.launch {
-            _uiState.update { it.copy(isBusy = true) }
+            _uiState.update { it.copy(isBusy = true, directInspection = null) }
             try {
                 val inspection = repository.inspectDirectTreeUri(treeUri)
-                if (inspection.grades.size == 1) {
-                    val onlyGrade = inspection.grades.first().gradeKey
-                    val bound = repository.bindDirectWorkspace(inspection.rootUriOrPath, onlyGrade)
-                    _studentDashboardState.value = StudentDashboardState()
-                    _uiState.update { state ->
-                        val nextPage = when (state.userRole) {
-                            UserRole.LEARNER -> AppPage.DASHBOARD
-                            UserRole.ADMIN -> AppPage.LIBRARY
-                            UserRole.ENTRY -> state.page
-                        }
-                        state.copy(
-                            directInspection = null,
-                            selectedWorkspaceId = bound.workspaceId,
-                            workspace = bound,
-                            selectedBookKey = bound.books.firstOrNull()?.bookKey.orEmpty(),
-                            selectedLesson = null,
-                            page = nextPage,
-                            alert = AlertMessage(
-                                "تم ربط مساحة العمل محلياً (بدون نسخ)",
-                                "الصف: ${bound.gradeKey} • ${bound.books.size} مادة • ${bound.lessons.size} درس"
-                            )
+                _uiState.update { state ->
+                    state.copy(
+                        directInspection = inspection,
+                        alert = AlertMessage(
+                            "اكتمل فحص مساحة العمل",
+                            "تم اكتشاف ${inspection.grades.size} صف. اختر الصف وراجع نتيجة الفحص قبل تنفيذ الربط."
                         )
-                    }
-                } else {
-                    _uiState.update { it.copy(directInspection = inspection) }
+                    )
                 }
             } catch (e: Exception) {
                 _uiState.update {
-                    it.copy(alert = AlertMessage("تعذر ربط المجلد", e.message ?: "لم يتم العثور على ملفات منهج صالحة"))
+                    it.copy(
+                        directInspection = null,
+                        alert = AlertMessage("تعذر فحص المجلد", e.message ?: "لم يتم العثور على ملفات منهج صالحة")
+                    )
                 }
             } finally {
                 _uiState.update { it.copy(isBusy = false) }
