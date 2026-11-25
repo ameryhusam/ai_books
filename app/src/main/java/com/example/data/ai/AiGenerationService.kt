@@ -343,7 +343,7 @@ class AiGenerationService(
             }
         }
 
-        throw IllegalStateException("تعذر التوليد من المزودات: ${errors.joinToString(" | ")}")
+        throw IllegalStateException("تعذر التوليد عبر ${selectedProvider.displayName}: ${errors.joinToString(" | ")}")
     }
 
     suspend fun testProviderConnection(profile: ProviderConfig): String = withContext(Dispatchers.IO) {
