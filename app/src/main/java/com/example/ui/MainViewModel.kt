@@ -916,6 +916,7 @@ class MainViewModel(
 
         val questions = workspaceQuestions.value
         val attempts = workspaceQuestionAttempts.value
+            .filter { it.userId == snapshot.activeLearner.userId }
         val targetTag = conceptTag?.trim().orEmpty()
         val wrongAttempts = attempts.filterNot { it.isCorrect }
         val wrongCounts = wrongAttempts.groupingBy { it.questionId }.eachCount()
@@ -938,22 +939,26 @@ class MainViewModel(
             return
         }
 
-        val lesson = workspace.lessons.firstOrNull { lesson ->
-            candidates.any { question ->
-                question.bookKey == lesson.bookKey &&
-                    question.unitKey == lesson.unitKey &&
-                    question.lessonKey == lesson.lessonKey
-            }
+        val primaryQuestion = candidates.first()
+        val lesson = workspace.lessons.firstOrNull { candidateLesson ->
+            primaryQuestion.bookKey == candidateLesson.bookKey &&
+                primaryQuestion.unitKey == candidateLesson.unitKey &&
+                primaryQuestion.lessonKey == candidateLesson.lessonKey
         }
         if (lesson == null) {
             _uiState.update { it.copy(alert = AlertMessage("تعذر تحديد الدرس", "الأسئلة المرتبطة بالمفهوم لا تطابق درساً موجوداً في فهرس الكتاب.")) }
             return
         }
+        val lessonQuestions = candidates.filter { question ->
+            question.bookKey == lesson.bookKey &&
+                question.unitKey == lesson.unitKey &&
+                question.lessonKey == lesson.lessonKey
+        }
 
         val evidence = buildString {
-            appendLine("المفهوم المستهدف: ${targetTag.ifBlank { ConceptMasteryEngine.effectiveConceptTag(candidates.first()) }}")
+            appendLine("المفهوم المستهدف: ${targetTag.ifBlank { ConceptMasteryEngine.effectiveConceptTag(lessonQuestions.first()) }}")
             appendLine("هذه بيانات تشخيصية من بنك أسئلة الدرس، وليست مصدراً لتغيير المنهج:")
-            candidates.forEachIndexed { index, question ->
+            lessonQuestions.forEachIndexed { index, question ->
                 appendLine()
                 appendLine("السؤال ${index + 1}: ${question.prompt}")
                 if (question.options.isNotEmpty()) appendLine("الخيارات: ${question.options.joinToString(" | ")}")
@@ -973,7 +978,7 @@ class MainViewModel(
             }
         }
 
-        val conceptTitle = targetTag.ifBlank { ConceptMasteryEngine.effectiveConceptTag(candidates.first()) }
+        val conceptTitle = targetTag.ifBlank { ConceptMasteryEngine.effectiveConceptTag(lessonQuestions.first()) }
         val taskInstructions = if (task == TaskType.EXPLANATION) {
             """
             أنشئ شرح تقوية علاجي باللغة العربية لهذا المفهوم، لا تعِد شرح الدرس كاملاً.
