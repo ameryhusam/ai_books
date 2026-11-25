@@ -151,10 +151,11 @@ class ProviderStorage(context: Context) {
                 dailyRequestsUsed = 0,
                 quotaDate = today,
                 runtimeStatus = when (profile.runtimeStatus.uppercase()) {
-                    STATUS_QUOTA_EXHAUSTED, STATUS_RATE_LIMITED, STATUS_ERROR -> STATUS_ACTIVE
+                    STATUS_QUOTA_EXHAUSTED, STATUS_ERROR -> STATUS_ACTIVE
+                    STATUS_RATE_LIMITED -> if (profile.retryAfterEpochMs <= nowMillis) STATUS_ACTIVE else STATUS_RATE_LIMITED
                     else -> profile.runtimeStatus
                 },
-                retryAfterEpochMs = 0L
+                retryAfterEpochMs = if (profile.runtimeStatus.equals(STATUS_RATE_LIMITED, true) && profile.retryAfterEpochMs > nowMillis) profile.retryAfterEpochMs else 0L
             )
         } else if (profile.runtimeStatus.equals(STATUS_RATE_LIMITED, true) &&
             profile.retryAfterEpochMs <= nowMillis
