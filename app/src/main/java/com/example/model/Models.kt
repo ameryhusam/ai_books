@@ -475,7 +475,14 @@ data class DashboardSummary(
     val weakConcepts: List<ConceptMasterySummary> = emptyList(),
     val masteredConceptsCount: Int = 0,
     val weakConceptsCount: Int = 0
-)
+) {
+    /** Excludes authoring/creation badge bonuses from the learner's own score. */
+    val learnerPoints: Int
+        get() = (totalPoints - badges
+            .filter { it.unlocked && it.category == BadgeCategory.CREATION }
+            .sumOf { it.pointsBonus })
+            .coerceAtLeast(0)
+}
 
 enum class QuestionType(val id: String, val labelAr: String) {
     MCQ("mcq", "اختيار من متعدد"),
