@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import com.example.data.ai.AiGenerationService
 import com.example.data.ai.Indexer2PromptRegistry
+import com.example.data.ai.TemplateResponseAdapter
 import com.example.data.local.AssessmentAttemptEntity
 import com.example.data.local.AssessmentEntity
 import com.example.data.local.BookEntity
@@ -480,7 +481,11 @@ class EduMiniRepository(
                 )
             }
         )
-        return result
+        val adaptedText = TemplateResponseAdapter.adapt(result.text, activeTemplate?.responseMappingJson.orEmpty())
+        return if (adaptedText == result.text) result else result.copy(
+            text = adaptedText,
+            contentHash = sha256Full(adaptedText)
+        )
     }
 
     suspend fun persistDraft(
