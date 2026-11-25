@@ -133,11 +133,12 @@ object WorkspaceContractValidator {
                     candidates.add(linkedPath)
                     if (linkedPath.startsWith("workspace/", ignoreCase = true)) candidates.add(linkedPath.removePrefix("workspace/"))
                 }
-                if (lessonPart in setOf("P01", "P02") && unitKey.isNotBlank() && lessonNumber != null) {
+                val unitFolderKey = sourceUnitFolderKey(unit)
+                if (lessonPart in setOf("P01", "P02") && unitFolderKey.isNotBlank() && lessonNumber != null) {
                     val lessonFile = "lesson_${lessonNumber.toString().padStart(2, '0')}.pdf"
-                    candidates.add("$bookRelativePath/$lessonPart/units/$unitKey/$lessonFile")
-                    candidates.add("$bookRelativePath/$lessonPart/units/$unitKey/$lessonKey.pdf")
-                    candidates.add("$bookRelativePath/$lessonPart/units/$unitKey/$lessonFile".removePrefix("workspace/"))
+                    candidates.add("$bookRelativePath/$lessonPart/units/$unitFolderKey/$lessonFile")
+                    candidates.add("$bookRelativePath/$lessonPart/units/$unitFolderKey/$lessonKey.pdf")
+                    candidates.add("$bookRelativePath/$lessonPart/units/$unitFolderKey/$lessonFile".removePrefix("workspace/"))
                 }
                 val pdfExists = candidates.any { candidate ->
                     val normalized = normalizePath(candidate)
@@ -157,11 +158,20 @@ object WorkspaceContractValidator {
         if (actual.isNotBlank() && !actual.equals(expected, ignoreCase = true)) errors.add("$sourceLabel.$field لا يطابق مسار الكتاب: $actual مقابل $expected.")
     }
 
-    fun sourceUnitKey(unit: JsonObject): String {
+    fun sourceUnitFolderKey(unit: JsonObject): String {
         val explicit = firstNonBlank(unit.string("unitKey"), unit.string("key"), unit.string("unitId"), unit.string("id"))
         if (explicit.isNotBlank()) return explicit
         val number = unit.string("unitNumber").toIntOrNull() ?: return ""
         return "unit_${number.toString().padStart(2, '0')}"
+    }
+
+    fun sourceUnitKey(unit: JsonObject): String {
+        val explicit = firstNonBlank(unit.string("unitKey"), unit.string("key"), unit.string("unitId"), unit.string("id"))
+        if (explicit.isNotBlank()) return explicit
+        val folderKey = sourceUnitFolderKey(unit)
+        if (folderKey.isBlank()) return ""
+        val partKey = unit.string("partKey").uppercase(Locale.ROOT)
+        return if (partKey == "P01" || partKey == "P02") "${partKey}_$folderKey" else folderKey
     }
 
     fun sourceLessonKey(lesson: JsonObject): String {
