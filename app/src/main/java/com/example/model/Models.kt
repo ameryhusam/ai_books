@@ -564,6 +564,46 @@ data class AssessmentAttemptRecord(
     val completedAt: String
 )
 
+data class WeeklyAssessmentSummary(
+    val weekStart: String,
+    val label: String,
+    val averageScorePercent: Int,
+    val attemptsCount: Int,
+    val passedCount: Int
+)
+
+data class RepeatedMistakeSummary(
+    val conceptTag: String,
+    val questionPrompt: String,
+    val selectedAnswer: String,
+    val expectedAnswer: String,
+    val occurrences: Int,
+    val lastSeenAt: String
+)
+
+/**
+ * Report data shown in different levels of detail by learner and parent/teacher dashboards.
+ * Null percentages mean there is not enough comparable evidence; they must not be displayed as 0%.
+ */
+data class LearningProgressReport(
+    val questionAttemptsCount: Int = 0,
+    val conceptsObserved: Int = 0,
+    val firstTryAccuracyPercent: Int? = null,
+    val latestAccuracyPercent: Int? = null,
+    val stableConceptsCount: Int = 0,
+    val eligibleConceptsCount: Int = 0,
+    val stableConceptsPercent: Int? = null,
+    val delayedRecallPercent: Int? = null,
+    val estimatedRecallDropPercent: Int? = null,
+    val delayedRecallSampleCount: Int = 0,
+    val recurringMistakes: List<RepeatedMistakeSummary> = emptyList(),
+    val conceptsWithRecurringErrorsCount: Int = 0,
+    val weeklyAssessments: List<WeeklyAssessmentSummary> = emptyList(),
+    val reinforcementImpactPercent: Int? = null,
+    val reinforcementImpactConceptCount: Int = 0,
+    val hasEnoughDataForRetention: Boolean = false
+)
+
 data class TeacherNoteRecord(
     val workspaceId: String,
     val bookKey: String,
