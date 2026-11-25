@@ -78,7 +78,7 @@ fun LearnerMasteryScreen(
                             Text("أحدث أداء", style = MaterialTheme.typography.labelSmall)
                         }
                         Column {
-                            Text(stableCount.toString(), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                            Text(if (learningProgressReport.eligibleConceptsCount > 0) stableCount.toString() else "—", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                             Text("مفاهيم ثبتت", style = MaterialTheme.typography.labelSmall)
                         }
                         Column {
