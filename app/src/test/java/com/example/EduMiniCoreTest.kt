@@ -56,6 +56,9 @@ import com.example.model.ProviderType
 import com.example.model.UnitCompletionStatus
 import com.example.ui.components.LearningProgressCalculator
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
@@ -2473,7 +2476,10 @@ class EduMiniCoreTest {
 
         runBlocking {
             storage.saveProviders(listOf(provider))
-            assertTrue(storage.reserveProviderKey(provider.id, dayOne))
+            val sameDayReservations = coroutineScope {
+                (1..8).map { async { storage.reserveProviderKey(provider.id, dayOne) } }.awaitAll()
+            }
+            assertEquals(1, sameDayReservations.count { it })
             assertFalse(storage.reserveProviderKey(provider.id, dayOne + 60_000L))
             val nextDay = java.time.Instant.parse("2026-11-26T00:01:00Z").toEpochMilli()
             assertTrue(storage.reserveProviderKey(provider.id, nextDay))
