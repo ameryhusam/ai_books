@@ -2889,4 +2889,76 @@ class EduMiniCoreTest {
         assertTrue(prompt.contains("5 + 7 = 12"))
     }
 
+
+    @Test
+    fun fullBackupRestoreWritesLearnerProfilesAndActiveIdToLocalPreferences() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val database = EduMiniDatabase.getInstance(context)
+        val repository = EduMiniRepository(
+            dao = database.eduMiniDao(),
+            providerStorage = ProviderStorage(context),
+            workspaceImporter = WorkspaceImporter(context),
+            aiGenerationService = AiGenerationService(),
+            pdfBookSplitter = PdfBookSplitter(context),
+            interactivePackageImporter = InteractivePackageImporter(context)
+        )
+        val backup = WorkspaceExporter.serializeFullBackup(
+            workspaceId = "ws-profile-restore",
+            drafts = emptyList(),
+            questions = emptyList(),
+            assessments = emptyList(),
+            attempts = emptyList(),
+            progress = emptyList(),
+            notes = emptyList(),
+            studyDays = emptyList(),
+            templates = emptyList(),
+            learnerProfiles = listOf(
+                LearnerProfile.DEFAULT,
+                LearnerProfile(userId = "learner_restore", displayName = "ملف مستعاد")
+            ),
+            activeLearnerId = "learner_restore"
+        )
+        repository.importFullBackupJson(backup, "ws-profile-restore")
+        val profilesJson = repository.readLearnerPref("edumini_learner_profiles", "profiles_json")
+        val activeId = repository.readLearnerPref("edumini_learner_profiles", "active_learner_id")
+        val restored = Json { ignoreUnknownKeys = true }
+            .decodeFromString<List<LearnerProfile>>(profilesJson.orEmpty())
+        assertEquals(setOf("learner_default", "learner_restore"), restored.map { it.userId }.toSet())
+        assertEquals("learner_restore", activeId)
+    }
+
+    @Test
+    fun questionBankConceptInferencePreservesExplicitTagsAndUsesArabicKeywordFallbacks() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val database = EduMiniDatabase.getInstance(context)
+        val service = com.example.data.repository.QuestionBankService(database.eduMiniDao())
+        assertEquals(
+            "مفهوم الضرب",
+            service.inferConceptTag(
+                explicitTag = "",
+                prompt = "احسب جداء 4 في 5",
+                rationale = "نضرب العددين",
+                lessonTitle = "العمليات"
+            )
+        )
+        assertEquals(
+            "الطاقة الحركية",
+            service.inferConceptTag(
+                explicitTag = "الطاقة الحركية",
+                prompt = "ما ناتج جمع 2 + 3؟",
+                rationale = "جمع عددين",
+                lessonTitle = "العمليات"
+            )
+        )
+        assertEquals(
+            "درس بلا كلمات مفتاحية",
+            service.inferConceptTag(
+                explicitTag = "",
+                prompt = "صف الظاهرة المذكورة",
+                rationale = "إجابة وصفية",
+                lessonTitle = "درس بلا كلمات مفتاحية"
+            )
+        )
+    }
+
 }
