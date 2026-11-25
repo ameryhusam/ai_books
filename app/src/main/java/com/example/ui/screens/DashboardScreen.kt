@@ -169,6 +169,30 @@ fun DashboardScreen(
     var selectedCategory by remember { mutableStateOf<BadgeCategory?>(null) }
     val haptic = LocalHapticFeedback.current
     val isLearner = userRole == UserRole.LEARNER
+    val displaySummary = remember(summary, isLearner) {
+        if (!isLearner) {
+            summary
+        } else {
+            val learnerPoints = summary.learnerPoints
+            val level = learnerPoints / summary.pointsPerLevel.coerceAtLeast(1) + 1
+            val learnerBadges = summary.badges.filter { it.category != BadgeCategory.CREATION }
+            val levelTitle = when (level) {
+                1 -> "مستكشف المعرفة"
+                2 -> "باني المسار"
+                3 -> "مُصمّم الدروس"
+                4 -> "خبير التعلّم الذكي"
+                else -> "رائد الإبداع التعليمي"
+            }
+            summary.copy(
+                totalPoints = learnerPoints,
+                level = level,
+                levelTitle = levelTitle,
+                pointsIntoLevel = learnerPoints % summary.pointsPerLevel.coerceAtLeast(1),
+                badges = learnerBadges,
+                unlockedBadgesCount = learnerBadges.count { it.unlocked }
+            )
+        }
+    }
     val activeBookKey = dashboardState.selectedBookKey.ifBlank { selectedBookFilterKey }
 
     val bookFilteredUnits = remember(summary.unitPaths, activeBookKey) {
@@ -236,7 +260,7 @@ fun DashboardScreen(
         ) {
             item(key = "dashboard_hero") {
                 DashboardHeroCard(
-                    summary = summary,
+                    summary = displaySummary,
                     isLearner = isLearner,
                     onOpenGlobalSearch = onOpenGlobalSearch
                 )
@@ -261,7 +285,7 @@ fun DashboardScreen(
                     )
                 }
 
-                if (summary.badges.isNotEmpty()) {
+                if (displaySummary.badges.isNotEmpty()) {
                     item(key = "study_streak_empty") {
                         StudyStreakCard(
                             currentStreakDays = summary.currentStreakDays,
@@ -270,8 +294,8 @@ fun DashboardScreen(
                     }
                     item(key = "badges_section_empty") {
                         BadgesAndMilestonesSection(
-                            badges = summary.badges,
-                            unlockedCount = summary.unlockedBadgesCount,
+                            badges = displaySummary.badges,
+                            unlockedCount = displaySummary.unlockedBadgesCount,
                             selectedCategory = selectedCategory,
                             onSelectCategory = { selectedCategory = it },
                             onBadgeClick = { selectedBadge = it }
@@ -314,7 +338,7 @@ fun DashboardScreen(
                 }
 
                 item(key = "kpi_grid") {
-                    DashboardKpiGrid(summary = summary, isLearner = isLearner)
+                    DashboardKpiGrid(summary = displaySummary, isLearner = isLearner)
                 }
 
                 if (!isLearner) {
