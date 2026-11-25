@@ -43,6 +43,8 @@ import java.net.URLEncoder
 import java.security.MessageDigest
 import java.nio.charset.StandardCharsets
 import java.time.Instant
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -63,7 +65,8 @@ class AiGenerationService(
         message: String,
         val isTransient: Boolean,
         val httpCode: Int? = null,
-        val retryAfterEpochMs: Long = 0L
+        val retryAfterEpochMs: Long = 0L,
+        val providerReason: String = ""
     ) : IllegalStateException(message)
 
     fun buildPrompt(
@@ -302,21 +305,26 @@ class AiGenerationService(
                         val reason = e.message?.takeIf { it.isNotBlank() } ?: "فشل"
                         errors.add("${profile.label}/$modelName: $reason")
                         onAttemptFinished?.invoke(profile.label, modelName, false, reason)
-                        val failureStatus = when {
-                            e.httpCode == 401 || e.httpCode == 403 || Regex("invalid api.?key|api key not valid|unauthorized|authentication failed", RegexOption.IGNORE_CASE).containsMatchIn(reason) -> "INVALID_KEY"
-                            e.httpCode == 429 && Regex("rate.?limit|too many requests|requests per minute|tokens per minute|retry after", RegexOption.IGNORE_CASE).containsMatchIn(reason) -> "RATE_LIMITED"
-                            e.httpCode == 429 && Regex("quota|daily|resource.?exhausted|billing|insufficient quota", RegexOption.IGNORE_CASE).containsMatchIn(reason) -> "QUOTA_EXHAUSTED"
-                            e.httpCode == 429 -> "RATE_LIMITED"
-                            else -> "ERROR"
+                        val failureStatus = classifyProviderFailure(e, reason)
+                        if (failureStatus == "QUOTA_EXHAUSTED") {
+                            onProviderStateChanged?.invoke(profile.id, failureStatus, e.retryAfterEpochMs)
+                            // A confirmed quota exhaustion is not a model-level saturation
+                            // signal. Stop this generation instead of cycling through models
+                            // or other Google profiles to bypass the provider's quota.
+                            throw IllegalStateException(
+                                "${profile.label}: أفاد Gemini باستنفاد الحصة المتاحة لهذا المفتاح/المشروع. أوقفنا المحاولات الإضافية؛ تحقق من حالة الحصة لدى Google.",
+                                e
+                            )
                         }
+
                         if (e.httpCode == 429 && profile.provider == ProviderType.GEMINI) {
                             geminiModelRouter.markCoolingDown(profile.id, modelName, e.retryAfterEpochMs)
                         } else if (failureStatus != "RATE_LIMITED" || profile.provider == ProviderType.OPENAI_COMPATIBLE) {
                             onProviderStateChanged?.invoke(profile.id, failureStatus, e.retryAfterEpochMs)
                         }
-                        // Gemini 429 responses cool down only the affected model, then
-                        // continue with the next configured Gemini model/key. OpenAI remains
-                        // on its own provider path and never invokes Gemini routing.
+                        // A rate-limit response cools down the affected Gemini model.
+                        // Only transient non-429 failures are retried on the same request.
+                        // Gemini and OpenAI provider paths remain isolated.
                         if (e.httpCode == 429 || !e.isTransient) {
                             break
                         }
@@ -440,13 +448,17 @@ class AiGenerationService(
             val rawBody = response.body?.string().orEmpty()
             val jsonObj = runCatching { json.parseToJsonElement(rawBody).jsonObject }.getOrNull()
             if (!response.isSuccessful) {
-                val errMsg = jsonObj?.get("error")
-                    ?.let { it as? JsonObject }
-                    ?.get("message")
-                    ?.let { it as? JsonPrimitive }
-                    ?.contentOrNull
+                val errorObject = jsonObj?.get("error") as? JsonObject
+                val errMsg = (errorObject?.get("message") as? JsonPrimitive)?.contentOrNull
                     ?: "Gemini HTTP ${response.code}"
-                throw ProviderCallException(errMsg, isTransientHttp(response.code), response.code, retryAfterEpochMs(response))
+                val providerReason = extractGeminiErrorSignals(errorObject)
+                throw ProviderCallException(
+                    message = errMsg,
+                    isTransient = isTransientHttp(response.code),
+                    httpCode = response.code,
+                    retryAfterEpochMs = retryAfterEpochMs(response),
+                    providerReason = providerReason
+                )
             }
 
             val candidates = jsonObj?.get("candidates") as? JsonArray
@@ -603,9 +615,47 @@ class AiGenerationService(
         else -> element
     }
 
+    private fun extractGeminiErrorSignals(error: JsonObject?): String {
+        if (error == null) return ""
+        val status = (error["status"] as? JsonPrimitive)?.contentOrNull.orEmpty()
+        val details = (error["details"] as? JsonArray).orEmpty()
+        val reasons = details.mapNotNull { detail ->
+            val item = detail as? JsonObject ?: return@mapNotNull null
+            listOf("reason", "domain", "metadata")
+                .mapNotNull { key -> item[key]?.toString() }
+                .takeIf { it.isNotEmpty() }
+                ?.joinToString(" ")
+        }
+        return (listOf(status) + reasons).filter { it.isNotBlank() }.joinToString(" ")
+    }
+
+    private fun classifyProviderFailure(error: ProviderCallException, message: String): String {
+        val signals = "${error.providerReason} $message".lowercase()
+        return when {
+            error.httpCode == 401 || error.httpCode == 403 ||
+                Regex("invalid api.?key|api key not valid|unauthorized|authentication failed")
+                    .containsMatchIn(signals) -> "INVALID_KEY"
+            Regex("quota_exceeded|quota exceeded|quota exhausted|daily quota|insufficient quota|billing limit")
+                .containsMatchIn(signals) -> "QUOTA_EXHAUSTED"
+            Regex("rate_limit_exceeded|rate.?limit|too many requests|requests per minute|tokens per minute|retry after")
+                .containsMatchIn(signals) -> "RATE_LIMITED"
+            error.httpCode == 429 -> "RATE_LIMITED"
+            else -> "ERROR"
+        }
+    }
+
     private fun retryAfterEpochMs(response: Response): Long {
-        val seconds = response.header("Retry-After")?.toLongOrNull()
-        return System.currentTimeMillis() + (seconds?.coerceAtLeast(1L)?.times(1000L) ?: 60_000L)
+        val now = System.currentTimeMillis()
+        val header = response.header("Retry-After")?.trim().orEmpty()
+        val retryAt = header.toLongOrNull()?.let { seconds ->
+            now + seconds.coerceAtLeast(1L) * 1000L
+        } ?: runCatching {
+            ZonedDateTime.parse(header, DateTimeFormatter.RFC_1123_DATE_TIME)
+                .toInstant()
+                .toEpochMilli()
+        }.getOrNull()
+
+        return retryAt?.coerceAtLeast(now + 1_000L) ?: (now + 60_000L)
     }
 
     private fun sha256(value: String): String = MessageDigest.getInstance("SHA-256")
