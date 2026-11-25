@@ -2168,7 +2168,31 @@ class EduMiniRepository(
                 task = TaskType.QUESTIONS,
                 instructions = "وزّع الأسئلة بين مستويات بلوم: سؤال تذكر مباشر، سؤال فهم واستنتاج، وسؤال تطبيقي مع الإجابة والتفسير.",
                 isBuiltIn = true,
-                responseSchemaJson = Indexer2PromptRegistry.blueprintFor(TaskType.QUESTIONS).schemaSnippet,
+                responseSchemaJson = """
+                    {
+                      "type": "OBJECT",
+                      "properties": {
+                        "questions": {
+                          "type": "ARRAY",
+                          "items": {
+                            "type": "OBJECT",
+                            "properties": {
+                              "type": { "type": "STRING" },
+                              "conceptTag": { "type": "STRING" },
+                              "prompt": { "type": "STRING" },
+                              "options": { "type": "ARRAY", "items": { "type": "STRING" } },
+                              "correctAnswer": { "type": "STRING" },
+                              "rationale": { "type": "STRING" },
+                              "difficulty": { "type": "STRING" },
+                              "sourcePages": { "type": "STRING" }
+                            },
+                            "required": ["type", "prompt", "correctAnswer", "difficulty"]
+                          }
+                        }
+                      },
+                      "required": ["questions"]
+                    }
+                """.trimIndent(),
                 responseFormat = "json"
             ),
             PromptTemplateRecord(
@@ -2177,7 +2201,32 @@ class EduMiniRepository(
                 task = TaskType.INTERACTIVE,
                 instructions = "أنشئ 3 محطات تفاعلية بصيغة JSON بحيث تحتوي كل محطة conceptTag صريحاً ونقطة تحقق اختيار من متعدد مرتبطة ببنك الأسئلة ومهمة ترتيب وتوصيل ليُعرض عبر محرك JS و HTML.",
                 isBuiltIn = true,
-                responseSchemaJson = Indexer2PromptRegistry.blueprintFor(TaskType.INTERACTIVE).schemaSnippet,
+                responseSchemaJson = """
+                    {
+                      "type": "OBJECT",
+                      "properties": {
+                        "schemaVersion": { "type": "INTEGER" },
+                        "title": { "type": "STRING" },
+                        "objective": { "type": "STRING" },
+                        "steps": {
+                          "type": "ARRAY",
+                          "items": {
+                            "type": "OBJECT",
+                            "properties": {
+                              "title": { "type": "STRING" },
+                              "conceptTag": { "type": "STRING" },
+                              "body": { "type": "STRING" },
+                              "checkpoint": { "type": "OBJECT" }
+                            },
+                            "required": ["title", "conceptTag", "body"]
+                          }
+                        },
+                        "ordering": { "type": "ARRAY", "items": { "type": "STRING" } },
+                        "matching": { "type": "ARRAY", "items": { "type": "OBJECT" } }
+                      },
+                      "required": ["title", "steps"]
+                    }
+                """.trimIndent(),
                 responseFormat = "json"
             )
         )
