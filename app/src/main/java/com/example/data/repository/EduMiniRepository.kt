@@ -449,8 +449,12 @@ class EduMiniRepository(
             ?: Indexer2PromptRegistry.blueprintFor(task).schemaSnippet
         val responseFormat = activeTemplate?.responseFormat
             ?: if (responseSchema.isNotBlank()) "json" else "text"
-        val effectiveExtra = listOf(activeTemplate?.instructions.orEmpty().trim(), extra.trim())
-            .filter { it.isNotBlank() }.distinct().joinToString("\n\n")
+        val templateInstructions = activeTemplate?.instructions.orEmpty().trim()
+        val effectiveExtra = if (templateInstructions.isNotBlank() && extra.contains(templateInstructions)) {
+            extra.trim()
+        } else {
+            listOf(templateInstructions, extra.trim()).filter { it.isNotBlank() }.distinct().joinToString("\n\n")
+        }
         val schemaHash = sha256Full(responseSchema)
         val pdfHash = pdfPayload?.sha256.orEmpty()
         val requestSeed = listOf(
