@@ -902,6 +902,172 @@ class MainViewModel(
         }
     }
 
+    fun generateConceptRemediation(conceptTag: String?, task: TaskType) {
+        val snapshot = _uiState.value
+        val workspace = snapshot.workspace
+        if (workspace == null) {
+            _uiState.update { it.copy(alert = AlertMessage("لا توجد مكتبة", "اربط كتاباً أولاً حتى يمكن بناء علاج تعليمي من محتوى الدرس.")) }
+            return
+        }
+        if (task != TaskType.EXPLANATION && task != TaskType.QUESTIONS) {
+            _uiState.update { it.copy(alert = AlertMessage("نوع غير مدعوم", "اختر شرح تقوية أو أسئلة تكيفية.")) }
+            return
+        }
+
+        val questions = workspaceQuestions.value
+        val attempts = workspaceQuestionAttempts.value
+        val targetTag = conceptTag?.trim().orEmpty()
+        val wrongAttempts = attempts.filterNot { it.isCorrect }
+        val wrongCounts = wrongAttempts.groupingBy { it.questionId }.eachCount()
+        val candidates = questions
+            .filter { question ->
+                wrongCounts.containsKey(question.id) &&
+                    (targetTag.isBlank() ||
+                        ConceptMasteryEngine.effectiveConceptTag(question).equals(targetTag, ignoreCase = true))
+            }
+            .sortedByDescending { wrongCounts[it.id] ?: 0 }
+            .take(5)
+
+        if (candidates.isEmpty()) {
+            _uiState.update {
+                it.copy(alert = AlertMessage(
+                    "لا توجد أدلة كافية",
+                    "لم نعثر على إجابات خاطئة مسجلة لهذا المفهوم لدى المتعلم الحالي. نفّذ اختباراً تشخيصياً أولاً حتى لا نولّد علاجاً مبنياً على تخمين."
+                ))
+            }
+            return
+        }
+
+        val lesson = workspace.lessons.firstOrNull { lesson ->
+            candidates.any { question ->
+                question.bookKey == lesson.bookKey &&
+                    question.unitKey == lesson.unitKey &&
+                    question.lessonKey == lesson.lessonKey
+            }
+        }
+        if (lesson == null) {
+            _uiState.update { it.copy(alert = AlertMessage("تعذر تحديد الدرس", "الأسئلة المرتبطة بالمفهوم لا تطابق درساً موجوداً في فهرس الكتاب.")) }
+            return
+        }
+
+        val evidence = buildString {
+            appendLine("المفهوم المستهدف: ${targetTag.ifBlank { ConceptMasteryEngine.effectiveConceptTag(candidates.first()) }}")
+            appendLine("هذه بيانات تشخيصية من بنك أسئلة الدرس، وليست مصدراً لتغيير المنهج:")
+            candidates.forEachIndexed { index, question ->
+                appendLine()
+                appendLine("السؤال ${index + 1}: ${question.prompt}")
+                if (question.options.isNotEmpty()) appendLine("الخيارات: ${question.options.joinToString(" | ")}")
+                appendLine("الإجابة المعتمدة: ${question.correctAnswer}")
+                appendLine("التفسير المعتمد: ${question.rationale}")
+                val learnerErrors = wrongAttempts
+                    .filter { it.questionId == question.id }
+                    .groupingBy { it.selectedAnswer }
+                    .eachCount()
+                    .entries
+                    .sortedByDescending { it.value }
+                    .take(3)
+                if (learnerErrors.isNotEmpty()) {
+                    appendLine("إجابات المتعلم الخاطئة المسجلة: " +
+                        learnerErrors.joinToString("؛ ") { "${it.key} (تكررت ${it.value} مرة)" })
+                }
+            }
+        }
+
+        val conceptTitle = targetTag.ifBlank { ConceptMasteryEngine.effectiveConceptTag(candidates.first()) }
+        val taskInstructions = if (task == TaskType.EXPLANATION) {
+            """
+            أنشئ شرح تقوية علاجي باللغة العربية لهذا المفهوم، لا تعِد شرح الدرس كاملاً.
+            ابدأ بتحديد التصور الخاطئ المحتمل من الإجابات المسجلة مع التصريح بأنه احتمال لا حقيقة مؤكدة.
+            اربط التصحيح بالمعرفة السابقة، ثم اشرح الفكرة بخطوات قصيرة ومثال محلول، وقارن بين الإجابة الخاطئة والفهم الصحيح.
+            اختم بسؤال تحقق قصير ومهمة نقل إلى موقف جديد. استخدم لغة مناسبة للصف الدراسي، ولا تخترع حقائق خارج المصدر.
+            """.trimIndent()
+        } else {
+            """
+            أنشئ 5 أسئلة تكيفية جديدة باللغة العربية لقياس وتصحيح المفهوم المستهدف.
+            ابدأ بسؤال تأسيسي، ثم ارفع الصعوبة تدريجياً، واستخدم مشتتات تمثل الأخطاء الظاهرة في البيانات.
+            لا تكرر الأسئلة الأصلية ولا تغيّر الأرقام فقط. أرفق الإجابة الصحيحة وتفسيراً تعليمياً لكل سؤال.
+            يجب أن تكون الأسئلة قابلة للإجابة من المصدر، واضحة، ولكل سؤال إجابة واحدة صحيحة ما لم يحدد نوعه خلاف ذلك.
+            """.trimIndent()
+        }
+
+        generationJob?.cancel()
+        generationJob = viewModelScope.launch {
+            _uiState.update { it.copy(isBusy = true, alert = null) }
+            try {
+                val output = repository.generateContent(
+                    workspaceId = workspace.workspaceId,
+                    lesson = lesson,
+                    task = task,
+                    source = evidence,
+                    extra = taskInstructions,
+                    providers = snapshot.providers,
+                    questionCount = 5,
+                    attachPdfPages = false,
+                    questionStyleHint = if (task == TaskType.QUESTIONS) "أسئلة تشخيصية تكيفية ومشتتات قائمة على الخطأ" else "",
+                    difficultyHint = if (task == TaskType.QUESTIONS) "متدرجة من التأسيسي إلى التطبيق" else ""
+                )
+                val draft = repository.persistDraft(
+                    workspaceId = workspace.workspaceId,
+                    lesson = lesson,
+                    task = task,
+                    providerLabel = output.providerLabel,
+                    model = output.model,
+                    text = output.text,
+                    title = "علاج المفهوم: $conceptTitle",
+                    sourceText = evidence,
+                    status = DraftStatus.DRAFT
+                )
+                firestoreSync.upsertDraft(currentUserId, draft)
+
+                val generatedQuestions = if (task == TaskType.QUESTIONS) {
+                    repository.saveQuestionsFromDraftText(workspace.workspaceId, lesson, output.text)
+                } else emptyList()
+                generatedQuestions.forEach { question ->
+                    repository.updateQuestion(
+                        questionId = question.id,
+                        type = question.type,
+                        prompt = question.prompt,
+                        options = question.options,
+                        correctAnswer = question.correctAnswer,
+                        rationale = question.rationale,
+                        difficulty = question.difficulty,
+                        conceptTag = conceptTitle,
+                        reviewed = false
+                    )
+                }
+
+                _uiState.update {
+                    it.copy(
+                        page = AppPage.STUDIO,
+                        selectedLesson = lesson,
+                        task = task,
+                        sourceText = evidence,
+                        extraInstructions = taskInstructions,
+                        generatedResult = output.text,
+                        activeDraftProvider = output.providerLabel,
+                        activeDraftModel = output.model,
+                        toastMessage = if (task == TaskType.QUESTIONS) {
+                            "تم إنشاء مسودة علاجية وإضافة ${generatedQuestions.size} سؤالاً تكيفياً للمفهوم: $conceptTitle"
+                        } else {
+                            "تم إنشاء شرح تقوية للمفهوم وحفظه كمسودة للمراجعة والاعتماد."
+                        }
+                    )
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                _uiState.update {
+                    it.copy(alert = AlertMessage(
+                        "تعذر إنشاء العلاج التعليمي",
+                        error.message ?: "تحقق من مصدر الدرس ومزود AI ثم أعد المحاولة."
+                    ))
+                }
+            } finally {
+                _uiState.update { it.copy(isBusy = false) }
+            }
+        }
+    }
+
     fun dismissReinforcementQuiz() {
         _uiState.update {
             it.copy(
