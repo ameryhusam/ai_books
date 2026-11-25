@@ -1311,6 +1311,13 @@ class EduMiniCoreTest {
             assertEquals("التاريخ", boundScience.workspace.books.single { it.componentKey == "HIST" }.subjectName)
             assertEquals("التربية الوطنية", boundScience.workspace.books.single { it.componentKey == "TARBIA" }.subjectName)
 
+            // Binding the selected component folder itself must retain its identity from index.json.
+            val courseRoot = File(rootDir, "workspace/G07/ENG/COURSE")
+            val courseRootBound = binder.bindSingleGrade(courseRoot.absolutePath, "G07")
+            assertEquals(1, courseRootBound.workspace.books.size)
+            assertEquals("ENG/COURSE", courseRootBound.workspace.books.single().bookKey)
+            assertEquals("COURSE", courseRootBound.workspace.books.single().componentKey)
+
             // Verify zero-copy: PDF file was NOT duplicated inside filesDir/edumini/workspaces
             val privateWorkspacesDir = File(context.filesDir, "edumini/workspaces/${bound.workspace.workspaceId}")
             assertFalse(privateWorkspacesDir.exists())
