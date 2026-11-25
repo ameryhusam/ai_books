@@ -6,7 +6,7 @@ Branch: `main`
 ## Architecture constraints preserved
 
 - Firebase Authentication and the existing Firestore integration remain active.
-- No Firestore collection, document, authentication, or sync contract was changed.
+- No Firestore collection, document shape, or authentication contract was changed. The client now sends account-scoped progress only for the legacy `learner_default` profile; progress belonging to additional local learner profiles stays local until a profile-aware Firestore contract is designed. Draft sync and Firebase sign-in remain active.
 - Room remains the local operational database.
 - PDF files remain in the linked Workspace; Room stores references and metadata only.
 - Local learner profile IDs remain distinct from Firebase Authentication UIDs.
@@ -70,7 +70,7 @@ This is evidence-guided generation, not a trained predictive ML model. Mastery r
 2. **Schema export:** `exportSchema = false` remains unchanged. Enable it only with KSP schema-location configuration, committed schema snapshots, and migration tests.
 3. **Learner profile metadata in backup:** learning records retain their local learner IDs, but the local profile names/list are currently stored separately in SharedPreferences and are not included in the workspace backup. Recreate matching profile IDs or implement a separate profile backup before moving data to a new device.
 4. **Book file registry:** PDF, extracted text, and related file references remain distributed across existing entities. A dedicated `BookFile` entity should follow the finalized PDF/OCR/splitting lifecycle, not be introduced speculatively.
-5. **Cloud learner separation:** Firestore behavior remains account-scoped exactly as before. Local learner profiles are isolated in Room, but the existing Firestore progress contract does not identify those local profiles. Do not interpret account-level cloud progress as per-profile progress until a separately versioned cloud contract is designed.
+5. **Cloud learner separation:** Firestore remains account-scoped and its document contract is unchanged. To avoid merging multiple local learners into one account-wide progress record, the current client syncs progress only for `learner_default`; additional local profiles remain local-only. Do not interpret account-level cloud progress as per-profile progress until a separately versioned cloud contract is designed.
 
 ## Verification status
 
