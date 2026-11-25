@@ -39,6 +39,7 @@
     <string name="studio_task_heading">المهمة</string>
     <string name="studio_question_count_label">عدد الأسئلة المطلوبة</string>
     <string name="studio_attach_pdf_label">إرفاق ملف PDF الأصلي مع البرومبت (أو صفحات مصورة للمزودات المتوافقة)</string>
+    <string name="studio_pdf_privacy_notice">تنبيه خصوصية: عند تفعيل الإرفاق، يُرسل ملف PDF أو صور صفحاته إلى مزود الذكاء الاصطناعي. تنقية النص لا تزيل البيانات الشخصية داخل المرفقات؛ راجع الملف أو أوقف الإرفاق قبل التوليد إذا احتوى بيانات حساسة.</string>
     <string name="task_explanation">شرح الدرس</string>
     <string name="task_interactive">درس تفاعلي</string>
     <string name="task_questions">بنك الأسئلة</string>
