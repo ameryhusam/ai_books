@@ -332,9 +332,9 @@ object Indexer2PromptRegistry {
                 append("أخرج استجابة منظمة وفق مخطط الاستجابة المرفق، دون Markdown أو نص خارج البنية المطلوبة.\n")
             }
             if (responseSchemaJson.isNotBlank()) {
-                append("\\nمخطط الاستجابة المعتمد من القالب (لا تغيّر أسماء الحقول أو أنواعها):\\n")
+                append("\nمخطط الاستجابة المعتمد من القالب (لا تغيّر أسماء الحقول أو أنواعها):\n")
                 append(responseSchemaJson.trim())
-                append("\\n")
+                append("\n")
             }
             if (attachedPdfPagesCount > 0) {
                 append("ملاحظة: مرفق مع هذا الطلب $attachedPdfPagesCount صفحة مصورة من ملف PDF الخاص بالدرس لاستخراج المحتوى والاعتماد عليها.\n")
