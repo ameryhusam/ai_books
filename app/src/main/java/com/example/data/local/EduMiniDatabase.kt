@@ -694,7 +694,7 @@ interface EduMiniDao {
     @Query("DELETE FROM assessments WHERE id = :assessmentId")
     suspend fun deleteAssessmentById(assessmentId: String)
 
-    @Query("SELECT * FROM assessment_attempts WHERE workspace_id = :workspaceId AND user_id = :userId ORDER BY completed_at DESC LIMIT 30")
+    @Query("SELECT * FROM assessment_attempts WHERE workspace_id = :workspaceId AND user_id = :userId ORDER BY completed_at DESC")
     fun observeAssessmentAttempts(workspaceId: String, userId: String = "learner_default"): Flow<List<AssessmentAttemptEntity>>
 
     @Query("SELECT * FROM assessment_attempts WHERE workspace_id = :workspaceId ORDER BY completed_at DESC")
