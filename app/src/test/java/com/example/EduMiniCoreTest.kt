@@ -2108,7 +2108,7 @@ class EduMiniCoreTest {
         assertEquals(setOf("learner_a", "learner_b"), restored.attempts.map { it.userId }.toSet())
         assertEquals(setOf("learner_a", "learner_b"), restored.progress.map { it.userId }.toSet())
         assertEquals(setOf("learner_a", "learner_b"), restored.studyDayRecords.map { it.userId }.toSet())
-        assertEquals(4, restored.studyDayRecords.first { it.userId == "learner_a" }.actionsCount.coerceAtLeast(3))
+        assertEquals(3, restored.studyDayRecords.first { it.userId == "learner_a" }.actionsCount)
     }
 
     private fun sampleLesson() = LessonRef(
