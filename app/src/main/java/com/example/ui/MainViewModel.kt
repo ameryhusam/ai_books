@@ -1135,7 +1135,8 @@ class MainViewModel(
                     ))
                 }
             } finally {
-                _uiState.update { it.copy(isBusy = false, generationProgressPercent = null, generationStage = null) }
+                val latestProviders = runCatching { repository.loadProviders() }.getOrDefault(_uiState.value.providers)
+                _uiState.update { it.copy(providers = latestProviders, isBusy = false, generationProgressPercent = null, generationStage = null) }
             }
         }
     }
@@ -2584,7 +2585,8 @@ class MainViewModel(
                 }
             } finally {
                 generationJob = null
-                _uiState.update { it.copy(isBusy = false, generationProgressPercent = null, generationStage = null) }
+                val latestProviders = runCatching { repository.loadProviders() }.getOrDefault(_uiState.value.providers)
+                _uiState.update { it.copy(providers = latestProviders, isBusy = false, generationProgressPercent = null, generationStage = null) }
             }
         }
     }
