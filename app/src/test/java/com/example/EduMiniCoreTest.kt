@@ -17,6 +17,7 @@ import com.example.data.packageimport.InteractivePackageImporter
 import com.example.data.repository.ConceptMasteryEngine
 import com.example.data.repository.EduMiniRepository
 import com.example.data.repository.InteractiveActivityParser
+import com.example.data.repository.LearningProgressAnalytics
 import com.example.data.repository.MilestoneBadgeEngine
 import com.example.data.repository.QuestionBankEngine
 import com.example.data.security.ProviderStorage
@@ -30,6 +31,7 @@ import com.tom_roush.pdfbox.pdmodel.PDPage
 import com.tom_roush.pdfbox.pdmodel.PDPageContentStream
 import com.tom_roush.pdfbox.pdmodel.font.PDType1Font
 import com.example.model.AssessmentKind
+import com.example.model.AssessmentAttemptRecord
 import com.example.model.BookRef
 import com.example.model.ImportedWorkspace
 import com.example.model.LearningNodeStatus
@@ -2026,6 +2028,144 @@ class EduMiniCoreTest {
         } finally {
             db.close()
         }
+    }
+
+    @Test
+    fun learningProgressReportSeparatesInitialAccuracyDelayedRecallAndRecurringMistakes() {
+        val questions = (1..3).map { index ->
+            QuestionItem(
+                id = "report-q$index",
+                workspaceId = "ws-report",
+                gradeKey = "G07",
+                bookKey = "SCI",
+                unitKey = "unit-01",
+                lessonKey = "lesson-01",
+                lessonTitle = "الكسور",
+                type = QuestionType.MCQ,
+                prompt = "سؤال $index",
+                options = listOf("1/2", "1/3", "1/4"),
+                correctAnswer = "1/2",
+                rationale = "التفسير",
+                difficulty = QuestionDifficulty.MEDIUM,
+                conceptTag = "fractions"
+            )
+        }
+        fun attempt(id: String, questionId: String, answer: String, correct: Boolean, at: String) =
+            QuestionAttemptRecord(
+                id = id,
+                workspaceId = "ws-report",
+                userId = "learner_a",
+                questionId = questionId,
+                conceptTag = "fractions",
+                selectedAnswer = answer,
+                isCorrect = correct,
+                sourceMode = "lesson_quiz",
+                answeredAt = at
+            )
+        val attempts = listOf(
+            attempt("a1", "report-q1", "1/2", true, "2026-11-10T10:00:00Z"),
+            attempt("a2", "report-q2", "1/2", true, "2026-11-10T10:00:00Z"),
+            attempt("a3", "report-q3", "1/2", true, "2026-11-10T10:00:00Z"),
+            attempt("a4", "report-q1", "1/2", true, "2026-11-19T10:00:00Z"),
+            attempt("a5", "report-q2", "1/3", false, "2026-11-19T10:00:00Z"),
+            attempt("a6", "report-q2", "1/3", false, "2026-11-20T10:00:00Z"),
+            attempt("a7", "report-q3", "1/4", false, "2026-11-20T10:00:00Z")
+        )
+        val assessments = listOf(
+            AssessmentAttemptRecord(
+                id = "weekly-1",
+                assessmentId = "weekly",
+                assessmentTitle = "اختبار أسبوعي",
+                workspaceId = "ws-report",
+                correctCount = 7,
+                totalQuestions = 10,
+                scorePercent = 70,
+                passed = true,
+                durationSeconds = 300,
+                earnedXp = 10,
+                completedAt = "2026-11-24T10:00:00Z"
+            ),
+            AssessmentAttemptRecord(
+                id = "weekly-2",
+                assessmentId = "weekly",
+                assessmentTitle = "اختبار أسبوعي",
+                workspaceId = "ws-report",
+                correctCount = 9,
+                totalQuestions = 10,
+                scorePercent = 90,
+                passed = true,
+                durationSeconds = 280,
+                earnedXp = 15,
+                completedAt = "2026-11-25T10:00:00Z"
+            )
+        )
+
+        val report = LearningProgressAnalytics.calculate(
+            questions = questions,
+            attempts = attempts,
+            assessments = assessments,
+            now = java.time.Instant.parse("2026-11-25T12:00:00Z")
+        )
+
+        assertEquals(100, report.firstTryAccuracyPercent)
+        assertEquals(33, report.latestAccuracyPercent)
+        assertEquals(33, report.delayedRecallPercent)
+        assertEquals(67, report.estimatedRecallDropPercent)
+        assertEquals(3, report.delayedRecallSampleCount)
+        assertEquals(1, report.recurringMistakes.size)
+        assertEquals("1/3", report.recurringMistakes.single().selectedAnswer)
+        assertEquals(2, report.recurringMistakes.single().occurrences)
+        assertEquals(80, report.weeklyAssessments.single().averageScorePercent)
+    }
+
+    @Test
+    fun learningProgressReportMeasuresFollowUpAfterReinforcementOnlyOnSharedQuestions() {
+        val questions = (1..2).map { index ->
+            QuestionItem(
+                id = "support-q$index",
+                workspaceId = "ws-support",
+                gradeKey = "G07",
+                bookKey = "SCI",
+                unitKey = "unit-01",
+                lessonKey = "lesson-01",
+                lessonTitle = "الكسور",
+                type = QuestionType.MCQ,
+                prompt = "سؤال $index",
+                options = listOf("1/2", "1/3"),
+                correctAnswer = "1/2",
+                rationale = "التفسير",
+                difficulty = QuestionDifficulty.MEDIUM,
+                conceptTag = "fractions"
+            )
+        }
+        fun attempt(id: String, questionId: String, answer: String, correct: Boolean, source: String, at: String) =
+            QuestionAttemptRecord(
+                id = id,
+                workspaceId = "ws-support",
+                userId = "learner_a",
+                questionId = questionId,
+                conceptTag = "fractions",
+                selectedAnswer = answer,
+                isCorrect = correct,
+                sourceMode = source,
+                answeredAt = at
+            )
+        val attempts = listOf(
+            attempt("b1", "support-q1", "1/3", false, "lesson_quiz", "2026-11-01T10:00:00Z"),
+            attempt("b2", "support-q2", "1/3", false, "lesson_quiz", "2026-11-01T10:00:00Z"),
+            attempt("b3", "support-q1", "1/2", true, "reinforcement", "2026-11-02T10:00:00Z"),
+            attempt("b4", "support-q2", "1/2", true, "reinforcement", "2026-11-02T10:00:00Z"),
+            attempt("b5", "support-q1", "1/2", true, "weekly_test", "2026-11-05T10:00:00Z"),
+            attempt("b6", "support-q2", "1/2", true, "weekly_test", "2026-11-05T10:00:00Z")
+        )
+        val report = LearningProgressAnalytics.calculate(
+            questions = questions,
+            attempts = attempts,
+            assessments = emptyList(),
+            now = java.time.Instant.parse("2026-11-25T12:00:00Z")
+        )
+        assertEquals(100, report.reinforcementImpactPercent)
+        assertEquals(1, report.reinforcementImpactConceptCount)
     }
 
     @Test
