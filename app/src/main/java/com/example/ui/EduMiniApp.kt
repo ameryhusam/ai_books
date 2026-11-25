@@ -452,7 +452,8 @@ private fun AuthenticatedEduMiniContent(
                                             questionStats = questionStats,
                                             totalPoints = dashboardSummary.totalPoints,
                                             onLaunchReinforcement = viewModel::launchConceptReinforcement,
-                                            activeLearner = state.activeLearner
+                                            activeLearner = state.activeLearner,
+                                            learningProgressReport = learningProgressReport
                                         )
 
                                         AppPage.LIBRARY -> LibraryScreen(
