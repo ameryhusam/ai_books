@@ -708,7 +708,7 @@ class DirectWorkspaceBinder(private val context: Context) {
                 }
             }
         }
-        return result.distinctBy { "\${it.gradeKey}|\${it.bookKey}|\${it.bookRelPath}" }
+        return result.distinctBy { "${it.gradeKey}|${it.bookKey}|${it.bookRelPath}" }
     }
 
     private fun isReadablePdf(path: String?): Boolean {
