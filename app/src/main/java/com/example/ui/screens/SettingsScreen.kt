@@ -548,6 +548,11 @@ fun SettingsScreen(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = EduMuted
                             )
+                            Text(
+                                text = "$statusLabel • ${profile.dailyRequestsUsed}/${if (profile.dailyRequestLimit == 0) "∞" else profile.dailyRequestLimit} طلب يومي",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (profile.runtimeStatus == "ACTIVE") EduGreenDark else EduRed
+                            )
                         }
                         IconButton(
                             onClick = { onTestSavedProvider(profile) },
