@@ -52,7 +52,7 @@ Implemented on `feat/provider-isolation-local-workspace`:
 
 Validation limitations:
 - Source changes and call-site wiring were inspected through the repository.
-- The local clone/build attempt could not start because the execution environment could not resolve `github.com`.
+- A local clone/build attempt could not start because this execution environment could not resolve `github.com`; Java 21 is available, but Gradle is not installed in the environment. The feature-branch CI run (`45713201220`) failed in approximately four seconds with no recorded steps and no retrievable job log (`BlobNotFound`), so there is no evidence that a runner or Gradle started. This is an infrastructure/runner failure signal, not a confirmed Kotlin compilation failure.
 - The CI workflow has been updated to run on pushes to `main` and `feat/**` branches, and on pull requests targeting `main`. No completed workflow result has been observed yet, so no Gradle result or APK is claimed.
 - Before declaring Phase 1 complete, run `:app:compileDebugKotlin`, `:app:testDebugUnitTest`, and `:app:assembleDebug` in an Android/Gradle environment. Resolve any compiler/test failures before beginning Phase 2.
 
