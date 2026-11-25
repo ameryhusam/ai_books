@@ -79,7 +79,7 @@ fun LearnerMasteryScreen(
                         }
                         Column {
                             Text(if (learningProgressReport.eligibleConceptsCount > 0) stableCount.toString() else "—", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                            Text("مفاهيم ثبتت", style = MaterialTheme.typography.labelSmall)
+                            Text("مفاهيم مستقرة", style = MaterialTheme.typography.labelSmall)
                         }
                         Column {
                             Text("$totalPoints", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
