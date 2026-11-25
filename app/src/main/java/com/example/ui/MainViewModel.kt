@@ -24,6 +24,7 @@ import com.example.model.DirectWorkspaceInspection
 import com.example.model.DraftRecord
 import com.example.model.DraftStatus
 import com.example.model.GenerationRunRecord
+import com.example.model.GeneratedResult
 import com.example.model.ImportedWorkspace
 import com.example.model.InteractiveActivityModel
 import com.example.model.InteractivePackageRecord
