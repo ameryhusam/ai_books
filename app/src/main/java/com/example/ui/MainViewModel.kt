@@ -573,6 +573,47 @@ class MainViewModel(
         }
     }
 
+    fun refreshDirectWorkspaceCatalog() {
+        val currentWorkspace = _uiState.value.workspace ?: return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isBusy = true) }
+            try {
+                val refreshed = repository.bindDirectWorkspace(
+                    rootUriOrPath = currentWorkspace.rootPath,
+                    gradeKey = currentWorkspace.gradeKey
+                )
+                _studentDashboardState.value = StudentDashboardState()
+                _uiState.update { state ->
+                    val nextBookKey = refreshed.books
+                        .firstOrNull { it.bookKey == state.selectedBookKey }
+                        ?.bookKey
+                        ?: refreshed.books.firstOrNull()?.bookKey.orEmpty()
+                    state.copy(
+                        workspace = refreshed,
+                        selectedWorkspaceId = refreshed.workspaceId,
+                        selectedBookKey = nextBookKey,
+                        selectedLesson = null,
+                        alert = AlertMessage(
+                            "تم تحديث فهرس مساحة العمل",
+                            "${refreshed.indexRecords.size} فهرس • ${refreshed.books.size} مادة/كتاب • ${refreshed.units.size} وحدة • ${refreshed.lessons.size} درس. لم يتم نسخ ملفات PDF."
+                        )
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        alert = AlertMessage(
+                            "تعذر تحديث الفهرس",
+                            e.message ?: "تعذر قراءة مساحة العمل؛ بقيت بيانات الفهرس السابقة دون تغيير."
+                        )
+                    )
+                }
+            } finally {
+                _uiState.update { it.copy(isBusy = false) }
+            }
+        }
+    }
+
     fun dismissDirectInspection() {
         _uiState.update { it.copy(directInspection = null) }
     }
