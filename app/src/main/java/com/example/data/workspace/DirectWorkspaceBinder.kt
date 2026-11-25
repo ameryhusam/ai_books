@@ -145,11 +145,9 @@ class DirectWorkspaceBinder(private val context: Context) {
 
         for (slot in discoveredIndexes) {
             val bookRel = slot.bookRelPath
-            if (slot.componentMetadataMismatch || !slot.componentKey.equals(slot.pathComponentKey, ignoreCase = true)) {
-                warnings.add(
-                    "$bookRel: componentKey في index.json أو book_manifest.json لا يطابق مجلد المكون في المسار " +
-                        "(${slot.componentKey ?: "بدون مكون"} مقابل ${slot.pathComponentKey ?: "بدون مكون"})."
-                )
+            val componentError = componentIdentityError(slot)
+            if (componentError != null) {
+                warnings.add("$bookRel: $componentError")
                 continue
             }
             val manifestEntry = firstExisting(
@@ -454,11 +452,9 @@ class DirectWorkspaceBinder(private val context: Context) {
 
         slots.forEach { slot ->
             val bookLabel = slot.bookRelPath.ifBlank { slot.bookKey }
-            if (!slot.componentKey.equals(slot.pathComponentKey, ignoreCase = true)) {
-                warnings.add(
-                    "$bookLabel: componentKey في الفهرس أو manifest لا يطابق مجلد المكون " +
-                        "(${slot.componentKey ?: "بدون مكون"} مقابل ${slot.pathComponentKey ?: "بدون مكون"})."
-                )
+            val componentError = componentIdentityError(slot)
+            if (componentError != null) {
+                warnings.add("$bookLabel: $componentError")
                 return@forEach
             }
             val manifestEntry = firstExisting(
@@ -719,6 +715,17 @@ class DirectWorkspaceBinder(private val context: Context) {
             }
         }
         return result.distinctBy { "${it.gradeKey}|${it.bookKey}|${it.bookRelPath}" }
+    }
+
+    private fun componentIdentityError(slot: BookIndexSlot): String? {
+        if (slot.componentMetadataMismatch) {
+            return "componentKey غير متطابق بين index.json وbook_manifest.json."
+        }
+        if (!slot.componentKey.equals(slot.pathComponentKey, ignoreCase = true)) {
+            return "componentKey في الفهرس لا يطابق مجلد المكون في المسار " +
+                "(${slot.componentKey ?: "بدون مكون"} مقابل ${slot.pathComponentKey ?: "بدون مكون"})."
+        }
+        return null
     }
 
     private fun isReadablePdf(path: String?): Boolean {
