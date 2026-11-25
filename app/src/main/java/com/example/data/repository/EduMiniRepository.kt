@@ -403,6 +403,9 @@ class EduMiniRepository(
         template: PromptTemplateRecord? = null,
         onProgress: (percent: Int, stage: String) -> Unit = { _, _ -> }
     ): GeneratedResult {
+        if (providers.none { it.enabled && it.apiKey.isNotBlank() && it.model.isNotBlank() }) {
+            throw IllegalStateException("لا يوجد مفتاح API مفعّل بنموذج صالح. أضف مفتاحاً أو أعد تفعيل أحد المفاتيح من الإعدادات.")
+        }
         val extractedText = if (!lesson.sourceTextPath.isNullOrBlank() && appContext != null) {
             UriIO.readText(appContext, lesson.sourceTextPath).orEmpty().trim()
         } else if (!lesson.pdfPath.isNullOrBlank() && !UriIO.isContentUri(lesson.pdfPath)) {
