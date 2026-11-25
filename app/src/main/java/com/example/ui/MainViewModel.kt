@@ -91,7 +91,9 @@ data class ProviderFormState(
     val fallbackModels: String = "",
     val strictModel: Boolean = false,
     val baseUrl: String = "https://api.openai.com/v1",
-    val apiKey: String = ""
+    val apiKey: String = "",
+    val dailyRequestLimit: String = "0",
+    val quotaTimeZone: String = "Asia/Aden"
 )
 
 data class PdfSplitterUiState(
@@ -1080,6 +1082,7 @@ class MainViewModel(
                     generation = output
                 )
                 firestoreSync.upsertDraft(currentUserId, draft)
+                _uiState.update { it.copy(providers = repository.loadProviders()) }
 
                 val generatedQuestions = if (task == TaskType.QUESTIONS) {
                     repository.saveQuestionsFromDraftText(workspace.workspaceId, lesson, output.text)
@@ -1679,6 +1682,14 @@ class MainViewModel(
         _uiState.update { it.copy(providerForm = it.providerForm.copy(apiKey = value)) }
     }
 
+    fun updateFormDailyRequestLimit(value: String) {
+        _uiState.update { it.copy(providerForm = it.providerForm.copy(dailyRequestLimit = value.filter(Char::isDigit).take(7))) }
+    }
+
+    fun updateFormQuotaTimeZone(value: String) {
+        _uiState.update { it.copy(providerForm = it.providerForm.copy(quotaTimeZone = value.trim())) }
+    }
+
     fun toggleFormStrictModel() {
         _uiState.update { it.copy(providerForm = it.providerForm.copy(strictModel = !it.providerForm.strictModel)) }
     }
@@ -1694,7 +1705,9 @@ class MainViewModel(
                     fallbackModels = profile.fallbackModels.joinToString(", "),
                     strictModel = profile.strictModel,
                     baseUrl = profile.baseUrl.ifBlank { "https://api.openai.com/v1" },
-                    apiKey = profile.apiKey
+                    apiKey = profile.apiKey,
+                    dailyRequestLimit = profile.dailyRequestLimit.toString(),
+                    quotaTimeZone = profile.quotaTimeZone
                 )
             )
         }
@@ -2499,6 +2512,7 @@ class MainViewModel(
                     generation = out
                 )
                 firestoreSync.upsertDraft(currentUserId, persistedDraft)
+                _uiState.update { it.copy(providers = repository.loadProviders()) }
                 val syncedQuestionsCount = if (snapshot.task == TaskType.QUESTIONS) {
                     repository.saveQuestionsFromDraftText(
                         workspaceId = wsId,
@@ -2697,7 +2711,9 @@ class MainViewModel(
                             fallbackModels = fallbacks,
                             strictModel = form.strictModel,
                             baseUrl = form.baseUrl.trim(),
-                            apiKey = form.apiKey.trim()
+                            apiKey = form.apiKey.trim(),
+                            dailyRequestLimit = form.dailyRequestLimit.toIntOrNull()?.coerceAtLeast(0) ?: 0,
+                            quotaTimeZone = form.quotaTimeZone.ifBlank { "Asia/Aden" }
                         )
                     } else p
                 }
@@ -2713,7 +2729,9 @@ class MainViewModel(
                     apiKey = form.apiKey.trim(),
                     enabled = true,
                     createdAt = System.currentTimeMillis(),
-                    priority = currentList.size
+                    priority = currentList.size,
+                    dailyRequestLimit = form.dailyRequestLimit.toIntOrNull()?.coerceAtLeast(0) ?: 0,
+                    quotaTimeZone = form.quotaTimeZone.ifBlank { "Asia/Aden" }
                 )
             }
             repository.saveProviders(next)
@@ -2732,11 +2750,16 @@ class MainViewModel(
 
     fun toggleProvider(id: String) {
         viewModelScope.launch {
-            val next = _uiState.value.providers.map { p ->
-                if (p.id == id) p.copy(enabled = !p.enabled) else p
-            }
-            repository.saveProviders(next)
-            _uiState.update { it.copy(providers = next) }
+            val current = _uiState.value.providers.firstOrNull { it.id == id } ?: return@launch
+            val updated = repository.setProviderEnabled(id, !current.enabled)
+            _uiState.update { it.copy(providers = updated) }
+        }
+    }
+
+    fun reactivateProvider(id: String) {
+        viewModelScope.launch {
+            val updated = repository.reactivateProvider(id)
+            _uiState.update { it.copy(providers = updated, toastMessage = "تمت إعادة تنشيط المفتاح يدوياً") }
         }
     }
 
