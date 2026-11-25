@@ -53,7 +53,7 @@ Implemented on `feat/provider-isolation-local-workspace`:
 Validation limitations:
 - Source changes and call-site wiring were inspected through the repository.
 - The local clone/build attempt could not start because the execution environment could not resolve `github.com`.
-- The current CI workflow only runs on pushes to `main` or manual dispatch; it does not run for this feature branch or pull requests. Therefore no Gradle result or APK is claimed.
+- The CI workflow has been updated to run on pushes to `main` and `feat/**` branches, and on pull requests targeting `main`. No completed workflow result has been observed yet, so no Gradle result or APK is claimed.
 - Before declaring Phase 1 complete, run `:app:compileDebugKotlin`, `:app:testDebugUnitTest`, and `:app:assembleDebug` in an Android/Gradle environment. Resolve any compiler/test failures before beginning Phase 2.
 
 ## Phase 2 — Pause PDF splitting (P0)
