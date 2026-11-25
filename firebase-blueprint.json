@@ -82,6 +82,41 @@
           "type": "string",
           "format": "date-time",
           "description": "Last update server timestamp (clients must write FieldValue.serverTimestamp())."
+        },
+        "templateId": {
+          "type": "string",
+          "maxLength": 160,
+          "description": "Prompt template identifier used for this generation; optional for legacy drafts."
+        },
+        "templateVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000,
+          "description": "Prompt template version captured when the draft was generated."
+        },
+        "responseSchemaHash": {
+          "type": "string",
+          "maxLength": 64,
+          "pattern": "^(|[a-f0-9]{64})$",
+          "description": "SHA-256 hash of the response schema, or empty when no schema was used."
+        },
+        "requestFingerprint": {
+          "type": "string",
+          "maxLength": 64,
+          "pattern": "^(|[a-f0-9]{64})$",
+          "description": "SHA-256 fingerprint of the generation request and selected provider/model."
+        },
+        "contentHash": {
+          "type": "string",
+          "maxLength": 64,
+          "pattern": "^(|[a-f0-9]{64})$",
+          "description": "SHA-256 hash of the persisted draft content."
+        },
+        "sourcePdfHash": {
+          "type": "string",
+          "maxLength": 64,
+          "pattern": "^(|[a-f0-9]{64})$",
+          "description": "SHA-256 hash of the source PDF, or empty when no PDF was attached."
         }
       },
       "required": [
