@@ -395,3 +395,13 @@ The latest Android CI run observed during this pass is [run 45715165859](https:/
 - Source transformation checks confirmed the intended code sections were changed.
 - No Gradle compiler, unit-test, or Android assembly command was executed in this pass. Build and runtime behavior remain unverified.
 - The service still depends on the exact structured reason strings returned by Google; unknown HTTP 429 responses are conservatively classified as rate limiting, not quota exhaustion.
+
+## 2026-11-26 — P2 continuation: analytics timezone consistency
+
+- Updated `LearningProgressAnalytics.calculate` to accept one explicit `ZoneId` (defaulting to the device zone for backward compatibility).
+- Reused that same zone for concept-day stability and weekly assessment bucketing; removed the previous UTC/system-default split.
+- Added a regression test using `Pacific/Kiritimati` to cover attempts that fall on different local dates while sharing a UTC date.
+- Source edits were committed directly to `main`:
+  - `bde1a6b` — analytics calculation uses one zone.
+  - `f4685d0` — local-date boundary regression test.
+- **Verification boundary:** source changes were written through the GitHub repository API. No Gradle compilation, unit test execution, instrumentation test, or Android build was run in this environment. The new test is added but not yet verified by execution.
