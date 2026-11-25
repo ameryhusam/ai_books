@@ -23,6 +23,7 @@ import com.example.model.WeeklyAssessmentSummary
 fun LearningProgressReportCard(
     report: LearningProgressReport,
     isLearner: Boolean,
+    learnerName: String = "",
     onExport: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -36,7 +37,7 @@ fun LearningProgressReportCard(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(
-                text = if (isLearner) "تقدمك في التعلّم" else "تقرير متابعة مستوى المتعلّم",
+                text = if (isLearner) "تقدمك في التعلّم" else "تقرير متابعة مستوى ${learnerName.ifBlank { "المتعلّم" }}",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
             )
