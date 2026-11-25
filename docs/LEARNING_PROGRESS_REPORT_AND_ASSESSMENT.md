@@ -30,7 +30,7 @@ The stable-concept percentage is the share of concepts meeting this rule among c
 
 ### 4. Delayed recall and recall gap
 
-For each question, compare its first response with its latest response at least seven days later. The report only shows delayed recall when at least three distinct questions meet that condition.
+For each question, compare its first eligible learning response with the **first retrieval attempt at least seven days later**. The report only shows delayed recall when at least three distinct questions meet that condition. Using the first delayed retrieval avoids letting many later practice attempts inflate the retention estimate.
 
 The recall gap is the non-negative difference between first-response accuracy and delayed-recall accuracy on those same questions. This is deliberately called a **recall gap**, not a scientifically established forgetting rate: repeated-question testing is only a proxy, and question difficulty or prior exposure can affect results.
 
