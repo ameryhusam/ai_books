@@ -381,6 +381,7 @@ The latest Android CI run observed during this pass is [run 45715165859](https:/
 - Added classification for explicit QUOTA_EXCEEDED and RATE_LIMIT_EXCEEDED signals. A confirmed Gemini quota-exhaustion response stops the current generation immediately; it does not cycle through additional Google profiles/models as a quota-bypass mechanism.
 - Retry-After now accepts both delta-seconds and RFC 1123 HTTP-date values. If the header is absent or invalid, the existing 60-second fallback remains.
 - Gemini and OpenAI-compatible request paths remain separate. Model-level cooldown behavior for Gemini rate limiting is retained.
+- SettingsScreen no longer exposes a local daily request cap or local quota-reset timezone; it explains provider-authoritative quota detection and shows the daily attempt count as diagnostic information only.
 
 ### Files changed
 - app/src/main/java/com/example/data/security/ProviderStorage.kt
