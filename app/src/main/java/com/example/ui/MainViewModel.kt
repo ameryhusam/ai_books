@@ -128,6 +128,12 @@ data class MainUiState(
     val generatedResult: String = "",
     val activeDraftProvider: String = "تحرير يدوي",
     val activeDraftModel: String = "local",
+    val activeDraftTemplateId: String = "",
+    val activeDraftTemplateVersion: Int = 1,
+    val activeDraftResponseSchemaHash: String = "",
+    val activeDraftRequestFingerprint: String = "",
+    val activeDraftContentHash: String = "",
+    val activeDraftSourcePdfHash: String = "",
     val packageSourcePages: String = "",
     val previewingPackage: InteractivePackageRecord? = null,
     val studentPreviewMode: Boolean = false,
@@ -290,6 +296,17 @@ class MainViewModel(
             initialValue = emptyList()
         )
 
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val workspaceQuestionAttempts: StateFlow<List<QuestionAttemptRecord>> = _uiState
+        .map { it.workspace?.workspaceId.orEmpty() to it.activeLearner.userId }
+        .distinctUntilChanged()
+        .flatMapLatest { (wsId, userId) -> repository.observeQuestionAttempts(wsId, userId) }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
     val learningProgressReport: StateFlow<LearningProgressReport> =
         combine(workspaceQuestions, workspaceQuestionAttempts, workspaceAttempts) { questions, questionAttempts, assessmentAttempts ->
             LearningProgressAnalytics.calculate(
@@ -333,17 +350,6 @@ class MainViewModel(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = EduMiniRepository.DEFAULT_PROMPT_TEMPLATES
-        )
-
-    @OptIn(ExperimentalCoroutinesApi::class)
-    val workspaceQuestionAttempts: StateFlow<List<QuestionAttemptRecord>> = _uiState
-        .map { it.workspace?.workspaceId.orEmpty() to it.activeLearner.userId }
-        .distinctUntilChanged()
-        .flatMapLatest { (wsId, userId) -> repository.observeQuestionAttempts(wsId, userId) }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = emptyList()
         )
 
     val questionMasteryStats: StateFlow<Map<String, QuestionMasteryStats>> =
@@ -1125,6 +1131,12 @@ class MainViewModel(
                         generatedResult = output.text,
                         activeDraftProvider = output.providerLabel,
                         activeDraftModel = output.model,
+                        activeDraftTemplateId = output.templateId,
+                        activeDraftTemplateVersion = output.templateVersion,
+                        activeDraftResponseSchemaHash = output.responseSchemaHash,
+                        activeDraftRequestFingerprint = output.requestFingerprint,
+                        activeDraftContentHash = output.contentHash,
+                        activeDraftSourcePdfHash = output.sourcePdfHash,
                         toastMessage = if (task == TaskType.QUESTIONS) {
                             "تم إنشاء مسودة علاجية وإضافة ${generatedQuestions.size} سؤالاً تكيفياً للمفهوم: $conceptTitle"
                         } else {
@@ -1330,6 +1342,7 @@ class MainViewModel(
                 activeDraftTemplateVersion = draft.templateVersion,
                 activeDraftResponseSchemaHash = draft.responseSchemaHash,
                 activeDraftRequestFingerprint = draft.requestFingerprint,
+                activeDraftContentHash = draft.contentHash,
                 activeDraftSourcePdfHash = draft.sourcePdfHash,
                 page = AppPage.STUDIO
             )
@@ -1420,6 +1433,7 @@ class MainViewModel(
                 activeDraftTemplateVersion = draft.templateVersion,
                 activeDraftResponseSchemaHash = draft.responseSchemaHash,
                 activeDraftRequestFingerprint = draft.requestFingerprint,
+                activeDraftContentHash = draft.contentHash,
                 activeDraftSourcePdfHash = draft.sourcePdfHash
             )
         }
@@ -1459,6 +1473,7 @@ class MainViewModel(
                     sourcePdfHash = snapshot.activeDraftSourcePdfHash
                 )
             )
+            _uiState.update { it.copy(activeDraftContentHash = savedDraft.contentHash) }
             val cloudSyncResult = firestoreSync.upsertDraft(currentUserId, savedDraft)
             val syncedCount = when (snapshot.task) {
                 TaskType.QUESTIONS -> repository.saveQuestionsFromDraftText(wsId, lesson, content).size
@@ -1653,6 +1668,7 @@ class MainViewModel(
                 activeDraftTemplateVersion = cloudDraft.templateVersion.toInt().coerceAtLeast(1),
                 activeDraftResponseSchemaHash = cloudDraft.responseSchemaHash,
                 activeDraftRequestFingerprint = cloudDraft.requestFingerprint,
+                activeDraftContentHash = cloudDraft.contentHash,
                 activeDraftSourcePdfHash = cloudDraft.sourcePdfHash,
                 page = AppPage.STUDIO,
                 toastMessage = "تم تحميل المسودة السحابية «${cloudDraft.title}»"
@@ -2639,6 +2655,7 @@ class MainViewModel(
                         activeDraftTemplateVersion = out.templateVersion,
                         activeDraftResponseSchemaHash = out.responseSchemaHash,
                         activeDraftRequestFingerprint = out.requestFingerprint,
+                        activeDraftContentHash = out.contentHash,
                         activeDraftSourcePdfHash = out.sourcePdfHash,
                         alert = AlertMessage(
                             title = "تم الحفظ والربط",
