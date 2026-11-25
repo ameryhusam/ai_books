@@ -200,7 +200,7 @@ class DirectWorkspaceBinder(private val context: Context) {
                 indexMetadata?.str("subjectName"),
                 manifestObj?.str("subjectName"),
                 indexObj.str("subjectName"),
-                subjectDisplayName(slot.subjectKey)
+                subjectDisplayName(slot.subjectKey, slot.componentKey)
             )
             val fallbackTitle = subjectName + (if (slot.componentKey != null) " / ${slot.componentKey}" else "")
             val bookTitle = firstNonBlank(
@@ -974,15 +974,20 @@ class DirectWorkspaceBinder(private val context: Context) {
         return "safroot::$treeUri::$encodedRel"
     }
 
-    private fun subjectDisplayName(subjectKey: String): String =
+    private fun subjectDisplayName(subjectKey: String, componentKey: String?): String =
         when (subjectKey.uppercase()) {
             "ARAB" -> "لغتي العربية"
             "SCI" -> "العلوم والحياة"
             "MATH" -> "الرياضيات"
             "ISL" -> "التربية الإسلامية"
             "QUR" -> "القرآن الكريم وتلاوته"
-            "SOC" -> "الدراسات الاجتماعية"
-            "ENG" -> "English Course"
+            "SOC" -> when (componentKey?.uppercase()) {
+                "GEO" -> "الجغرافيا"
+                "HIST" -> "التاريخ"
+                "TARBIA" -> "التربية الوطنية"
+                else -> "الدراسات الاجتماعية"
+            }
+            "ENG" -> "اللغة الإنجليزية"
             else -> subjectKey
         }
 
