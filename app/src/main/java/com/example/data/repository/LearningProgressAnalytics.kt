@@ -94,13 +94,15 @@ object LearningProgressAnalytics {
             .sortedByDescending { it.occurrences }
             .take(8)
 
-        val conceptsWithRecurringErrors = ordered
+        val recurringConceptTags = ordered
             .filterNot { it.isCorrect }
             .groupBy { it.conceptTag.trim().ifBlank { "غير مصنف" } }
-            .count { (_, rows) ->
+            .filter { (_, rows) ->
                 rows.map { it.questionId }.distinct().size >= 2 ||
                     rows.groupBy { normalize(it.selectedAnswer) }.values.any { it.size >= 2 }
             }
+            .keys
+            .sorted()
 
         val reinforcementImpact = calculateReinforcementImpact(ordered)
         val weekly = calculateWeeklyAssessments(assessments, now)
@@ -117,7 +119,8 @@ object LearningProgressAnalytics {
             estimatedRecallDropPercent = recallDrop,
             delayedRecallSampleCount = delayedPairs.size,
             recurringMistakes = recurringMistakes,
-            conceptsWithRecurringErrorsCount = conceptsWithRecurringErrors,
+            recurringConceptTags = recurringConceptTags,
+            conceptsWithRecurringErrorsCount = recurringConceptTags.size,
             weeklyAssessments = weekly,
             reinforcementImpactPercent = reinforcementImpact.first,
             reinforcementImpactConceptCount = reinforcementImpact.second,
