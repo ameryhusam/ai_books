@@ -458,3 +458,6 @@ The latest Android CI run observed during this pass is [run 45715165859](https:/
 - Added tests for redaction and preservation of mathematical/measurement values.
 - **Attachment boundary:** this sanitizer processes prompt text and lesson metadata only. It does not redact personal data embedded in the original PDF or rendered page images sent as provider attachments. Do not treat it as a complete attachment-privacy solution; PDF/image redaction or an explicit user disclosure/consent gate remains open.
 
+### Additional P2 guardrails
+- Added regression coverage for the existing Arabic `conceptTag` inference path, including explicit-tag preservation and lesson-title fallback. The inference implementation itself was already present; it was not duplicated.
+- Added a Studio notice beside the PDF attachment control explaining that attached PDFs/rendered images are sent to the selected provider and are not covered by text redaction. The user can disable attachment before generation.
