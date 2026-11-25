@@ -76,7 +76,6 @@ object LearningProgressAnalytics {
             else (delayedBaseline - delayedRecall).coerceAtLeast(0)
 
         val recurringMistakes = ordered
-            .filterNot { it.isCorrect && it.selectedAnswer.isNotBlank() }
             .filter { !it.isCorrect && it.selectedAnswer.isNotBlank() }
             .groupBy { it.questionId to normalize(it.selectedAnswer) }
             .mapNotNull { (key, rows) ->
