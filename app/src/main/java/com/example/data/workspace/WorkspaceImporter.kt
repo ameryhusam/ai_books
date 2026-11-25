@@ -312,9 +312,17 @@ class WorkspaceImporter(private val context: Context) {
                 continue
             }
 
+            val manifestRaw = if (manifestFile.isFile) {
+                try {
+                    manifestFile.readText(Charsets.UTF_8)
+                } catch (e: Exception) {
+                    warningsOut.add("تعذر قراءة book_manifest.json: $bookRel")
+                    continue
+                }
+            } else null
             val validation = WorkspaceContractValidator.validate(
                 indexRaw = indexRaw,
-                manifestRaw = manifestFile.takeIf { it.isFile }?.readText(Charsets.UTF_8),
+                manifestRaw = manifestRaw,
                 expectedGrade = gradeKey,
                 expectedSubject = subjectKey,
                 bookRelativePath = bookRel,
