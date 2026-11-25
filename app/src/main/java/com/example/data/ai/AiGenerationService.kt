@@ -281,7 +281,8 @@ class AiGenerationService(
                         onAttemptFinished?.invoke(profile.label, modelName, false, reason)
                         val failureStatus = when {
                             e.httpCode == 401 || e.httpCode == 403 || Regex("invalid api.?key|api key not valid|unauthorized|authentication failed", RegexOption.IGNORE_CASE).containsMatchIn(reason) -> "INVALID_KEY"
-                            e.httpCode == 429 && Regex("quota|daily|resource.?exhausted|limit exceeded", RegexOption.IGNORE_CASE).containsMatchIn(reason) -> "QUOTA_EXHAUSTED"
+                            e.httpCode == 429 && Regex("rate.?limit|too many requests|requests per minute|tokens per minute|retry after", RegexOption.IGNORE_CASE).containsMatchIn(reason) -> "RATE_LIMITED"
+                            e.httpCode == 429 && Regex("quota|daily|resource.?exhausted|billing|insufficient quota", RegexOption.IGNORE_CASE).containsMatchIn(reason) -> "QUOTA_EXHAUSTED"
                             e.httpCode == 429 -> "RATE_LIMITED"
                             else -> "ERROR"
                         }
