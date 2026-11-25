@@ -429,6 +429,7 @@ private fun AuthenticatedEduMiniContent(
                                                 }
                                             },
                                             onLaunchConceptReinforcement = viewModel::launchConceptReinforcement,
+                                            onGenerateConceptRemediation = viewModel::generateConceptRemediation,
                                             onOpenGlobalSearch = viewModel::openGlobalSearch,
                                             onBindDirectFolder = { folderPickerLauncher.launch(null) },
                                             onOpenLibrary = { viewModel.navigateTo(AppPage.LIBRARY) }
