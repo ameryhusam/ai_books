@@ -334,6 +334,7 @@ class EduMiniRepository(
                     manifestRelativePath = index.manifestRelativePath,
                     indexSha256 = index.indexSha256,
                     manifestSha256 = index.manifestSha256,
+                    sourceSha256 = index.sourceSha256,
                     indexSchemaVersion = index.indexSchemaVersion,
                     manifestVersion = index.manifestVersion,
                     lastSyncedAt = index.lastSyncedAt
@@ -1902,6 +1903,7 @@ class EduMiniRepository(
         manifestRelativePath = manifestRelativePath,
         indexSha256 = indexSha256,
         manifestSha256 = manifestSha256,
+        sourceSha256 = sourceSha256,
         indexSchemaVersion = indexSchemaVersion,
         manifestVersion = manifestVersion,
         lastSyncedAt = lastSyncedAt
