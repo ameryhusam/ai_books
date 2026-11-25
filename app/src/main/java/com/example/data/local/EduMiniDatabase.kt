@@ -30,7 +30,10 @@ data class WorkspaceEntity(
 
 @Entity(
     tableName = "books",
-    indices = [Index(value = ["workspaceId"])]
+    indices = [
+        Index(value = ["workspaceId"]),
+        Index(name = "index_books_workspaceId_bookKey", value = ["workspaceId", "bookKey"], unique = true)
+    ]
 )
 data class BookEntity(
     @PrimaryKey(autoGenerate = true) val rowId: Long = 0,
@@ -48,7 +51,14 @@ data class BookEntity(
 
 @Entity(
     tableName = "lessons",
-    indices = [Index(value = ["workspaceId", "bookKey"])]
+    indices = [
+        Index(value = ["workspaceId", "bookKey"]),
+        Index(
+            name = "index_lessons_workspaceId_bookKey_unitKey_lessonKey",
+            value = ["workspaceId", "bookKey", "unitKey", "lessonKey"],
+            unique = true
+        )
+    ]
 )
 data class LessonEntity(
     @PrimaryKey(autoGenerate = true) val rowId: Long = 0,
@@ -390,7 +400,6 @@ interface EduMiniDao {
     fun observeWorkspaceUnits(workspaceId: String): Flow<List<WorkspaceUnitEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertDraft(draft: DraftEntity)    @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertDraft(draft: DraftEntity)
 
     @Query(
@@ -735,7 +744,7 @@ interface EduMiniDao {
         TeacherNoteEntity::class,
         PromptTemplateEntity::class
     ],
-    version = 13,
+    version = 14,
     exportSchema = false
 )
 abstract class EduMiniDatabase : RoomDatabase() {
@@ -1051,6 +1060,45 @@ abstract class EduMiniDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_13_14 = object : Migration(13, 14) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Keep the oldest row for each stable workspace/book identity.
+                db.execSQL(
+                    """
+                    DELETE FROM books
+                    WHERE rowId NOT IN (
+                        SELECT MIN(rowId)
+                        FROM books
+                        GROUP BY workspaceId, bookKey
+                    )
+                    """.trimIndent()
+                )
+                // A lesson is identified within its workspace, book and unit.
+                db.execSQL(
+                    """
+                    DELETE FROM lessons
+                    WHERE rowId NOT IN (
+                        SELECT MIN(rowId)
+                        FROM lessons
+                        GROUP BY workspaceId, bookKey, unitKey, lessonKey
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    CREATE UNIQUE INDEX IF NOT EXISTS index_books_workspaceId_bookKey
+                    ON books (workspaceId, bookKey)
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    CREATE UNIQUE INDEX IF NOT EXISTS index_lessons_workspaceId_bookKey_unitKey_lessonKey
+                    ON lessons (workspaceId, bookKey, unitKey, lessonKey)
+                    """.trimIndent()
+                )
+            }
+        }
+
         fun getInstance(context: Context): EduMiniDatabase {
             return instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -1070,7 +1118,8 @@ abstract class EduMiniDatabase : RoomDatabase() {
                         MIGRATION_9_10,
                         MIGRATION_10_11,
                         MIGRATION_11_12,
-                        MIGRATION_12_13
+                        MIGRATION_12_13,
+                        MIGRATION_13_14
                     )
                     .build()
                     .also { instance = it }
