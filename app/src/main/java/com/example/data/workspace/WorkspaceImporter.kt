@@ -23,6 +23,7 @@ import java.io.FileOutputStream
 import java.io.InputStream
 import java.security.MessageDigest
 import java.util.zip.ZipInputStream
+import java.util.Locale
 
 class WorkspaceImporter(private val context: Context) {
 
@@ -75,7 +76,7 @@ class WorkspaceImporter(private val context: Context) {
                     }
 
                     val normalized = safePath(entry.name)
-                    if (!seenNames.add(normalized)) {
+                    if (!seenNames.add(normalized.lowercase(Locale.ROOT))) {
                         throw IllegalArgumentException("ZIP يحتوي ملفاً مكرراً: $normalized")
                     }
                     zipNames.add(normalized)
@@ -139,8 +140,10 @@ class WorkspaceImporter(private val context: Context) {
             }
 
             if (gradeSummaries.isEmpty()) {
+                val details = warnings.distinct().take(8).joinToString("\n")
                 throw IllegalArgumentException(
-                    "لم يتم العثور على index.json مرجعي في workspace/<grade>/<subject>[/<component>]/"
+                    "لم يتم العثور على كتاب اجتاز التحقق في workspace/<grade>/<subject>[/<component>]/." +
+                        if (details.isBlank()) "" else "\n$details"
                 )
             }
 
@@ -166,9 +169,14 @@ class WorkspaceImporter(private val context: Context) {
         if (!tempDir.exists()) {
             throw IllegalStateException("انتهت صلاحية المعاينة المؤقتة؛ أعد اختيار الملف.")
         }
-        val gradesToImport = selectedGrades.ifEmpty {
-            listOfNotNull(preview.grades.firstOrNull()?.gradeKey)
-        }.distinct()
+        require(selectedGrades.isNotEmpty()) {
+            "يجب اختيار صف واحد على الأقل من شاشة المعاينة قبل الاستيراد."
+        }
+        val availableGrades = preview.grades.map { it.gradeKey }.toSet()
+        val gradesToImport = selectedGrades.distinct()
+        require(gradesToImport.all { it in availableGrades }) {
+            "تم طلب استيراد صف غير موجود في معاينة الحزمة."
+        }
         val committed = mutableListOf<ImportedWorkspace>()
         try {
             val allFiles = collectRelativeFiles(tempDir)
@@ -293,10 +301,28 @@ class WorkspaceImporter(private val context: Context) {
             }
 
             val indexFile = File(baseDir, indexPath)
+            val indexRaw = runCatching { indexFile.readText(Charsets.UTF_8) }.getOrElse {
+                warningsOut.add("تعذر قراءة index.json: $bookRel")
+                continue
+            }
             val indexObj: JsonObject = try {
-                json.parseToJsonElement(indexFile.readText()).jsonObject
+                json.parseToJsonElement(indexRaw).jsonObject
             } catch (_: Exception) {
                 warningsOut.add("index.json غير صالح: $bookRel")
+                continue
+            }
+
+            val validation = WorkspaceContractValidator.validate(
+                indexRaw = indexRaw,
+                manifestRaw = manifestFile.takeIf { it.isFile }?.readText(Charsets.UTF_8),
+                expectedGrade = gradeKey,
+                expectedSubject = subjectKey,
+                bookRelativePath = bookRel,
+                availableRelativePaths = zipNameSet
+            )
+            warningsOut.addAll(validation.warnings)
+            if (!validation.isValid) {
+                warningsOut.addAll(validation.errors.map { "$bookRel: $it" })
                 continue
             }
 
@@ -442,14 +468,10 @@ class WorkspaceImporter(private val context: Context) {
 
         units.forEachIndexed { ui, unitElem ->
             val u = unitElem as? JsonObject ?: return@forEachIndexed
-            val uk = firstNonBlank(
-                u.str("unitKey"),
-                u.str("key"),
-                u.str("unitId"),
-                u.str("unitNumber"),
-                u.str("id"),
-                "unit_${(ui + 1).toString().padStart(2, '0')}"
-            )
+            val uk = WorkspaceContractValidator.sourceUnitKey(u)
+            require(uk.isNotBlank()) {
+                "الوحدة رقم ${ui + 1} لا تحتوي مفتاحاً ثابتاً أو unitNumber صالحاً."
+            }
             val ut = firstNonBlank(
                 u.str("title"),
                 u.str("unitTitle"),
@@ -461,14 +483,10 @@ class WorkspaceImporter(private val context: Context) {
             val unitLessons = (u["lessons"] as? JsonArray) ?: return@forEachIndexed
             unitLessons.forEachIndexed { li, lessonElem ->
                 val l = lessonElem as? JsonObject ?: return@forEachIndexed
-                val lk = firstNonBlank(
-                    l.str("lessonKey"),
-                    l.str("key"),
-                    l.str("lessonId"),
-                    l.str("lessonNumber"),
-                    l.str("id"),
-                    "lesson_${(li + 1).toString().padStart(2, '0')}"
-                )
+                val lk = WorkspaceContractValidator.sourceLessonKey(l)
+                require(lk.isNotBlank()) {
+                    "درس رقم ${li + 1} في الوحدة $uk لا يحتوي مفتاحاً ثابتاً أو lessonNumber صالحاً."
+                }
                 val lt = firstNonBlank(
                     l.str("title"),
                     l.str("lessonTitle"),
@@ -490,15 +508,22 @@ class WorkspaceImporter(private val context: Context) {
                     if (num >= 0) num.toString().padStart(2, '0') else "-1"
                 }
 
+                val linkedPdf = (l["sliceFile"] as? JsonObject)?.str("workspaceUri").orEmpty()
                 val candidates = buildList {
+                    if (linkedPdf.isNotBlank()) {
+                        add(linkedPdf)
+                        if (linkedPdf.startsWith("workspace/", ignoreCase = true)) {
+                            add(linkedPdf.removePrefix("workspace/"))
+                        }
+                    }
                     if (p == "P01" || p == "P02") {
                         add("$bookRel/$p/units/$uk/lesson_$lessonNumStr.pdf")
+                        add("$bookRel/$p/units/$uk/$lk.pdf")
                     }
-                    add("$bookRel/P01/units/$uk/lesson_$lessonNumStr.pdf")
-                    add("$bookRel/P02/units/$uk/lesson_$lessonNumStr.pdf")
                 }
-
-                val matchedPdfRel = candidates.firstOrNull { it in zipNameSet }
+                val matchedPdfRel = candidates.firstOrNull { candidate ->
+                    zipNameSet.any { it.equals(candidate, ignoreCase = true) }
+                }
                 val txtCandidates = buildList {
                     if (p == "P01" || p == "P02") {
                         add("$bookRel/$p/units/$uk/lesson_$lessonNumStr.txt")
