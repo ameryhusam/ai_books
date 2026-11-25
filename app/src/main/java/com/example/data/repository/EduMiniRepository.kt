@@ -1888,13 +1888,13 @@ class EduMiniRepository(
 
     fun observePromptTemplates(): Flow<List<PromptTemplateRecord>> {
         return dao.observePromptTemplates().map { custom ->
-            DEFAULT_PROMPT_TEMPLATES + custom.map { e ->
+            custom.map { e ->
                 PromptTemplateRecord(
                     id = e.id,
                     title = e.title,
                     task = TaskType.fromId(e.task),
                     instructions = e.instructions,
-                    isBuiltIn = false,
+                    isBuiltIn = e.id.startsWith("builtin_"),
                     responseSchemaJson = e.responseSchemaJson,
                     responseMappingJson = e.responseMappingJson,
                     responseFormat = e.responseFormat,
@@ -1903,6 +1903,26 @@ class EduMiniRepository(
                 )
             }
         }
+    }
+
+    suspend fun ensureDefaultPromptTemplates() {
+        val now = Instant.now().toString()
+        dao.insertPromptTemplates(
+            DEFAULT_PROMPT_TEMPLATES.map { template ->
+                PromptTemplateEntity(
+                    id = template.id,
+                    title = template.title,
+                    task = template.task.id,
+                    instructions = template.instructions,
+                    createdAt = now,
+                    responseSchemaJson = template.responseSchemaJson,
+                    responseMappingJson = template.responseMappingJson,
+                    responseFormat = template.responseFormat,
+                    sourceAttachmentMode = template.sourceAttachmentMode,
+                    version = template.version
+                )
+            }
+        )
     }
 
     suspend fun savePromptTemplate(
