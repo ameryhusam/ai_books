@@ -2029,6 +2029,9 @@ class MainViewModel(
             appendLine()
             appendLine("## الأخطاء المتكررة")
             appendLine("- المفاهيم ذات الأخطاء المتكررة: ${report.conceptsWithRecurringErrorsCount}")
+            if (report.recurringConceptTags.isNotEmpty()) {
+                appendLine("- المفاهيم: ${report.recurringConceptTags.joinToString("، ")}")
+            }
             report.recurringMistakes.forEach { mistake ->
                 appendLine("- ${mistake.conceptTag}: تكررت الإجابة «${mistake.selectedAnswer}» ${mistake.occurrences} مرات.")
                 if (mistake.questionPrompt.isNotBlank()) appendLine("  - السؤال: ${mistake.questionPrompt}")
