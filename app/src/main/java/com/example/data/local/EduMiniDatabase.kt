@@ -67,7 +67,8 @@ data class LessonEntity(
     val pageRange: String?,
     val pdfPath: String?,
     @ColumnInfo(name = "source_text_path") val sourceTextPath: String? = null,
-    @ColumnInfo(name = "interactive_path") val interactivePath: String? = null
+    @ColumnInfo(name = "interactive_path") val interactivePath: String? = null,
+    @ColumnInfo(name = "printed_page_range") val printedPageRange: String? = null
 )
 
 @Entity(
@@ -733,7 +734,7 @@ interface EduMiniDao {
         TeacherNoteEntity::class,
         PromptTemplateEntity::class
     ],
-    version = 11,
+    version = 12,
     exportSchema = false
 )
 abstract class EduMiniDatabase : RoomDatabase() {
@@ -1037,6 +1038,12 @@ abstract class EduMiniDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE lessons ADD COLUMN printed_page_range TEXT")
+            }
+        }
+
         fun getInstance(context: Context): EduMiniDatabase {
             return instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -1054,7 +1061,8 @@ abstract class EduMiniDatabase : RoomDatabase() {
                         MIGRATION_7_8,
                         MIGRATION_8_9,
                         MIGRATION_9_10,
-                        MIGRATION_10_11
+                        MIGRATION_10_11,
+                        MIGRATION_11_12
                     )
                     .build()
                     .also { instance = it }
