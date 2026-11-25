@@ -30,8 +30,8 @@ internal object ProviderRoutingPolicy {
         val primary = profile.model.trim()
         if (primary.isBlank()) return emptyList()
         if (profile.strictModel) return listOf(primary)
-        return (listOf(primary) + profile.fallbackModels.map(String::trim))
-            .filter(String::isNotBlank)
+        return (listOf(primary) + profile.fallbackModels.map { it.trim() })
+            .filter { it.isNotBlank() }
             .distinct()
     }
 }
