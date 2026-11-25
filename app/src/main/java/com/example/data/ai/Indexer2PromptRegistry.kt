@@ -295,13 +295,7 @@ object Indexer2PromptRegistry {
     ): String {
         val safeCount = questionCount.coerceIn(1, 30)
         val blueprint = blueprintFor(task)
-        val taskInstruction = when (task) {
-            TaskType.QUESTIONS ->
-                "بنك أسئلة مكوّن من $safeCount أسئلة مع الخيارات والإجابة الصحيحة والتفسير ومستوى الصعوبة وربط كل سؤال بالصفحة المرجعية"
-            TaskType.INTERACTIVE ->
-                "نشاطاً تعليمياً تفاعلياً منظماً بصيغة JSON آمنة تتضمن خطوات تفاعلية، ونقاط تحقق، ومهمة ترتيب أو توصيل، و$safeCount محطات تعلم"
-            else -> blueprint.roleInstruction
-        }
+        val taskInstruction = task.labelAr
 
         return buildString {
             append("أنت مساعد إعداد محتوى تعليمي. أنشئ ")
