@@ -1,72 +1,61 @@
-# Room Database Audit and Fixes
+# Room Database Audit and Learning Loop Fixes
 
 Date: 2026-11-25
 Branch: `main`
 
-## Architecture decision
+## Architecture constraints preserved
 
-- Keep Firebase Authentication and the existing Firestore integration active. Firebase was already in use; this work does not remove, bypass, or replace it.
-- Keep Room as the local operational database.
-- Keep source PDF files in the linked Workspace. The app stores references and metadata; it does not copy PDF bytes into Room or upload PDFs to Firebase as part of this change.
-- No Firebase sync behavior or Firestore document contract was changed.
+- Firebase Authentication and the existing Firestore integration remain active.
+- No Firestore collection, document, authentication, or sync contract was changed.
+- Room remains the local operational database.
+- PDF files remain in the linked Workspace; Room stores references and metadata only.
+- Local learner profile IDs remain distinct from Firebase Authentication UIDs.
 
-## Fixes applied
+## Changes completed
 
-### 1. Corrected the DAO declaration corruption
+### 1. Database identity and migration
 
-In `EduMiniDatabase.kt`, the `insertDraft` declaration had been duplicated and concatenated on one line. It is now one valid DAO method declaration.
+- Version increased from 13 to 14 to enforce unique workspace/book and workspace/book/unit/lesson identities.
+- Version increased from 14 to 15 to isolate learner learning records.
+- `MIGRATION_14_15` rebuilds `lesson_progress` with a composite key including `user_id`, rebuilds `study_days` with `(activity_date, user_id)` as its key, and adds `user_id` to `assessment_attempts`.
+- Existing progress, study-day, and assessment-attempt rows are preserved under `learner_default`. They are not assigned to another learner because the old rows contain no evidence identifying their owner.
+- The migration is registered after `MIGRATION_13_14`; no destructive migration fallback was added.
 
-### 2. Enforced stable book identity
+### 2. Learner-scoped repository and UI
 
-The `books` table now has a unique index on:
+- Lesson completion and earned points are now queried and stored by workspace, lesson identity, and local learner ID.
+- Study-day activity and streak queries are scoped to the active local learner.
+- Assessment attempt history and dashboard assessment metrics are scoped to the active local learner.
+- Question attempts were already learner-scoped; the active learner continues to drive the mastery and concept summaries.
+- The ViewModel now switches assessment history when the active learner changes and passes the active local learner ID when recording an assessment.
+- Student assessment, lesson quiz, practice, and interactive-checkpoint activity is recorded against the local learner. Content-authoring actions (such as creating drafts or adding questions) no longer inflate a learner's study streak.
 
-```text
-(workspaceId, bookKey)
-```
+### 3. Targeted concept remediation
 
-This prevents two rows representing the same book in the same workspace. Existing auto-generated `rowId` remains in place to avoid breaking callers that currently use it.
+The dashboard already identifies weak concepts from the active learner's question attempts and offers practice using existing questions. It now also offers two targeted generation actions for each weak concept:
 
-### 3. Enforced stable lesson identity
+- **شرح تقوية:** generates a focused remedial explanation using the affected questions, approved answers, rationales, and the learner's recorded incorrect responses as diagnostic evidence.
+- **أسئلة تكيفية:** generates a new graduated set of questions with distractors informed by the recorded misconceptions.
 
-The `lessons` table now has a unique index on:
+Generated material is saved as a draft. Adaptive questions are added to the question bank with the target concept tag and remain unreviewed (`reviewed = false`) so generated content is not silently treated as teacher-approved assessment material. The generation action requires recorded wrong-answer evidence; it does not invent a misconception when no evidence exists.
 
-```text
-(workspaceId, bookKey, unitKey, lessonKey)
-```
+This is an evidence-guided generation workflow, not a trained predictive ML model. Recommendations are based on observed mastery/attempt patterns; AI generation is explicit and uses the configured provider.
 
-This prevents duplicate rows for the same lesson identity while allowing the same lesson key to exist in another book or workspace.
+### 4. Regression coverage
 
-### 4. Added a data-preserving Room migration
+- `roomEnforcesStableBookAndLessonIdentityWithinWorkspace` verifies stable book and lesson uniqueness.
+- `learnerProgressStudyDaysAndAssessmentAttemptsAreIsolated` verifies that two local learners can have different progress, study-day counts, and assessment results for the same workspace and lesson.
 
-- Database version increased from 13 to 14.
-- Migration `MIGRATION_13_14` removes duplicate book and lesson rows before creating the unique indexes.
-- When legacy duplicates exist, the row with the smallest `rowId` is retained.
-- Existing stable identifiers and related records are not rewritten by this migration.
-- The migration is registered after `MIGRATION_12_13`.
+## Deliberately deferred
 
-### 5. Corrected the duplicate JUnit annotation
-
-The `importerRejectsZipSlipPath` test had two consecutive `@Test` annotations. One was removed.
-
-### 6. Added a regression test
-
-`roomEnforcesStableBookAndLessonIdentityWithinWorkspace` verifies that inserting a second version of the same book or lesson replaces the previous row rather than creating duplicates.
-
-The local testing guide now includes this focused test.
-
-## Findings deliberately not changed in this pass
-
-These findings require coordinated changes across the database, repository, UI, export/import and possibly Firebase contracts. They should not be patched by changing entities alone.
-
-1. **Learner scoping of progress:** `lesson_progress` and `study_days` are currently not keyed by learner profile. Question attempts already include `user_id`, but lesson completion and study-day summaries can be shared between local learner profiles.
-2. **Assessment attempt ownership:** `assessment_attempts` does not currently store the local learner profile ID. The UI and repository need to pass the active learner consistently.
-3. **Foreign keys:** most curriculum/content relationships are represented by keys but are not enforced with Room foreign-key constraints. Adding constraints requires a deletion/retention policy for drafts, questions, attempts and progress when an index changes.
-4. **Schema export:** `exportSchema` is still false. Enabling it should be paired with KSP schema-location configuration, committed schema snapshots, and migration tests. It was not toggled without those supporting files.
-5. **Workspace sync strategy:** `syncDirectWorkspaceCatalog` remains transactional but currently replaces the workspace's books and lessons as a set. A differential upsert/removal strategy is still recommended to preserve stable local row identities and better handle content updates.
-6. **Book file registry:** PDF and related file references are currently spread across book/lesson/index entities. A dedicated `BookFile` entity may be warranted when the PDF splitting/OCR pipeline requirements are finalized; no duplicate file table was introduced prematurely.
+1. **Foreign keys and deletion policy:** curriculum refreshes must not accidentally cascade-delete drafts, questions, attempts, or progress. Define archival/retention behavior before adding foreign keys.
+2. **Schema export:** `exportSchema = false` remains unchanged. Enable it only with KSP schema-location configuration, committed schema snapshots, and migration tests.
+3. **Differential Workspace catalog sync:** `syncDirectWorkspaceCatalog` still performs a transactional catalog replacement. A differential upsert/removal implementation needs dedicated tests proving that stable local IDs and learner evidence survive index refreshes.
+4. **Book file registry:** PDF, extracted text, and related file references remain distributed across existing entities. A dedicated `BookFile` entity should follow the finalized PDF/OCR/splitting lifecycle, not be introduced speculatively.
+5. **Cloud learner separation:** Firestore behavior remains account-scoped exactly as before. Local learner profiles are isolated in Room, but the existing Firestore progress contract does not identify those local profiles. Do not interpret account-level cloud progress as per-profile progress until a separately versioned cloud contract is designed.
 
 ## Verification status
 
-Source changes and regression test were committed to `main`. Gradle tests and Android assembly have **not** been executed in this environment. Do not treat the source commits as proof that compilation, migration execution, or tests passed.
+The source and regression-test changes have been committed to `main`. This environment has not run Gradle, Room schema validation, the 14-to-15 migration on an existing device database, or Android assembly. A commit is not evidence that these checks passed.
 
-Run the focused tests from `docs/LOCAL_ANDROID_TESTING.md`, then the complete `testDebugUnitTest` suite and `assembleDebug`. In particular, validate an existing version-13 database upgrade to version 14 on a device/emulator before release.
+Run the focused and full commands in `docs/LOCAL_ANDROID_TESTING.md`. Before release, back up a real version-14 database and verify upgrade to version 15 while retaining existing learner_default records.
