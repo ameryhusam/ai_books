@@ -107,7 +107,7 @@ fun LearnerMasteryScreen(
                     Button(
                         onClick = { onLaunchReinforcement(null) },
                         modifier = Modifier.fillMaxWidth(),
-                        enabled = questions.isNotEmpty()
+                        enabled = questions.any { it.reviewed }
                     ) {
                         Icon(Icons.Rounded.Psychology, contentDescription = null)
                         Text("ابدأ جلسة مراجعة")
