@@ -1012,7 +1012,13 @@ class EduMiniCoreTest {
         )
         repo.recordAssessmentAttempt(asm, 1, 1, 100, 42, 30)
         repo.saveTeacherNote(ws.workspaceId, lesson, "مراجعة القاعدة النحوية أولاً", bookmarked = true)
-        repo.savePromptTemplate("خريطة مفاهيم", TaskType.LESSON_REVIEW, "لخّص المفاهيم في نقاط هرمية")
+        repo.savePromptTemplate(
+            "خريطة مفاهيم",
+            TaskType.LESSON_REVIEW,
+            "لخّص المفاهيم في نقاط هرمية",
+            responseSchemaJson = """{"type":"object","properties":{"concepts":{"type":"array"}}}""",
+            responseMappingJson = """{"rootArray":"items","targetArray":"concepts"}"""
+        )
 
         val backupStream = ByteArrayOutputStream()
         val exportedCount = repo.exportFullBackupJson(backupStream, ws)
@@ -1037,7 +1043,10 @@ class EduMiniCoreTest {
         assertEquals("مراجعة القاعدة النحوية أولاً", restoredNote.noteText)
 
         val templates = repo.observePromptTemplates().first()
-        assertTrue(templates.any { it.title == "خريطة مفاهيم" && !it.isBuiltIn })
+        val restoredTemplate = templates.first { it.title == "خريطة مفاهيم" && !it.isBuiltIn }
+        assertTrue(restoredTemplate.responseSchemaJson.contains("concepts"))
+        assertTrue(restoredTemplate.responseMappingJson.contains("targetArray"))
+        assertEquals(1, restoredTemplate.version)
     }
 
     @Test
