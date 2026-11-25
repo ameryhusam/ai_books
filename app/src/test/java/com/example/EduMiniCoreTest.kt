@@ -1194,14 +1194,8 @@ class EduMiniCoreTest {
                 val componentFolder = componentKey ?: ""
                 val componentPath = if (componentKey == null) "" else componentKey + "/"
                 val bookDir = File(rootDir, "workspace/G07/" + subjectKey + "/" + componentFolder).apply { mkdirs() }
-                val lessonRelativePath = "workspace/G07/" + subjectKey + "/" + componentPath + "P01/units/unit_01/lesson_01.pdf"
-                val lessonPdf = File(bookDir, "P01/units/unit_01/lesson_01.pdf").apply {
-                    parentFile?.mkdirs()
-                }
-                createSamplePdf(lessonPdf, pageCount = 1)
                 val componentJson = componentKey?.let { "\"$it\"" } ?: "null"
                 val componentLabel = componentKey ?: "BASE"
-                val sourceHash = "a".repeat(64)
                 val indexRaw = """
                     {
                       "templateId": "$subjectKey-$componentLabel",
@@ -1211,40 +1205,23 @@ class EduMiniCoreTest {
                       "subjectKey": "$subjectKey",
                       "componentKey": $componentJson,
                       "partKey": "P01",
-                      "sourceLayout": "SINGLE_PART_FILE",
-                      "sourceReviewStatus": "VERIFIED",
-                      "approvalStatus": "APPROVED",
-                      "requiresReview": false,
                       "units": [{
                         "unitNumber": 1,
                         "title": "الوحدة الأولى",
                         "partKey": "P01",
-                        "assignmentStatus": "assigned",
                         "lessons": [{
                           "lessonNumber": 1,
-                          "title": "الدرس الأول",
-                          "pdfPageStart": 1,
-                          "pdfPageEnd": 1,
-                          "sliceFile": {"workspaceUri": "$lessonRelativePath"}
+                          "title": "الدرس الأول"
                         }]
                       }]
                     }
                 """.trimIndent()
-                val indexHash = MessageDigest.getInstance("SHA-256")
-                    .digest(indexRaw.toByteArray(Charsets.UTF_8))
-                    .joinToString("") { "%02x".format(it) }
                 val manifestRaw = """
                     {
-                      "manifestVersion": "edu.book_manifest.v1",
                       "bookTitle": "$title",
                       "gradeKey": "G07",
                       "subjectKey": "$subjectKey",
-                      "componentKey": $componentJson,
-                      "partKey": "P01",
-                      "sourceLayout": "SINGLE_PART_FILE",
-                      "sourceReviewStatus": "VERIFIED",
-                      "sourceSha256": "$sourceHash",
-                      "indexSha256": "$indexHash"
+                      "componentKey": $componentJson
                     }
                 """.trimIndent()
                 File(bookDir, "index.json").writeText(indexRaw)
