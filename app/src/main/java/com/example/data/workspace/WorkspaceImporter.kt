@@ -452,6 +452,53 @@ class WorkspaceImporter(private val context: Context) {
             .toList()
     }
 
+    private fun verifyExportManifest(root: File) {
+        val manifestFile = File(root, "manifest.json")
+        if (!manifestFile.isFile) return
+        val manifest = runCatching {
+            json.parseToJsonElement(manifestFile.readText()).jsonObject
+        }.getOrElse { throw IllegalArgumentException("manifest.json غير صالح: ${it.message}") }
+        val artifacts = manifest["artifacts"] as? JsonArray ?: return
+        artifacts.forEach { element ->
+            val artifact = element as? JsonObject
+                ?: throw IllegalArgumentException("عنصر artifacts غير صالح في manifest.json")
+            val relative = artifact.str("path")
+            val expectedHash = artifact.str("sha256").lowercase()
+            val expectedBytes = artifact.str("bytes").toLongOrNull()
+            require(relative.isNotBlank() && expectedHash.matches(Regex("^[a-f0-9]{64}$"))) {
+                "بيانات بصمة غير صالحة في manifest.json"
+            }
+            val safeRelative = safePath(relative)
+            val file = File(root, safeRelative)
+            val canonicalRoot = root.canonicalPath + File.separator
+            require(file.canonicalPath.startsWith(canonicalRoot) && file.isFile) {
+                "ملف مفقود أو مسار غير آمن في الحزمة: $relative"
+            }
+            if (expectedBytes != null) {
+                require(file.length() == expectedBytes) { "حجم الملف لا يطابق manifest: $relative" }
+            }
+            val digest = MessageDigest.getInstance("SHA-256")
+            file.inputStream().buffered().use { input ->
+                val buffer = ByteArray(32 * 1024)
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    digest.update(buffer, 0, count)
+                }
+            }
+            val actualHash = digest.digest().joinToString("") { "%02x".format(it) }
+            require(actualHash == expectedHash) { "فشل التحقق من SHA-256 للملف: $relative" }
+        }
+    }
+
+    private fun collectRelativeFiles(root: File): List<String> {
+        val base = root.toPath()
+        return root.walkTopDown()
+            .filter { it.isFile }
+            .map { base.relativize(it.toPath()).toString().replace('\\', '/') }
+            .toList()
+    }
+
     private fun parseLessons(
         index: JsonObject,
         grade: String,
@@ -468,8 +515,9 @@ class WorkspaceImporter(private val context: Context) {
 
         units.forEachIndexed { ui, unitElem ->
             val u = unitElem as? JsonObject ?: return@forEachIndexed
+            val unitFolderKey = WorkspaceContractValidator.sourceUnitFolderKey(u)
             val uk = WorkspaceContractValidator.sourceUnitKey(u)
-            require(uk.isNotBlank()) {
+            require(uk.isNotBlank() && unitFolderKey.isNotBlank()) {
                 "الوحدة رقم ${ui + 1} لا تحتوي مفتاحاً ثابتاً أو unitNumber صالحاً."
             }
             val ut = firstNonBlank(
