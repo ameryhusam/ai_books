@@ -46,6 +46,10 @@ The adapter preserves source fields while adding canonical fields, so the existi
 
 This is a compatibility layer, not a general arbitrary database-schema migration engine. A material change in the internal Room schema still requires a deliberate adapter and Room migration.
 
+### Progress display
+
+The generation bar reports pipeline milestones (source read, PDF preparation, request submission, response adaptation, provenance and save), not a fabricated token-by-token percentage. While the provider request is in flight, the UI switches to an indeterminate bar because the current HTTP client does not expose reliable provider-side token progress.
+
 ### Content provenance
 
 Generated drafts now persist:
