@@ -127,7 +127,7 @@ object WorkspaceContractValidator {
                 else if (startPage != null && endPage != null && (startPage < 1 || endPage < startPage)) errors.add("نطاق صفحات PDF غير صالح للدرس ${lessonTitle.ifBlank { lessonKey }}.")
 
                 val lessonPart = firstNonBlank(lesson.string("partKey"), lesson.string("part"), partKey).uppercase(Locale.ROOT)
-                val lessonNumber = trailingNumber(lessonKey)
+                val lessonNumber = sourceLessonNumber(lesson)
                 val linkedPath = (lesson["sliceFile"] as? JsonObject)?.string("workspaceUri").orEmpty()
                 val candidates = linkedSetOf<String>()
                 if (linkedPath.isNotBlank()) {
@@ -160,10 +160,9 @@ object WorkspaceContractValidator {
     }
 
     fun sourceUnitFolderKey(unit: JsonObject): String {
-        val explicit = firstNonBlank(unit.string("unitKey"), unit.string("key"), unit.string("unitId"), unit.string("id"))
-        if (explicit.isNotBlank()) return explicit
-        val number = unit.string("unitNumber").toIntOrNull() ?: return ""
-        return "unit_${number.toString().padStart(2, '0')}"
+        val number = unit.string("unitNumber").toIntOrNull()
+        if (number != null) return "unit_${number.toString().padStart(2, '0')}"
+        return firstNonBlank(unit.string("unitKey"), unit.string("key"), unit.string("unitId"), unit.string("id"))
     }
 
     fun sourceUnitKey(unit: JsonObject): String {
@@ -174,6 +173,9 @@ object WorkspaceContractValidator {
         val partKey = unit.string("partKey").uppercase(Locale.ROOT)
         return if (partKey == "P01" || partKey == "P02") "${partKey}_$folderKey" else folderKey
     }
+
+    fun sourceLessonNumber(lesson: JsonObject): Int? =
+        lesson.string("lessonNumber").toIntOrNull() ?: trailingNumber(sourceLessonKey(lesson))
 
     fun sourceLessonKey(lesson: JsonObject): String {
         val explicit = firstNonBlank(lesson.string("lessonKey"), lesson.string("key"), lesson.string("lessonId"), lesson.string("id"))
