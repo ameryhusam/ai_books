@@ -1247,7 +1247,7 @@ abstract class EduMiniDatabase : RoomDatabase() {
             }
         }
 
-        fun getInstance(context: Context) {
+        fun getInstance(context: Context): EduMiniDatabase {
             return instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
                     context.applicationContext,
