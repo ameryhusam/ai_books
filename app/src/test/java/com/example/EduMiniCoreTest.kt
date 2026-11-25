@@ -2522,6 +2522,10 @@ class EduMiniCoreTest {
             assertTrue(payload.base64.startsWith("JVBER"))
             assertTrue(payload.byteCount > 0)
             assertEquals(64, payload.sha256.length)
+            val streamedHash = kotlinx.coroutines.runBlocking {
+                AiGenerationService().sha256LessonPdf(file.absolutePath)
+            }
+            assertEquals(payload.sha256, streamedHash)
         } finally {
             file.delete()
         }
