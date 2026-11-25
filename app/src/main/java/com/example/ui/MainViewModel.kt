@@ -9,6 +9,7 @@ import com.example.data.repository.ConceptMasteryEngine
 import com.example.data.repository.EduMiniRepository
 import com.example.data.repository.InteractiveActivityParser
 import com.example.data.repository.LearningProgressAnalytics
+import com.example.data.repository.LessonSequenceGate
 import com.example.data.repository.QuestionBankEngine
 import com.example.model.AppPage
 import com.example.model.AssessmentAttemptRecord
@@ -807,30 +808,19 @@ class MainViewModel(
         if (snapshot.userRole == UserRole.LEARNER) {
             val orderedBookLessons = snapshot.workspace?.lessons.orEmpty()
                 .filter { it.bookKey == lesson.bookKey }
-            val targetIndex = orderedBookLessons.indexOfFirst {
-                it.unitKey == lesson.unitKey && it.lessonKey == lesson.lessonKey
+            val completedKeys = dashboardSummary.value.unitPaths
+                .flatMap { it.nodes }
+                .filter { it.isCompleted }
+                .map { LessonSequenceGate.key(it.lesson) }
+                .toMutableSet()
+            snapshot.lastLessonQuizResult?.takeIf { it.passed }?.let { result ->
+                completedKeys += "${result.bookKey}::${result.unitKey}::${result.lessonKey}"
             }
-            val previousLesson = orderedBookLessons.getOrNull(targetIndex - 1)
-            if (previousLesson != null) {
-                val previousNode = dashboardSummary.value.unitPaths
-                    .flatMap { it.nodes }
-                    .firstOrNull {
-                        it.lesson.bookKey == previousLesson.bookKey &&
-                            it.lesson.unitKey == previousLesson.unitKey &&
-                            it.lesson.lessonKey == previousLesson.lessonKey
-                    }
-                val passedInCurrentSession = snapshot.lastLessonQuizResult?.let {
-                    it.passed &&
-                        it.bookKey == previousLesson.bookKey &&
-                        it.unitKey == previousLesson.unitKey &&
-                        it.lessonKey == previousLesson.lessonKey
-                } == true
-                if (previousNode?.isCompleted != true && !passedInCurrentSession) {
-                    _uiState.update {
-                        it.copy(toastMessage = "للوصول إلى هذا الدرس، أكمل الدرس السابق واجتز اختباره أولاً.")
-                    }
-                    return
+            if (!LessonSequenceGate.isUnlocked(lesson, orderedBookLessons, completedKeys)) {
+                _uiState.update {
+                    it.copy(toastMessage = "هذا الدرس لم يُفتح بعد. أكمل الدروس السابقة واجتز اختبار كل درس للمتابعة.")
                 }
+                return
             }
         }
         _uiState.update {
@@ -843,7 +833,6 @@ class MainViewModel(
             )
         }
     }
-
     fun closeStudentStudy() {
         _uiState.update { it.copy(studentStudyLesson = null, lastLessonQuizResult = null) }
     }
@@ -926,26 +915,20 @@ class MainViewModel(
             _uiState.update { it.copy(toastMessage = "لا يمكن الانتقال إلى الدرس التالي قبل اجتياز اختبار هذا الدرس.") }
             return
         }
-        val lessons = snapshot.workspace?.lessons.orEmpty()
-        if (lessons.isEmpty()) return
-        val currentIdx = lessons.indexOfFirst {
-            it.bookKey == currentLesson.bookKey &&
-                it.unitKey == currentLesson.unitKey &&
-                it.lessonKey == currentLesson.lessonKey
+
+        val orderedBookLessons = snapshot.workspace?.lessons.orEmpty()
+            .filter { it.bookKey == currentLesson.bookKey }
+        val currentIndex = orderedBookLessons.indexOfFirst {
+            it.unitKey == currentLesson.unitKey && it.lessonKey == currentLesson.lessonKey
         }
-        val nextLesson = if (currentIdx >= 0 && currentIdx + 1 < lessons.size) {
-            lessons[currentIdx + 1]
-        } else {
-            null
-        }
+        val nextLesson = orderedBookLessons.getOrNull(currentIndex + 1)
         if (nextLesson != null) {
             openStudentStudy(nextLesson)
         } else {
             closeStudentStudy()
-            _uiState.update { it.copy(toastMessage = "أحسنت! وصلت إلى نهاية قائمة الدروس") }
+            _uiState.update { it.copy(toastMessage = "أحسنت! أكملت دروس هذا الكتاب المتاحة.") }
         }
     }
-
     fun launchConceptReinforcement(conceptTag: String?) {
         val questions = workspaceQuestions.value
         val attempts = workspaceQuestionAttempts.value
