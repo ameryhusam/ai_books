@@ -153,6 +153,10 @@ class AiGenerationService(
         maxBytes: Int = 18 * 1024 * 1024
     ): PdfDocumentPayload = withContext(Dispatchers.IO) {
         require(!pdfPath.isNullOrBlank()) { "مسار PDF غير محدد" }
+        val knownLength = if (context != null) UriIO.fileLength(context, pdfPath) else File(pdfPath).length()
+        require(knownLength <= maxBytes) {
+            "حجم PDF (${knownLength / (1024 * 1024)} MB) يتجاوز الحد المحلي ${maxBytes / (1024 * 1024)} MB؛ اختر صفحات أقل أو ملفاً أصغر."
+        }
         val bytes = if (context != null) {
             UriIO.readBytes(context, pdfPath)
         } else {
@@ -208,7 +212,7 @@ class AiGenerationService(
             source = source,
             extra = extra,
             questionCount = questionCount,
-            attachedPdfPagesCount = pdfPageImagesBase64.size,
+            attachedPdfPagesCount = if (!pdfDocumentBase64.isNullOrBlank()) 1 else pdfPageImagesBase64.size,
             questionStyleHint = questionStyleHint,
             difficultyHint = difficultyHint,
             responseSchemaJson = responseSchemaJson
@@ -250,7 +254,7 @@ class AiGenerationService(
                             templateId = templateId,
                             templateVersion = templateVersion,
                             responseSchemaHash = responseSchemaHash,
-                            requestFingerprint = requestFingerprint,
+                            requestFingerprint = sha256("$requestFingerprint|${profile.provider.id}|$modelName"),
                             contentHash = sha256(outputText),
                             sourcePdfHash = sourcePdfHash
                         )
