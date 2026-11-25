@@ -1942,6 +1942,88 @@ class EduMiniCoreTest {
         }
     }
 
+    @Test
+    fun learnerProgressStudyDaysAndAssessmentAttemptsAreIsolated() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val db = Room.inMemoryDatabaseBuilder(context, EduMiniDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            val dao = db.eduMiniDao()
+            val workspaceId = "ws-learner-isolation"
+            val lessonProgressA = LessonProgressEntity(
+                workspaceId = workspaceId,
+                bookKey = "SCI",
+                unitKey = "unit_01",
+                lessonKey = "lesson_01",
+                completed = true,
+                pointsEarned = 80,
+                completedAt = "2026-11-25T10:00:00Z",
+                userId = "learner_a"
+            )
+            val lessonProgressB = lessonProgressA.copy(
+                completed = false,
+                pointsEarned = 10,
+                completedAt = null,
+                userId = "learner_b"
+            )
+            dao.upsertLessonProgress(lessonProgressA)
+            dao.upsertLessonProgress(lessonProgressB)
+
+            assertEquals(1, dao.observeProgressForWorkspace(workspaceId, "learner_a").first().size)
+            assertTrue(dao.observeProgressForWorkspace(workspaceId, "learner_a").first().single().completed)
+            assertFalse(dao.observeProgressForWorkspace(workspaceId, "learner_b").first().single().completed)
+
+            dao.upsertStudyDay(
+                StudyDayEntity(
+                    activityDate = "2026-11-25",
+                    actionsCount = 4,
+                    lastUpdatedAt = "2026-11-25T10:00:00Z",
+                    userId = "learner_a"
+                )
+            )
+            dao.upsertStudyDay(
+                StudyDayEntity(
+                    activityDate = "2026-11-25",
+                    actionsCount = 1,
+                    lastUpdatedAt = "2026-11-25T10:01:00Z",
+                    userId = "learner_b"
+                )
+            )
+            assertEquals(4, dao.getStudyDay("2026-11-25", "learner_a")?.actionsCount)
+            assertEquals(1, dao.getStudyDay("2026-11-25", "learner_b")?.actionsCount)
+
+            val attemptA = AssessmentAttemptEntity(
+                id = "attempt-a",
+                assessmentId = "assessment-1",
+                assessmentTitle = "اختبار العلوم",
+                workspaceId = workspaceId,
+                correctCount = 8,
+                totalQuestions = 10,
+                scorePercent = 80,
+                passed = true,
+                durationSeconds = 300,
+                earnedXp = 40,
+                completedAt = "2026-11-25T10:00:00Z",
+                userId = "learner_a"
+            )
+            dao.insertAssessmentAttempt(attemptA)
+            dao.insertAssessmentAttempt(attemptA.copy(
+                id = "attempt-b",
+                correctCount = 3,
+                scorePercent = 30,
+                passed = false,
+                userId = "learner_b"
+            ))
+            assertEquals(1, dao.observeAssessmentAttempts(workspaceId, "learner_a").first().size)
+            assertEquals(1, dao.observeAssessmentAttempts(workspaceId, "learner_b").first().size)
+            assertEquals(80, dao.observeAssessmentAttempts(workspaceId, "learner_a").first().single().scorePercent)
+            assertEquals(30, dao.observeAssessmentAttempts(workspaceId, "learner_b").first().single().scorePercent)
+        } finally {
+            db.close()
+        }
+    }
+
     private fun sampleLesson() = LessonRef(
         grade = "G04",
         rootPath = "/tmp/ws",
