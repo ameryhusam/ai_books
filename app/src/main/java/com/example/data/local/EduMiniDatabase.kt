@@ -413,21 +413,21 @@ interface EduMiniDao {
 
         val existingLessons = getLessonsForWorkspaceSnapshot(workspace.workspaceId)
         val incomingLessons = lessons.distinctBy {
-            listOf(it.bookKey, it.unitKey, it.lessonKey).joinToString("|")
+            Triple(it.bookKey, it.unitKey, it.lessonKey)
         }
         val incomingLessonKeys = incomingLessons.map {
-            listOf(it.bookKey, it.unitKey, it.lessonKey).joinToString("|")
+            Triple(it.bookKey, it.unitKey, it.lessonKey)
         }.toSet()
         existingLessons.filterNot {
-            listOf(it.bookKey, it.unitKey, it.lessonKey).joinToString("|") in incomingLessonKeys
+            Triple(it.bookKey, it.unitKey, it.lessonKey) in incomingLessonKeys
         }.forEach {
             deleteLessonByRowId(it.rowId)
         }
         val existingLessonsByKey = existingLessons.associateBy {
-            listOf(it.bookKey, it.unitKey, it.lessonKey).joinToString("|")
+            Triple(it.bookKey, it.unitKey, it.lessonKey)
         }
         val stableLessons = incomingLessons.map { incoming ->
-            val key = listOf(incoming.bookKey, incoming.unitKey, incoming.lessonKey).joinToString("|")
+            val key = Triple(incoming.bookKey, incoming.unitKey, incoming.lessonKey)
             existingLessonsByKey[key]?.let { incoming.copy(rowId = it.rowId) } ?: incoming
         }
 
