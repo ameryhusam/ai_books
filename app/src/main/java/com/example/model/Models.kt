@@ -186,6 +186,28 @@ data class DirectWorkspaceInspection(
     val warnings: List<String> = emptyList()
 )
 
+data class WorkspaceIndexRef(
+    val bookKey: String,
+    val indexUriOrPath: String,
+    val indexRelativePath: String,
+    val manifestUriOrPath: String? = null,
+    val manifestRelativePath: String? = null,
+    val indexSha256: String,
+    val manifestSha256: String? = null,
+    val indexSchemaVersion: String? = null,
+    val manifestVersion: String? = null,
+    val lastSyncedAt: Long = System.currentTimeMillis()
+)
+
+data class WorkspaceUnitRef(
+    val bookKey: String,
+    val unitKey: String,
+    val title: String,
+    val partKey: String? = null,
+    val sortOrder: Int,
+    val sourceIndexPath: String
+)
+
 data class ImportedWorkspace(
     val workspaceId: String,
     val gradeKey: String,
@@ -195,7 +217,9 @@ data class ImportedWorkspace(
     val lessons: List<LessonRef>,
     val filesCount: Int,
     val warnings: List<String>,
-    val importedAt: Long = System.currentTimeMillis()
+    val importedAt: Long = System.currentTimeMillis(),
+    val indexRecords: List<WorkspaceIndexRef> = emptyList(),
+    val units: List<WorkspaceUnitRef> = emptyList()
 )
 
 data class WorkspaceSummary(
