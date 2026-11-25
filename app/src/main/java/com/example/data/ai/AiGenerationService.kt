@@ -264,7 +264,7 @@ class AiGenerationService(
                 val candidateProfile = profile.copy(model = modelName)
                 val expectJson = responseFormat.equals("json", ignoreCase = true) || responseSchemaJson.isNotBlank()
                 var retry = 0
-                while (retry < 2) {
+                while (retry < 3) {
                     val callStart = System.currentTimeMillis()
                     try {
                         val reserved = onReserveProvider?.invoke(candidateProfile) ?: true
@@ -321,7 +321,7 @@ class AiGenerationService(
                             break
                         }
                         if (retry == 0) {
-                            delay(800L + kotlin.random.Random.nextLong(0L, 251L))
+                            delay((800L shl retry).coerceAtMost(4_000L) + kotlin.random.Random.nextLong(0L, 251L))
                         }
                     } catch (e: IOException) {
                         val reason = e.message?.takeIf { it.isNotBlank() } ?: "خطأ شبكة"
@@ -329,7 +329,7 @@ class AiGenerationService(
                         onAttemptFinished?.invoke(profile.label, modelName, false, reason)
                         onProviderStateChanged?.invoke(profile.id, "ERROR", 0L)
                         if (retry == 0) {
-                            delay(800L + kotlin.random.Random.nextLong(0L, 251L))
+                            delay((800L shl retry).coerceAtMost(4_000L) + kotlin.random.Random.nextLong(0L, 251L))
                         }
                     } catch (e: Exception) {
                         val reason = e.message?.takeIf { it.isNotBlank() } ?: "فشل"
