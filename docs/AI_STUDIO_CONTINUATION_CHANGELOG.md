@@ -366,3 +366,28 @@ Corrections applied:
 The latest Android CI run observed during this pass is [run 45715165859](https://github.com/ameryhusam/ai_books/actions/runs/45715165859) on commit `1d920a4faab662ba3765b320de2280759b40d6c2`. Its job reports failure with `steps=null` and `logs_url=null`, so it provides no Kotlin compiler diagnostic. This must not be represented as a passing or source-level failing build.
 
 **Phase P0 status:** source corrections and Firestore contract alignment committed on `main`; build and emulator validation remain open acceptance gates.
+
+
+---
+
+## 11. Provider quota handling correction — 2026-11-26
+
+### Scope and design
+- Removed local dailyRequestLimit enforcement from ProviderStorage.reserveProviderKey. The legacy field remains serialized for backward compatibility, but it no longer prevents an outgoing request.
+- dailyRequestsUsed is retained as diagnostic attempt telemetry only; it is not compared with a local cap.
+- Provider-reported QUOTA_EXHAUSTED is retained as a diagnostic runtime status. It is not used as a local pre-request quota gate, and it is no longer automatically cleared merely because the device's local date changed.
+- A successful provider request clears the diagnostic error state back to ACTIVE.
+- Gemini error parsing now includes the API error status and structured details signals, rather than relying only on the human-readable message.
+- Added classification for explicit QUOTA_EXCEEDED and RATE_LIMIT_EXCEEDED signals. A confirmed Gemini quota-exhaustion response stops the current generation immediately; it does not cycle through additional Google profiles/models as a quota-bypass mechanism.
+- Retry-After now accepts both delta-seconds and RFC 1123 HTTP-date values. If the header is absent or invalid, the existing 60-second fallback remains.
+- Gemini and OpenAI-compatible request paths remain separate. Model-level cooldown behavior for Gemini rate limiting is retained.
+
+### Files changed
+- app/src/main/java/com/example/data/security/ProviderStorage.kt
+- app/src/main/java/com/example/data/ai/AiGenerationService.kt
+- docs/AI_STUDIO_CONTINUATION_CHANGELOG.md
+
+### Validation
+- Source transformation checks confirmed the intended code sections were changed.
+- No Gradle compiler, unit-test, or Android assembly command was executed in this pass. Build and runtime behavior remain unverified.
+- The service still depends on the exact structured reason strings returned by Google; unknown HTTP 429 responses are conservatively classified as rate limiting, not quota exhaustion.
