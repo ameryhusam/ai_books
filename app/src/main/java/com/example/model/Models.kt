@@ -196,6 +196,7 @@ data class WorkspaceIndexRef(
     val manifestRelativePath: String? = null,
     val indexSha256: String,
     val manifestSha256: String? = null,
+    val sourceSha256: String? = null,
     val indexSchemaVersion: String? = null,
     val manifestVersion: String? = null,
     val lastSyncedAt: Long = System.currentTimeMillis()
