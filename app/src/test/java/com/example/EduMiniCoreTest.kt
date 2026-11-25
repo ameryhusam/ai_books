@@ -2601,6 +2601,18 @@ class EduMiniCoreTest {
     }
 
     @Test
+    fun geminiModelCooldownDoesNotBlockSiblingModelsOrOtherKeys() {
+        val router = com.example.data.ai.GeminiModelRouter(defaultCooldownMs = 60_000L)
+        val now = 1_000_000L
+        router.markCoolingDown("key-a", "gemini-3.8-flash", now + 30_000L, now)
+
+        assertTrue(router.isCoolingDown("key-a", "gemini-3.8-flash", now + 1_000L))
+        assertFalse(router.isCoolingDown("key-a", "gemini-3.7-flash", now + 1_000L))
+        assertFalse(router.isCoolingDown("key-b", "gemini-3.8-flash", now + 1_000L))
+        assertFalse(router.isCoolingDown("key-a", "gemini-3.8-flash", now + 61_000L))
+    }
+
+    @Test
     fun selectedProviderPreferencePersistsIndependentlyFromProviderProfiles() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val storage = ProviderStorage(context)
