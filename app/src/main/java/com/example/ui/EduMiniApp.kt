@@ -218,6 +218,7 @@ private fun AuthenticatedEduMiniContent(
     val promptTemplates by viewModel.promptTemplates.collectAsStateWithLifecycle()
     val questionStats by viewModel.questionMasteryStats.collectAsStateWithLifecycle()
     val conceptSummaries by viewModel.conceptMasterySummaries.collectAsStateWithLifecycle()
+    val learningProgressReport by viewModel.learningProgressReport.collectAsStateWithLifecycle()
     val cloudDraftsState by viewModel.cloudDraftsState.collectAsStateWithLifecycle()
     val cloudProgressState by viewModel.cloudProgressState.collectAsStateWithLifecycle()
 
@@ -279,6 +280,14 @@ private fun AuthenticatedEduMiniContent(
     ) { uri: Uri? ->
         if (uri != null) {
             viewModel.exportPendingAssessmentMarkdown(uri)
+        }
+    }
+
+    val exportLearningReportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("text/markdown")
+    ) { uri: Uri? ->
+        if (uri != null) {
+            viewModel.exportLearningProgressReport(uri)
         }
     }
 
@@ -405,6 +414,8 @@ private fun AuthenticatedEduMiniContent(
                                             userRole = state.userRole,
                                             dashboardState = dashboardState,
                                             conceptMasterySummaries = conceptSummaries,
+                                            learningProgressReport = learningProgressReport,
+                                            onExportLearningReport = { exportLearningReportLauncher.launch("تقرير_متابعة_التعلم.md") },
                                             activeLearner = state.activeLearner,
                                             availableLearners = state.availableLearners,
                                             selectedBookFilterKey = dashboardState.selectedBookKey,
