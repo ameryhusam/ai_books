@@ -67,6 +67,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import com.example.ui.screens.LearningProgressReportCard
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -99,6 +100,7 @@ import com.example.model.ConceptMasterySummary
 import com.example.model.DashboardLessonFilter
 import com.example.model.DashboardSummary
 import com.example.model.LearnerProfile
+import com.example.model.LearningProgressReport
 import com.example.model.LearningLessonNode
 import com.example.model.LearningNodeStatus
 import com.example.model.LearningUnitPath
@@ -137,6 +139,8 @@ fun DashboardScreen(
     userRole: UserRole = UserRole.LEARNER,
     dashboardState: StudentDashboardState = StudentDashboardState(),
     conceptMasterySummaries: List<ConceptMasterySummary> = emptyList(),
+    learningProgressReport: LearningProgressReport = LearningProgressReport(),
+    onExportLearningReport: () -> Unit = {},
     activeLearner: LearnerProfile = LearnerProfile.DEFAULT,
     availableLearners: List<LearnerProfile> = listOf(LearnerProfile.DEFAULT),
     selectedBookFilterKey: String = "",
@@ -237,6 +241,16 @@ fun DashboardScreen(
                 )
             }
 
+            if (summary.hasWorkspace) {
+                item(key = "learning_progress_report") {
+                    LearningProgressReportCard(
+                        report = learningProgressReport,
+                        isLearner = isLearner,
+                        onExport = onExportLearningReport
+                    )
+                }
+            }
+
             if (!summary.hasWorkspace) {
                 item(key = "dashboard_empty") {
                     DashboardEmptyOnboarding(
@@ -279,7 +293,7 @@ fun DashboardScreen(
                     }
                 }
 
-                if (summary.weakConcepts.isNotEmpty()) {
+                if (!isLearner && summary.weakConcepts.isNotEmpty()) {
                     item(key = "weak_concepts_panel") {
                         WeakConceptsReinforcementCard(
                             weakConcepts = summary.weakConcepts,
@@ -302,7 +316,8 @@ fun DashboardScreen(
                     DashboardKpiGrid(summary = summary)
                 }
 
-                item(key = "student_performance_chart") {
+                if (!isLearner) {
+                    item(key = "student_performance_chart") {
                     StudentPerformanceChartCard(
                         concepts = conceptMasterySummaries,
                         unitPaths = bookFilteredUnits,
@@ -313,6 +328,7 @@ fun DashboardScreen(
                         onAddLearner = onAddLearner,
                         onSelectConceptForReinforcement = onLaunchConceptReinforcement
                     )
+                    }
                 }
 
                 if (summary.bookProgress.isNotEmpty()) {
