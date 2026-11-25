@@ -83,3 +83,24 @@ Do not use "Clear storage" for this upgrade test; that would bypass the migratio
 - Android SDK environment configured through Android Studio or `ANDROID_HOME` / `ANDROID_SDK_ROOT`.
 
 A successful unit-test task verifies JVM/Robolectric tests. A successful `assembleDebug` additionally verifies Android source compilation and packaging. Neither should be inferred from a GitHub commit or from reading source files alone.
+
+
+## Template/PDF/API quota regression checks
+
+Run the focused tests first:
+
+```bash
+./gradlew :app:testDebugUnitTest --tests 'com.example.EduMiniCoreTest.templateResponseAdapterMapsProviderSpecificQuestionFields'
+./gradlew :app:testDebugUnitTest --tests 'com.example.EduMiniCoreTest.extractLessonPdfBase64PreservesOriginalPdfDocument'
+./gradlew :app:testDebugUnitTest --tests 'com.example.EduMiniCoreTest.providerQuotaReservationFreezesKeyUntilNextTimezoneDay'
+```
+
+Then run the complete unit suite and debug APK build:
+
+```bash
+./gradlew :app:testDebugUnitTest
+./gradlew :app:assembleDebug
+```
+
+The API quota test exercises concurrent reservations and a next-day timezone reset. The PDF test checks that the encoded payload still begins with the PDF signature after decoding. These tests are added but have not yet been executed in the remote editing environment.
+
