@@ -66,13 +66,16 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
@@ -80,11 +83,27 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.credentials.CredentialManager
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
 import com.example.R
+import com.example.data.ai.AiGenerationService
+import com.example.data.firebase.FirestoreSyncRepository
+import com.example.data.local.EduMiniDatabase
+import com.example.data.packageimport.InteractivePackageImporter
+import com.example.data.repository.EduMiniRepository
+import com.example.data.security.ProviderStorage
+import com.example.data.workspace.DirectWorkspaceBinder
+import com.example.data.workspace.PdfBookSplitter
+import com.example.data.workspace.WorkspaceImporter
 import com.example.model.AppPage
 import com.example.model.UserRole
+import com.example.ui.auth.AuthScreen
+import com.example.ui.auth.authStateFlow
+import com.example.ui.auth.signOutFromFirebase
 import com.example.ui.components.BookCoverPreviewDialog
 import com.example.ui.components.GlobalSearchDialog
 import com.example.ui.components.InteractiveJsonActivityDialog
@@ -114,11 +133,76 @@ import com.example.ui.theme.EduMint
 import com.example.ui.theme.EduMuted
 import com.example.ui.theme.EduPurple
 import com.example.ui.theme.EduWhite
+import com.google.firebase.Firebase
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.auth
+import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.delay
 
 @Composable
 fun EduMiniApp(
-    viewModel: MainViewModel = viewModel()
+    auth: FirebaseAuth = Firebase.auth
+) {
+    val currentUser by auth.authStateFlow().collectAsStateWithLifecycle(initialValue = auth.currentUser)
+
+    EduMiniTheme {
+        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+            val user = currentUser
+            if (user == null) {
+                AuthScreen(
+                    onAuthSuccess = { /* authStateFlow emits signed-in user automatically */ }
+                )
+            } else {
+                key(user.uid) {
+                    val context = LocalContext.current
+                    val credentialManager = remember(context) { CredentialManager.create(context) }
+                    val scope = rememberCoroutineScope()
+                    val viewModel: MainViewModel = viewModel(
+                        key = user.uid,
+                        factory = viewModelFactory {
+                            initializer {
+                                val app = checkNotNull(this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY])
+                                val dbId = app.getString(R.string.firestore_database_id)
+                                val firestoreDb = FirebaseFirestore.getInstance(dbId)
+                                val repository = EduMiniRepository(
+                                    dao = EduMiniDatabase.getInstance(app).eduMiniDao(),
+                                    providerStorage = ProviderStorage(app),
+                                    workspaceImporter = WorkspaceImporter(app),
+                                    aiGenerationService = AiGenerationService(app),
+                                    pdfBookSplitter = PdfBookSplitter(app),
+                                    interactivePackageImporter = InteractivePackageImporter(app),
+                                    directWorkspaceBinder = DirectWorkspaceBinder(app),
+                                    appContext = app
+                                )
+                                val firestoreSync = FirestoreSyncRepository(firestoreDb, auth)
+                                MainViewModel(
+                                    repository = repository,
+                                    firestoreSync = firestoreSync,
+                                    currentUserId = user.uid,
+                                    currentUserEmail = user.email,
+                                    currentUserDisplayName = user.displayName
+                                )
+                            }
+                        }
+                    )
+                    AuthenticatedEduMiniContent(
+                        viewModel = viewModel,
+                        userEmail = user.email,
+                        userDisplayName = user.displayName,
+                        onSignOut = { signOutFromFirebase(credentialManager, scope) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AuthenticatedEduMiniContent(
+    viewModel: MainViewModel,
+    userEmail: String?,
+    userDisplayName: String?,
+    onSignOut: () -> Unit
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val dashboardState by viewModel.studentDashboardState.collectAsStateWithLifecycle()
@@ -134,6 +218,8 @@ fun EduMiniApp(
     val promptTemplates by viewModel.promptTemplates.collectAsStateWithLifecycle()
     val questionStats by viewModel.questionMasteryStats.collectAsStateWithLifecycle()
     val conceptSummaries by viewModel.conceptMasterySummaries.collectAsStateWithLifecycle()
+    val cloudDraftsState by viewModel.cloudDraftsState.collectAsStateWithLifecycle()
+    val cloudProgressState by viewModel.cloudProgressState.collectAsStateWithLifecycle()
 
     val bookmarkedLessons = remember(state.workspace, workspaceTeacherNotes) {
         val lessons = state.workspace?.lessons.orEmpty()
@@ -229,10 +315,8 @@ fun EduMiniApp(
 
     val haptic = LocalHapticFeedback.current
 
-    EduMiniTheme {
-        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-            BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-                val isWide = maxWidth >= 720.dp
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val isWide = maxWidth >= 720.dp
 
                 if (state.userRole == UserRole.ENTRY) {
                     RoleEntryScreen(
@@ -367,6 +451,9 @@ fun EduMiniApp(
                                             activeProvidersCount = state.providers.count { it.enabled },
                                             diskUsageBytes = state.activeWorkspaceDiskBytes,
                                             bookProgress = dashboardSummary.bookProgress,
+                                            cloudDraftsState = cloudDraftsState,
+                                            cloudProgressState = cloudProgressState,
+                                            onSyncWorkspaceToCloud = viewModel::syncWorkspaceToCloud,
                                             onBindDirectFolder = { folderPickerLauncher.launch(null) },
                                             onPickZip = {
                                                 zipPickerLauncher.launch(
@@ -418,6 +505,7 @@ fun EduMiniApp(
                                             generatedResult = state.generatedResult,
                                             packageSourcePages = state.packageSourcePages,
                                             lessonDrafts = lessonDrafts,
+                                            cloudDraftsState = cloudDraftsState,
                                             lessonPackages = lessonPackages,
                                             teacherNote = currentTeacherNote,
                                             promptTemplates = promptTemplates,
@@ -452,6 +540,9 @@ fun EduMiniApp(
                                             onApproveDraft = viewModel::approveDraft,
                                             onLoadDraft = viewModel::loadDraftIntoEditor,
                                             onDeleteDraft = viewModel::deleteDraft,
+                                            onLoadCloudDraft = viewModel::loadCloudDraftIntoEditor,
+                                            onApproveCloudDraft = viewModel::approveCloudDraft,
+                                            onDeleteCloudDraft = viewModel::deleteCloudDraft,
                                             onPickInteractivePackage = {
                                                 packagePickerLauncher.launch(
                                                     arrayOf(
@@ -500,6 +591,12 @@ fun EduMiniApp(
                                             providers = state.providers,
                                             recentRuns = state.recentRuns,
                                             promptTemplates = promptTemplates,
+                                            userEmail = userEmail,
+                                            userDisplayName = userDisplayName,
+                                            cloudDraftsState = cloudDraftsState,
+                                            cloudProgressState = cloudProgressState,
+                                            onSyncWorkspaceToCloud = viewModel::syncWorkspaceToCloud,
+                                            onSignOut = onSignOut,
                                             onBackToLibrary = { viewModel.navigateTo(AppPage.LIBRARY) },
                                             onSelectProviderType = viewModel::updateProviderType,
                                             onLabelChange = viewModel::updateFormLabel,
@@ -768,8 +865,6 @@ fun EduMiniApp(
                     )
                 }
             }
-        }
-    }
 }
 
 @Composable

@@ -1,0 +1,190 @@
+{
+  "entities": {
+    "CloudDraft": {
+      "title": "CloudDraft",
+      "description": "AI-generated or edited educational draft synchronized to Firestore per authenticated user.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Authenticated Firebase UID of the owner."
+        },
+        "workspaceId": {
+          "type": "string",
+          "description": "Workspace identifier associated with the draft."
+        },
+        "grade": {
+          "type": "string",
+          "description": "Grade key (e.g. G04)."
+        },
+        "bookKey": {
+          "type": "string",
+          "description": "Book or subject key."
+        },
+        "unitKey": {
+          "type": "string",
+          "description": "Unit key."
+        },
+        "lessonKey": {
+          "type": "string",
+          "description": "Lesson key."
+        },
+        "task": {
+          "type": "string",
+          "enum": [
+            "explanation",
+            "summary",
+            "objectives",
+            "vocabulary",
+            "worked_examples",
+            "lesson_review",
+            "difficulty_adapter",
+            "interactive",
+            "questions"
+          ],
+          "description": "Studio generation task identifier."
+        },
+        "title": {
+          "type": "string",
+          "description": "Lesson or draft title."
+        },
+        "provider": {
+          "type": "string",
+          "description": "AI provider label or manual editor."
+        },
+        "model": {
+          "type": "string",
+          "description": "Model name used to produce the draft."
+        },
+        "content": {
+          "type": "string",
+          "description": "Draft body text or JSON."
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "DRAFT",
+            "APPROVED",
+            "ARCHIVED"
+          ],
+          "description": "Review/publish workflow status."
+        },
+        "version": {
+          "type": "integer",
+          "description": "Monotonic version number."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Creation server timestamp (clients must write FieldValue.serverTimestamp())."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last update server timestamp (clients must write FieldValue.serverTimestamp())."
+        }
+      },
+      "required": [
+        "userId",
+        "workspaceId",
+        "grade",
+        "bookKey",
+        "unitKey",
+        "lessonKey",
+        "task",
+        "title",
+        "provider",
+        "model",
+        "content",
+        "status",
+        "version",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "LessonProgress": {
+      "title": "LessonProgress",
+      "description": "Synchronized lesson completion, quiz score, and XP record per authenticated user.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Authenticated Firebase UID of the owner."
+        },
+        "workspaceId": {
+          "type": "string",
+          "description": "Workspace identifier."
+        },
+        "bookKey": {
+          "type": "string",
+          "description": "Book or subject key."
+        },
+        "unitKey": {
+          "type": "string",
+          "description": "Unit key."
+        },
+        "lessonKey": {
+          "type": "string",
+          "description": "Lesson key."
+        },
+        "lessonTitle": {
+          "type": "string",
+          "description": "Human-readable lesson title."
+        },
+        "completed": {
+          "type": "boolean",
+          "description": "Whether the lesson has been completed."
+        },
+        "xpEarned": {
+          "type": "integer",
+          "description": "Experience points earned for this lesson."
+        },
+        "scorePercent": {
+          "type": "integer",
+          "description": "Latest quiz score percentage (0..100)."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Optional teacher or learner notes for the lesson."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Creation server timestamp (clients must write FieldValue.serverTimestamp())."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last update server timestamp (clients must write FieldValue.serverTimestamp())."
+        }
+      },
+      "required": [
+        "userId",
+        "workspaceId",
+        "bookKey",
+        "unitKey",
+        "lessonKey",
+        "lessonTitle",
+        "completed",
+        "xpEarned",
+        "scorePercent",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/drafts/{draftId}": {
+      "schema": {
+        "$ref": "#/entities/CloudDraft"
+      },
+      "description": "Per-user cloud-synced educational drafts created or edited in the Studio."
+    },
+    "/users/{userId}/progress/{progressId}": {
+      "schema": {
+        "$ref": "#/entities/LessonProgress"
+      },
+      "description": "Per-user cloud-synced lesson completion and quiz mastery progress."
+    }
+  }
+}

@@ -75,4 +75,13 @@
     <string name="cd_settings_button">فتح الإعدادات</string>
     <string name="cd_hero_banner">رسم توضيحي لمساحة التعلم</string>
     <string name="cd_delete_provider">حذف المزود</string>
+    <string name="auth_screen_title">تسجيل الدخول والمزامنة السحابية</string>
+    <string name="auth_screen_subtitle">سجّل دخولك بحساب Google لمزامنة مسودات الدروس وتقدم التعلم بأمان عبر Firebase Firestore.</string>
+    <string name="auth_google_sign_in_cta">تسجيل الدخول بحساب Google</string>
+    <string name="auth_checking_session">جارٍ التحقق من جلسة Google...</string>
+    <string name="auth_feature_sync">مزامنة فورية لمسودات الاستوديو وتقدم الدروس بين أجهزتك</string>
+    <string name="auth_feature_security">حساب معزول بقواعد أمان صارمة لكل مستخدم</string>
+    <string name="cloud_sync_heading">المزامنة السحابية (Firebase Firestore)</string>
+    <string name="cloud_sync_now_cta">مزامنة المسودات والتقدم الآن</string>
+    <string name="auth_sign_out_cta">تسجيل الخروج</string>
 </resources>

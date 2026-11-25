@@ -1,0 +1,136 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Safety Net: Default-Deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Global Primitive Helpers
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // 3. Entity Validation Helpers (Blueprint Parity)
+    function isValidCloudDraft(data) {
+      return data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128 &&
+             data.workspaceId is string && data.workspaceId.size() >= 1 && data.workspaceId.size() <= 128 &&
+             data.grade is string && data.grade.size() >= 1 && data.grade.size() <= 32 &&
+             data.bookKey is string && data.bookKey.size() >= 1 && data.bookKey.size() <= 64 &&
+             data.unitKey is string && data.unitKey.size() >= 1 && data.unitKey.size() <= 64 &&
+             data.lessonKey is string && data.lessonKey.size() >= 1 && data.lessonKey.size() <= 64 &&
+             data.task in [
+               'explanation',
+               'summary',
+               'objectives',
+               'vocabulary',
+               'worked_examples',
+               'lesson_review',
+               'difficulty_adapter',
+               'interactive',
+               'questions'
+             ] &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 200 &&
+             data.provider is string && data.provider.size() >= 1 && data.provider.size() <= 100 &&
+             data.model is string && data.model.size() >= 1 && data.model.size() <= 120 &&
+             data.content is string && data.content.size() >= 1 && data.content.size() <= 200000 &&
+             data.status in ['DRAFT', 'APPROVED', 'ARCHIVED'] &&
+             data.version is int && data.version >= 1 && data.version <= 10000 &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidLessonProgress(data) {
+      return data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128 &&
+             data.workspaceId is string && data.workspaceId.size() >= 1 && data.workspaceId.size() <= 128 &&
+             data.bookKey is string && data.bookKey.size() >= 1 && data.bookKey.size() <= 64 &&
+             data.unitKey is string && data.unitKey.size() >= 1 && data.unitKey.size() <= 64 &&
+             data.lessonKey is string && data.lessonKey.size() >= 1 && data.lessonKey.size() <= 64 &&
+             data.lessonTitle is string && data.lessonTitle.size() >= 1 && data.lessonTitle.size() <= 200 &&
+             data.completed is bool &&
+             data.xpEarned is int && data.xpEarned >= 0 && data.xpEarned <= 100000 &&
+             data.scorePercent is int && data.scorePercent >= 0 && data.scorePercent <= 100 &&
+             (!('notes' in data) || (data.notes is string && data.notes.size() <= 2000)) &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    // 4. Collection Match Blocks
+    match /users/{userId}/drafts/{draftId} {
+      allow get: if isOwner(userId) && isValidId(draftId);
+      allow list: if isOwner(userId);
+
+      allow create: if isOwner(userId) &&
+                       isValidId(draftId) &&
+                       incoming().keys().hasAll([
+                         'userId', 'workspaceId', 'grade', 'bookKey', 'unitKey',
+                         'lessonKey', 'task', 'title', 'provider', 'model',
+                         'content', 'status', 'version', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'workspaceId', 'grade', 'bookKey', 'unitKey',
+                         'lessonKey', 'task', 'title', 'provider', 'model',
+                         'content', 'status', 'version', 'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidCloudDraft(incoming());
+
+      allow update: if isOwner(userId) &&
+                       isValidId(draftId) &&
+                       isValidCloudDraft(incoming()) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       (
+                         incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']) ||
+                         incoming().diff(existing()).affectedKeys().hasOnly(['title', 'content', 'status', 'version', 'updatedAt'])
+                       );
+
+      allow delete: if isOwner(userId) && isValidId(draftId);
+    }
+
+    match /users/{userId}/progress/{progressId} {
+      allow get: if isOwner(userId) && isValidId(progressId);
+      allow list: if isOwner(userId);
+
+      allow create: if isOwner(userId) &&
+                       isValidId(progressId) &&
+                       incoming().keys().hasAll([
+                         'userId', 'workspaceId', 'bookKey', 'unitKey', 'lessonKey',
+                         'lessonTitle', 'completed', 'xpEarned', 'scorePercent',
+                         'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'workspaceId', 'bookKey', 'unitKey', 'lessonKey',
+                         'lessonTitle', 'completed', 'xpEarned', 'scorePercent',
+                         'notes', 'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidLessonProgress(incoming());
+
+      allow update: if isOwner(userId) &&
+                       isValidId(progressId) &&
+                       isValidLessonProgress(incoming()) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly([
+                         'completed', 'xpEarned', 'scorePercent', 'notes', 'updatedAt'
+                       ]);
+
+      allow delete: if isOwner(userId) && isValidId(progressId);
+    }
+  }
+}

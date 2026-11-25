@@ -41,6 +41,7 @@ import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.CloudDone
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
@@ -95,12 +96,14 @@ import androidx.compose.ui.window.DialogProperties
 import com.example.R
 import com.example.data.ai.Indexer2PromptRegistry
 import com.example.model.BookRef
+import com.example.model.CloudDraft
 import com.example.model.DraftRecord
 import com.example.model.DraftStatus
 import com.example.model.InteractivePackageRecord
 import com.example.model.LessonRef
 import com.example.model.PromptTemplateRecord
 import com.example.model.QuestionDifficulty
+import com.example.model.SyncUiState
 import com.example.model.TaskType
 import com.example.model.TeacherNoteRecord
 import com.example.ui.components.BookCoverImage
@@ -143,6 +146,7 @@ fun StudioScreen(
     generatedResult: String,
     packageSourcePages: String,
     lessonDrafts: List<DraftRecord>,
+    cloudDraftsState: SyncUiState<List<CloudDraft>> = SyncUiState.Loading,
     lessonPackages: List<InteractivePackageRecord>,
     teacherNote: TeacherNoteRecord? = null,
     promptTemplates: List<PromptTemplateRecord> = emptyList(),
@@ -173,6 +177,9 @@ fun StudioScreen(
     onApproveDraft: (String) -> Unit,
     onLoadDraft: (DraftRecord) -> Unit,
     onDeleteDraft: (String) -> Unit,
+    onLoadCloudDraft: (CloudDraft) -> Unit = {},
+    onApproveCloudDraft: (CloudDraft) -> Unit = {},
+    onDeleteCloudDraft: (CloudDraft) -> Unit = {},
     onPickInteractivePackage: () -> Unit,
     onPreviewPackage: (InteractivePackageRecord, Boolean) -> Unit,
     onPublishPackage: (InteractivePackageRecord) -> Unit,
@@ -244,6 +251,7 @@ fun StudioScreen(
                     generatedResult = generatedResult,
                     packageSourcePages = packageSourcePages,
                     lessonDrafts = lessonDrafts,
+                    cloudDraftsState = cloudDraftsState,
                     lessonPackages = lessonPackages,
                     teacherNote = teacherNote,
                     promptTemplates = promptTemplates,
@@ -274,6 +282,9 @@ fun StudioScreen(
                     onApproveDraft = onApproveDraft,
                     onLoadDraft = onLoadDraft,
                     onDeleteDraft = onDeleteDraft,
+                    onLoadCloudDraft = onLoadCloudDraft,
+                    onApproveCloudDraft = onApproveCloudDraft,
+                    onDeleteCloudDraft = onDeleteCloudDraft,
                     onPickInteractivePackage = onPickInteractivePackage,
                     onPreviewPackage = onPreviewPackage,
                     onPublishPackage = onPublishPackage,
@@ -302,6 +313,7 @@ fun StudioScreen(
                     generatedResult = generatedResult,
                     packageSourcePages = packageSourcePages,
                     lessonDrafts = lessonDrafts,
+                    cloudDraftsState = cloudDraftsState,
                     lessonPackages = lessonPackages,
                     teacherNote = teacherNote,
                     promptTemplates = promptTemplates,
@@ -332,6 +344,9 @@ fun StudioScreen(
                     onApproveDraft = onApproveDraft,
                     onLoadDraft = onLoadDraft,
                     onDeleteDraft = onDeleteDraft,
+                    onLoadCloudDraft = onLoadCloudDraft,
+                    onApproveCloudDraft = onApproveCloudDraft,
+                    onDeleteCloudDraft = onDeleteCloudDraft,
                     onPickInteractivePackage = onPickInteractivePackage,
                     onPreviewPackage = onPreviewPackage,
                     onPublishPackage = onPublishPackage,
@@ -375,6 +390,7 @@ private fun StudioWorkbench(
     generatedResult: String,
     packageSourcePages: String,
     lessonDrafts: List<DraftRecord>,
+    cloudDraftsState: SyncUiState<List<CloudDraft>>,
     lessonPackages: List<InteractivePackageRecord>,
     teacherNote: TeacherNoteRecord?,
     promptTemplates: List<PromptTemplateRecord>,
@@ -405,6 +421,9 @@ private fun StudioWorkbench(
     onApproveDraft: (String) -> Unit,
     onLoadDraft: (DraftRecord) -> Unit,
     onDeleteDraft: (String) -> Unit,
+    onLoadCloudDraft: (CloudDraft) -> Unit,
+    onApproveCloudDraft: (CloudDraft) -> Unit,
+    onDeleteCloudDraft: (CloudDraft) -> Unit,
     onPickInteractivePackage: () -> Unit,
     onPreviewPackage: (InteractivePackageRecord, Boolean) -> Unit,
     onPublishPackage: (InteractivePackageRecord) -> Unit,
@@ -1386,6 +1405,102 @@ private fun StudioWorkbench(
                                         }
                                     }
                                 }
+                            }
+                        }
+
+                        if (cloudDraftsState is SyncUiState.Success) {
+                            val matchingCloudDrafts = cloudDraftsState.data.filter { cd ->
+                                selectedLesson == null || (cd.bookKey == selectedLesson.bookKey && cd.lessonKey == selectedLesson.lessonKey)
+                            }.take(6)
+                            if (matchingCloudDrafts.isNotEmpty()) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    modifier = Modifier.padding(top = 6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.CloudDone,
+                                        contentDescription = null,
+                                        tint = EduGreenDark,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Text(
+                                        text = "المسودات السحابية المتزامنة (Firestore)",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = EduInk
+                                    )
+                                }
+                                matchingCloudDrafts.forEach { cd ->
+                                    val cdStatus = cd.statusOrDefault()
+                                    EduPanel(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(16.dp))
+                                            .clickable { onLoadCloudDraft(cd) }
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Surface(
+                                                shape = RoundedCornerShape(8.dp),
+                                                color = if (cdStatus == DraftStatus.APPROVED) EduMint else EduLilac
+                                            ) {
+                                                Text(
+                                                    text = "سحابة v${cd.version} • ${cd.taskTypeOrDefault().labelAr}",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = if (cdStatus == DraftStatus.APPROVED) EduGreenDark else EduPurple,
+                                                    fontWeight = FontWeight.Bold,
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                                )
+                                            }
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = "${cd.title} • ${cd.provider} • ${cdStatus.labelAr}",
+                                                    style = MaterialTheme.typography.titleSmall,
+                                                    color = EduInk
+                                                )
+                                                Text(
+                                                    text = cd.content.take(90).replace('\n', ' '),
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = EduMuted,
+                                                    maxLines = 2
+                                                )
+                                            }
+                                            if (cdStatus != DraftStatus.APPROVED) {
+                                                IconButton(
+                                                    onClick = { onApproveCloudDraft(cd) },
+                                                    modifier = Modifier.minimumInteractiveComponentSize()
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Outlined.CheckCircle,
+                                                        contentDescription = "اعتماد المسودة السحابية",
+                                                        tint = EduGreenDark
+                                                    )
+                                                }
+                                            }
+                                            IconButton(
+                                                onClick = { onDeleteCloudDraft(cd) },
+                                                modifier = Modifier.minimumInteractiveComponentSize()
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Outlined.DeleteOutline,
+                                                    contentDescription = "حذف المسودة السحابية",
+                                                    tint = EduRed
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } else if (cloudDraftsState is SyncUiState.Error) {
+                            EduPanel(modifier = Modifier.fillMaxWidth()) {
+                                Text(
+                                    text = "تنبيه المزامنة السحابية: ${cloudDraftsState.message}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = EduRed
+                                )
                             }
                         }
                     }

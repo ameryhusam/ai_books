@@ -32,6 +32,8 @@ import androidx.compose.material.icons.outlined.Preview
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Backup
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.CloudDone
+import androidx.compose.material.icons.rounded.CloudSync
 import androidx.compose.material.icons.rounded.FileDownload
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.PictureAsPdf
@@ -75,9 +77,12 @@ import com.example.R
 import com.example.data.workspace.UriIO
 import com.example.model.BookProgressSummary
 import com.example.model.BookRef
+import com.example.model.CloudDraft
 import com.example.model.ImportedWorkspace
+import com.example.model.LessonProgress
 import com.example.model.LessonRef
 import com.example.model.LibraryPartFilter
+import com.example.model.SyncUiState
 import com.example.model.WorkspaceSummary
 import com.example.ui.components.BookCoverImage
 import com.example.ui.components.EduPanel
@@ -109,6 +114,9 @@ fun LibraryScreen(
     activeProvidersCount: Int,
     diskUsageBytes: Long = 0L,
     bookProgress: List<BookProgressSummary> = emptyList(),
+    cloudDraftsState: SyncUiState<List<CloudDraft>> = SyncUiState.Loading,
+    cloudProgressState: SyncUiState<List<LessonProgress>> = SyncUiState.Loading,
+    onSyncWorkspaceToCloud: () -> Unit = {},
     onBindDirectFolder: () -> Unit = {},
     onPickZip: () -> Unit = {},
     onPickBookPdf: () -> Unit = {},
@@ -187,6 +195,64 @@ fun LibraryScreen(
                         label = stringResource(R.string.stat_active_api_label),
                         modifier = Modifier.weight(1f)
                     )
+                }
+            }
+
+            item(key = "cloud_sync_bar") {
+                EduPanel(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.CloudDone,
+                                contentDescription = null,
+                                tint = EduGreenDark,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Column {
+                                Text(
+                                    text = stringResource(R.string.cloud_sync_heading),
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = EduInk
+                                )
+                                val statusText = when {
+                                    cloudDraftsState is SyncUiState.Error -> cloudDraftsState.message
+                                    cloudDraftsState is SyncUiState.Success && cloudProgressState is SyncUiState.Success ->
+                                        "${cloudDraftsState.data.size} مسودة • ${cloudProgressState.data.size} تقدم محفوظ سحابياً"
+                                    else -> "جارٍ المزامنة مع Firestore..."
+                                }
+                                Text(
+                                    text = statusText,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (cloudDraftsState is SyncUiState.Error) EduRed else EduMuted
+                                )
+                            }
+                        }
+                        if (workspace != null) {
+                            TextButton(
+                                onClick = onSyncWorkspaceToCloud,
+                                modifier = Modifier
+                                    .minimumInteractiveComponentSize()
+                                    .testTag("library_sync_cloud_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.CloudSync,
+                                    contentDescription = null,
+                                    tint = EduGreenDark,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("مزامنة", color = EduGreenDark, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
                 }
             }
 

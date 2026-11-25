@@ -1,26 +1,20 @@
 package com.example.ui
 
-import android.app.Application
-import android.content.Context
 import android.net.Uri
-import androidx.lifecycle.AndroidViewModel
+import android.util.Log
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.data.ai.AiGenerationService
-import com.example.data.local.EduMiniDatabase
-import com.example.data.packageimport.InteractivePackageImporter
+import com.example.data.firebase.FirestoreSyncRepository
 import com.example.data.repository.ConceptMasteryEngine
 import com.example.data.repository.EduMiniRepository
 import com.example.data.repository.InteractiveActivityParser
 import com.example.data.repository.QuestionBankEngine
-import com.example.data.security.ProviderStorage
-import com.example.data.workspace.DirectWorkspaceBinder
-import com.example.data.workspace.PdfBookSplitter
-import com.example.data.workspace.WorkspaceImporter
 import com.example.model.AppPage
 import com.example.model.AssessmentAttemptRecord
 import com.example.model.AssessmentKind
 import com.example.model.AssessmentRecord
 import com.example.model.BookRef
+import com.example.model.CloudDraft
 import com.example.model.ConceptMasterySummary
 import com.example.model.DashboardLessonFilter
 import com.example.model.DashboardSummary
@@ -32,6 +26,7 @@ import com.example.model.ImportedWorkspace
 import com.example.model.InteractiveActivityModel
 import com.example.model.InteractivePackageRecord
 import com.example.model.LearnerProfile
+import com.example.model.LessonProgress
 import com.example.model.LessonQuizCompletionResult
 import com.example.model.LessonRef
 import com.example.model.LessonSplitDraft
@@ -47,11 +42,13 @@ import com.example.model.QuestionMasteryStats
 import com.example.model.QuestionType
 import com.example.model.StagedWorkspacePreview
 import com.example.model.StudentDashboardState
+import com.example.model.SyncUiState
 import com.example.model.TaskType
 import com.example.model.TeacherNoteRecord
 import com.example.model.UnitCompletionStatus
 import com.example.model.UserRole
 import com.example.model.WorkspaceSummary
+import com.google.firebase.firestore.FirebaseFirestoreException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -59,6 +56,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
@@ -147,18 +145,13 @@ data class MainUiState(
     val alert: AlertMessage? = null
 )
 
-class MainViewModel(application: Application) : AndroidViewModel(application) {
-
-    private val repository: EduMiniRepository = EduMiniRepository(
-        dao = EduMiniDatabase.getInstance(application).eduMiniDao(),
-        providerStorage = ProviderStorage(application),
-        workspaceImporter = WorkspaceImporter(application),
-        aiGenerationService = AiGenerationService(application),
-        pdfBookSplitter = PdfBookSplitter(application),
-        interactivePackageImporter = InteractivePackageImporter(application),
-        directWorkspaceBinder = DirectWorkspaceBinder(application),
-        appContext = application
-    )
+class MainViewModel(
+    private val repository: EduMiniRepository,
+    private val firestoreSync: FirestoreSyncRepository,
+    val currentUserId: String,
+    val currentUserEmail: String? = null,
+    val currentUserDisplayName: String? = null
+) : ViewModel() {
 
     private var generationJob: Job? = null
 
@@ -167,6 +160,42 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _studentDashboardState = MutableStateFlow(StudentDashboardState())
     val studentDashboardState: StateFlow<StudentDashboardState> = _studentDashboardState.asStateFlow()
+
+    val cloudDraftsState: StateFlow<SyncUiState<List<CloudDraft>>> = firestoreSync
+        .observeDrafts(currentUserId)
+        .map<List<CloudDraft>, SyncUiState<List<CloudDraft>>> { SyncUiState.Success(it) }
+        .catch { error ->
+            val firestoreError = generateSequence(error) { it.cause }
+                .filterIsInstance<FirebaseFirestoreException>()
+                .firstOrNull()
+            if (firestoreError == null && error is CancellationException) throw error
+            val rootError = firestoreError ?: error
+            Log.w(TAG, "Error observing cloud drafts", rootError)
+            emit(SyncUiState.Error(rootError.message ?: "تعذر مزامنة المسودات السحابية"))
+        }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+            initialValue = SyncUiState.Loading
+        )
+
+    val cloudProgressState: StateFlow<SyncUiState<List<LessonProgress>>> = firestoreSync
+        .observeProgress(currentUserId)
+        .map<List<LessonProgress>, SyncUiState<List<LessonProgress>>> { SyncUiState.Success(it) }
+        .catch { error ->
+            val firestoreError = generateSequence(error) { it.cause }
+                .filterIsInstance<FirebaseFirestoreException>()
+                .firstOrNull()
+            if (firestoreError == null && error is CancellationException) throw error
+            val rootError = firestoreError ?: error
+            Log.w(TAG, "Error observing cloud progress", rootError)
+            emit(SyncUiState.Error(rootError.message ?: "تعذر مزامنة تقدم الدروس السحابي"))
+        }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+            initialValue = SyncUiState.Loading
+        )
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val lessonDrafts: StateFlow<List<DraftRecord>> = _uiState
@@ -313,9 +342,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             initialValue = emptyList()
         )
 
-    private val profilePrefs by lazy {
-        application.getSharedPreferences(LEARNER_PREFS_NAME, Context.MODE_PRIVATE)
-    }
     private val profileJson = Json { ignoreUnknownKeys = true }
 
     init {
@@ -404,7 +430,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun selectLearnerProfile(userId: String) {
         val current = _uiState.value.availableLearners
         val match = current.firstOrNull { it.userId == userId } ?: return
-        profilePrefs.edit().putString(KEY_ACTIVE_LEARNER_ID, match.userId).apply()
+        repository.writeLearnerPrefs(LEARNER_PREFS_NAME, mapOf(KEY_ACTIVE_LEARNER_ID to match.userId))
         _uiState.update {
             it.copy(
                 activeLearner = match,
@@ -438,7 +464,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun loadLearnerProfiles() {
-        val raw = profilePrefs.getString(KEY_LEARNER_PROFILES_JSON, null)
+        val raw = repository.readLearnerPref(LEARNER_PREFS_NAME, KEY_LEARNER_PROFILES_JSON)
         val parsed = if (!raw.isNullOrBlank()) {
             runCatching { profileJson.decodeFromString<List<LearnerProfile>>(raw) }
                 .getOrDefault(emptyList())
@@ -450,7 +476,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (items.any { it.userId == LearnerProfile.DEFAULT_USER_ID }) items
                 else listOf(LearnerProfile.DEFAULT) + items
             }
-        val savedActiveId = profilePrefs.getString(KEY_ACTIVE_LEARNER_ID, LearnerProfile.DEFAULT_USER_ID)
+        val savedActiveId = repository.readLearnerPref(LEARNER_PREFS_NAME, KEY_ACTIVE_LEARNER_ID)
+            ?: LearnerProfile.DEFAULT_USER_ID
         val active = list.firstOrNull { it.userId == savedActiveId } ?: list.first()
         _uiState.update {
             it.copy(availableLearners = list, activeLearner = active)
@@ -459,10 +486,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun saveLearnerProfiles(profiles: List<LearnerProfile>, activeId: String) {
         runCatching {
-            profilePrefs.edit()
-                .putString(KEY_LEARNER_PROFILES_JSON, profileJson.encodeToString(profiles))
-                .putString(KEY_ACTIVE_LEARNER_ID, activeId)
-                .apply()
+            repository.writeLearnerPrefs(
+                LEARNER_PREFS_NAME,
+                mapOf(
+                    KEY_LEARNER_PROFILES_JSON to profileJson.encodeToString(profiles),
+                    KEY_ACTIVE_LEARNER_ID to activeId
+                )
+            )
         }
     }
 
@@ -775,6 +805,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     it.copy(recentlyCompletedUnitTitle = unitBefore?.unitTitle)
                 }
             }
+
+            firestoreSync.upsertLessonProgress(
+                userId = currentUserId,
+                workspaceId = wsId,
+                lesson = lesson,
+                completed = result.lessonMarkedCompleted,
+                xpEarned = result.earnedXp,
+                scorePercent = result.scorePercent
+            )
 
             _uiState.update {
                 it.copy(
@@ -1111,7 +1150,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         viewModelScope.launch {
             val wsId = snapshot.workspace?.workspaceId.orEmpty()
-            repository.persistDraft(
+            val savedDraft = repository.persistDraft(
                 workspaceId = wsId,
                 lesson = lesson,
                 task = snapshot.task,
@@ -1122,6 +1161,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 sourceText = snapshot.sourceText,
                 status = DraftStatus.DRAFT
             )
+            val cloudSyncResult = firestoreSync.upsertDraft(currentUserId, savedDraft)
             val syncedCount = when (snapshot.task) {
                 TaskType.QUESTIONS -> repository.saveQuestionsFromDraftText(wsId, lesson, content).size
                 TaskType.INTERACTIVE -> {
@@ -1136,12 +1176,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 else -> 0
             }
+            val cloudNote = if (cloudSyncResult.isSuccess) " • مزامنة سحابية ✓" else ""
             _uiState.update {
                 it.copy(
                     toastMessage = if (syncedCount > 0) {
-                        "تم حفظ المسودة وإضافة $syncedCount أسئلة/نقاط تحقق لبنك الأسئلة ✓"
+                        "تم حفظ المسودة وإضافة $syncedCount أسئلة/نقاط تحقق لبنك الأسئلة$cloudNote"
                     } else {
-                        "تم حفظ نسخة جديدة من المسودة"
+                        "تم حفظ نسخة جديدة من المسودة$cloudNote"
                     }
                 )
             }
@@ -1206,12 +1247,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun approveDraft(draftId: String) {
         viewModelScope.launch {
             val syncedQuestions = repository.approveDraft(draftId)
+            firestoreSync.updateDraftStatus(currentUserId, draftId, DraftStatus.APPROVED)
             _uiState.update {
                 it.copy(
                     toastMessage = if (syncedQuestions > 0) {
                         "تم اعتماد النسخة ومزامنة $syncedQuestions أسئلة مع اختبار الدرس ✓"
                     } else {
-                        "تم اعتماد النسخة للدرس ✓"
+                        "تم اعتماد النسخة للدرس ومزامنتها ✓"
                     }
                 )
             }
@@ -1221,6 +1263,115 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun deleteDraft(draftId: String) {
         viewModelScope.launch {
             repository.deleteDraft(draftId)
+            firestoreSync.deleteDraft(currentUserId, draftId)
+        }
+    }
+
+    fun syncWorkspaceToCloud() {
+        val ws = _uiState.value.workspace
+        if (ws == null) {
+            _uiState.update {
+                it.copy(alert = AlertMessage("لا توجد مساحة عمل", "اربط أو استورد مساحة عمل أولاً لمزامنتها مع السحابة."))
+            }
+            return
+        }
+        viewModelScope.launch {
+            _uiState.update { it.copy(isBusy = true) }
+            try {
+                val localDrafts = repository.getWorkspaceDraftsSnapshot(ws.workspaceId, ws.rootPath)
+                var draftsSynced = 0
+                for (draft in localDrafts) {
+                    if (firestoreSync.upsertDraft(currentUserId, draft).isSuccess) {
+                        draftsSynced++
+                    }
+                }
+                val localProgress = repository.getWorkspaceProgressSnapshot(ws.workspaceId)
+                var progressSynced = 0
+                val lessonsByKey = ws.lessons.associateBy { "${it.bookKey}|${it.unitKey}|${it.lessonKey}" }
+                for (prog in localProgress) {
+                    val matchedLesson = lessonsByKey["${prog.bookKey}|${prog.unitKey}|${prog.lessonKey}"]
+                        ?: LessonRef(
+                            grade = ws.gradeKey,
+                            rootPath = ws.rootPath,
+                            bookKey = prog.bookKey,
+                            bookTitle = prog.bookKey,
+                            subjectKey = prog.bookKey,
+                            unitKey = prog.unitKey,
+                            unitTitle = prog.unitKey,
+                            lessonKey = prog.lessonKey,
+                            title = prog.lessonKey,
+                            workspaceId = ws.workspaceId
+                        )
+                    val res = firestoreSync.upsertLessonProgress(
+                        userId = currentUserId,
+                        workspaceId = ws.workspaceId,
+                        lesson = matchedLesson,
+                        completed = prog.completed,
+                        xpEarned = if (prog.completed) EduMiniRepository.POINTS_LESSON_COMPLETED else 0,
+                        scorePercent = if (prog.completed) 100 else 0
+                    )
+                    if (res.isSuccess) progressSynced++
+                }
+                _uiState.update {
+                    it.copy(
+                        alert = AlertMessage(
+                            "تمت المزامنة السحابية",
+                            "تمت مزامنة $draftsSynced مسودة و $progressSynced سجل تقدم إلى Firebase Firestore."
+                        )
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(alert = AlertMessage("تعذرت المزامنة", e.message ?: "حدث خطأ أثناء الاتصال بالسحابة"))
+                }
+            } finally {
+                _uiState.update { it.copy(isBusy = false) }
+            }
+        }
+    }
+
+    fun loadCloudDraftIntoEditor(cloudDraft: CloudDraft) {
+        _uiState.update {
+            it.copy(
+                task = cloudDraft.taskTypeOrDefault(),
+                generatedResult = cloudDraft.content,
+                activeDraftProvider = cloudDraft.provider,
+                activeDraftModel = cloudDraft.model,
+                page = AppPage.STUDIO,
+                toastMessage = "تم تحميل المسودة السحابية «${cloudDraft.title}»"
+            )
+        }
+    }
+
+    fun approveCloudDraft(cloudDraft: CloudDraft) {
+        viewModelScope.launch {
+            val res = firestoreSync.updateDraftStatus(currentUserId, cloudDraft.id, DraftStatus.APPROVED)
+            _uiState.update {
+                it.copy(
+                    toastMessage = if (res.isSuccess) {
+                        "تم اعتماد المسودة السحابية ✓"
+                    } else {
+                        "تعذر تحديث حالة المسودة السحابية"
+                    }
+                )
+            }
+        }
+    }
+
+    fun deleteCloudDraft(cloudDraft: CloudDraft) {
+        viewModelScope.launch {
+            val res = firestoreSync.deleteDraft(currentUserId, cloudDraft.id)
+            _uiState.update {
+                it.copy(
+                    toastMessage = if (res.isSuccess) {
+                        "تم حذف المسودة من السحابة"
+                    } else {
+                        "تعذر حذف المسودة السحابية"
+                    }
+                )
+            }
         }
     }
 
@@ -1560,7 +1711,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val markdown = QuestionBankEngine.exportAssessmentMarkdown(assessment, assessmentQuestions)
         viewModelScope.launch {
             try {
-                val out = getApplication<Application>().contentResolver.openOutputStream(uri)
+                val out = repository.openOutputStreamForUri(uri)
                     ?: throw IllegalStateException("تعذر فتح ملف التصدير")
                 out.writer(Charsets.UTF_8).use { it.write(markdown) }
                 _uiState.update {
@@ -1585,7 +1736,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _uiState.update { it.copy(isBusy = true) }
             try {
-                val out = getApplication<Application>().contentResolver.openOutputStream(uri)
+                val out = repository.openOutputStreamForUri(uri)
                     ?: throw IllegalStateException("تعذر فتح ملف الحفظ المختار")
                 val receipt = out.use { stream ->
                     repository.exportIndexer2Zip(stream, workspace)
@@ -1613,7 +1764,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _uiState.update { it.copy(isBusy = true) }
             try {
-                val out = getApplication<Application>().contentResolver.openOutputStream(uri)
+                val out = repository.openOutputStreamForUri(uri)
                     ?: throw IllegalStateException("تعذر فتح ملف النسخة الاحتياطية")
                 val itemsCount = out.use { stream ->
                     repository.exportFullBackupJson(stream, workspace)
@@ -1640,9 +1791,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _uiState.update { it.copy(isBusy = true) }
             try {
-                val input = getApplication<Application>().contentResolver.openInputStream(uri)
+                val raw = repository.readUtf8FromUri(uri)
                     ?: throw IllegalStateException("تعذر قراءة ملف النسخة الاحتياطية")
-                val raw = input.bufferedReader(Charsets.UTF_8).use { it.readText() }
                 val summaryMsg = repository.importFullBackupJson(
                     rawJson = raw,
                     targetWorkspaceId = _uiState.value.workspace?.workspaceId.orEmpty()
@@ -1990,7 +2140,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     difficultyHint = if (snapshot.task == TaskType.QUESTIONS) snapshot.questionDifficulty.labelAr else ""
                 )
                 val wsId = snapshot.workspace?.workspaceId.orEmpty()
-                repository.persistDraft(
+                val persistedDraft = repository.persistDraft(
                     workspaceId = wsId,
                     lesson = lesson,
                     task = snapshot.task,
@@ -2001,6 +2151,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     sourceText = snapshot.sourceText,
                     status = DraftStatus.DRAFT
                 )
+                firestoreSync.upsertDraft(currentUserId, persistedDraft)
                 val syncedQuestionsCount = if (snapshot.task == TaskType.QUESTIONS) {
                     repository.saveQuestionsFromDraftText(
                         workspaceId = wsId,
@@ -2273,6 +2424,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     companion object {
+        private const val TAG = "MainViewModel"
+        private const val STOP_TIMEOUT_MILLIS = 5000L
         private const val LEARNER_PREFS_NAME = "edumini_learner_profiles"
         private const val KEY_LEARNER_PROFILES_JSON = "profiles_json"
         private const val KEY_ACTIVE_LEARNER_ID = "active_learner_id"

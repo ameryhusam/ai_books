@@ -1,0 +1,10 @@
+.gradle/
+build/
+**/build/
+local.properties
+.idea/
+*.iml
+*-debug.log
+firestore-debug.log
+firebase-debug.log
+debug.keystore

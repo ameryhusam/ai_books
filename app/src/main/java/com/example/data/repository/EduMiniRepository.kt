@@ -1876,6 +1876,36 @@ class EduMiniRepository(
         interactivePath = interactivePath
     )
 
+    fun openOutputStreamForUri(uri: Uri): OutputStream? {
+        return appContext?.contentResolver?.openOutputStream(uri)
+    }
+
+    fun readUtf8FromUri(uri: Uri): String? {
+        return appContext?.contentResolver?.openInputStream(uri)
+            ?.bufferedReader(Charsets.UTF_8)
+            ?.use { it.readText() }
+    }
+
+    fun readLearnerPref(prefsName: String, key: String): String? {
+        return appContext?.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
+            ?.getString(key, null)
+    }
+
+    fun writeLearnerPrefs(prefsName: String, pairs: Map<String, String>) {
+        val prefs = appContext?.getSharedPreferences(prefsName, Context.MODE_PRIVATE) ?: return
+        prefs.edit().apply {
+            pairs.forEach { (k, v) -> putString(k, v) }
+        }.apply()
+    }
+
+    suspend fun getWorkspaceDraftsSnapshot(workspaceId: String, rootPath: String): List<DraftRecord> {
+        return dao.observeDraftsForWorkspace(workspaceId, rootPath).first().map { it.toDraftRecord() }
+    }
+
+    suspend fun getWorkspaceProgressSnapshot(workspaceId: String): List<LessonProgressEntity> {
+        return dao.observeProgressForWorkspace(workspaceId).first()
+    }
+
     companion object {
         const val LESSON_QUIZ_PASS_PERCENT = 60
         const val POINTS_LESSON_COMPLETED = 50

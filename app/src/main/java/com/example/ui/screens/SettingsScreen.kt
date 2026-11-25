@@ -19,11 +19,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.CloudDone
+import androidx.compose.material.icons.rounded.CloudSync
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.NetworkCheck
@@ -54,10 +57,13 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.example.R
+import com.example.model.CloudDraft
 import com.example.model.GenerationRunRecord
+import com.example.model.LessonProgress
 import com.example.model.PromptTemplateRecord
 import com.example.model.ProviderConfig
 import com.example.model.ProviderType
+import com.example.model.SyncUiState
 import com.example.model.TaskType
 import com.example.ui.ProviderFormState
 import com.example.ui.components.EduPanel
@@ -86,6 +92,12 @@ fun SettingsScreen(
     providers: List<ProviderConfig>,
     recentRuns: List<GenerationRunRecord>,
     promptTemplates: List<PromptTemplateRecord> = emptyList(),
+    userEmail: String? = null,
+    userDisplayName: String? = null,
+    cloudDraftsState: SyncUiState<List<CloudDraft>> = SyncUiState.Loading,
+    cloudProgressState: SyncUiState<List<LessonProgress>> = SyncUiState.Loading,
+    onSyncWorkspaceToCloud: () -> Unit = {},
+    onSignOut: () -> Unit = {},
     onBackToLibrary: () -> Unit,
     onSelectProviderType: (ProviderType) -> Unit,
     onLabelChange: (String) -> Unit,
@@ -172,6 +184,98 @@ fun SettingsScreen(
                             text = stringResource(R.string.settings_sub),
                             style = MaterialTheme.typography.bodyMedium,
                             color = EduHeroSub
+                        )
+                    }
+                }
+            }
+
+            item(key = "cloud_sync_account") {
+                EduPanel(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.CloudDone,
+                                contentDescription = null,
+                                tint = EduGreenDark,
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Column {
+                                Text(
+                                    text = stringResource(R.string.cloud_sync_heading),
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = EduInk
+                                )
+                                Text(
+                                    text = listOfNotNull(userDisplayName?.takeIf { it.isNotBlank() }, userEmail?.takeIf { it.isNotBlank() })
+                                        .joinToString(" • ")
+                                        .ifBlank { "حساب Google موثّق" },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = EduMuted
+                                )
+                            }
+                        }
+                        TextButton(
+                            onClick = onSignOut,
+                            modifier = Modifier
+                                .minimumInteractiveComponentSize()
+                                .testTag("settings_sign_out_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Rounded.Logout,
+                                contentDescription = null,
+                                tint = EduRed,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = stringResource(R.string.auth_sign_out_cta),
+                                color = EduRed,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    val syncSummaryText = when {
+                        cloudDraftsState is SyncUiState.Error -> "تعذر الاتصال بالسحابة: ${cloudDraftsState.message}"
+                        cloudProgressState is SyncUiState.Error -> "تعذر مزامنة التقدم: ${cloudProgressState.message}"
+                        cloudDraftsState is SyncUiState.Success && cloudProgressState is SyncUiState.Success ->
+                            "متصل • ${cloudDraftsState.data.size} مسودة متزامنة • ${cloudProgressState.data.size} سجل تقدم"
+                        else -> "جارٍ الاتصال بقاعدة بيانات Firestore..."
+                    }
+                    Text(
+                        text = syncSummaryText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (cloudDraftsState is SyncUiState.Error || cloudProgressState is SyncUiState.Error) EduRed else EduGreenDark
+                    )
+
+                    OutlinedButton(
+                        onClick = onSyncWorkspaceToCloud,
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, EduGreen),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .minimumInteractiveComponentSize()
+                            .testTag("settings_sync_cloud_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.CloudSync,
+                            contentDescription = null,
+                            tint = EduGreenDark,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = stringResource(R.string.cloud_sync_now_cta),
+                            color = EduGreenDark,
+                            fontWeight = FontWeight.Bold
                         )
                     }
                 }
