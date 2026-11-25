@@ -1483,7 +1483,8 @@ class MainViewModel(
                         draftsSynced++
                     }
                 }
-                val activeLearnerId = _uiState.value.activeLearner.userId
+                val activeLearner = _uiState.value.activeLearner
+                val activeLearnerId = activeLearner.userId
                 // Firestore progress remains account-scoped. Until its contract carries a local
                 // learner ID, only the legacy default learner can safely use this sync path.
                 val localProgress = if (activeLearnerId == LearnerProfile.DEFAULT_USER_ID) {
@@ -1524,7 +1525,7 @@ class MainViewModel(
                             if (activeLearnerId == LearnerProfile.DEFAULT_USER_ID) {
                                 "تمت مزامنة $draftsSynced مسودة و $progressSynced سجل تقدم للملف الافتراضي إلى Firebase Firestore."
                             } else {
-                                "تمت مزامنة $draftsSynced مسودة. لم تتم مزامنة تقدم «${_uiState.value.activeLearner.displayName}» لأن Firestore الحالي لا يفصل ملفات المتعلمين المحلية؛ بقي التقدم محفوظاً محلياً."
+                                "تمت مزامنة $draftsSynced مسودة. لم تتم مزامنة تقدم «${activeLearner.displayName}» لأن Firestore الحالي لا يفصل ملفات المتعلمين المحلية؛ بقي التقدم محفوظاً محلياً."
                             }
                         )
                     )
