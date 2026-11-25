@@ -1946,6 +1946,7 @@ class EduMiniRepository(
             dao.updatePromptTemplate(
                 templateId = templateId,
                 title = title.trim(),
+                task = task.id,
                 instructions = instructions.trim(),
                 responseSchemaJson = responseSchemaJson.trim(),
                 responseMappingJson = responseMappingJson.trim(),
