@@ -115,7 +115,7 @@ fun SettingsScreen(
     onMoveProvider: (String, Int) -> Unit,
     onDeleteProvider: (String) -> Unit,
     onClearRecentRuns: () -> Unit = {},
-    onSavePromptTemplate: (String, TaskType, String) -> Unit = { _, _, _ -> },
+    onSavePromptTemplate: (String, TaskType, String, String) -> Unit = { _, _, _, _ -> },
     onDeletePromptTemplate: (String) -> Unit = {},
     onUseTemplateInStudio: (PromptTemplateRecord) -> Unit = {},
     modifier: Modifier = Modifier
@@ -126,6 +126,7 @@ fun SettingsScreen(
     var newTplTitle by remember { mutableStateOf("") }
     var newTplTask by remember { mutableStateOf(TaskType.EXPLANATION) }
     var newTplInstructions by remember { mutableStateOf("") }
+    var newTplSchema by remember { mutableStateOf("") }
 
     Box(
         modifier = modifier.fillMaxSize(),
@@ -621,12 +622,38 @@ fun SettingsScreen(
                             .fillMaxWidth()
                             .testTag("new_template_instructions_input")
                     )
+                    Text(
+                        text = "مخطط الاستجابة (JSON Schema أو مثال JSON تعاقدي)",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = EduInk,
+                        modifier = Modifier.padding(top = 6.dp)
+                    )
+                    OutlinedTextField(
+                        value = newTplSchema,
+                        onValueChange = { newTplSchema = it },
+                        placeholder = { Text("ضع هنا مخطط الاستجابة الذي يجب أن يلتزم به النموذج...") },
+                        minLines = 4,
+                        shape = RoundedCornerShape(12.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = EduFieldBg,
+                            unfocusedContainerColor = EduFieldBg,
+                            focusedBorderColor = EduGreen,
+                            unfocusedBorderColor = EduLine
+                        ),
+                        modifier = Modifier.fillMaxWidth().testTag("new_template_response_schema_input")
+                    )
+                    Text(
+                        text = "يُحفظ المخطط مع القالب ويُرسل ضمن البرومبت. اتركه فارغاً للمخرجات النصية.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = EduMuted
+                    )
                     OutlinedButton(
                         onClick = {
                             if (newTplTitle.isNotBlank() && newTplInstructions.isNotBlank()) {
-                                onSavePromptTemplate(newTplTitle, newTplTask, newTplInstructions)
+                                onSavePromptTemplate(newTplTitle, newTplTask, newTplInstructions, newTplSchema)
                                 newTplTitle = ""
                                 newTplInstructions = ""
+                                newTplSchema = ""
                             }
                         },
                         enabled = newTplTitle.isNotBlank() && newTplInstructions.isNotBlank(),
@@ -649,6 +676,7 @@ fun SettingsScreen(
                             Column(modifier = Modifier.weight(1f)) {
                                 Text("${tpl.title} • ${tpl.task.labelAr}", style = MaterialTheme.typography.titleSmall, color = EduInk)
                                 Text(tpl.instructions, style = MaterialTheme.typography.bodySmall, color = EduMuted, maxLines = 2)
+                                if (tpl.responseSchemaJson.isNotBlank()) Text("مخطط استجابة محفوظ • ${tpl.responseFormat}", style = MaterialTheme.typography.labelSmall, color = EduGreenDark)
                             }
                             TextButton(onClick = { onUseTemplateInStudio(tpl) }) {
                                 Text("تطبيق", color = EduGreenDark)
