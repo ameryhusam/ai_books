@@ -1232,6 +1232,9 @@ class EduMiniCoreTest {
             assertEquals(1, bound.preloadedQuestions.size)
             assertEquals("مقارنة الكسور المتكافئة", bound.preloadedQuestions.first().conceptTag)
 
+            val boundScience = binder.bindSingleGrade(rootDir.absolutePath, "G07")
+            assertEquals("العلوم والحياة", boundScience.workspace.books.first().subjectName)
+
             // Verify zero-copy: PDF file was NOT duplicated inside filesDir/edumini/workspaces
             val privateWorkspacesDir = File(context.filesDir, "edumini/workspaces/${bound.workspace.workspaceId}")
             assertFalse(privateWorkspacesDir.exists())
