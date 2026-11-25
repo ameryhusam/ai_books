@@ -133,7 +133,14 @@ class DirectWorkspaceBinder(private val context: Context) {
                 joinRel(bookRel, "book_manifest.json"),
                 joinRel(bookRel, "manifest.json")
             )
-            val manifestRaw = manifestEntry?.let { UriIO.readText(context, it.uriOrPath).orEmpty() }
+            val manifestRaw = manifestEntry?.let { entry ->
+                val raw = UriIO.readText(context, entry.uriOrPath)
+                if (raw.isNullOrBlank()) {
+                    warnings.add("تعذر قراءة book_manifest.json: $bookRel")
+                    continue
+                }
+                raw
+            }
             val manifestObj: JsonObject? = manifestRaw?.takeIf { it.isNotBlank() }?.let { raw ->
                 runCatching {
                     json.parseToJsonElement(raw).jsonObject
