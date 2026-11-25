@@ -25,6 +25,7 @@ Branch: `main`
 
 - Lesson completion and earned points are stored and queried by workspace, lesson identity, and local learner ID.
 - Study-day activity and streak queries are scoped to the active local learner.
+- Composite indexes support workspace/learner progress lookups, learner/date study-day lookups, and learner-scoped assessment history.
 - Assessment attempt history and dashboard assessment metrics are scoped to the active local learner.
 - Question attempts were already learner-scoped; the active learner continues to drive mastery and concept summaries.
 - The ViewModel switches assessment history when the active learner changes and passes the active local learner ID when recording assessments.
