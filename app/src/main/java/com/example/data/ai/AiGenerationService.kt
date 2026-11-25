@@ -57,7 +57,9 @@ class AiGenerationService(
 
     open class ProviderCallException(
         message: String,
-        val isTransient: Boolean
+        val isTransient: Boolean,
+        val httpCode: Int? = null,
+        val retryAfterEpochMs: Long = 0L
     ) : IllegalStateException(message)
 
     fun buildPrompt(
@@ -196,6 +198,8 @@ class AiGenerationService(
         responseSchemaHash: String = "",
         requestFingerprint: String = "",
         sourcePdfHash: String = "",
+        onReserveProvider: (suspend (ProviderConfig) -> Boolean)? = null,
+        onProviderStateChanged: (suspend (providerId: String, status: String, retryAfterEpochMs: Long) -> Unit)? = null,
         onAttemptFinished: (suspend (providerLabel: String, model: String, success: Boolean, error: String?) -> Unit)? = null
     ): GeneratedResult = withContext(Dispatchers.IO) {
         val active = providers
@@ -235,6 +239,11 @@ class AiGenerationService(
                 while (retry < 2) {
                     val callStart = System.currentTimeMillis()
                     try {
+                        val reserved = onReserveProvider?.invoke(candidateProfile) ?: true
+                        if (!reserved) {
+                            errors.add("${profile.label}/$modelName: المفتاح معطّل أو مقيّد أو استنفد حصته اليومية")
+                            break
+                        }
                         val (outputText, tokens) = callProvider(
                             profile = candidateProfile,
                             prompt = prompt,
@@ -264,6 +273,13 @@ class AiGenerationService(
                         val reason = e.message?.takeIf { it.isNotBlank() } ?: "فشل"
                         errors.add("${profile.label}/$modelName: $reason")
                         onAttemptFinished?.invoke(profile.label, modelName, false, reason)
+                        val failureStatus = when {
+                            e.httpCode == 401 || e.httpCode == 403 -> "INVALID_KEY"
+                            e.httpCode == 429 && Regex("quota|daily|resource.?exhausted|limit exceeded", RegexOption.IGNORE_CASE).containsMatchIn(reason) -> "QUOTA_EXHAUSTED"
+                            e.httpCode == 429 -> "RATE_LIMITED"
+                            else -> "ERROR"
+                        }
+                        onProviderStateChanged?.invoke(profile.id, failureStatus, e.retryAfterEpochMs)
                         if (!e.isTransient) {
                             break
                         }
@@ -274,6 +290,7 @@ class AiGenerationService(
                         val reason = e.message?.takeIf { it.isNotBlank() } ?: "خطأ شبكة"
                         errors.add("${profile.label}/$modelName: $reason")
                         onAttemptFinished?.invoke(profile.label, modelName, false, reason)
+                        onProviderStateChanged?.invoke(profile.id, "ERROR", 0L)
                         if (retry == 0) {
                             delay(650L)
                         }
@@ -281,6 +298,7 @@ class AiGenerationService(
                         val reason = e.message?.takeIf { it.isNotBlank() } ?: "فشل"
                         errors.add("${profile.label}/$modelName: $reason")
                         onAttemptFinished?.invoke(profile.label, modelName, false, reason)
+                        onProviderStateChanged?.invoke(profile.id, "ERROR", 0L)
                         break
                     }
                     retry++
@@ -382,7 +400,7 @@ class AiGenerationService(
                     ?.let { it as? JsonPrimitive }
                     ?.contentOrNull
                     ?: "Gemini HTTP ${response.code}"
-                throw ProviderCallException(errMsg, isTransientHttp(response.code))
+                throw ProviderCallException(errMsg, isTransientHttp(response.code), response.code, retryAfterEpochMs(response))
             }
 
             val candidates = jsonObj?.get("candidates") as? JsonArray
@@ -513,6 +531,11 @@ class AiGenerationService(
                 }
             })
         }
+
+    private fun retryAfterEpochMs(response: Response): Long {
+        val seconds = response.header("Retry-After")?.toLongOrNull()
+        return if (seconds != null) System.currentTimeMillis() + seconds.coerceAtLeast(1L) * 1000L else 0L
+    }
 
     private fun sha256(value: String): String = MessageDigest.getInstance("SHA-256")
         .digest(value.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
