@@ -105,6 +105,8 @@ fun SettingsScreen(
     onFallbackModelsChange: (String) -> Unit,
     onBaseUrlChange: (String) -> Unit,
     onApiKeyChange: (String) -> Unit,
+    onDailyRequestLimitChange: (String) -> Unit = {},
+    onQuotaTimeZoneChange: (String) -> Unit = {},
     onToggleStrictModel: () -> Unit = {},
     onAddOrUpdateProvider: () -> Unit,
     onCancelEditProvider: () -> Unit = {},
@@ -112,6 +114,7 @@ fun SettingsScreen(
     onTestFormProvider: () -> Unit = {},
     onTestSavedProvider: (ProviderConfig) -> Unit = {},
     onToggleProvider: (String) -> Unit,
+    onReactivateProvider: (String) -> Unit = {},
     onMoveProvider: (String, Int) -> Unit,
     onDeleteProvider: (String) -> Unit,
     onClearRecentRuns: () -> Unit = {},
@@ -372,6 +375,28 @@ fun SettingsScreen(
                     }
 
                     Text(
+                        text = "الحد اليومي لهذا المفتاح (0 = غير محدود)",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = EduInk,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                    SettingsField(
+                        value = form.dailyRequestLimit,
+                        onValueChange = onDailyRequestLimitChange,
+                        testTag = "provider_daily_limit_input"
+                    )
+                    Text(
+                        text = "المنطقة الزمنية لإعادة ضبط الحصة",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = EduInk,
+                        modifier = Modifier.padding(top = 6.dp)
+                    )
+                    SettingsField(
+                        value = form.quotaTimeZone,
+                        onValueChange = onQuotaTimeZoneChange,
+                        testTag = "provider_quota_timezone_input"
+                    )
+                    Text(
                         text = stringResource(R.string.settings_api_key_label),
                         style = MaterialTheme.typography.labelMedium,
                         color = EduInk,
@@ -509,8 +534,17 @@ fun SettingsScreen(
                             } else if (profile.strictModel) {
                                 " • وضع صارم"
                             } else ""
+                            val statusLabel = when (profile.runtimeStatus.uppercase()) {
+                                "ACTIVE" -> "نشط"
+                                "DISABLED" -> "معطّل"
+                                "QUOTA_EXHAUSTED" -> "الحصة اليومية مستنفدة"
+                                "RATE_LIMITED" -> "انتظار من المزود"
+                                "INVALID_KEY" -> "مفتاح غير صالح"
+                                else -> "خطأ مؤقت"
+                            }
                             Text(
                                 text = "${profile.provider.id} • ${profile.model}$fallbackSuffix • ${stringResource(R.string.settings_key_hidden)}",
+
                                 style = MaterialTheme.typography.bodySmall,
                                 color = EduMuted
                             )
@@ -556,6 +590,9 @@ fun SettingsScreen(
                                 contentDescription = "خفض الأولوية",
                                 tint = if (idx in 0 until providers.lastIndex) EduGreenDark else EduLine
                             )
+                        }
+                        if (profile.runtimeStatus != "ACTIVE" && profile.enabled) {
+                            TextButton(onClick = { onReactivateProvider(profile.id) }) { Text("إعادة تنشيط", color = EduGreenDark) }
                         }
                         EduPill(
                             text = if (profile.enabled) {
