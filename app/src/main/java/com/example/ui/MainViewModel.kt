@@ -1777,9 +1777,27 @@ class MainViewModel(
     fun savePromptTemplate(title: String, task: TaskType, instructions: String, responseSchemaJson: String, responseMappingJson: String, templateId: String?) {
         if (title.isBlank() || instructions.isBlank()) return
         viewModelScope.launch {
-            repository.savePromptTemplate(title, task, instructions, responseSchemaJson = responseSchemaJson, responseMappingJson = responseMappingJson, responseFormat = if (responseSchemaJson.isBlank()) "text" else "json", templateId = templateId)
-            _uiState.update {
-                it.copy(alert = AlertMessage("تم الحفظ", "تمت إضافة قالب التوجيه «${title.trim()}»."))
+            try {
+                repository.savePromptTemplate(
+                    title = title,
+                    task = task,
+                    instructions = instructions,
+                    responseSchemaJson = responseSchemaJson,
+                    responseMappingJson = responseMappingJson,
+                    responseFormat = if (responseSchemaJson.isBlank()) "text" else "json",
+                    templateId = templateId
+                )
+                _uiState.update {
+                    it.copy(alert = AlertMessage("تم الحفظ", if (templateId == null) {
+                        "تمت إضافة قالب التوجيه «${title.trim()}»."
+                    } else {
+                        "تم تحديث القالب «${title.trim()}» وزيادة إصداره."
+                    }))
+                }
+            } catch (error: Exception) {
+                _uiState.update {
+                    it.copy(alert = AlertMessage("تعذر حفظ القالب", error.message ?: "تحقق من JSON الخاص بمخطط الاستجابة وخريطة الحقول."))
+                }
             }
         }
     }
