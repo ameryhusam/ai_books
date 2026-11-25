@@ -84,6 +84,7 @@ data class WorkspaceIndexEntity(
     @ColumnInfo(name = "manifest_relative_path") val manifestRelativePath: String?,
     @ColumnInfo(name = "index_sha256") val indexSha256: String,
     @ColumnInfo(name = "manifest_sha256") val manifestSha256: String?,
+    @ColumnInfo(name = "source_sha256") val sourceSha256: String? = null,
     @ColumnInfo(name = "index_schema_version") val indexSchemaVersion: String?,
     @ColumnInfo(name = "manifest_version") val manifestVersion: String?,
     @ColumnInfo(name = "last_synced_at") val lastSyncedAt: Long
@@ -734,7 +735,7 @@ interface EduMiniDao {
         TeacherNoteEntity::class,
         PromptTemplateEntity::class
     ],
-    version = 12,
+    version = 13,
     exportSchema = false
 )
 abstract class EduMiniDatabase : RoomDatabase() {
@@ -1044,6 +1045,12 @@ abstract class EduMiniDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE workspace_indexes ADD COLUMN source_sha256 TEXT")
+            }
+        }
+
         fun getInstance(context: Context): EduMiniDatabase {
             return instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -1062,7 +1069,8 @@ abstract class EduMiniDatabase : RoomDatabase() {
                         MIGRATION_8_9,
                         MIGRATION_9_10,
                         MIGRATION_10_11,
-                        MIGRATION_11_12
+                        MIGRATION_11_12,
+                        MIGRATION_12_13
                     )
                     .build()
                     .also { instance = it }
