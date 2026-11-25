@@ -457,7 +457,9 @@ class EduMiniRepository(
         }
         val schemaHash = sha256Full(responseSchema)
         val mappingHash = sha256Full(activeTemplate?.responseMappingJson.orEmpty())
-        val pdfHash = pdfPayload?.sha256.orEmpty()
+        val pdfHash = pdfPayload?.sha256 ?: if (shouldAttachSource && !lesson.pdfPath.isNullOrBlank()) {
+            aiGenerationService.sha256LessonPdf(lesson.pdfPath)
+        } else ""
         val requestSeed = listOf(
             activeTemplate?.id.orEmpty(),
             activeTemplate?.version?.toString().orEmpty(),
