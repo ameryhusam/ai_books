@@ -289,7 +289,9 @@ object Indexer2PromptRegistry {
         attachedPdfPagesCount: Int = 0,
         questionStyleHint: String = "",
         difficultyHint: String = "",
-        promptTemplate: String = ""
+        promptTemplate: String = "",
+        responseSchemaJson: String = "",
+        responseFormat: String = "text"
     ): String {
         val safeCount = questionCount.coerceIn(1, 30)
         val blueprint = blueprintFor(task)
@@ -326,21 +328,13 @@ object Indexer2PromptRegistry {
                 append(promptTemplate.trim())
                 append("\n")
             }
-            if (task == TaskType.QUESTIONS) {
-                append("عدد الأسئلة المطلوب بدقة: $safeCount.\n")
-                if (questionStyleHint.isNotBlank()) {
-                    append("نمط الأسئلة المطلوب: $questionStyleHint.\n")
-                }
-                if (difficultyHint.isNotBlank()) {
-                    append("مستوى الصعوبة المستهدف: $difficultyHint.\n")
-                }
-                append("أخرج JSON صالحاً فقط دون Markdown أو نص خارج JSON. استخدم كائن الجذر {\"questions\":[...]}، ولا تنتج سؤالاً بلا إجابة صحيحة صريحة.\n")
-                append(blueprint.schemaSnippet)
-                append("\n")
-            } else if (task == TaskType.INTERACTIVE) {
-                append("أخرج JSON صالحاً فقط دون HTML أو JavaScript أو Markdown، والتزم بمخطط النشاط التفاعلي.\n")
-                append(blueprint.schemaSnippet)
-                append("\n")
+            if (responseFormat.equals("json", ignoreCase = true) || responseSchemaJson.isNotBlank()) {
+                append("أخرج استجابة منظمة وفق مخطط الاستجابة المرفق، دون Markdown أو نص خارج البنية المطلوبة.\n")
+            }
+            if (responseSchemaJson.isNotBlank()) {
+                append("\\nمخطط الاستجابة المعتمد من القالب (لا تغيّر أسماء الحقول أو أنواعها):\\n")
+                append(responseSchemaJson.trim())
+                append("\\n")
             }
             if (attachedPdfPagesCount > 0) {
                 append("ملاحظة: مرفق مع هذا الطلب $attachedPdfPagesCount صفحة مصورة من ملف PDF الخاص بالدرس لاستخراج المحتوى والاعتماد عليها.\n")
