@@ -109,7 +109,8 @@ data class BackupAttemptDto(
     val passed: Boolean,
     val durationSeconds: Int,
     val earnedXp: Int,
-    val completedAt: String
+    val completedAt: String,
+    val userId: String = "learner_default"
 )
 
 @Serializable
@@ -120,7 +121,16 @@ data class BackupProgressDto(
     val lessonKey: String,
     val completed: Boolean,
     val pointsEarned: Int,
-    val completedAt: String? = null
+    val completedAt: String? = null,
+    val userId: String = "learner_default"
+)
+
+@Serializable
+data class BackupStudyDayDto(
+    val activityDate: String,
+    val actionsCount: Int,
+    val lastUpdatedAt: String,
+    val userId: String = "learner_default"
 )
 
 @Serializable
@@ -156,7 +166,8 @@ data class EduMiniBackupBundle(
     val progress: List<BackupProgressDto> = emptyList(),
     val teacherNotes: List<BackupNoteDto> = emptyList(),
     val studyDays: List<String> = emptyList(),
-    val promptTemplates: List<BackupPromptTemplateDto> = emptyList()
+    val promptTemplates: List<BackupPromptTemplateDto> = emptyList(),
+    val studyDayRecords: List<BackupStudyDayDto> = emptyList()
 )
 
 object WorkspaceExporter {
@@ -522,7 +533,8 @@ object WorkspaceExporter {
                     passed = it.passed,
                     durationSeconds = it.durationSeconds,
                     earnedXp = it.earnedXp,
-                    completedAt = it.completedAt
+                    completedAt = it.completedAt,
+                    userId = it.userId
                 )
             },
             progress = progress.map {
@@ -533,7 +545,8 @@ object WorkspaceExporter {
                     lessonKey = it.lessonKey,
                     completed = it.completed,
                     pointsEarned = it.pointsEarned,
-                    completedAt = it.completedAt
+                    completedAt = it.completedAt,
+                    userId = it.userId
                 )
             },
             teacherNotes = notes.map {
@@ -547,7 +560,7 @@ object WorkspaceExporter {
                     updatedAt = it.updatedAt
                 )
             },
-            studyDays = studyDays.map { it.activityDate },
+            studyDays = studyDays.map { it.activityDate }.distinct(),
             promptTemplates = templates.map {
                 BackupPromptTemplateDto(
                     id = it.id,
@@ -555,6 +568,14 @@ object WorkspaceExporter {
                     task = it.task,
                     instructions = it.instructions,
                     createdAt = it.createdAt
+                )
+            },
+            studyDayRecords = studyDays.map {
+                BackupStudyDayDto(
+                    activityDate = it.activityDate,
+                    actionsCount = it.actionsCount,
+                    lastUpdatedAt = it.lastUpdatedAt,
+                    userId = it.userId
                 )
             }
         )
