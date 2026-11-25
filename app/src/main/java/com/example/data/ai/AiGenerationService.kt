@@ -544,7 +544,7 @@ class AiGenerationService(
 
     private fun retryAfterEpochMs(response: Response): Long {
         val seconds = response.header("Retry-After")?.toLongOrNull()
-        return if (seconds != null) System.currentTimeMillis() + seconds.coerceAtLeast(1L) * 1000L else 0L
+        return System.currentTimeMillis() + (seconds?.coerceAtLeast(1L)?.times(1000L) ?: 60_000L)
     }
 
     private fun sha256(value: String): String = MessageDigest.getInstance("SHA-256")
