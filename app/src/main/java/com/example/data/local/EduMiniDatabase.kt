@@ -288,7 +288,10 @@ data class AssessmentEntity(
 
 @Entity(
     tableName = "assessment_attempts",
-    indices = [Index(name = "idx_attempts_ws", value = ["workspace_id", "completed_at"])]
+    indices = [
+        Index(name = "idx_attempts_ws", value = ["workspace_id", "completed_at"]),
+        Index(name = "idx_attempts_ws_user", value = ["workspace_id", "user_id", "completed_at"])
+    ]
 )
 data class AssessmentAttemptEntity(
     @PrimaryKey val id: String,
