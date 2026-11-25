@@ -259,7 +259,7 @@ class AiGenerationService(
                 configuredModelCandidates
             }
             if (modelCandidates.isEmpty()) {
-                val message = "${profile.label}: جميع نماذج Gemini الاحتياطية في فترة انتظار مؤقتة"
+                val message = "${profile.label}: لا توجد نماذج متاحة لهذا المفتاح حالياً"
                 errors.add(message)
                 if (profile.provider == ProviderType.GEMINI) {
                     throw IllegalStateException("$message؛ لن ننتقل تلقائياً إلى مفتاح Google آخر لتجاوز حد المعدل.")
