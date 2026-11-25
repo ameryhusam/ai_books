@@ -40,6 +40,7 @@ import java.io.File
 import java.io.IOException
 import java.io.InputStream
 import java.net.URLEncoder
+import java.security.MessageDigest
 import java.nio.charset.StandardCharsets
 import java.time.Instant
 import java.util.concurrent.TimeUnit
@@ -56,6 +57,7 @@ class AiGenerationService(
 
     private val json = Json { ignoreUnknownKeys = true }
     private val mediaTypeJson = "application/json; charset=utf-8".toMediaType()
+    private val geminiModelRouter = GeminiModelRouter()
 
     open class ProviderCallException(
         message: String,
@@ -209,6 +211,7 @@ class AiGenerationService(
         source: String,
         extra: String,
         providers: List<ProviderConfig>,
+        selectedProvider: ProviderType,
         questionCount: Int = 5,
         pdfPageImagesBase64: List<String> = emptyList(),
         questionStyleHint: String = "",
@@ -225,12 +228,10 @@ class AiGenerationService(
         onProviderStateChanged: (suspend (providerId: String, status: String, retryAfterEpochMs: Long) -> Unit)? = null,
         onAttemptFinished: (suspend (providerLabel: String, model: String, success: Boolean, error: String?) -> Unit)? = null
     ): GeneratedResult = withContext(Dispatchers.IO) {
-        val active = providers
-            .filter { it.enabled && it.apiKey.isNotBlank() && it.model.isNotBlank() }
-            .sortedWith(compareBy<ProviderConfig> { it.lastUsedAtEpochMs }.thenBy { it.priority }.thenBy { it.createdAt })
+        val active = ProviderRoutingPolicy.activeProfiles(providers, selectedProvider)
 
         if (active.isEmpty()) {
-            throw IllegalStateException("أضف مفتاح API فعّال في الإعدادات")
+            throw IllegalStateException("لا يوجد ملف ${selectedProvider.displayName} فعّال بمفتاح ونموذج صالحين. لا يتم التحويل تلقائياً إلى مزود آخر.")
         }
 
         val prompt = buildPrompt(
@@ -248,19 +249,22 @@ class AiGenerationService(
         val errors = mutableListOf<String>()
 
         for (profile in active) {
-            val modelCandidates = if (profile.strictModel) {
-                listOf(profile.model.trim())
+            val configuredModelCandidates = ProviderRoutingPolicy.modelCandidates(profile)
+            val modelCandidates = if (profile.provider == ProviderType.GEMINI) {
+                configuredModelCandidates.filterNot { geminiModelRouter.isCoolingDown(profile.id, it) }
             } else {
-                (listOf(profile.model.trim()) + profile.fallbackModels.map { it.trim() })
-                    .filter { it.isNotBlank() }
-                    .distinct()
+                configuredModelCandidates
+            }
+            if (modelCandidates.isEmpty()) {
+                errors.add("${profile.label}: جميع نماذج Gemini الاحتياطية في فترة انتظار مؤقتة")
+                continue
             }
 
             modelLoop@ for (modelName in modelCandidates) {
                 val candidateProfile = profile.copy(model = modelName)
                 val expectJson = responseFormat.equals("json", ignoreCase = true) || responseSchemaJson.isNotBlank()
                 var retry = 0
-                while (retry < 2) {
+                while (retry < 3) {
                     val callStart = System.currentTimeMillis()
                     try {
                         val reserved = onReserveProvider?.invoke(candidateProfile) ?: true
@@ -305,12 +309,19 @@ class AiGenerationService(
                             e.httpCode == 429 -> "RATE_LIMITED"
                             else -> "ERROR"
                         }
-                        onProviderStateChanged?.invoke(profile.id, failureStatus, e.retryAfterEpochMs)
-                        if (!e.isTransient) {
+                        if (e.httpCode == 429 && profile.provider == ProviderType.GEMINI) {
+                            geminiModelRouter.markCoolingDown(profile.id, modelName, e.retryAfterEpochMs)
+                        } else if (failureStatus != "RATE_LIMITED" || profile.provider == ProviderType.OPENAI_COMPATIBLE) {
+                            onProviderStateChanged?.invoke(profile.id, failureStatus, e.retryAfterEpochMs)
+                        }
+                        // Gemini 429 responses cool down only the affected model, then
+                        // continue with the next configured Gemini model/key. OpenAI remains
+                        // on its own provider path and never invokes Gemini routing.
+                        if (e.httpCode == 429 || !e.isTransient) {
                             break
                         }
                         if (retry == 0) {
-                            delay(650L)
+                            delay((800L shl retry).coerceAtMost(4_000L) + kotlin.random.Random.nextLong(0L, 251L))
                         }
                     } catch (e: IOException) {
                         val reason = e.message?.takeIf { it.isNotBlank() } ?: "خطأ شبكة"
@@ -318,7 +329,7 @@ class AiGenerationService(
                         onAttemptFinished?.invoke(profile.label, modelName, false, reason)
                         onProviderStateChanged?.invoke(profile.id, "ERROR", 0L)
                         if (retry == 0) {
-                            delay(650L)
+                            delay((800L shl retry).coerceAtMost(4_000L) + kotlin.random.Random.nextLong(0L, 251L))
                         }
                     } catch (e: Exception) {
                         val reason = e.message?.takeIf { it.isNotBlank() } ?: "فشل"
@@ -332,7 +343,7 @@ class AiGenerationService(
             }
         }
 
-        throw IllegalStateException("تعذر التوليد من المزودات: ${errors.joinToString(" | ")}")
+        throw IllegalStateException("تعذر التوليد عبر ${selectedProvider.displayName}: ${errors.joinToString(" | ")}")
     }
 
     suspend fun testProviderConnection(profile: ProviderConfig): String = withContext(Dispatchers.IO) {

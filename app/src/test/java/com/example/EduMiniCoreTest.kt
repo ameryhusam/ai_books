@@ -2531,6 +2531,97 @@ class EduMiniCoreTest {
         }
     }
 
+    @Test
+    fun providerRoutingNeverMixesGeminiAndOpenAiProfiles() {
+        val profiles = listOf(
+            ProviderConfig(
+                id = "gemini-key",
+                provider = ProviderType.GEMINI,
+                label = "Gemini",
+                model = "gemini-primary",
+                baseUrl = "",
+                apiKey = "gemini-test",
+                enabled = true,
+                createdAt = 1L,
+                fallbackModels = listOf("gemini-fallback")
+            ),
+            ProviderConfig(
+                id = "openai-key",
+                provider = ProviderType.OPENAI_COMPATIBLE,
+                label = "OpenAI",
+                model = "gpt-test",
+                baseUrl = "https://api.openai.com/v1",
+                apiKey = "openai-test",
+                enabled = true,
+                createdAt = 2L,
+                fallbackModels = listOf("gpt-fallback")
+            )
+        )
+
+        val geminiProfiles = com.example.data.ai.ProviderRoutingPolicy.activeProfiles(
+            profiles,
+            ProviderType.GEMINI
+        )
+        val openAiProfiles = com.example.data.ai.ProviderRoutingPolicy.activeProfiles(
+            profiles,
+            ProviderType.OPENAI_COMPATIBLE
+        )
+
+        assertEquals(listOf("gemini-key"), geminiProfiles.map { it.id })
+        assertEquals(listOf("openai-key"), openAiProfiles.map { it.id })
+        assertEquals(
+            listOf("gemini-primary", "gemini-fallback"),
+            com.example.data.ai.ProviderRoutingPolicy.modelCandidates(geminiProfiles.single())
+        )
+        assertEquals(
+            listOf("gpt-test", "gpt-fallback"),
+            com.example.data.ai.ProviderRoutingPolicy.modelCandidates(openAiProfiles.single())
+        )
+    }
+
+    @Test
+    fun strictProviderProfileDoesNotUseFallbackModels() {
+        val profile = ProviderConfig(
+            id = "strict-gemini",
+            provider = ProviderType.GEMINI,
+            label = "Strict Gemini",
+            model = "gemini-primary",
+            baseUrl = "",
+            apiKey = "test",
+            enabled = true,
+            createdAt = 1L,
+            fallbackModels = listOf("gemini-fallback"),
+            strictModel = true
+        )
+
+        assertEquals(
+            listOf("gemini-primary"),
+            com.example.data.ai.ProviderRoutingPolicy.modelCandidates(profile)
+        )
+    }
+
+    @Test
+    fun geminiModelCooldownDoesNotBlockSiblingModelsOrOtherKeys() {
+        val router = com.example.data.ai.GeminiModelRouter(defaultCooldownMs = 60_000L)
+        val now = 1_000_000L
+        router.markCoolingDown("key-a", "gemini-3.8-flash", now + 30_000L, now)
+
+        assertTrue(router.isCoolingDown("key-a", "gemini-3.8-flash", now + 1_000L))
+        assertFalse(router.isCoolingDown("key-a", "gemini-3.7-flash", now + 1_000L))
+        assertFalse(router.isCoolingDown("key-b", "gemini-3.8-flash", now + 1_000L))
+        assertFalse(router.isCoolingDown("key-a", "gemini-3.8-flash", now + 61_000L))
+    }
+
+    @Test
+    fun selectedProviderPreferencePersistsIndependentlyFromProviderProfiles() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val storage = ProviderStorage(context)
+        storage.saveSelectedProviderType(ProviderType.OPENAI_COMPATIBLE)
+        assertEquals(ProviderType.OPENAI_COMPATIBLE, storage.loadSelectedProviderType())
+        storage.saveSelectedProviderType(ProviderType.GEMINI)
+        assertEquals(ProviderType.GEMINI, storage.loadSelectedProviderType())
+    }
+
     private fun sampleLesson() = LessonRef(
         grade = "G04",
         rootPath = "/tmp/ws",

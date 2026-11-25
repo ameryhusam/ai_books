@@ -92,6 +92,8 @@ import androidx.compose.foundation.layout.width
 fun SettingsScreen(
     form: ProviderFormState,
     providers: List<ProviderConfig>,
+    selectedProvider: ProviderType,
+    onSelectDefaultProvider: (ProviderType) -> Unit,
     recentRuns: List<GenerationRunRecord>,
     promptTemplates: List<PromptTemplateRecord> = emptyList(),
     userEmail: String? = null,
@@ -286,6 +288,34 @@ fun SettingsScreen(
                             color = EduGreenDark,
                             fontWeight = FontWeight.Bold
                         )
+                    }
+                }
+            }
+
+            item(key = "default_provider") {
+                EduPanel(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = "مزود الذكاء الاصطناعي الافتراضي",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = EduInk
+                    )
+                    Text(
+                        text = "يتم تنفيذ الطلبات الجديدة عبر المزود المحدد فقط. فشل Gemini لا يستدعي OpenAI تلقائياً، والعكس صحيح.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = EduMuted
+                    )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(7.dp),
+                        verticalArrangement = Arrangement.spacedBy(7.dp)
+                    ) {
+                        ProviderType.entries.forEach { type ->
+                            EduPill(
+                                text = type.displayName,
+                                active = selectedProvider == type,
+                                onClick = { onSelectDefaultProvider(type) },
+                                testTag = "default_provider_${type.id}"
+                            )
+                        }
                     }
                 }
             }

@@ -1,6 +1,8 @@
 name: Edu Mini CI
 on:
   push:
+    branches: [main, 'feat/provider-isolation-local-workspace']
+  pull_request:
     branches: [main]
   workflow_dispatch:
 

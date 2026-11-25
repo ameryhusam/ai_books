@@ -59,6 +59,7 @@ import com.example.model.PackageKind
 import com.example.model.PdfBookInfo
 import com.example.model.PromptTemplateRecord
 import com.example.model.ProviderConfig
+import com.example.model.ProviderType
 import com.example.model.QuestionAttemptRecord
 import com.example.model.QuestionDifficulty
 import com.example.model.QuestionItem
@@ -367,6 +368,10 @@ class EduMiniRepository(
 
     suspend fun loadProviders(): List<ProviderConfig> = providerStorage.loadProviders()
 
+    suspend fun loadSelectedProviderType(): ProviderType = providerStorage.loadSelectedProviderType()
+
+    suspend fun saveSelectedProviderType(type: ProviderType) = providerStorage.saveSelectedProviderType(type)
+
     suspend fun saveProviders(providers: List<ProviderConfig>) {
         providerStorage.saveProviders(providers)
     }
@@ -396,6 +401,7 @@ class EduMiniRepository(
         source: String,
         extra: String,
         providers: List<ProviderConfig>,
+        selectedProvider: ProviderType,
         questionCount: Int,
         attachPdfPages: Boolean,
         questionStyleHint: String = "",
@@ -403,8 +409,8 @@ class EduMiniRepository(
         template: PromptTemplateRecord? = null,
         onProgress: (percent: Int, stage: String) -> Unit = { _, _ -> }
     ): GeneratedResult {
-        if (providers.none { it.enabled && it.apiKey.isNotBlank() && it.model.isNotBlank() }) {
-            throw IllegalStateException("لا يوجد مفتاح API مفعّل بنموذج صالح. أضف مفتاحاً أو أعد تفعيل أحد المفاتيح من الإعدادات.")
+        if (providers.none { it.provider == selectedProvider && it.enabled && it.apiKey.isNotBlank() && it.model.isNotBlank() }) {
+            throw IllegalStateException("لا يوجد ملف ${selectedProvider.displayName} مفعّل بمفتاح ونموذج صالحين. اختر مزوداً آخر أو أضف إعداداته.")
         }
         onProgress(8, "قراءة بيانات الدرس وتجهيز المصدر")
         val effectiveSource = source.trim()
@@ -428,7 +434,7 @@ class EduMiniRepository(
         val attachmentMode = activeTemplate?.sourceAttachmentMode ?: "pdf_native"
         val shouldAttachSource = attachPdfPages && attachmentMode != "none"
         val pdfPayload = if (shouldAttachSource && attachmentMode == "pdf_native" &&
-            providers.any { it.provider == com.example.model.ProviderType.GEMINI && it.enabled } &&
+            selectedProvider == ProviderType.GEMINI &&
             !lesson.pdfPath.isNullOrBlank()
         ) {
             aiGenerationService.extractLessonPdfBase64(lesson.pdfPath)
@@ -437,7 +443,7 @@ class EduMiniRepository(
         // Rendered page images are retained as a compatibility fallback for those providers.
         val needsRenderedPages = shouldAttachSource && (
             attachmentMode == "rendered_pages" ||
-                providers.any { it.provider == com.example.model.ProviderType.OPENAI_COMPATIBLE && it.enabled }
+                selectedProvider == ProviderType.OPENAI_COMPATIBLE
             )
         val pageImages = if (needsRenderedPages) {
             aiGenerationService.extractLessonPdfPageImagesBase64(lesson.pdfPath)
@@ -486,6 +492,7 @@ class EduMiniRepository(
             source = effectiveSource,
             extra = effectiveExtra,
             providers = providers,
+            selectedProvider = selectedProvider,
             questionCount = questionCount,
             pdfPageImagesBase64 = pageImages,
             pdfDocumentBase64 = pdfPayload?.base64,
