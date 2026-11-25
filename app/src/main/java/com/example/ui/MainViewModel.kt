@@ -145,6 +145,7 @@ data class MainUiState(
     val pendingExportAssessment: AssessmentRecord? = null,
     val pdfSplitter: PdfSplitterUiState? = null,
     val providers: List<ProviderConfig> = emptyList(),
+    val selectedProvider: ProviderType = ProviderType.GEMINI,
     val providerForm: ProviderFormState = ProviderFormState(),
     val recentRuns: List<GenerationRunRecord> = emptyList(),
     val isBusy: Boolean = false,
@@ -373,6 +374,10 @@ class MainViewModel(
             runCatching { repository.loadProviders() }
                 .onSuccess { loaded ->
                     _uiState.update { it.copy(providers = loaded) }
+                }
+            runCatching { repository.loadSelectedProviderType() }
+                .onSuccess { selected ->
+                    _uiState.update { it.copy(selectedProvider = selected) }
                 }
                 .onFailure { error ->
                     _uiState.update {
@@ -1067,6 +1072,7 @@ class MainViewModel(
                     source = evidence,
                     extra = taskInstructions,
                     providers = snapshot.providers,
+                    selectedProvider = snapshot.selectedProvider,
                     questionCount = 5,
                     attachPdfPages = true,
                     questionStyleHint = if (task == TaskType.QUESTIONS) "أسئلة تشخيصية تكيفية ومشتتات قائمة على الخطأ" else "",
@@ -1681,6 +1687,25 @@ class MainViewModel(
                     }
                 )
             }
+        }
+    }
+
+    fun selectDefaultAiProvider(type: ProviderType) {
+        viewModelScope.launch {
+            runCatching { repository.saveSelectedProviderType(type) }
+                .onSuccess {
+                    _uiState.update {
+                        it.copy(
+                            selectedProvider = type,
+                            toastMessage = "تم تغيير مزود التوليد الافتراضي إلى ${type.displayName}. الطلبات الجديدة ستستخدم هذا المزود فقط."
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    _uiState.update {
+                        it.copy(alert = AlertMessage("تعذر تغيير مزود AI", error.message ?: "تعذر حفظ الاختيار"))
+                    }
+                }
         }
     }
 
@@ -2544,6 +2569,7 @@ class MainViewModel(
                     source = snapshot.sourceText,
                     extra = snapshot.extraInstructions,
                     providers = snapshot.providers,
+                    selectedProvider = snapshot.selectedProvider,
                     questionCount = snapshot.questionCount,
                     attachPdfPages = snapshot.attachPdfPages,
                     questionStyleHint = snapshot.questionStyle.takeIf { snapshot.task == TaskType.QUESTIONS && it != "متنوعة" }.orEmpty(),
