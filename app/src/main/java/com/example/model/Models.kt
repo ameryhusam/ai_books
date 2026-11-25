@@ -599,6 +599,7 @@ data class LearningProgressReport(
     val estimatedRecallDropPercent: Int? = null,
     val delayedRecallSampleCount: Int = 0,
     val recurringMistakes: List<RepeatedMistakeSummary> = emptyList(),
+    val recurringConceptTags: List<String> = emptyList(),
     val conceptsWithRecurringErrorsCount: Int = 0,
     val weeklyAssessments: List<WeeklyAssessmentSummary> = emptyList(),
     val reinforcementImpactPercent: Int? = null,
