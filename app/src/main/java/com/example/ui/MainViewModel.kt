@@ -87,7 +87,7 @@ data class ProviderFormState(
     val editingProviderId: String? = null,
     val provider: ProviderType = ProviderType.GEMINI,
     val label: String = "Gemini",
-    val model: String = "gemini-2.5-flash",
+    val model: String = "gemini-3.8-flash",
     val fallbackModels: String = "",
     val strictModel: Boolean = false,
     val baseUrl: String = "https://api.openai.com/v1",
