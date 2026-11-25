@@ -13,7 +13,12 @@ Linux / macOS:
   --tests "com.example.EduMiniCoreTest.directWorkspaceCatalogSyncUpdatesIndexAndUnitRowsWithoutDuplicates" \
   --tests "com.example.EduMiniCoreTest.roomEnforcesStableBookAndLessonIdentityWithinWorkspace" \
   --tests "com.example.EduMiniCoreTest.learnerProgressStudyDaysAndAssessmentAttemptsAreIsolated" \
-  --tests "com.example.EduMiniCoreTest.fullBackupPreservesLocalLearnerOwnership"
+  --tests "com.example.EduMiniCoreTest.fullBackupPreservesLocalLearnerOwnership" --tests "com.example.EduMiniCoreTest.learningProgressReportSeparatesInitialAccuracyDelayedRecallAndRecurringMistakes" --tests "com.example.EduMiniCoreTest.learningProgressReportMeasuresFollowUpAfterReinforcementOnlyOnSharedQuestions" --tests "com.example.EduMiniCoreTest.lessonSequenceGateRequiresEveryEarlierLessonToBePassed" --tests "com.example.EduMiniCoreTest.subjectMilestoneBadgesReflectPerBookCompletionThresholds" --tests "com.example.EduMiniCoreTest.reinforcementSelectionExcludesUnreviewedGeneratedQuestions" \
+  --tests "com.example.EduMiniCoreTest.learningProgressReportSeparatesInitialAccuracyDelayedRecallAndRecurringMistakes" \
+  --tests "com.example.EduMiniCoreTest.learningProgressReportMeasuresFollowUpAfterReinforcementOnlyOnSharedQuestions" \
+  --tests "com.example.EduMiniCoreTest.lessonSequenceGateRequiresEveryEarlierLessonToBePassed" \
+  --tests "com.example.EduMiniCoreTest.subjectMilestoneBadgesReflectPerBookCompletionThresholds" \
+  --tests "com.example.EduMiniCoreTest.reinforcementSelectionExcludesUnreviewedGeneratedQuestions"
 ```
 
 Windows:
@@ -23,6 +28,8 @@ gradlew.bat :app:testDebugUnitTest --tests "com.example.EduMiniCoreTest.directWo
 ```
 
 The focused tests exercise:
+- Delayed recall, recall-gap, recurring wrong answers, recurring concepts, weekly score aggregation, and post-reinforcement follow-up calculations.
+- Sequential lesson access, subject-specific 25/50/75/100% badges, and exclusion of unreviewed generated questions from learner practice.
 - Science indexes without a component, English COURSE/WORKBOOK components, and Social Studies GEO/HIST/TARBIA components.
 - Index/manifest component identity, nested component-root binding, grade discovery, and zero-copy binding.
 - Stable Room uniqueness and preservation of book/lesson row IDs during catalog refresh.
