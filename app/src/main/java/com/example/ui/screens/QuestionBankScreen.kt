@@ -160,7 +160,7 @@ fun QuestionBankScreen(
     val reviewedCount = remember(questions) { questions.count { it.reviewed } }
     val duplicatesCount = remember(questions) { questions.count { it.isDuplicate } }
     val playableQuestions = remember(filtered) {
-        filtered.filter { it.options.isNotEmpty() || it.correctAnswer.isNotBlank() }
+        filtered.filter { it.reviewed && (it.options.isNotEmpty() || it.correctAnswer.isNotBlank()) }
     }
 
     Box(
@@ -559,7 +559,7 @@ fun QuestionBankScreen(
 
     if (showCreateAssessmentDialog) {
         CreateAssessmentDialog(
-            questions = questions,
+            questions = questions.filter { it.reviewed },
             onDismiss = { showCreateAssessmentDialog = false },
             onSave = { title, kind, qIds, minutes, passPercent ->
                 onCreateAssessment(title, kind, qIds, minutes, passPercent)
