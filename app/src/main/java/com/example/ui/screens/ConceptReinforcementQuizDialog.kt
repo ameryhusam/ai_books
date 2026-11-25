@@ -53,6 +53,7 @@ fun ConceptReinforcementQuizDialog(
     val answers = remember(questions) { mutableStateMapOf<String, String>() }
     var checkedCurrent by remember(questions) { mutableStateOf(false) }
     var finished by remember(questions) { mutableStateOf(false) }
+    var completionReported by remember(questions) { mutableStateOf(false) }
 
     val current = questions.getOrNull(index)
     val summary = if (finished) QuestionBankEngine.gradeQuiz(questions, answers.toMap()) else null
@@ -165,7 +166,10 @@ fun ConceptReinforcementQuizDialog(
                             index++
                             checkedCurrent = false
                         } else {
-                            onRecordAttempts(questions, answers.toMap())
+                            if (!completionReported) {
+                                completionReported = true
+                                onRecordAttempts(questions, answers.toMap())
+                            }
                             finished = true
                         }
                     }
