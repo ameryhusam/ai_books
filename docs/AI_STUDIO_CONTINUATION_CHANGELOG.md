@@ -387,6 +387,8 @@ The latest Android CI run observed during this pass is [run 45715165859](https:/
 - app/src/main/java/com/example/data/ai/AiGenerationService.kt
 - docs/AI_STUDIO_CONTINUATION_CHANGELOG.md
 
+- app/src/main/java/com/example/ui/screens/SettingsScreen.kt
+
 ### Validation
 - Source transformation checks confirmed the intended code sections were changed.
 - No Gradle compiler, unit-test, or Android assembly command was executed in this pass. Build and runtime behavior remain unverified.
