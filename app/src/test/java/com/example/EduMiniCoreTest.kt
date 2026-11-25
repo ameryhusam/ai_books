@@ -34,6 +34,7 @@ import com.tom_roush.pdfbox.pdmodel.font.PDType1Font
 import com.example.model.AssessmentKind
 import com.example.model.AssessmentAttemptRecord
 import com.example.model.BookRef
+import com.example.model.BookProgressSummary
 import com.example.model.ImportedWorkspace
 import com.example.model.LearningNodeStatus
 import com.example.model.LessonRef
@@ -2029,6 +2030,43 @@ class EduMiniCoreTest {
         } finally {
             db.close()
         }
+    }
+
+    @Test
+    fun subjectMilestoneBadgesReflectPerBookCompletionThresholds() {
+        val book = BookRef(
+            bookKey = "SCI",
+            title = "العلوم",
+            subjectKey = "SCI",
+            relativePath = "SCI",
+            lessonsCount = 4,
+            subjectName = "العلوم"
+        )
+        val progress = BookProgressSummary(
+            book = book,
+            completedLessons = 2,
+            preparedLessons = 0,
+            totalLessons = 4,
+            completionPercent = 50,
+            preparationPercent = 0,
+            earnedPoints = 100
+        )
+        val badges = MilestoneBadgeEngine.evaluateBadges(
+            totalLessons = 4,
+            completedLessons = 2,
+            overallCompletionPercent = 50,
+            draftsCount = 0,
+            approvedDraftsCount = 0,
+            packagesCount = 0,
+            publishedPackagesCount = 0,
+            bookProgress = listOf(progress),
+            unitPaths = emptyList(),
+            streak = com.example.data.repository.StudyStreakSnapshot(0, 0)
+        )
+        assertTrue(badges.any { it.id == "badge_subject_SCI_25" && it.unlocked })
+        assertTrue(badges.any { it.id == "badge_subject_SCI_50" && it.unlocked })
+        assertFalse(badges.any { it.id == "badge_subject_SCI_75" && it.unlocked })
+        assertFalse(badges.any { it.id == "badge_subject_SCI_100" && it.unlocked })
     }
 
     @Test
