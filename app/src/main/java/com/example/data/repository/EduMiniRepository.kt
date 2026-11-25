@@ -1977,6 +1977,12 @@ class EduMiniRepository(
         sourceAttachmentMode: String = "pdf_native",
         templateId: String? = null
     ) {
+        require(responseSchemaJson.isBlank() || runCatching { json.parseToJsonElement(responseSchemaJson).jsonObject }.isSuccess) {
+            "مخطط الاستجابة يجب أن يكون JSON object صالحاً."
+        }
+        require(responseMappingJson.isBlank() || runCatching { json.parseToJsonElement(responseMappingJson).jsonObject }.isSuccess) {
+            "خريطة توافق الحقول يجب أن تكون JSON object صالحة."
+        }
         if (!templateId.isNullOrBlank()) {
             dao.updatePromptTemplate(
                 templateId = templateId,
