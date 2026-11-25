@@ -47,7 +47,13 @@ data class BackupDraftDto(
     val status: String,
     val version: Int,
     val sourcePages: String? = null,
-    val sourceHash: String? = null
+    val sourceHash: String? = null,
+    val templateId: String = "",
+    val templateVersion: Int = 1,
+    val responseSchemaHash: String = "",
+    val requestFingerprint: String = "",
+    val contentHash: String = "",
+    val sourcePdfHash: String = ""
 )
 
 @Serializable
@@ -150,7 +156,12 @@ data class BackupPromptTemplateDto(
     val title: String,
     val task: String,
     val instructions: String,
-    val createdAt: String
+    val createdAt: String,
+    val responseSchemaJson: String = "",
+    val responseMappingJson: String = "",
+    val responseFormat: String = "text",
+    val sourceAttachmentMode: String = "pdf_native",
+    val version: Int = 1
 )
 
 @Serializable
@@ -471,7 +482,13 @@ object WorkspaceExporter {
                     status = it.status,
                     version = it.version,
                     sourcePages = it.sourcePages,
-                    sourceHash = it.sourceHash
+                    sourceHash = it.sourceHash,
+                    templateId = it.templateId,
+                    templateVersion = it.templateVersion,
+                    responseSchemaHash = it.responseSchemaHash,
+                    requestFingerprint = it.requestFingerprint,
+                    contentHash = it.contentHash,
+                    sourcePdfHash = it.sourcePdfHash
                 )
             },
             questions = questions.map {
@@ -567,7 +584,12 @@ object WorkspaceExporter {
                     title = it.title,
                     task = it.task,
                     instructions = it.instructions,
-                    createdAt = it.createdAt
+                    createdAt = it.createdAt,
+                    responseSchemaJson = it.responseSchemaJson,
+                    responseMappingJson = it.responseMappingJson,
+                    responseFormat = it.responseFormat,
+                    sourceAttachmentMode = it.sourceAttachmentMode,
+                    version = it.version
                 )
             },
             studyDayRecords = studyDays.map {
