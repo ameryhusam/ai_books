@@ -405,3 +405,19 @@ The latest Android CI run observed during this pass is [run 45715165859](https:/
   - `bde1a6b` — analytics calculation uses one zone.
   - `f4685d0` — local-date boundary regression test.
 - **Verification boundary:** source changes were written through the GitHub repository API. No Gradle compilation, unit test execution, instrumentation test, or Android build was run in this environment. The new test is added but not yet verified by execution.
+
+## 2026-11-26 — P2 continuation: Studio checkpoint provenance
+
+- Confirmed from source that `InteractiveJsonActivityPlayer` already emits checkpoint answers, but `InteractiveJsonActivityDialog` did not expose the callback.
+- Exposed the callback through the dialog and connected the Studio activity preview to `recordInteractiveQuestionAttempt` using `sourceMode = "studio_preview"` and the selected lesson context.
+- Added `activeInteractiveLesson` to UI state and clear it when the preview is dismissed or completed.
+- Excluded `studio_preview` attempts from learner question mastery, concept mastery, and progress analytics. The preview record remains available in attempt history with its source marker; it must not alter learner mastery.
+- Added a regression test for preview-attempt isolation.
+- Commits:
+  - `f00f651` dialog callback exposure.
+  - `d9a49d4` Studio preview recording.
+  - `999ab4f` lesson context lifecycle.
+  - `ea32e3c` mastery exclusion.
+  - `4d06003` analytics exclusion.
+  - `34da389` regression test.
+- **Verification boundary:** no Gradle compile or test execution was performed. Source-level integration was checked against the existing callback and ViewModel method signatures; runtime behavior remains unverified.
