@@ -271,8 +271,8 @@ class DirectWorkspaceBinder(private val context: Context) {
                     manifestRelativePath = manifestEntry?.relativePath,
                     indexSha256 = sha256(indexRaw),
                     manifestSha256 = manifestRaw?.let(::sha256),
-                    indexSchemaVersion = firstNonBlank(indexObj.str("indexVersion"), indexObj.str("schemaVersion")).ifBlank { null },
-                    manifestVersion = manifestObj?.str("manifestVersion")?.ifBlank { null },
+                    indexSchemaVersion = firstNonBlank(indexObj.str("indexVersion"), indexObj.str("schemaVersion")).takeIf { it.isNotBlank() },
+                    manifestVersion = manifestObj?.str("manifestVersion")?.takeIf { it.isNotBlank() },
                     lastSyncedAt = syncTimestamp
                 )
             )
@@ -285,7 +285,7 @@ class DirectWorkspaceBinder(private val context: Context) {
                         bookKey = slot.bookKey,
                         unitKey = unitKey,
                         title = firstNonBlank(unit.str("title"), unit.str("unitTitle"), unit.str("name"), unitKey),
-                        partKey = firstNonBlank(unit.str("partKey"), unit.str("part")).ifBlank { null },
+                        partKey = firstNonBlank(unit.str("partKey"), unit.str("part")).takeIf { it.isNotBlank() },
                         sortOrder = unitOrder,
                         sourceIndexPath = slot.indexEntry.uriOrPath
                     )
