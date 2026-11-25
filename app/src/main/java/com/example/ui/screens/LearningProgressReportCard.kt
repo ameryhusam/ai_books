@@ -3,9 +3,7 @@ package com.example.ui.screens
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -13,7 +11,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -67,7 +64,7 @@ fun LearningProgressReportCard(
                         modifier = Modifier.weight(1f)
                     )
                     LearnerMetric(
-                        title = "اختبارات أسبوعية",
+                        title = "أسابيع التقييم",
                         value = report.weeklyAssessments.size.toString(),
                         modifier = Modifier.weight(1f)
                     )
@@ -186,7 +183,7 @@ private fun WeeklyScoreRow(week: WeeklyAssessmentSummary) {
             Text("${week.averageScorePercent}% • ${week.attemptsCount} اختبار", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
         }
         LinearProgressIndicator(
-            progress = { week.averageScorePercent.coerceIn(0, 100) / 100f },
+            progress = week.averageScorePercent.coerceIn(0, 100) / 100f,
             modifier = Modifier.fillMaxWidth()
         )
     }
