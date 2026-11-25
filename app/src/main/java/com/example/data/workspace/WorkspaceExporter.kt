@@ -9,6 +9,7 @@ import com.example.data.local.QuestionEntity
 import com.example.data.local.StudyDayEntity
 import com.example.data.local.TeacherNoteEntity
 import com.example.model.ImportedWorkspace
+import com.example.model.LearnerProfile
 import com.example.model.QuestionItem
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -165,10 +166,18 @@ data class BackupPromptTemplateDto(
 )
 
 @Serializable
+data class BackupLearnerProfileDto(
+    val userId: String,
+    val displayName: String
+)
+
+@Serializable
 data class EduMiniBackupBundle(
-    val formatVersion: String = "edu-mini-backup-1.2",
+    val formatVersion: String = "edu-mini-backup-1.3",
     val exportedAt: String = "",
     val workspaceId: String = "",
+    val learnerProfiles: List<BackupLearnerProfileDto> = emptyList(),
+    val activeLearnerId: String = LearnerProfile.DEFAULT_USER_ID,
     val drafts: List<BackupDraftDto> = emptyList(),
     val questions: List<BackupQuestionDto> = emptyList(),
     val questionAttempts: List<BackupQuestionAttemptDto> = emptyList(),
@@ -460,11 +469,17 @@ object WorkspaceExporter {
         notes: List<TeacherNoteEntity>,
         studyDays: List<StudyDayEntity>,
         templates: List<PromptTemplateEntity>,
-        questionAttempts: List<com.example.data.local.QuestionAttemptEntity> = emptyList()
+        questionAttempts: List<com.example.data.local.QuestionAttemptEntity> = emptyList(),
+        learnerProfiles: List<LearnerProfile> = emptyList(),
+        activeLearnerId: String = LearnerProfile.DEFAULT_USER_ID
     ): String {
         val bundle = EduMiniBackupBundle(
             exportedAt = Instant.now().toString(),
             workspaceId = workspaceId,
+            learnerProfiles = learnerProfiles.distinctBy { it.userId }.map {
+                BackupLearnerProfileDto(userId = it.userId, displayName = it.displayName)
+            },
+            activeLearnerId = activeLearnerId,
             drafts = drafts.map {
                 BackupDraftDto(
                     id = it.id,
