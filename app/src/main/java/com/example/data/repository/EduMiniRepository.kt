@@ -456,6 +456,7 @@ class EduMiniRepository(
             listOf(templateInstructions, extra.trim()).filter { it.isNotBlank() }.distinct().joinToString("\n\n")
         }
         val schemaHash = sha256Full(responseSchema)
+        val mappingHash = sha256Full(activeTemplate?.responseMappingJson.orEmpty())
         val pdfHash = pdfPayload?.sha256.orEmpty()
         val requestSeed = listOf(
             activeTemplate?.id.orEmpty(),
@@ -468,6 +469,8 @@ class EduMiniRepository(
             lesson.lessonKey,
             lesson.pageRange.orEmpty(),
             schemaHash,
+            mappingHash,
+            responseFormat,
             pdfHash,
             effectiveSource,
             effectiveExtra
