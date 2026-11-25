@@ -202,8 +202,10 @@ class DirectWorkspaceBinder(private val context: Context) {
             )
             val fallbackTitle = subjectName + (if (slot.componentKey != null) " / ${slot.componentKey}" else "")
             val bookTitle = firstNonBlank(
-                manifestObj?.str("title"),
+                indexObj.str("title"),
+                indexObj.str("displayName"),
                 manifestObj?.str("bookTitle"),
+                manifestObj?.str("title"),
                 manifestObj?.str("displayTitle"),
                 manifestObj?.str("subjectTitle"),
                 fallbackTitle
