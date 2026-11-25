@@ -1384,11 +1384,11 @@ class EduMiniRepository(
         val questionEntities = dao.observeQuestionsForWorkspace(workspace.workspaceId).first()
         val questions = questionEntities.map { it.toModel() }
         val assessments = dao.observeAssessmentsForWorkspace(workspace.workspaceId).first()
-        val attempts = dao.observeAssessmentAttempts(workspace.workspaceId).first()
+        val attempts = dao.observeAllAssessmentAttempts(workspace.workspaceId).first()
         val qAttempts = dao.observeQuestionAttemptsForWorkspace(workspace.workspaceId).first()
-        val progress = dao.observeProgressForWorkspace(workspace.workspaceId).first()
+        val progress = dao.observeAllProgressForWorkspace(workspace.workspaceId).first()
         val notes = dao.observeTeacherNotesForWorkspace(workspace.workspaceId).first()
-        val studyDays = dao.observeStudyDays().first()
+        val studyDays = dao.observeAllStudyDays().first()
         val templates = dao.observePromptTemplates().first()
         val fullBackup = WorkspaceExporter.serializeFullBackup(
             workspaceId = workspace.workspaceId,
@@ -1420,11 +1420,11 @@ class EduMiniRepository(
         val drafts = dao.observeDraftsForWorkspace(workspace.workspaceId, workspace.rootPath).first()
         val questions = dao.observeQuestionsForWorkspace(workspace.workspaceId).first()
         val assessments = dao.observeAssessmentsForWorkspace(workspace.workspaceId).first()
-        val attempts = dao.observeAssessmentAttempts(workspace.workspaceId).first()
+        val attempts = dao.observeAllAssessmentAttempts(workspace.workspaceId).first()
         val qAttempts = dao.observeQuestionAttemptsForWorkspace(workspace.workspaceId).first()
-        val progress = dao.observeProgressForWorkspace(workspace.workspaceId).first()
+        val progress = dao.observeAllProgressForWorkspace(workspace.workspaceId).first()
         val notes = dao.observeTeacherNotesForWorkspace(workspace.workspaceId).first()
-        val studyDays = dao.observeStudyDays().first()
+        val studyDays = dao.observeAllStudyDays().first()
         val templates = dao.observePromptTemplates().first()
         val payload = WorkspaceExporter.serializeFullBackup(
             workspaceId = workspace.workspaceId,
@@ -1552,7 +1552,8 @@ class EduMiniRepository(
                     passed = at.passed,
                     durationSeconds = at.durationSeconds,
                     earnedXp = at.earnedXp,
-                    completedAt = at.completedAt
+                    completedAt = at.completedAt,
+                    userId = at.userId
                 )
             )
         }
@@ -1565,7 +1566,8 @@ class EduMiniRepository(
                     lessonKey = p.lessonKey,
                     completed = p.completed,
                     pointsEarned = p.pointsEarned,
-                    completedAt = p.completedAt
+                    completedAt = p.completedAt,
+                    userId = p.userId
                 )
             )
         }
@@ -1582,15 +1584,31 @@ class EduMiniRepository(
                 )
             )
         }
-        bundle.studyDays.forEach { dateIso ->
-            if (dateIso.isNotBlank() && dao.getStudyDay(dateIso) == null) {
-                dao.upsertStudyDay(
-                    StudyDayEntity(
-                        activityDate = dateIso,
-                        actionsCount = 1,
-                        lastUpdatedAt = Instant.now().toString()
+        if (bundle.studyDayRecords.isNotEmpty()) {
+            bundle.studyDayRecords.forEach { day ->
+                if (day.activityDate.isNotBlank() && dao.getStudyDay(day.activityDate, day.userId) == null) {
+                    dao.upsertStudyDay(
+                        StudyDayEntity(
+                            activityDate = day.activityDate,
+                            actionsCount = day.actionsCount,
+                            lastUpdatedAt = day.lastUpdatedAt,
+                            userId = day.userId
+                        )
                     )
-                )
+                }
+            }
+        } else {
+            // Backward compatibility with edu-mini-backup-1.1 files that stored dates only.
+            bundle.studyDays.forEach { dateIso ->
+                if (dateIso.isNotBlank() && dao.getStudyDay(dateIso) == null) {
+                    dao.upsertStudyDay(
+                        StudyDayEntity(
+                            activityDate = dateIso,
+                            actionsCount = 1,
+                            lastUpdatedAt = Instant.now().toString()
+                        )
+                    )
+                }
             }
         }
         bundle.promptTemplates.forEach { t ->
