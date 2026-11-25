@@ -513,8 +513,9 @@ class DirectWorkspaceBinder(private val context: Context) {
 
         units.forEachIndexed { ui, unitElem ->
             val u = unitElem as? JsonObject ?: return@forEachIndexed
+            val unitFolderKey = WorkspaceContractValidator.sourceUnitFolderKey(u)
             val uk = WorkspaceContractValidator.sourceUnitKey(u)
-            if (uk.isBlank()) {
+            if (uk.isBlank() || unitFolderKey.isBlank()) {
                 throw IllegalArgumentException("الوحدة رقم ${ui + 1} لا تحتوي مفتاحاً ثابتاً أو unitNumber صالحاً.")
             }
             val ut = firstNonBlank(
@@ -554,58 +555,58 @@ class DirectWorkspaceBinder(private val context: Context) {
                         }
                     }
                     if (p == "P01" || p == "P02") {
-                        add(joinRel(bookRel, "$p/units/$uk/lesson_$lessonNumStr.pdf"))
-                        add(joinRel(bookRel, "$p/units/$uk/$lk.pdf"))
+                        add(joinRel(bookRel, "$p/units/$unitFolderKey/lesson_$lessonNumStr.pdf"))
+                        add(joinRel(bookRel, "$p/units/$unitFolderKey/$lk.pdf"))
                     }
                 }
                 val matchedPdf = firstExisting(entryMap, *pdfCandidates.toTypedArray())
 
                 val txtCandidates = buildList {
                     if (p == "P01" || p == "P02") {
-                        add(joinRel(bookRel, "$p/units/$uk/lesson_$lessonNumStr.txt"))
-                        add(joinRel(bookRel, "$p/units/$uk/lesson_$lessonNumStr.md"))
-                        add(joinRel(bookRel, "$p/units/$uk/$lk.txt"))
-                        add(joinRel(bookRel, "$p/units/$uk/$lk.md"))
+                        add(joinRel(bookRel, "$p/units/$unitFolderKey/lesson_$lessonNumStr.txt"))
+                        add(joinRel(bookRel, "$p/units/$unitFolderKey/lesson_$lessonNumStr.md"))
+                        add(joinRel(bookRel, "$p/units/$unitFolderKey/$lk.txt"))
+                        add(joinRel(bookRel, "$p/units/$unitFolderKey/$lk.md"))
                     }
                     add(joinRel(bookRel, "P01/units/$uk/lesson_$lessonNumStr.txt"))
                     add(joinRel(bookRel, "P01/units/$uk/lesson_$lessonNumStr.md"))
                     add(joinRel(bookRel, "P02/units/$uk/lesson_$lessonNumStr.txt"))
                     add(joinRel(bookRel, "P02/units/$uk/lesson_$lessonNumStr.md"))
-                    add(joinRel(bookRel, "units/$uk/lesson_$lessonNumStr.txt"))
-                    add(joinRel(bookRel, "units/$uk/lesson_$lessonNumStr.md"))
-                    add(joinRel(bookRel, "units/$uk/$lk.txt"))
-                    add(joinRel(bookRel, "units/$uk/$lk.md"))
+                    add(joinRel(bookRel, "units/$unitFolderKey/lesson_$lessonNumStr.txt"))
+                    add(joinRel(bookRel, "units/$unitFolderKey/lesson_$lessonNumStr.md"))
+                    add(joinRel(bookRel, "units/$unitFolderKey/$lk.txt"))
+                    add(joinRel(bookRel, "units/$unitFolderKey/$lk.md"))
                 }
                 val matchedTxt = firstExisting(entryMap, *txtCandidates.toTypedArray())
                     ?: entries.firstOrNull { entry ->
                         val lower = entry.relativePath.lowercase()
                         (lower.endsWith(".txt") || lower.endsWith(".md")) &&
-                            lower.contains("/$uk/", ignoreCase = true) &&
+                            lower.contains("/$unitFolderKey/", ignoreCase = true) &&
                             (lower.contains("/$lk.", ignoreCase = true) ||
                                 (lessonNumStr != "-1" && lower.contains("lesson_$lessonNumStr.", ignoreCase = true)))
                     }
 
                 val htmlCandidates = buildList {
                     if (p == "P01" || p == "P02") {
-                        add(joinRel(bookRel, "$p/units/$uk/lesson_$lessonNumStr/index.html"))
-                        add(joinRel(bookRel, "$p/units/$uk/lesson_${lessonNumStr}_interactive.html"))
-                        add(joinRel(bookRel, "$p/units/$uk/lesson_$lessonNumStr.html"))
-                        add(joinRel(bookRel, "$p/units/$uk/$lk/index.html"))
-                        add(joinRel(bookRel, "$p/units/$uk/$lk.html"))
+                        add(joinRel(bookRel, "$p/units/$unitFolderKey/lesson_$lessonNumStr/index.html"))
+                        add(joinRel(bookRel, "$p/units/$unitFolderKey/lesson_${lessonNumStr}_interactive.html"))
+                        add(joinRel(bookRel, "$p/units/$unitFolderKey/lesson_$lessonNumStr.html"))
+                        add(joinRel(bookRel, "$p/units/$unitFolderKey/$lk/index.html"))
+                        add(joinRel(bookRel, "$p/units/$unitFolderKey/$lk.html"))
                     }
                     add(joinRel(bookRel, "interactive/$uk/$lk/index.html"))
                     add(joinRel(bookRel, "interactive/$uk/$lk.html"))
                     add("interactive/$bookKey/$uk/$lk/index.html")
                     add("interactive/$bookKey/$uk/$lk.html")
-                    add(joinRel(bookRel, "units/$uk/$lk/index.html"))
-                    add(joinRel(bookRel, "units/$uk/$lk.html"))
-                    add(joinRel(bookRel, "units/$uk/lesson_$lessonNumStr.html"))
+                    add(joinRel(bookRel, "units/$unitFolderKey/$lk/index.html"))
+                    add(joinRel(bookRel, "units/$unitFolderKey/$lk.html"))
+                    add(joinRel(bookRel, "units/$unitFolderKey/lesson_$lessonNumStr.html"))
                 }
                 val matchedHtml = firstExisting(entryMap, *htmlCandidates.toTypedArray())
                     ?: entries.firstOrNull { entry ->
                         val lower = entry.relativePath.lowercase()
                         lower.endsWith(".html") &&
-                            lower.contains("/$uk/", ignoreCase = true) &&
+                            lower.contains("/$unitFolderKey/", ignoreCase = true) &&
                             (lower.contains("/$lk", ignoreCase = true) ||
                                 (lessonNumStr != "-1" && lower.contains("lesson_$lessonNumStr", ignoreCase = true)))
                     }
@@ -639,13 +640,14 @@ class DirectWorkspaceBinder(private val context: Context) {
 
     private fun findPreGeneratedQuestions(entries: List<IndexedEntry>, lesson: LessonRef): List<IndexedEntry> {
         val uk = lesson.unitKey.lowercase()
+        val sourceUnitFolder = uk.removePrefix("p01_").removePrefix("p02_")
         val lk = lesson.lessonKey.lowercase()
         val bk = lesson.bookKey.lowercase()
         return entries.filter { entry ->
             val p = entry.relativePath.lowercase()
             p.endsWith(".json") &&
                 (p.contains("/questions/") || p.startsWith("questions/")) &&
-                p.contains("/$uk/") &&
+                (p.contains("/$uk/") || p.contains("/$sourceUnitFolder/")) &&
                 p.contains("/$lk/") &&
                 (p.contains("/$bk/") || !p.contains("/g"))
         }
