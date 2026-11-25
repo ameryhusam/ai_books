@@ -565,8 +565,8 @@ class WorkspaceImporter(private val context: Context) {
                         }
                     }
                     if (p == "P01" || p == "P02") {
-                        add("$bookRel/$p/units/$uk/lesson_$lessonNumStr.pdf")
-                        add("$bookRel/$p/units/$uk/$lk.pdf")
+                        add("$bookRel/$p/units/$unitFolderKey/lesson_$lessonNumStr.pdf")
+                        add("$bookRel/$p/units/$unitFolderKey/$lk.pdf")
                     }
                 }
                 val matchedPdfRel = candidates.firstOrNull { candidate ->
@@ -574,24 +574,24 @@ class WorkspaceImporter(private val context: Context) {
                 }
                 val txtCandidates = buildList {
                     if (p == "P01" || p == "P02") {
-                        add("$bookRel/$p/units/$uk/lesson_$lessonNumStr.txt")
-                        add("$bookRel/$p/units/$uk/lesson_$lessonNumStr.md")
-                        add("$bookRel/$p/units/$uk/$lk.txt")
+                        add("$bookRel/$p/units/$unitFolderKey/lesson_$lessonNumStr.txt")
+                        add("$bookRel/$p/units/$unitFolderKey/lesson_$lessonNumStr.md")
+                        add("$bookRel/$p/units/$unitFolderKey/$lk.txt")
                     }
-                    add("$bookRel/P01/units/$uk/lesson_$lessonNumStr.txt")
-                    add("$bookRel/P02/units/$uk/lesson_$lessonNumStr.txt")
-                    add("$bookRel/units/$uk/lesson_$lessonNumStr.txt")
-                    add("$bookRel/units/$uk/lesson_$lessonNumStr.md")
+                    add("$bookRel/P01/units/$unitFolderKey/lesson_$lessonNumStr.txt")
+                    add("$bookRel/P02/units/$unitFolderKey/lesson_$lessonNumStr.txt")
+                    add("$bookRel/units/$unitFolderKey/lesson_$lessonNumStr.txt")
+                    add("$bookRel/units/$unitFolderKey/lesson_$lessonNumStr.md")
                 }
                 val matchedTxtRel = txtCandidates.firstOrNull { it in zipNameSet }
                 val htmlCandidates = buildList {
                     if (p == "P01" || p == "P02") {
-                        add("$bookRel/$p/units/$uk/lesson_$lessonNumStr/index.html")
-                        add("$bookRel/$p/units/$uk/lesson_$lessonNumStr.html")
+                        add("$bookRel/$p/units/$unitFolderKey/lesson_$lessonNumStr/index.html")
+                        add("$bookRel/$p/units/$unitFolderKey/lesson_$lessonNumStr.html")
                     }
-                    add("$bookRel/interactive/$uk/$lk/index.html")
-                    add("$bookRel/units/$uk/$lk/index.html")
-                    add("$bookRel/units/$uk/lesson_$lessonNumStr.html")
+                    add("$bookRel/interactive/$unitFolderKey/$lk/index.html")
+                    add("$bookRel/units/$unitFolderKey/$lk/index.html")
+                    add("$bookRel/units/$unitFolderKey/lesson_$lessonNumStr.html")
                 }
                 val matchedHtmlRel = htmlCandidates.firstOrNull { it in zipNameSet }
                 val pageRange = if (startPage.isNotBlank() && endPage.isNotBlank()) {
