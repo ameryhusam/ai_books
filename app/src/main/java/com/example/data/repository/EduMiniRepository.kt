@@ -18,6 +18,8 @@ import com.example.data.local.QuestionEntity
 import com.example.data.local.StudyDayEntity
 import com.example.data.local.TeacherNoteEntity
 import com.example.data.local.WorkspaceEntity
+import com.example.data.local.WorkspaceIndexEntity
+import com.example.data.local.WorkspaceUnitEntity
 import com.example.data.packageimport.InteractiveBundleBuilder
 import com.example.data.packageimport.InteractivePackageImporter
 import com.example.model.InteractiveActivityModel
@@ -64,6 +66,8 @@ import com.example.model.TaskType
 import com.example.model.UnitCompletionStatus
 import com.example.model.TeacherNoteRecord
 import com.example.model.WorkspaceSummary
+import com.example.model.WorkspaceIndexRef
+import com.example.model.WorkspaceUnitRef
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -141,8 +145,10 @@ class EduMiniRepository(
             } else {
                 combine(
                     dao.observeBooksForWorkspace(entity.workspaceId),
-                    dao.observeLessonsForWorkspace(entity.workspaceId)
-                ) { bookEntities, lessonEntities ->
+                    dao.observeLessonsForWorkspace(entity.workspaceId),
+                    dao.observeWorkspaceIndexes(entity.workspaceId),
+                    dao.observeWorkspaceUnits(entity.workspaceId)
+                ) { bookEntities, lessonEntities, indexEntities, unitEntities ->
                     val warnings = runCatching {
                         json.decodeFromString<List<String>>(entity.warningsJson)
                     }.getOrDefault(emptyList())
@@ -156,7 +162,9 @@ class EduMiniRepository(
                         lessons = lessonEntities.map { it.toModel(entity.workspaceId) },
                         filesCount = entity.filesCount,
                         warnings = warnings,
-                        importedAt = entity.importedAt
+                        importedAt = entity.importedAt,
+                        indexRecords = indexEntities.map { it.toModel() },
+                        units = unitEntities.map { it.toModel() }
                     )
                 }
             }
@@ -313,7 +321,43 @@ class EduMiniRepository(
                 interactivePath = lesson.interactivePath
             )
         }
-        dao.saveWorkspaceGraph(workspaceEntity, bookEntities, lessonEntities)
+        if (imported.indexRecords.isNotEmpty()) {
+            val indexEntities = imported.indexRecords.map { index ->
+                WorkspaceIndexEntity(
+                    workspaceId = imported.workspaceId,
+                    bookKey = index.bookKey,
+                    indexUri = index.indexUriOrPath,
+                    indexRelativePath = index.indexRelativePath,
+                    manifestUri = index.manifestUriOrPath,
+                    manifestRelativePath = index.manifestRelativePath,
+                    indexSha256 = index.indexSha256,
+                    manifestSha256 = index.manifestSha256,
+                    indexSchemaVersion = index.indexSchemaVersion,
+                    manifestVersion = index.manifestVersion,
+                    lastSyncedAt = index.lastSyncedAt
+                )
+            }
+            val unitEntities = imported.units.map { unit ->
+                WorkspaceUnitEntity(
+                    workspaceId = imported.workspaceId,
+                    bookKey = unit.bookKey,
+                    unitKey = unit.unitKey,
+                    title = unit.title,
+                    partKey = unit.partKey,
+                    sortOrder = unit.sortOrder,
+                    sourceIndexPath = unit.sourceIndexPath
+                )
+            }
+            dao.syncDirectWorkspaceCatalog(
+                workspace = workspaceEntity,
+                books = bookEntities,
+                lessons = lessonEntities,
+                indexes = indexEntities,
+                units = unitEntities
+            )
+        } else {
+            dao.saveWorkspaceGraph(workspaceEntity, bookEntities, lessonEntities)
+        }
         recordStudyActivity()
     }
 
@@ -1845,6 +1889,28 @@ class EduMiniRepository(
             .digest(text.toByteArray(Charsets.UTF_8))
         return digest.joinToString("") { "%02x".format(it) }.take(16)
     }
+
+    private fun WorkspaceIndexEntity.toModel() = WorkspaceIndexRef(
+        bookKey = bookKey,
+        indexUriOrPath = indexUri,
+        indexRelativePath = indexRelativePath,
+        manifestUriOrPath = manifestUri,
+        manifestRelativePath = manifestRelativePath,
+        indexSha256 = indexSha256,
+        manifestSha256 = manifestSha256,
+        indexSchemaVersion = indexSchemaVersion,
+        manifestVersion = manifestVersion,
+        lastSyncedAt = lastSyncedAt
+    )
+
+    private fun WorkspaceUnitEntity.toModel() = WorkspaceUnitRef(
+        bookKey = bookKey,
+        unitKey = unitKey,
+        title = title,
+        partKey = partKey,
+        sortOrder = sortOrder,
+        sourceIndexPath = sourceIndexPath
+    )
 
     private fun BookEntity.toModel() = BookRef(
         bookKey = bookKey,
