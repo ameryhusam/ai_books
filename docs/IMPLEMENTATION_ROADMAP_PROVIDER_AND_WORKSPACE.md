@@ -36,6 +36,26 @@ Exit criteria:
 - Test-connection action tests only the selected profile/provider.
 - No secrets appear in logs or error messages.
 
+## Phase 1 implementation status — source changes committed; validation pending
+
+Implemented on `feat/provider-isolation-local-workspace`:
+
+- Added a persisted default provider selection (`GEMINI` by default) separate from provider profiles.
+- Added a Settings selector for the default provider.
+- Captured the selected provider in each generation request. A provider change affects subsequent requests; an in-flight request keeps its captured selection.
+- Filtered active provider profiles before generation. Gemini requests can only use Gemini profiles and OpenAI requests can only use OpenAI-compatible profiles.
+- Restricted PDF attachment preparation to the selected provider's supported path: native PDF for Gemini; rendered page images for OpenAI-compatible endpoints.
+- Added `ProviderRoutingPolicy` to centralize provider-scoped profile ordering and model fallback candidates.
+- On HTTP 429, move to the next model/key candidate within the selected provider instead of retrying the same saturated candidate after a fixed short delay. Quota-exhausted keys are marked and skipped.
+- Added tests for provider isolation, strict-model behavior, and persistence of the selected provider.
+- Added the missing `MessageDigest` import in `AiGenerationService.kt`.
+
+Validation limitations:
+- Source changes and call-site wiring were inspected through the repository.
+- The local clone/build attempt could not start because the execution environment could not resolve `github.com`.
+- The current CI workflow only runs on pushes to `main` or manual dispatch; it does not run for this feature branch or pull requests. Therefore no Gradle result or APK is claimed.
+- Before declaring Phase 1 complete, run `:app:compileDebugKotlin`, `:app:testDebugUnitTest`, and `:app:assembleDebug` in an Android/Gradle environment. Resolve any compiler/test failures before beginning Phase 2.
+
 ## Phase 2 — Pause PDF splitting (P0)
 
 - Remove splitter entry points from active UI/navigation and repository workflows.
