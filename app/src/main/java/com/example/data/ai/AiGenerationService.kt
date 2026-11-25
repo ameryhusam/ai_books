@@ -154,6 +154,25 @@ class AiGenerationService(
         encodedPages
     }
 
+    suspend fun sha256LessonPdf(pdfPath: String?): String = withContext(Dispatchers.IO) {
+        require(!pdfPath.isNullOrBlank()) { "مسار PDF غير محدد" }
+        val input = if (context != null) {
+            UriIO.openInputStream(context, pdfPath)
+        } else {
+            File(pdfPath).takeIf { it.isFile }?.inputStream()
+        } ?: throw IllegalStateException("تعذر فتح ملف PDF لحساب البصمة")
+        val digest = MessageDigest.getInstance("SHA-256")
+        input.use { stream ->
+            val buffer = ByteArray(16 * 1024)
+            while (true) {
+                val count = stream.read(buffer)
+                if (count < 0) break
+                digest.update(buffer, 0, count)
+            }
+        }
+        digest.digest().joinToString("") { "%02x".format(it) }
+    }
+
     suspend fun extractLessonPdfBase64(
         pdfPath: String?,
         maxBytes: Int = 18 * 1024 * 1024
