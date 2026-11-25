@@ -118,7 +118,7 @@ fun SettingsScreen(
     onMoveProvider: (String, Int) -> Unit,
     onDeleteProvider: (String) -> Unit,
     onClearRecentRuns: () -> Unit = {},
-    onSavePromptTemplate: (String, TaskType, String, String, String) -> Unit = { _, _, _, _, _ -> },
+    onSavePromptTemplate: (String, TaskType, String, String, String, String?) -> Unit = { _, _, _, _, _, _ -> },
     onDeletePromptTemplate: (String) -> Unit = {},
     onUseTemplateInStudio: (PromptTemplateRecord) -> Unit = {},
     modifier: Modifier = Modifier
@@ -131,6 +131,7 @@ fun SettingsScreen(
     var newTplInstructions by remember { mutableStateOf("") }
     var newTplSchema by remember { mutableStateOf("") }
     var newTplMapping by remember { mutableStateOf("") }
+    var editingTemplateId by remember { mutableStateOf<String?>(null) }
 
     Box(
         modifier = modifier.fillMaxSize(),
@@ -713,11 +714,12 @@ fun SettingsScreen(
                     OutlinedButton(
                         onClick = {
                             if (newTplTitle.isNotBlank() && newTplInstructions.isNotBlank()) {
-                                onSavePromptTemplate(newTplTitle, newTplTask, newTplInstructions, newTplSchema, newTplMapping)
+                                onSavePromptTemplate(newTplTitle, newTplTask, newTplInstructions, newTplSchema, newTplMapping, editingTemplateId)
                                 newTplTitle = ""
                                 newTplInstructions = ""
                                 newTplSchema = ""
                                 newTplMapping = ""
+                                editingTemplateId = null
                             }
                         },
                         enabled = newTplTitle.isNotBlank() && newTplInstructions.isNotBlank(),
@@ -741,6 +743,16 @@ fun SettingsScreen(
                                 Text("${tpl.title} • ${tpl.task.labelAr}", style = MaterialTheme.typography.titleSmall, color = EduInk)
                                 Text(tpl.instructions, style = MaterialTheme.typography.bodySmall, color = EduMuted, maxLines = 2)
                                 if (tpl.responseSchemaJson.isNotBlank()) Text("مخطط استجابة محفوظ • ${tpl.responseFormat}", style = MaterialTheme.typography.labelSmall, color = EduGreenDark)
+                            }
+                            TextButton(onClick = {
+                                editingTemplateId = tpl.id
+                                newTplTitle = tpl.title
+                                newTplTask = tpl.task
+                                newTplInstructions = tpl.instructions
+                                newTplSchema = tpl.responseSchemaJson
+                                newTplMapping = tpl.responseMappingJson
+                            }) {
+                                Text("تعديل", color = EduBlue)
                             }
                             TextButton(onClick = { onUseTemplateInStudio(tpl) }) {
                                 Text("تطبيق", color = EduGreenDark)
