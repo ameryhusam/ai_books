@@ -147,6 +147,8 @@ data class MainUiState(
     val providerForm: ProviderFormState = ProviderFormState(),
     val recentRuns: List<GenerationRunRecord> = emptyList(),
     val isBusy: Boolean = false,
+    val generationProgressPercent: Int? = null,
+    val generationStage: String? = null,
     val toastMessage: String? = null,
     val alert: AlertMessage? = null
 )
@@ -1068,7 +1070,10 @@ class MainViewModel(
                     attachPdfPages = true,
                     questionStyleHint = if (task == TaskType.QUESTIONS) "أسئلة تشخيصية تكيفية ومشتتات قائمة على الخطأ" else "",
                     difficultyHint = if (task == TaskType.QUESTIONS) "متدرجة من التأسيسي إلى التطبيق" else "",
-                    template = promptTemplates.value.firstOrNull { it.task == task }
+                    template = promptTemplates.value.firstOrNull { it.task == task },
+                    onProgress = { percent, stage ->
+                        _uiState.update { it.copy(generationProgressPercent = percent, generationStage = stage) }
+                    }
                 )
                 val draft = repository.persistDraft(
                     workspaceId = workspace.workspaceId,
@@ -1082,8 +1087,9 @@ class MainViewModel(
                     status = DraftStatus.DRAFT,
                     generation = output
                 )
+                _uiState.update { it.copy(generationProgressPercent = 98, generationStage = "حفظ مهمة التقوية والمسودة") }
                 firestoreSync.upsertDraft(currentUserId, draft)
-                _uiState.update { it.copy(providers = repository.loadProviders()) }
+                _uiState.update { it.copy(providers = repository.loadProviders(), generationProgressPercent = 100, generationStage = "اكتملت مهمة التوليد") }
 
                 val generatedQuestions = if (task == TaskType.QUESTIONS) {
                     repository.saveQuestionsFromDraftText(workspace.workspaceId, lesson, output.text)
@@ -1129,7 +1135,7 @@ class MainViewModel(
                     ))
                 }
             } finally {
-                _uiState.update { it.copy(isBusy = false) }
+                _uiState.update { it.copy(isBusy = false, generationProgressPercent = null, generationStage = null) }
             }
         }
     }
@@ -2497,7 +2503,10 @@ class MainViewModel(
                     questionStyleHint = snapshot.questionStyle.takeIf { snapshot.task == TaskType.QUESTIONS && it != "متنوعة" }.orEmpty(),
                     difficultyHint = if (snapshot.task == TaskType.QUESTIONS) snapshot.questionDifficulty.labelAr else "",
                     template = promptTemplates.value.firstOrNull { it.id == snapshot.activePromptTemplateId }
-                        ?: promptTemplates.value.firstOrNull { it.task == snapshot.task }
+                        ?: promptTemplates.value.firstOrNull { it.task == snapshot.task },
+                    onProgress = { percent, stage ->
+                        _uiState.update { it.copy(generationProgressPercent = percent, generationStage = stage) }
+                    }
                 )
                 val wsId = snapshot.workspace?.workspaceId.orEmpty()
                 val persistedDraft = repository.persistDraft(
@@ -2512,8 +2521,9 @@ class MainViewModel(
                     status = DraftStatus.DRAFT,
                     generation = out
                 )
+                _uiState.update { it.copy(generationProgressPercent = 98, generationStage = "حفظ المسودة وبصمة المحتوى") }
                 firestoreSync.upsertDraft(currentUserId, persistedDraft)
-                _uiState.update { it.copy(providers = repository.loadProviders()) }
+                _uiState.update { it.copy(providers = repository.loadProviders(), generationProgressPercent = 100, generationStage = "اكتمل التوليد والحفظ") }
                 val syncedQuestionsCount = if (snapshot.task == TaskType.QUESTIONS) {
                     repository.saveQuestionsFromDraftText(
                         workspaceId = wsId,
