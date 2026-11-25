@@ -264,7 +264,7 @@ class AiGenerationService(
                             templateId = templateId,
                             templateVersion = templateVersion,
                             responseSchemaHash = responseSchemaHash,
-                            requestFingerprint = sha256("$requestFingerprint|${profile.provider.id}|$modelName"),
+                            requestFingerprint = sha256("$requestFingerprint|${profile.provider.id}|$modelName|$prompt"),
                             contentHash = sha256(outputText),
                             sourcePdfHash = sourcePdfHash
                         )
