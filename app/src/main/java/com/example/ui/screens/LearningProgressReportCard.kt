@@ -61,7 +61,7 @@ fun LearningProgressReportCard(
                     )
                     LearnerMetric(
                         title = "مفاهيم ثبتت",
-                        value = report.stableConceptsCount.toString(),
+                        value = if (report.eligibleConceptsCount > 0) report.stableConceptsCount.toString() else "—",
                         modifier = Modifier.weight(1f)
                     )
                     LearnerMetric(
