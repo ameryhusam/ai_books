@@ -2228,6 +2228,46 @@ class EduMiniCoreTest {
     }
 
     @Test
+    fun practiceOnlyAttemptsDoNotInflateMainMasteryAccuracy() {
+        val question = QuestionItem(
+            id = "practice-only-q",
+            workspaceId = "ws-practice",
+            gradeKey = "G07",
+            bookKey = "SCI",
+            unitKey = "unit-01",
+            lessonKey = "lesson-01",
+            lessonTitle = "الطاقة",
+            type = QuestionType.MCQ,
+            prompt = "سؤال تدريبي",
+            options = listOf("أ", "ب"),
+            correctAnswer = "أ",
+            rationale = "التفسير",
+            difficulty = QuestionDifficulty.EASY,
+            conceptTag = "energy"
+        )
+        val practiceAttempt = QuestionAttemptRecord(
+            id = "practice-only-a",
+            workspaceId = "ws-practice",
+            userId = "learner_a",
+            questionId = question.id,
+            conceptTag = "energy",
+            selectedAnswer = "أ",
+            isCorrect = true,
+            sourceMode = "reinforcement",
+            answeredAt = "2026-11-25T10:00:00Z"
+        )
+        val report = LearningProgressAnalytics.calculate(
+            questions = listOf(question),
+            attempts = listOf(practiceAttempt),
+            assessments = emptyList(),
+            now = java.time.Instant.parse("2026-11-25T12:00:00Z")
+        )
+        assertEquals(1, report.questionAttemptsCount)
+        assertNull(report.firstTryAccuracyPercent)
+        assertNull(report.latestAccuracyPercent)
+    }
+
+    @Test
     fun learningProgressReportMeasuresFollowUpAfterReinforcementOnlyOnSharedQuestions() {
         val questions = (1..2).map { index ->
             QuestionItem(
