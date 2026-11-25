@@ -1985,7 +1985,10 @@ class EduMiniRepository(
         answeredAt = answeredAt
     )
 
-    private fun sha256Full(text: String): String = MessageDigest.getInstance("SHA-256")\n        .digest(text.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }\n\n    private fun sha256Short(text: String): String? {
+    private fun sha256Full(text: String): String = MessageDigest.getInstance("SHA-256")
+        .digest(text.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+
+    private fun sha256Short(text: String): String? {
         if (text.isBlank()) return null
         val digest = MessageDigest.getInstance("SHA-256")
             .digest(text.toByteArray(Charsets.UTF_8))
