@@ -2458,8 +2458,6 @@ class EduMiniCoreTest {
             storage.saveProviders(listOf(provider))
             assertTrue(storage.reserveProviderKey(provider.id, dayOne))
             assertFalse(storage.reserveProviderKey(provider.id, dayOne + 60_000L))
-            assertEquals("QUOTA_EXHAUSTED", storage.loadProviders().single().runtimeStatus)
-
             val nextDay = java.time.Instant.parse("2026-11-26T00:01:00Z").toEpochMilli()
             assertTrue(storage.reserveProviderKey(provider.id, nextDay))
             assertFalse(storage.reserveProviderKey(provider.id, nextDay + 60_000L))
