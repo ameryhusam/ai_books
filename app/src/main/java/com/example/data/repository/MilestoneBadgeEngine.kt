@@ -102,7 +102,7 @@ object MilestoneBadgeEngine {
         val completedBooksCount = bookProgress.count { it.totalLessons > 0 && it.completedLessons == it.totalLessons }
         val bestStreak = maxOf(streak.currentStreakDays, streak.longestStreakDays)
 
-        return listOf(
+        val generalBadges = listOf(
             AchievementBadge(
                 id = "badge_first_lesson",
                 title = "أول درس مكتمل",
@@ -192,5 +192,29 @@ object MilestoneBadgeEngine {
                 requirementLabel = "أكمل 100% من دروس أي كتاب مستورد"
             )
         )
+        val subjectMilestones = bookProgress.flatMap { progress ->
+            val subjectTitle = progress.book.subjectName?.takeIf { it.isNotBlank() }
+                ?: progress.book.title
+            listOf(25, 50, 75, 100).map { target ->
+                val achieved = progress.totalLessons > 0 && progress.completionPercent >= target
+                AchievementBadge(
+                    id = "badge_subject_${progress.book.bookKey}_$target",
+                    title = if (target == 100) "بطل $subjectTitle" else "$subjectTitle • إنجاز $target%",
+                    subtitle = "التقدم في مادة $subjectTitle",
+                    unlocked = achieved,
+                    pointsBonus = when (target) {
+                        25 -> 10
+                        50 -> 20
+                        75 -> 30
+                        else -> 50
+                    },
+                    category = if (target == 100) BadgeCategory.MASTERY else BadgeCategory.MILESTONE,
+                    currentProgress = progress.completionPercent.coerceAtMost(target),
+                    targetProgress = target,
+                    requirementLabel = "أكمل $target% من دروس $subjectTitle"
+                )
+            }
+        }
+        return generalBadges + subjectMilestones
     }
 }
