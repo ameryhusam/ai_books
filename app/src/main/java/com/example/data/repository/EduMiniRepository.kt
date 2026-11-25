@@ -400,7 +400,8 @@ class EduMiniRepository(
         attachPdfPages: Boolean,
         questionStyleHint: String = "",
         difficultyHint: String = "",
-        template: PromptTemplateRecord? = null
+        template: PromptTemplateRecord? = null,
+        onProgress: (percent: Int, stage: String) -> Unit = { _, _ -> }
     ): GeneratedResult {
         val extractedText = if (!lesson.sourceTextPath.isNullOrBlank() && appContext != null) {
             UriIO.readText(appContext, lesson.sourceTextPath).orEmpty().trim()
@@ -416,10 +417,12 @@ class EduMiniRepository(
                 if (textFile.isFile) textFile.readText(Charsets.UTF_8).trim() else ""
             } else ""
         } else ""
+        onProgress(8, "قراءة نص الدرس ومعلومات المصدر")
         val effectiveSource = listOf(source.trim(), extractedText)
             .filter { it.isNotBlank() }
             .distinct()
             .joinToString("\n\n")
+        onProgress(18, "تجهيز ملف PDF الأصلي")
         val pdfPayload = if (attachPdfPages && !lesson.pdfPath.isNullOrBlank()) {
             aiGenerationService.extractLessonPdfBase64(lesson.pdfPath)
         } else null
@@ -428,6 +431,7 @@ class EduMiniRepository(
         val pageImages = if (attachPdfPages && providers.any { it.provider == com.example.model.ProviderType.OPENAI_COMPATIBLE && it.enabled }) {
             aiGenerationService.extractLessonPdfPageImagesBase64(lesson.pdfPath)
         } else emptyList()
+        onProgress(32, "تجهيز المرفقات ومخطط الاستجابة")
         require(effectiveSource.isNotBlank() || pdfPayload != null || pageImages.isNotEmpty()) {
             "لم يتم تجهيز نص أو ملف PDF صالح؛ تحقق من مسار ملف الدرس ثم أعد المحاولة."
         }
@@ -455,6 +459,7 @@ class EduMiniRepository(
         ).joinToString("|")
         val requestSeedHash = sha256Full(requestSeed)
         val startedMs = System.currentTimeMillis()
+        onProgress(42, "إرسال البرومبت والمرفق إلى مزود الذكاء الاصطناعي")
         val result = aiGenerationService.generate(
             lesson = lesson,
             task = task,
@@ -495,7 +500,9 @@ class EduMiniRepository(
                 )
             }
         )
+        onProgress(88, "التحقق من الاستجابة ومواءمة الحقول مع نموذج التطبيق")
         val adaptedText = TemplateResponseAdapter.adapt(result.text, activeTemplate?.responseMappingJson.orEmpty())
+        onProgress(96, "حساب بصمات المصدر والقالب والمحتوى")
         return if (adaptedText == result.text) result else result.copy(
             text = adaptedText,
             contentHash = sha256Full(adaptedText)
