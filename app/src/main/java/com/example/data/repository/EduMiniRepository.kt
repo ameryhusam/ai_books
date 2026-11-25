@@ -1497,7 +1497,9 @@ class EduMiniRepository(
 
     suspend fun exportIndexer2Zip(
         outputStream: OutputStream,
-        workspace: ImportedWorkspace
+        workspace: ImportedWorkspace,
+        learnerProfiles: List<LearnerProfile> = emptyList(),
+        activeLearnerId: String = LearnerProfile.DEFAULT_USER_ID
     ): ExportReceipt = withContext(Dispatchers.IO) {
         val drafts = dao.observeDraftsForWorkspace(workspace.workspaceId, workspace.rootPath).first()
         val questionEntities = dao.observeQuestionsForWorkspace(workspace.workspaceId).first()
@@ -1519,7 +1521,9 @@ class EduMiniRepository(
             notes = notes,
             studyDays = studyDays,
             templates = templates,
-            questionAttempts = qAttempts
+            questionAttempts = qAttempts,
+            learnerProfiles = learnerProfiles,
+            activeLearnerId = activeLearnerId
         )
         WorkspaceExporter.exportIndexer2CompatibleZip(
             outputStream = outputStream,
@@ -1534,7 +1538,9 @@ class EduMiniRepository(
 
     suspend fun exportFullBackupJson(
         outputStream: OutputStream,
-        workspace: ImportedWorkspace
+        workspace: ImportedWorkspace,
+        learnerProfiles: List<LearnerProfile> = emptyList(),
+        activeLearnerId: String = LearnerProfile.DEFAULT_USER_ID
     ): Int = withContext(Dispatchers.IO) {
         val drafts = dao.observeDraftsForWorkspace(workspace.workspaceId, workspace.rootPath).first()
         val questions = dao.observeQuestionsForWorkspace(workspace.workspaceId).first()
@@ -1555,7 +1561,9 @@ class EduMiniRepository(
             notes = notes,
             studyDays = studyDays,
             templates = templates,
-            questionAttempts = qAttempts
+            questionAttempts = qAttempts,
+            learnerProfiles = learnerProfiles,
+            activeLearnerId = activeLearnerId
         )
         outputStream.writer(Charsets.UTF_8).use { writer ->
             writer.write(payload)
@@ -1751,6 +1759,28 @@ class EduMiniRepository(
                     version = t.version
                 )
             )
+        }
+        if (bundle.learnerProfiles.isNotEmpty()) {
+            val restoredProfiles = bundle.learnerProfiles
+                .map { LearnerProfile(userId = it.userId, displayName = it.displayName) }
+                .filter { it.userId.isNotBlank() && it.displayName.isNotBlank() }
+                .distinctBy { it.userId }
+                .let { profiles ->
+                    if (profiles.any { it.userId == LearnerProfile.DEFAULT_USER_ID }) profiles
+                    else listOf(LearnerProfile.DEFAULT) + profiles
+                }
+            if (restoredProfiles.isNotEmpty()) {
+                val restoredActiveId = bundle.activeLearnerId.takeIf { id ->
+                    restoredProfiles.any { it.userId == id }
+                } ?: restoredProfiles.first().userId
+                writeLearnerPrefs(
+                    "edumini_learner_profiles",
+                    mapOf(
+                        "profiles_json" to json.encodeToString(restoredProfiles),
+                        "active_learner_id" to restoredActiveId
+                    )
+                )
+            }
         }
         "تمت استعادة ${bundle.drafts.size} مسودة، ${bundle.questions.size} سؤال، ${bundle.assessments.size} تقييم، و${bundle.teacherNotes.size} ملاحظة بنجاح."
     }
