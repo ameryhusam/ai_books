@@ -423,12 +423,21 @@ class EduMiniRepository(
             .distinct()
             .joinToString("\n\n")
         onProgress(18, "تجهيز ملف PDF الأصلي")
-        val pdfPayload = if (attachPdfPages && !lesson.pdfPath.isNullOrBlank()) {
+        val attachmentMode = activeTemplate?.sourceAttachmentMode ?: "pdf_native"
+        val shouldAttachSource = attachPdfPages && attachmentMode != "none"
+        val pdfPayload = if (shouldAttachSource && attachmentMode == "pdf_native" &&
+            providers.any { it.provider == com.example.model.ProviderType.GEMINI && it.enabled } &&
+            !lesson.pdfPath.isNullOrBlank()
+        ) {
             aiGenerationService.extractLessonPdfBase64(lesson.pdfPath)
         } else null
         // OpenAI-compatible chat endpoints do not share a universal native-PDF contract.
         // Rendered page images are retained as a compatibility fallback for those providers.
-        val pageImages = if (attachPdfPages && providers.any { it.provider == com.example.model.ProviderType.OPENAI_COMPATIBLE && it.enabled }) {
+        val needsRenderedPages = shouldAttachSource && (
+            attachmentMode == "rendered_pages" ||
+                providers.any { it.provider == com.example.model.ProviderType.OPENAI_COMPATIBLE && it.enabled }
+            )
+        val pageImages = if (needsRenderedPages) {
             aiGenerationService.extractLessonPdfPageImagesBase64(lesson.pdfPath)
         } else emptyList()
         onProgress(32, "تجهيز المرفقات ومخطط الاستجابة")
@@ -447,6 +456,7 @@ class EduMiniRepository(
         val requestSeed = listOf(
             activeTemplate?.id.orEmpty(),
             activeTemplate?.version?.toString().orEmpty(),
+            attachmentMode,
             task.id,
             lesson.grade,
             lesson.bookKey,
