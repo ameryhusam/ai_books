@@ -180,6 +180,35 @@ class EduMiniCoreTest {
     }
 
     @Test
+    fun importerSupportsIndexer2IndependentSourceDirectory() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val importer = WorkspaceImporter(context)
+        val zipBytes = createTestZip(
+            mapOf(
+                "workspace/G07/ENG/COURSE/source-key-P01/book_manifest.json" to """{"title":"English Part One"}""",
+                "workspace/G07/ENG/COURSE/source-key-P01/index.json" to """
+                    {
+                      "units": [{
+                        "unitKey": "unit_01",
+                        "title": "Unit One",
+                        "partKey": "P01",
+                        "lessons": [{"lessonKey":"lesson_01","title":"Lesson One"}]
+                      }]
+                    }
+                """.trimIndent(),
+                "workspace/G07/ENG/COURSE/source-key-P01/P01/units/unit_01/lesson_01.pdf" to "%PDF-1.4 sample"
+            )
+        )
+        val imported = importer.importFromStream(ByteArrayInputStream(zipBytes), zipBytes.size.toLong())
+        assertEquals("G07", imported.gradeKey)
+        assertEquals(1, imported.books.size)
+        assertEquals("ENG", imported.books.first().subjectKey)
+        assertEquals("COURSE", imported.books.first().componentKey)
+        assertEquals("ENG/COURSE/source-key-P01", imported.books.first().bookKey)
+    }
+
+    @Test
+    fun importerRejectsZipSlipPath() = runBlocking {    @Test
     fun importerRejectsZipSlipPath() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val importer = WorkspaceImporter(context)
