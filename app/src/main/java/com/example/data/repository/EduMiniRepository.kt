@@ -1997,8 +1997,14 @@ class EduMiniRepository(
         return dao.observeDraftsForWorkspace(workspaceId, rootPath).first().map { it.toDraftRecord() }
     }
 
-    suspend fun getWorkspaceProgressSnapshot(workspaceId: String): List<LessonProgressEntity> {
-        return dao.observeProgressForWorkspace(workspaceId).first()
+    suspend fun getWorkspaceProgressSnapshot(
+        workspaceId: String,
+        userId: String = LearnerProfile.DEFAULT_USER_ID
+    ): List<LessonProgressEntity> {
+        return dao.observeProgressForWorkspace(
+            workspaceId,
+            userId.ifBlank { LearnerProfile.DEFAULT_USER_ID }
+        ).first()
     }
 
     companion object {
