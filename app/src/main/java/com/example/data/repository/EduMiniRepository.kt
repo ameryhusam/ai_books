@@ -437,7 +437,6 @@ class EduMiniRepository(
         }
         val activeTemplate = template ?: DEFAULT_PROMPT_TEMPLATES.firstOrNull { it.task == task }
         val responseSchema = activeTemplate?.responseSchemaJson
-            ?.takeIf { it.isNotBlank() }
             ?: Indexer2PromptRegistry.blueprintFor(task).schemaSnippet
         val responseFormat = activeTemplate?.responseFormat
             ?: if (responseSchema.isNotBlank()) "json" else "text"
