@@ -1,9 +1,15 @@
 package com.example
 
 import androidx.test.core.app.ApplicationProvider
+import androidx.room.Room
 import com.example.data.ai.AiGenerationService
 import com.example.data.ai.Indexer2PromptRegistry
 import com.example.data.local.DraftEntity
+import com.example.data.local.BookEntity
+import com.example.data.local.LessonEntity
+import com.example.data.local.WorkspaceEntity
+import com.example.data.local.WorkspaceIndexEntity
+import com.example.data.local.WorkspaceUnitEntity
 import com.example.data.local.GenerationRunEntity
 import com.example.data.local.EduMiniDatabase
 import com.example.data.local.LessonProgressEntity
@@ -1145,6 +1151,7 @@ class EduMiniCoreTest {
             File(g04Math, "index.json").writeText(
                 """
                 {
+                  "metadata": {"subjectName": "الرياضيات"},
                   "units": [
                     {
                       "unitKey": "unit_01",
@@ -1209,6 +1216,11 @@ class EduMiniCoreTest {
             assertEquals("G04", bound.workspace.gradeKey)
             assertEquals(1, bound.workspace.books.size)
             assertEquals(1, bound.workspace.lessons.size)
+            assertEquals("الرياضيات", bound.workspace.books.first().subjectName)
+            assertEquals(1, bound.workspace.indexRecords.size)
+            assertTrue(bound.workspace.indexRecords.first().indexSha256.matches(Regex("^[a-f0-9]{64}$")))
+            assertEquals(1, bound.workspace.units.size)
+            assertEquals("الكسور", bound.workspace.units.first().title)
 
             val boundLesson = bound.workspace.lessons.first()
             assertEquals(pdfFile.absolutePath, boundLesson.pdfPath)
@@ -1223,6 +1235,93 @@ class EduMiniCoreTest {
             assertFalse(privateWorkspacesDir.exists())
         } finally {
             rootDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun directWorkspaceCatalogSyncUpdatesIndexAndUnitRowsWithoutDuplicates() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val database = Room.inMemoryDatabaseBuilder(context, EduMiniDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            val dao = database.eduMiniDao()
+            val workspace = WorkspaceEntity(
+                workspaceId = "direct-G07-test",
+                gradeKey = "G07",
+                rootPath = "content://test/tree/root",
+                title = "G07",
+                filesCount = 4,
+                warningsJson = "[]",
+                importedAt = 1L
+            )
+            val book = BookEntity(
+                workspaceId = workspace.workspaceId,
+                bookKey = "SCI/COURSE/BOOK",
+                title = "العلوم",
+                subjectKey = "SCI",
+                componentKey = "COURSE",
+                relativePath = "G07/SCI/COURSE/BOOK",
+                lessonsCount = 1,
+                subjectName = "العلوم"
+            )
+            val lesson = LessonEntity(
+                workspaceId = workspace.workspaceId,
+                grade = "G07",
+                rootPath = workspace.rootPath,
+                bookKey = book.bookKey,
+                bookTitle = book.title,
+                subjectKey = book.subjectKey,
+                componentKey = book.componentKey,
+                unitKey = "P01_unit_01",
+                unitTitle = "الوحدة الأولى",
+                lessonKey = "lesson_01",
+                title = "الدرس الأول",
+                partKey = "P01",
+                pageRange = "1–3",
+                pdfPath = "content://test/document/lesson01.pdf"
+            )
+            val index = WorkspaceIndexEntity(
+                workspaceId = workspace.workspaceId,
+                bookKey = book.bookKey,
+                indexUri = "content://test/document/index.json",
+                indexRelativePath = "G07/SCI/COURSE/BOOK/index.json",
+                manifestUri = "content://test/document/book_manifest.json",
+                manifestRelativePath = "G07/SCI/COURSE/BOOK/book_manifest.json",
+                indexSha256 = "a".repeat(64),
+                manifestSha256 = "b".repeat(64),
+                indexSchemaVersion = "1",
+                manifestVersion = "edu.book_manifest.v1",
+                lastSyncedAt = 10L
+            )
+            val unit = WorkspaceUnitEntity(
+                workspaceId = workspace.workspaceId,
+                bookKey = book.bookKey,
+                unitKey = "P01_unit_01",
+                title = "الوحدة الأولى",
+                partKey = "P01",
+                sortOrder = 0,
+                sourceIndexPath = index.indexUri
+            )
+
+            dao.syncDirectWorkspaceCatalog(workspace, listOf(book), listOf(lesson), listOf(index), listOf(unit))
+            val changedIndex = index.copy(indexSha256 = "c".repeat(64), lastSyncedAt = 20L)
+            val changedUnit = unit.copy(title = "الوحدة الأولى المعدلة")
+            val changedLesson = lesson.copy(title = "الدرس الأول المعدل")
+            dao.syncDirectWorkspaceCatalog(
+                workspace.copy(importedAt = 2L),
+                listOf(book),
+                listOf(changedLesson),
+                listOf(changedIndex),
+                listOf(changedUnit)
+            )
+
+            assertEquals(1, dao.observeBooksForWorkspace(workspace.workspaceId).first().size)
+            assertEquals("الدرس الأول المعدل", dao.observeLessonsForWorkspace(workspace.workspaceId).first().single().title)
+            assertEquals("c".repeat(64), dao.observeWorkspaceIndexes(workspace.workspaceId).first().single().indexSha256)
+            assertEquals("الوحدة الأولى المعدلة", dao.observeWorkspaceUnits(workspace.workspaceId).first().single().title)
+        } finally {
+            database.close()
         }
     }
 
