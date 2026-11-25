@@ -245,3 +245,61 @@ Continue from the merged repository state and the contracts above. Before changi
 5. Implement deterministic response records and learning analytics before building AI-based recommendations.
 6. Add concept integration/transfer assessment and evidence-based early warnings.
 7. Add optional cross-model review only after the primary workflow is stable.
+
+---
+
+## 9. Main-branch continuation update — 2026-11-26
+
+This section supersedes the earlier handoff's merge-readiness snapshot. It records the subsequent provider-isolation merge and the verified source corrections applied directly to `main`.
+
+### 9.1 Merge record
+
+- **Merged PR:** [#2 — Merge provider isolation and Gemini routing foundation](https://github.com/ameryhusam/ai_books/pull/2)
+- **Source branch:** `feat/provider-isolation-local-workspace`
+- **Source head:** `08e7fc833af92e305fb0f38c864a2e145a9a35da`
+- **Merge commit on main:** `f6d2eea946653a8311de140bb6a227fdd1efc83e`
+- **Merge result:** GitHub confirmed `merged=true`.
+- **PR change set:** 26 commits, 12 files, 381 additions, 21 deletions.
+- The merge brought explicit Gemini/OpenAI selection, provider-profile isolation, Gemini model-level cooldown/routing, bounded retries, provider-routing tests, and the implementation roadmap into `main`.
+
+### 9.2 Build & Missing UI corrections applied directly to main
+
+| Area | Finding from current source | Main-branch change / status |
+|---|---|---|
+| Room singleton | `EduMiniDatabase.getInstance(context)` had no declared return type although callers use its result as `EduMiniDatabase`. | **Fixed:** explicit return type `: EduMiniDatabase`. No database schema or migration change. |
+| MessageDigest | `MessageDigest` import is present in the merged `AiGenerationService.kt` and in `WorkspaceImporter.kt`. | **Already present:** no redundant import edit was made. |
+| WorkspaceImporter duplication | Two identical implementations of `verifyExportManifest` and `collectRelativeFiles` existed in the same source file. URI and stream import entry points also repeated the same first-grade commit logic. | **Fixed:** removed the second identical helper pair and extracted shared `importFirstGrade(preview)` logic. ZIP safety, manifest SHA-256 validation, and import behavior are retained. |
+| MainViewModel flow initialization | `learningProgressReport` combined `workspaceQuestionAttempts` before that StateFlow was initialized in declaration order. | **Fixed:** moved the `workspaceQuestionAttempts` StateFlow declaration before `learningProgressReport`. |
+| MainUiState provenance | Existing ViewModel code read/wrote active-draft provenance properties that were missing from `MainUiState`. | **Fixed:** added template ID/version, response-schema hash, request fingerprint, content hash, and source-PDF hash fields; wired values from generated output and local/cloud draft loading. Edited draft saves refresh the content hash from the newly persisted record. |
+| Dashboard remediation callback | `DashboardScreen` already declared and invoked `onGenerateConceptRemediation`; `EduMiniApp` already passed `viewModel::generateConceptRemediation`. | **Already wired:** no duplicate callback or second route was added. |
+| Generation progress | Nullable `state.generationProgressPercent` was read directly inside the Compose progress lambda. | **Fixed:** capture it in a local `generationProgressPercent` value before the null check and use the stable local value in the progress UI. |
+| Reinforcement dialog | `EduMiniApp` imported and invoked `ConceptReinforcementQuizDialog`, but the referenced screen source file did not exist on `main`. | **Implemented:** added `ConceptReinforcementQuizDialog.kt` with per-question answer/check flow, answer feedback, session result, and one completion callback to record attempts. |
+
+### 9.3 Files changed in this continuation
+
+- `app/src/main/java/com/example/data/local/EduMiniDatabase.kt`
+- `app/src/main/java/com/example/data/workspace/WorkspaceImporter.kt`
+- `app/src/main/java/com/example/ui/MainViewModel.kt`
+- `app/src/main/java/com/example/ui/EduMiniApp.kt`
+- `app/src/main/java/com/example/ui/screens/ConceptReinforcementQuizDialog.kt` (new)
+- `docs/AI_STUDIO_CONTINUATION_CHANGELOG.md` (this update)
+
+### 9.4 Validation status and remaining acceptance gate
+
+The source edits above are committed to `main`. **They are not yet build-verified.** The earlier GitHub Actions failures did not expose usable job steps or compiler logs, and the previous local clone attempt was blocked by DNS resolution. Do not report `:app:compileDebugKotlin`, `:app:testDebugUnitTest`, or `:app:assembleDebug` as passing until their actual output is available.
+
+Required acceptance commands:
+
+```bash
+./gradlew :app:compileDebugKotlin
+./gradlew :app:testDebugUnitTest
+./gradlew :app:assembleDebug
+```
+
+Additional targeted checks:
+- Verify the new reinforcement dialog records attempts exactly once on successful session completion and records no incomplete session when dismissed.
+- Verify `MainUiState` provenance survives local draft load, cloud draft load, generation, and edited-draft persistence.
+- Verify the Room singleton change does not alter database version or migration registration.
+- Verify ZIP manifest validation still rejects path traversal, missing files, byte-count mismatches, and SHA-256 mismatches after helper deduplication.
+
+**Status:** implementation committed; compile, unit tests, and Android assembly remain pending until CI or a local Android/Gradle environment returns inspectable results.
