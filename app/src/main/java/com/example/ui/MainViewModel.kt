@@ -1711,7 +1711,7 @@ class MainViewModel(
 
     fun updateProviderType(type: ProviderType) {
         _uiState.update { state ->
-            val defaultLabel = if (type == ProviderType.GEMINI) "Gemini" else "Compatible"
+            val defaultLabel = if (type == ProviderType.GEMINI) "Gemini" else "OpenAI"
             val updatedLabel = if (state.providerForm.editingProviderId == null) defaultLabel else state.providerForm.label
             state.copy(
                 providerForm = state.providerForm.copy(
