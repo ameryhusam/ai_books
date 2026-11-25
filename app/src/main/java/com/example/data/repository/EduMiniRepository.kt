@@ -1939,8 +1939,21 @@ class EduMiniRepository(
         responseSchemaJson: String = "",
         responseMappingJson: String = "",
         responseFormat: String = if (responseSchemaJson.isBlank()) "text" else "json",
-        sourceAttachmentMode: String = "pdf_native"
+        sourceAttachmentMode: String = "pdf_native",
+        templateId: String? = null
     ) {
+        if (!templateId.isNullOrBlank()) {
+            dao.updatePromptTemplate(
+                templateId = templateId,
+                title = title.trim(),
+                instructions = instructions.trim(),
+                responseSchemaJson = responseSchemaJson.trim(),
+                responseMappingJson = responseMappingJson.trim(),
+                responseFormat = responseFormat,
+                sourceAttachmentMode = sourceAttachmentMode
+            )
+            return
+        }
         dao.insertPromptTemplate(
             PromptTemplateEntity(
                 id = "tpl-${System.currentTimeMillis()}-${UUID.randomUUID().toString().take(5)}",
