@@ -31,15 +31,17 @@ object TemplateResponseAdapter {
         val aliases = mapping["fields"] as? JsonObject
         val rootArrayName = (mapping["rootArray"] as? kotlinx.serialization.json.JsonPrimitive)
             ?.contentOrNull?.takeIf { it.isNotBlank() }
+        val targetArrayName = (mapping["targetArray"] as? kotlinx.serialization.json.JsonPrimitive)
+            ?.contentOrNull?.takeIf { it.isNotBlank() } ?: "questions"
         val parsed = runCatching { json.parseToJsonElement(stripFence(raw)) }.getOrNull() ?: return raw
 
         val normalized = when (parsed) {
             is JsonObject -> {
                 val root = parsed.toMutableMap()
-                if (rootArrayName != null && rootArrayName != "questions") {
+                if (rootArrayName != null && rootArrayName != targetArrayName) {
                     val array = root[rootArrayName]
-                    if (array != null && root["questions"] == null) {
-                        root["questions"] = array
+                    if (array != null && root[targetArrayName] == null) {
+                        root[targetArrayName] = array
                     }
                 }
                 JsonObject(root.mapValues { (_, value) -> remapRecursively(value, aliases) })
