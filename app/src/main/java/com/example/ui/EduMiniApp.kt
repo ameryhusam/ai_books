@@ -48,6 +48,7 @@ import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -387,23 +388,54 @@ private fun AuthenticatedEduMiniContent(
 
                             Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
                                 AnimatedVisibility(visible = state.isBusy) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 16.dp, vertical = 6.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        CircularProgressIndicator(
-                                            color = EduGreen,
-                                            strokeWidth = 2.5.dp,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                        Text(
-                                            text = stringResource(R.string.busy_working),
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = EduMuted
-                                        )
+                                    if (state.generationProgressPercent != null) {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 16.dp, vertical = 7.dp),
+                                            verticalArrangement = Arrangement.spacedBy(5.dp)
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                Text(
+                                                    text = state.generationStage ?: "جارٍ تجهيز المحتوى",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = EduMuted
+                                                )
+                                                Text(
+                                                    text = "${state.generationProgressPercent}%",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = EduGreenDark
+                                                )
+                                            }
+                                            LinearProgressIndicator(
+                                                progress = { (state.generationProgressPercent / 100f).coerceIn(0f, 1f) },
+                                                modifier = Modifier.fillMaxWidth(),
+                                                color = EduGreen
+                                            )
+                                        }
+                                    } else {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 16.dp, vertical = 6.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            CircularProgressIndicator(
+                                                color = EduGreen,
+                                                strokeWidth = 2.5.dp,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                            Text(
+                                                text = stringResource(R.string.busy_working),
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = EduMuted
+                                            )
+                                        }
                                     }
                                 }
 
