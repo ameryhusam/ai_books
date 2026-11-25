@@ -61,6 +61,8 @@ import com.example.model.CloudDraft
 import com.example.model.GenerationRunRecord
 import com.example.model.LessonProgress
 import com.example.model.PromptTemplateRecord
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
 import com.example.model.ProviderConfig
 import com.example.model.ProviderType
 import com.example.model.SyncUiState
@@ -132,6 +134,7 @@ fun SettingsScreen(
     var newTplSchema by remember { mutableStateOf("") }
     var newTplMapping by remember { mutableStateOf("") }
     var editingTemplateId by remember { mutableStateOf<String?>(null) }
+    var templateValidationError by remember { mutableStateOf<String?>(null) }
 
     Box(
         modifier = modifier.fillMaxSize(),
@@ -706,6 +709,9 @@ fun SettingsScreen(
                         ),
                         modifier = Modifier.fillMaxWidth().testTag("new_template_response_mapping_input")
                     )
+                    templateValidationError?.let { error ->
+                        Text(error, style = MaterialTheme.typography.bodySmall, color = EduRed)
+                    }
                     Text(
                         text = "يُحفظ المخطط مع القالب ويُرسل ضمن البرومبت. اتركه فارغاً للمخرجات النصية.",
                         style = MaterialTheme.typography.bodySmall,
@@ -714,12 +720,19 @@ fun SettingsScreen(
                     OutlinedButton(
                         onClick = {
                             if (newTplTitle.isNotBlank() && newTplInstructions.isNotBlank()) {
-                                onSavePromptTemplate(newTplTitle, newTplTask, newTplInstructions, newTplSchema, newTplMapping, editingTemplateId)
-                                newTplTitle = ""
-                                newTplInstructions = ""
-                                newTplSchema = ""
-                                newTplMapping = ""
-                                editingTemplateId = null
+                                val schemaValid = newTplSchema.isBlank() || runCatching { Json.parseToJsonElement(newTplSchema).jsonObject }.isSuccess
+                                val mappingValid = newTplMapping.isBlank() || runCatching { Json.parseToJsonElement(newTplMapping).jsonObject }.isSuccess
+                                if (!schemaValid || !mappingValid) {
+                                    templateValidationError = "مخطط الاستجابة وخريطة الحقول يجب أن يكونا JSON object صالحين."
+                                } else {
+                                    templateValidationError = null
+                                    onSavePromptTemplate(newTplTitle, newTplTask, newTplInstructions, newTplSchema, newTplMapping, editingTemplateId)
+                                    newTplTitle = ""
+                                    newTplInstructions = ""
+                                    newTplSchema = ""
+                                    newTplMapping = ""
+                                    editingTemplateId = null
+                                }
                             }
                         },
                         enabled = newTplTitle.isNotBlank() && newTplInstructions.isNotBlank(),
