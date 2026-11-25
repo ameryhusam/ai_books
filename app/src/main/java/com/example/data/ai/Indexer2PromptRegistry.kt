@@ -337,7 +337,7 @@ object Indexer2PromptRegistry {
                 append("\n")
             }
             if (attachedPdfPagesCount > 0) {
-                append("ملاحظة: مرفق مع هذا الطلب $attachedPdfPagesCount صفحة مصورة من ملف PDF الخاص بالدرس لاستخراج المحتوى والاعتماد عليها.\n")
+                append("ملاحظة: ملف PDF الأصلي للدرس مرفق مع البرومبت كمدخل متعدد الوسائط؛ استخدم محتواه والصفحات المرجعية المحددة.\n")
             }
             if (source.isNotBlank()) {
                 append("المصدر النصي:\n")
