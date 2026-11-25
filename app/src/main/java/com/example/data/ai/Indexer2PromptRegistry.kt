@@ -319,8 +319,8 @@ object Indexer2PromptRegistry {
             if (task == TaskType.QUESTIONS || task == TaskType.INTERACTIVE) {
                 append("العدد المطلوب من العناصر: $safeCount.\n")
             }
-            if (questionStyleHint.isNotBlank()) append("تنسيق/تنويع العناصر المطلوب: $questionStyleHint.\\n")
-            if (difficultyHint.isNotBlank()) append("مستوى الصعوبة المطلوب: $difficultyHint.\\n")
+            if (questionStyleHint.isNotBlank()) append("تنسيق/تنويع العناصر المطلوب: $questionStyleHint.\n")
+            if (difficultyHint.isNotBlank()) append("مستوى الصعوبة المطلوب: $difficultyHint.\n")
             if (promptTemplate.isNotBlank()) {
                 append("\nتعليمات المهمة المرجعية من ملف ${blueprint.sourcePath}:\n")
                 append(promptTemplate.trim())
