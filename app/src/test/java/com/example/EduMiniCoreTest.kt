@@ -2177,6 +2177,7 @@ class EduMiniCoreTest {
         assertEquals(67, report.estimatedRecallDropPercent)
         assertEquals(3, report.delayedRecallSampleCount)
         assertEquals(1, report.recurringMistakes.size)
+        assertEquals(listOf("fractions"), report.recurringConceptTags)
         assertEquals("1/3", report.recurringMistakes.single().selectedAnswer)
         assertEquals(2, report.recurringMistakes.single().occurrences)
         assertEquals(80, report.weeklyAssessments.single().averageScorePercent)
