@@ -51,6 +51,8 @@ import com.example.model.QuestionItem
 import com.example.model.QuestionType
 import com.example.model.SecuritySeverity
 import com.example.model.TaskType
+import com.example.model.ProviderConfig
+import com.example.model.ProviderType
 import com.example.model.UnitCompletionStatus
 import com.example.ui.components.LearningProgressCalculator
 import kotlinx.coroutines.flow.first
@@ -2432,6 +2434,36 @@ class EduMiniCoreTest {
         assertEquals(setOf("learner_a", "learner_b"), restored.progress.map { it.userId }.toSet())
         assertEquals(setOf("learner_a", "learner_b"), restored.studyDayRecords.map { it.userId }.toSet())
         assertEquals(3, restored.studyDayRecords.first { it.userId == "learner_a" }.actionsCount)
+    }
+
+    @Test
+    fun providerQuotaReservationFreezesKeyUntilNextTimezoneDay() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val storage = ProviderStorage(context)
+        val dayOne = java.time.Instant.parse("2026-11-25T10:00:00Z").toEpochMilli()
+        val provider = ProviderConfig(
+            id = "quota-test-key",
+            provider = ProviderType.GEMINI,
+            label = "Quota test",
+            model = "gemini-test",
+            baseUrl = "",
+            apiKey = "not-a-real-key",
+            enabled = true,
+            createdAt = dayOne,
+            dailyRequestLimit = 1,
+            quotaTimeZone = "UTC"
+        )
+
+        runBlocking {
+            storage.saveProviders(listOf(provider))
+            assertTrue(storage.reserveProviderKey(provider.id, dayOne))
+            assertFalse(storage.reserveProviderKey(provider.id, dayOne + 60_000L))
+            assertEquals("QUOTA_EXHAUSTED", storage.loadProviders().single().runtimeStatus)
+
+            val nextDay = java.time.Instant.parse("2026-11-26T00:01:00Z").toEpochMilli()
+            assertTrue(storage.reserveProviderKey(provider.id, nextDay))
+            assertEquals(1, storage.loadProviders().single().dailyRequestsUsed)
+        }
     }
 
     @Test
