@@ -191,7 +191,8 @@ data class GenerationRunEntity(
 
 @Entity(
     tableName = "lesson_progress",
-    primaryKeys = ["workspace_id", "book_key", "unit_key", "lesson_key", "user_id"]
+    primaryKeys = ["workspace_id", "book_key", "unit_key", "lesson_key", "user_id"],
+    indices = [Index(name = "idx_lesson_progress_ws_user", value = ["workspace_id", "user_id"])]
 )
 data class LessonProgressEntity(
     @ColumnInfo(name = "workspace_id") val workspaceId: String,
@@ -204,7 +205,7 @@ data class LessonProgressEntity(
     @ColumnInfo(name = "user_id", defaultValue = "'learner_default'") val userId: String = "learner_default"
 )
 
-@Entity(tableName = "study_days", primaryKeys = ["activity_date", "user_id"])
+@Entity(tableName = "study_days", primaryKeys = ["activity_date", "user_id"], indices = [Index(name = "idx_study_days_user_date", value = ["user_id", "activity_date"])])
 data class StudyDayEntity(
     @ColumnInfo(name = "activity_date") val activityDate: String,
     @ColumnInfo(name = "actions_count") val actionsCount: Int = 1,
@@ -1195,6 +1196,14 @@ abstract class EduMiniDatabase : RoomDatabase() {
                 """.trimIndent())
                 db.execSQL("DROP TABLE study_days")
                 db.execSQL("ALTER TABLE study_days_new RENAME TO study_days")
+                db.execSQL("""
+                    CREATE INDEX IF NOT EXISTS idx_lesson_progress_ws_user
+                    ON lesson_progress (workspace_id, user_id)
+                """.trimIndent())
+                db.execSQL("""
+                    CREATE INDEX IF NOT EXISTS idx_study_days_user_date
+                    ON study_days (user_id, activity_date)
+                """.trimIndent())
 
                 db.execSQL("ALTER TABLE assessment_attempts ADD COLUMN user_id TEXT NOT NULL DEFAULT 'learner_default'")
                 db.execSQL("""
