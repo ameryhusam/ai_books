@@ -18,6 +18,7 @@ import com.example.data.repository.ConceptMasteryEngine
 import com.example.data.repository.EduMiniRepository
 import com.example.data.repository.InteractiveActivityParser
 import com.example.data.repository.LearningProgressAnalytics
+import com.example.data.repository.LessonSequenceGate
 import com.example.data.repository.MilestoneBadgeEngine
 import com.example.data.repository.QuestionBankEngine
 import com.example.data.security.ProviderStorage
@@ -2028,6 +2029,31 @@ class EduMiniCoreTest {
         } finally {
             db.close()
         }
+    }
+
+    @Test
+    fun lessonSequenceGateRequiresEveryEarlierLessonToBePassed() {
+        val first = sampleLesson()
+        val second = first.copy(lessonKey = "lesson_02", title = "الدرس الثاني")
+        val third = first.copy(lessonKey = "lesson_03", title = "الدرس الثالث")
+        val ordered = listOf(first, second, third)
+
+        assertTrue(LessonSequenceGate.isUnlocked(first, ordered, emptySet()))
+        assertFalse(LessonSequenceGate.isUnlocked(second, ordered, emptySet()))
+        assertFalse(
+            LessonSequenceGate.isUnlocked(
+                third,
+                ordered,
+                setOf(LessonSequenceGate.key(second))
+            )
+        )
+        assertTrue(
+            LessonSequenceGate.isUnlocked(
+                third,
+                ordered,
+                setOf(LessonSequenceGate.key(first), LessonSequenceGate.key(second))
+            )
+        )
     }
 
     @Test
