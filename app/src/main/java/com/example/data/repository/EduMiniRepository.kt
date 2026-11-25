@@ -360,7 +360,9 @@ class EduMiniRepository(
         } else {
             dao.saveWorkspaceGraph(workspaceEntity, bookEntities, lessonEntities)
         }
-        recordStudyActivity()
+        if (imported.indexRecords.isEmpty()) {
+            recordStudyActivity()
+        }
     }
 
     suspend fun loadProviders(): List<ProviderConfig> = providerStorage.loadProviders()
