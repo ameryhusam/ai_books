@@ -1183,8 +1183,9 @@ class MainViewModel(
     }
 
     fun recordInteractiveActivityCompleted(earnedXp: Int) {
+        val activeUserId = _uiState.value.activeLearner.userId
         viewModelScope.launch {
-            repository.recordStudyActivity()
+            repository.recordStudyActivity(userId = activeUserId)
             _uiState.update {
                 it.copy(
                     activeInteractiveActivity = null,
@@ -1198,8 +1199,9 @@ class MainViewModel(
     }
 
     fun recordStudentInteractiveCompletion(earnedXp: Int) {
+        val activeUserId = _uiState.value.activeLearner.userId
         viewModelScope.launch {
-            repository.recordStudyActivity()
+            repository.recordStudyActivity(userId = activeUserId)
             _uiState.update {
                 it.copy(
                     toastMessage = "أحسنت! أتممت النشاط التفاعلي (+$earnedXp XP) — انتقل الآن لاختبار نهاية الدرس"
