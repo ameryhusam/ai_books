@@ -34,7 +34,12 @@ object LearningProgressAnalytics {
 
         if (ordered.isEmpty() && assessments.isEmpty()) return LearningProgressReport()
 
-        val byQuestion = ordered.groupBy { it.questionId }
+        // Do not let reinforcement-practice responses inflate the main learning score.
+        // Practice attempts remain available for error-pattern and support-impact analysis.
+        val measuredAttempts = ordered.filterNot {
+            it.sourceMode.equals("reinforcement", ignoreCase = true)
+        }
+        val byQuestion = measuredAttempts.groupBy { it.questionId }
         val firstPerQuestion = byQuestion.values.mapNotNull { rows ->
             rows.minByOrNull { parseInstant(it.answeredAt) ?: Instant.MAX }
         }
@@ -44,7 +49,7 @@ object LearningProgressAnalytics {
         val initialAccuracy = percent(firstPerQuestion.count { it.isCorrect }, firstPerQuestion.size)
         val latestAccuracy = percent(latestPerQuestion.count { it.isCorrect }, latestPerQuestion.size)
 
-        val concepts = ordered.groupBy { it.conceptTag.trim().ifBlank { "غير مصنف" } }
+        val concepts = measuredAttempts.groupBy { it.conceptTag.trim().ifBlank { "غير مصنف" } }
         val stableConcepts = concepts.count { (_, rows) ->
             val latestByQuestion = rows.groupBy { it.questionId }.values.mapNotNull { group ->
                 group.maxByOrNull { parseInstant(it.answeredAt) ?: Instant.MIN }
