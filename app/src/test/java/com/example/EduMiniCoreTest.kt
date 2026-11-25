@@ -2716,4 +2716,46 @@ class EduMiniCoreTest {
         assertEquals(1, report.stableConceptsCount)
     }
 
+
+    @Test
+    fun studioPreviewCheckpointAttemptsDoNotAffectLearnerMasteryOrProgress() {
+        val question = QuestionItem(
+            id = "studio-preview-q",
+            workspaceId = "ws-preview",
+            gradeKey = "G07",
+            bookKey = "SCI",
+            unitKey = "unit-01",
+            lessonKey = "lesson-01",
+            lessonTitle = "الطاقة",
+            type = QuestionType.MCQ,
+            prompt = "ما مصدر الطاقة؟",
+            options = listOf("الشمس", "القمر"),
+            correctAnswer = "الشمس",
+            rationale = "التفسير",
+            difficulty = QuestionDifficulty.EASY,
+            conceptTag = "energy"
+        )
+        val previewAttempt = QuestionAttemptRecord(
+            id = "studio-preview-attempt",
+            workspaceId = "ws-preview",
+            userId = "learner_default",
+            questionId = question.id,
+            conceptTag = "energy",
+            selectedAnswer = "القمر",
+            isCorrect = false,
+            sourceMode = "studio_preview",
+            answeredAt = "2026-11-25T10:00:00Z"
+        )
+        val mastery = ConceptMasteryEngine.computeQuestionStats(listOf(question), listOf(previewAttempt))
+        assertEquals(MasteryStatus.UNSEEN, mastery.getValue(question.id).status)
+        val report = LearningProgressAnalytics.calculate(
+            questions = listOf(question),
+            attempts = listOf(previewAttempt),
+            assessments = emptyList()
+        )
+        assertEquals(0, report.questionAttemptsCount)
+        assertNull(report.firstTryAccuracyPercent)
+        assertNull(report.latestAccuracyPercent)
+    }
+
 }
