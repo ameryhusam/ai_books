@@ -306,7 +306,7 @@ class AiGenerationService(
                         val reason = e.message?.takeIf { it.isNotBlank() } ?: "فشل"
                         errors.add("${profile.label}/$modelName: $reason")
                         onAttemptFinished?.invoke(profile.label, modelName, false, reason)
-                        val failureStatus = classifyProviderFailure(e, reason)
+                        val failureStatus = classifyProviderFailure(e, reason, profile.provider)
                         if (failureStatus == "QUOTA_EXHAUSTED") {
                             onProviderStateChanged?.invoke(profile.id, failureStatus, e.retryAfterEpochMs)
                             // A confirmed quota exhaustion is not a model-level saturation
@@ -630,14 +630,19 @@ class AiGenerationService(
         return (listOf(status) + reasons).filter { it.isNotBlank() }.joinToString(" ")
     }
 
-    private fun classifyProviderFailure(error: ProviderCallException, message: String): String {
+    private fun classifyProviderFailure(
+        error: ProviderCallException,
+        message: String,
+        provider: ProviderType
+    ): String {
         val signals = "${error.providerReason} $message".lowercase()
         return when {
             error.httpCode == 401 || error.httpCode == 403 ||
                 Regex("invalid api.?key|api key not valid|unauthorized|authentication failed")
                     .containsMatchIn(signals) -> "INVALID_KEY"
-            Regex("quota_exceeded|quota exceeded|quota exhausted|daily quota|insufficient quota|billing limit")
-                .containsMatchIn(signals) -> "QUOTA_EXHAUSTED"
+            provider == ProviderType.GEMINI &&
+                Regex("quota_exceeded|quota exceeded|quota exhausted|daily quota|insufficient quota|billing limit")
+                    .containsMatchIn(signals) -> "QUOTA_EXHAUSTED"
             Regex("rate_limit_exceeded|rate.?limit|too many requests|requests per minute|tokens per minute|retry after")
                 .containsMatchIn(signals) -> "RATE_LIMITED"
             error.httpCode == 429 -> "RATE_LIMITED"
