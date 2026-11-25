@@ -70,6 +70,39 @@ data class LessonEntity(
 )
 
 @Entity(
+    tableName = "workspace_indexes",
+    primaryKeys = ["workspace_id", "book_key"]
+)
+data class WorkspaceIndexEntity(
+    @ColumnInfo(name = "workspace_id") val workspaceId: String,
+    @ColumnInfo(name = "book_key") val bookKey: String,
+    @ColumnInfo(name = "index_uri") val indexUri: String,
+    @ColumnInfo(name = "index_relative_path") val indexRelativePath: String,
+    @ColumnInfo(name = "manifest_uri") val manifestUri: String?,
+    @ColumnInfo(name = "manifest_relative_path") val manifestRelativePath: String?,
+    @ColumnInfo(name = "index_sha256") val indexSha256: String,
+    @ColumnInfo(name = "manifest_sha256") val manifestSha256: String?,
+    @ColumnInfo(name = "index_schema_version") val indexSchemaVersion: String?,
+    @ColumnInfo(name = "manifest_version") val manifestVersion: String?,
+    @ColumnInfo(name = "last_synced_at") val lastSyncedAt: Long
+)
+
+@Entity(
+    tableName = "workspace_units",
+    primaryKeys = ["workspace_id", "book_key", "unit_key"],
+    indices = [Index(value = ["workspace_id", "book_key", "part_key"])]
+)
+data class WorkspaceUnitEntity(
+    @ColumnInfo(name = "workspace_id") val workspaceId: String,
+    @ColumnInfo(name = "book_key") val bookKey: String,
+    @ColumnInfo(name = "unit_key") val unitKey: String,
+    @ColumnInfo(name = "title") val title: String,
+    @ColumnInfo(name = "part_key") val partKey: String?,
+    @ColumnInfo(name = "sort_order") val sortOrder: Int,
+    @ColumnInfo(name = "source_index_path") val sourceIndexPath: String
+)
+
+@Entity(
     tableName = "generation_drafts",
     indices = [
         Index(
@@ -316,7 +349,45 @@ interface EduMiniDao {
         insertLessons(lessons)
     }
 
+    @Query("DELETE FROM workspace_indexes WHERE workspace_id = :workspaceId")
+    suspend fun deleteWorkspaceIndexes(workspaceId: String)
+
+    @Query("DELETE FROM workspace_units WHERE workspace_id = :workspaceId")
+    suspend fun deleteWorkspaceUnits(workspaceId: String)
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertWorkspaceIndexes(indexes: List<WorkspaceIndexEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertWorkspaceUnits(units: List<WorkspaceUnitEntity>)
+
+    @Transaction
+    suspend fun syncDirectWorkspaceCatalog(
+        workspace: WorkspaceEntity,
+        books: List<BookEntity>,
+        lessons: List<LessonEntity>,
+        indexes: List<WorkspaceIndexEntity>,
+        units: List<WorkspaceUnitEntity>
+    ) {
+        insertWorkspace(workspace)
+        deleteLessonsByWorkspace(workspace.workspaceId)
+        deleteBooksByWorkspace(workspace.workspaceId)
+        deleteWorkspaceIndexes(workspace.workspaceId)
+        deleteWorkspaceUnits(workspace.workspaceId)
+        if (books.isNotEmpty()) insertBooks(books)
+        if (lessons.isNotEmpty()) insertLessons(lessons)
+        if (indexes.isNotEmpty()) insertWorkspaceIndexes(indexes)
+        if (units.isNotEmpty()) insertWorkspaceUnits(units)
+    }
+
+    @Query("SELECT * FROM workspace_indexes WHERE workspace_id = :workspaceId ORDER BY book_key")
+    fun observeWorkspaceIndexes(workspaceId: String): Flow<List<WorkspaceIndexEntity>>
+
+    @Query("SELECT * FROM workspace_units WHERE workspace_id = :workspaceId ORDER BY book_key, sort_order")
+    fun observeWorkspaceUnits(workspaceId: String): Flow<List<WorkspaceUnitEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertDraft(draft: DraftEntity)    @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertDraft(draft: DraftEntity)
 
     @Query(
@@ -647,6 +718,8 @@ interface EduMiniDao {
         WorkspaceEntity::class,
         BookEntity::class,
         LessonEntity::class,
+        WorkspaceIndexEntity::class,
+        WorkspaceUnitEntity::class,
         DraftEntity::class,
         InteractivePackageEntity::class,
         GenerationRunEntity::class,
@@ -659,7 +732,7 @@ interface EduMiniDao {
         TeacherNoteEntity::class,
         PromptTemplateEntity::class
     ],
-    version = 9,
+    version = 10,
     exportSchema = false
 )
 abstract class EduMiniDatabase : RoomDatabase() {
@@ -914,6 +987,49 @@ abstract class EduMiniDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS workspace_indexes (
+                        workspace_id TEXT NOT NULL,
+                        book_key TEXT NOT NULL,
+                        index_uri TEXT NOT NULL,
+                        index_relative_path TEXT NOT NULL,
+                        manifest_uri TEXT,
+                        manifest_relative_path TEXT,
+                        index_sha256 TEXT NOT NULL,
+                        manifest_sha256 TEXT,
+                        index_schema_version TEXT,
+                        manifest_version TEXT,
+                        last_synced_at INTEGER NOT NULL,
+                        PRIMARY KEY(workspace_id, book_key)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS workspace_units (
+                        workspace_id TEXT NOT NULL,
+                        book_key TEXT NOT NULL,
+                        unit_key TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        part_key TEXT,
+                        sort_order INTEGER NOT NULL,
+                        source_index_path TEXT NOT NULL,
+                        PRIMARY KEY(workspace_id, book_key, unit_key)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_workspace_units_part
+                    ON workspace_units (workspace_id, book_key, part_key)
+                    """.trimIndent()
+                )
+            }
+        }
+
         fun getInstance(context: Context): EduMiniDatabase {
             return instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -929,7 +1045,8 @@ abstract class EduMiniDatabase : RoomDatabase() {
                         MIGRATION_5_6,
                         MIGRATION_6_7,
                         MIGRATION_7_8,
-                        MIGRATION_8_9
+                        MIGRATION_8_9,
+                        MIGRATION_9_10
                     )
                     .build()
                     .also { instance = it }
