@@ -734,7 +734,21 @@ private fun AuthenticatedEduMiniContent(
                     InteractiveJsonActivityDialog(
                         activity = activity,
                         onCompleted = viewModel::recordInteractiveActivityCompleted,
-                        onDismiss = viewModel::dismissInteractiveActivity
+                        onDismiss = viewModel::dismissInteractiveActivity,
+                        onCheckpointAnswered = { step, selectedOption, isCorrect ->
+                            state.activeInteractiveLesson?.let { lesson ->
+                                viewModel.recordInteractiveQuestionAttempt(
+                                    lesson = lesson,
+                                    prompt = step.checkpointQuestion.ifBlank { step.title },
+                                    conceptTag = step.conceptTag.ifBlank { lesson.title },
+                                    selectedAnswer = selectedOption,
+                                    correctAnswer = step.checkpointAnswer,
+                                    isCorrect = isCorrect,
+                                    options = step.checkpointOptions,
+                                    sourceMode = "studio_preview"
+                                )
+                            }
+                        }
                     )
                 }
 
