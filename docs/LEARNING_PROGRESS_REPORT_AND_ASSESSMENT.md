@@ -58,7 +58,7 @@ This is an observational association after practice. It does **not** isolate the
 
 The learner sees:
 - overall lesson completion;
-- points and earned badges;
+- points earned through learning progress and learning badges (authoring/creation badge bonuses are excluded from the learner's displayed score);
 - latest performance summary;
 - a positive next-step message;
 - a general review action.
