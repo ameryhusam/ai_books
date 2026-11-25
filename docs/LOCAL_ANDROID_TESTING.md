@@ -11,7 +11,8 @@ Linux / macOS:
   --tests "com.example.EduMiniCoreTest.directWorkspaceBinderInspectsMultiGradeAndBindsSingleGradeInPlaceWithoutCopying" \
   --tests "com.example.EduMiniCoreTest.directWorkspaceBinderRejectsComponentKeyThatConflictsWithIndexPath" \
   --tests "com.example.EduMiniCoreTest.directWorkspaceCatalogSyncUpdatesIndexAndUnitRowsWithoutDuplicates" \
-  --tests "com.example.EduMiniCoreTest.roomEnforcesStableBookAndLessonIdentityWithinWorkspace"
+  --tests "com.example.EduMiniCoreTest.roomEnforcesStableBookAndLessonIdentityWithinWorkspace" --tests "com.example.EduMiniCoreTest.learnerProgressStudyDaysAndAssessmentAttemptsAreIsolated" \
+  --tests "com.example.EduMiniCoreTest.learnerProgressStudyDaysAndAssessmentAttemptsAreIsolated"
 ```
 
 Windows:
@@ -25,7 +26,7 @@ These focused tests exercise:
 - English Course and Workbook indexes at `G07/ENG/COURSE/index.json` and `G07/ENG/WORKBOOK/index.json`.
 - Social Studies indexes at `G07/SOC/GEO/index.json`, `G07/SOC/HIST/index.json`, and `G07/SOC/TARBIA/index.json`.
 - Index/manifest component identity, nested component-root binding, grade discovery, and zero-copy binding.
-- Room uniqueness for `(workspaceId, bookKey)` and `(workspaceId, bookKey, unitKey, lessonKey)`, including replacement of updated records without duplicate rows.
+- Room uniqueness for `(workspaceId, bookKey)` and `(workspaceId, bookKey, unitKey, lessonKey)`, including replacement of updated records without duplicate rows.\n- Learner isolation for lesson progress, study-day activity, and assessment attempts in the same workspace.
 
 ## Run the full JVM unit-test suite
 
