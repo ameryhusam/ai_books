@@ -237,6 +237,7 @@ fun DashboardScreen(
             item(key = "dashboard_hero") {
                 DashboardHeroCard(
                     summary = summary,
+                    isLearner = isLearner,
                     onOpenGlobalSearch = onOpenGlobalSearch
                 )
             }
@@ -313,7 +314,7 @@ fun DashboardScreen(
                 }
 
                 item(key = "kpi_grid") {
-                    DashboardKpiGrid(summary = summary)
+                    DashboardKpiGrid(summary = summary, isLearner = isLearner)
                 }
 
                 if (!isLearner) {
@@ -534,6 +535,7 @@ fun DashboardScreen(
 @Composable
 private fun DashboardHeroCard(
     summary: DashboardSummary,
+    isLearner: Boolean,
     onOpenGlobalSearch: () -> Unit
 ) {
     val animatedCompletion by animateFloatAsState(
@@ -624,7 +626,7 @@ private fun DashboardHeroCard(
                             color = EduWhite
                         )
                         Text(
-                            text = "${summary.totalPoints} نقطة XP • جاهزية المحتوى ${summary.preparationPercent}%",
+                            text = if (isLearner) "${summary.totalPoints} نقطة XP • واصل رحلتك التعليمية" else "${summary.totalPoints} نقطة XP • جاهزية المحتوى ${summary.preparationPercent}%",
                             style = MaterialTheme.typography.bodyMedium,
                             color = EduHeroSub
                         )
@@ -742,10 +744,42 @@ private fun CompletionRing(
 }
 
 @Composable
-private fun DashboardKpiGrid(summary: DashboardSummary) {
+private fun DashboardKpiGrid(summary: DashboardSummary, isLearner: Boolean = false) {
     BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
         val isWide = maxWidth >= 680.dp
-        if (isWide) {
+        if (isLearner) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    KpiCard(
+                        title = "نسبة الإنجاز",
+                        value = "${summary.overallCompletionPercent}%",
+                        subtitle = "من دروس الكتاب",
+                        icon = Icons.Rounded.Route,
+                        accent = EduGreen,
+                        modifier = Modifier.weight(1f)
+                    )
+                    KpiCard(
+                        title = "الدروس المكتملة",
+                        value = "${summary.completedLessons}/${summary.totalLessons}",
+                        subtitle = "خطوات أنجزتها",
+                        icon = Icons.Rounded.Check,
+                        accent = EduBlue,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                KpiCard(
+                    title = "نقاطك",
+                    value = "${summary.totalPoints}",
+                    subtitle = "تُكسبها بالتعلم والاجتياز",
+                    icon = Icons.Rounded.Bolt,
+                    accent = EduOrange,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        } else if (isWide) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
