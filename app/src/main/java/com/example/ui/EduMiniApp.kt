@@ -387,7 +387,7 @@ private fun AuthenticatedEduMiniContent(
                             }
 
                             Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
-                                val generationProgressPercent = generationProgressPercent
+                                val generationProgressPercent = state.generationProgressPercent
                                 AnimatedVisibility(visible = state.isBusy) {
                                     if (generationProgressPercent != null) {
                                         Column(
