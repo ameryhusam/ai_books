@@ -1462,11 +1462,11 @@ class EduMiniCoreTest {
 
         val attempts = listOf(
             // q3 is always answered correctly -> MASTERED
-            QuestionAttemptRecord("a1", "ws-mastery", "q-3", "الكسور المتكافئة", "أ", true, answeredAt = "2026-01-01T10:00:00Z"),
-            QuestionAttemptRecord("a2", "ws-mastery", "q-3", "الكسور المتكافئة", "أ", true, answeredAt = "2026-01-02T10:00:00Z"),
+            QuestionAttemptRecord(id = "a1", workspaceId = "ws-mastery", questionId = "q-3", conceptTag = "الكسور المتكافئة", selectedAnswer = "أ", isCorrect = true, answeredAt = "2026-01-01T10:00:00Z"),
+            QuestionAttemptRecord(id = "a2", workspaceId = "ws-mastery", questionId = "q-3", conceptTag = "الكسور المتكافئة", selectedAnswer = "أ", isCorrect = true, answeredAt = "2026-01-02T10:00:00Z"),
             // q1 was wrong once then right -> mixed => NEEDS_REINFORCEMENT
-            QuestionAttemptRecord("a3", "ws-mastery", "q-1", "توحيد المقامات", "ب", false, answeredAt = "2026-01-01T11:00:00Z"),
-            QuestionAttemptRecord("a4", "ws-mastery", "q-1", "توحيد المقامات", "أ", true, answeredAt = "2026-01-02T11:00:00Z")
+            QuestionAttemptRecord(id = "a3", workspaceId = "ws-mastery", questionId = "q-1", conceptTag = "توحيد المقامات", selectedAnswer = "ب", isCorrect = false, answeredAt = "2026-01-01T11:00:00Z"),
+            QuestionAttemptRecord(id = "a4", workspaceId = "ws-mastery", questionId = "q-1", conceptTag = "توحيد المقامات", selectedAnswer = "أ", isCorrect = true, answeredAt = "2026-01-02T11:00:00Z")
         )
 
         val stats = ConceptMasteryEngine.computeQuestionStats(listOf(q1, q2, q3, q4), attempts)
