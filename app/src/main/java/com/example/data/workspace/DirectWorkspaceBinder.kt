@@ -585,6 +585,7 @@ class DirectWorkspaceBinder(private val context: Context) {
         val subjectKey: String,
         val componentKey: String?,
         val pathComponentKey: String?,
+        val componentPathIsAuthoritative: Boolean,
         val componentMetadataMismatch: Boolean,
         val bookKey: String,
         val bookRelPath: String,
@@ -660,7 +661,7 @@ class DirectWorkspaceBinder(private val context: Context) {
                     val bookKey = segments.drop(2).joinToString("/")
                     result.add(
                         BookIndexSlot(
-                            grade, "workspace/$grade", subject, component, pathComponent, componentMetadataMismatch,
+                            grade, "workspace/$grade", subject, component, pathComponent, true, componentMetadataMismatch,
                             bookKey, bookRel, entry
                         )
                     )
@@ -674,7 +675,7 @@ class DirectWorkspaceBinder(private val context: Context) {
                     val bookKey = segments.drop(1).joinToString("/")
                     result.add(
                         BookIndexSlot(
-                            grade, grade, subject, component, pathComponent, componentMetadataMismatch,
+                            grade, grade, subject, component, pathComponent, true, componentMetadataMismatch,
                             bookKey, bookRel, entry
                         )
                     )
@@ -704,10 +705,15 @@ class DirectWorkspaceBinder(private val context: Context) {
                     }
                     val pathComponent = relativeBookSegments.firstOrNull()?.takeIf { it.isNotBlank() }
                     val component = componentFromMetadata(pathComponent)
-                    val bookKey = (listOf(subject) + relativeBookSegments).distinct().joinToString("/")
+                    val bookKeyParts = if (relativeBookSegments.isEmpty() && component != null) {
+                        listOf(subject, component)
+                    } else {
+                        listOf(subject) + relativeBookSegments
+                    }
+                    val bookKey = bookKeyParts.distinct().joinToString("/")
                     result.add(
                         BookIndexSlot(
-                            detectedGrade, "", subject, component, pathComponent, componentMetadataMismatch,
+                            detectedGrade, "", subject, component, pathComponent, relativeBookSegments.isNotEmpty(), componentMetadataMismatch,
                             bookKey, bookRel, entry
                         )
                     )
@@ -721,7 +727,7 @@ class DirectWorkspaceBinder(private val context: Context) {
         if (slot.componentMetadataMismatch) {
             return "componentKey غير متطابق بين index.json وbook_manifest.json."
         }
-        if (!slot.componentKey.equals(slot.pathComponentKey, ignoreCase = true)) {
+        if (slot.componentPathIsAuthoritative && !slot.componentKey.equals(slot.pathComponentKey, ignoreCase = true)) {
             return "componentKey في الفهرس لا يطابق مجلد المكون في المسار " +
                 "(${slot.componentKey ?: "بدون مكون"} مقابل ${slot.pathComponentKey ?: "بدون مكون"})."
         }
