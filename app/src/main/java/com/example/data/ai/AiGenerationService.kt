@@ -259,10 +259,15 @@ class AiGenerationService(
                 configuredModelCandidates
             }
             if (modelCandidates.isEmpty()) {
-                errors.add("${profile.label}: جميع نماذج Gemini الاحتياطية في فترة انتظار مؤقتة")
+                val message = "${profile.label}: جميع نماذج Gemini الاحتياطية في فترة انتظار مؤقتة"
+                errors.add(message)
+                if (profile.provider == ProviderType.GEMINI) {
+                    throw IllegalStateException("$message؛ لن ننتقل تلقائياً إلى مفتاح Google آخر لتجاوز حد المعدل.")
+                }
                 continue
             }
 
+            var geminiRateLimitObserved = false
             modelLoop@ for (modelName in modelCandidates) {
                 val candidateProfile = profile.copy(model = modelName)
                 val expectJson = responseFormat.equals("json", ignoreCase = true) || responseSchemaJson.isNotBlank()
@@ -319,6 +324,7 @@ class AiGenerationService(
                         }
 
                         if (e.httpCode == 429 && profile.provider == ProviderType.GEMINI) {
+                            geminiRateLimitObserved = true
                             geminiModelRouter.markCoolingDown(profile.id, modelName, e.retryAfterEpochMs)
                         } else if (failureStatus != "RATE_LIMITED" || profile.provider == ProviderType.OPENAI_COMPATIBLE) {
                             onProviderStateChanged?.invoke(profile.id, failureStatus, e.retryAfterEpochMs)
@@ -349,6 +355,13 @@ class AiGenerationService(
                     }
                     retry++
                 }
+            }
+
+            if (geminiRateLimitObserved) {
+                throw IllegalStateException(
+                    "${profile.label}: أعاد Gemini HTTP 429. تم احترام فترة الانتظار وتجربة نماذج هذا المفتاح فقط؛ لن يتم تدوير مفاتيح Google تلقائياً.",
+                    null
+                )
             }
         }
 
