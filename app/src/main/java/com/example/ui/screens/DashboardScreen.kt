@@ -104,6 +104,7 @@ import com.example.model.LearningNodeStatus
 import com.example.model.LearningUnitPath
 import com.example.model.LessonRef
 import com.example.model.StudentDashboardState
+import com.example.model.TaskType
 import com.example.model.UnitCompletionStatus
 import com.example.model.UserRole
 import com.example.ui.components.BookCoverImage
@@ -152,6 +153,7 @@ fun DashboardScreen(
     onOpenStudentStudy: (LessonRef) -> Unit = {},
     onPreviewLessonPdf: (LessonRef) -> Unit = {},
     onLaunchConceptReinforcement: (String?) -> Unit = {},
+    onGenerateConceptRemediation: (String?, TaskType) -> Unit = { _, _ -> },
     onOpenGlobalSearch: () -> Unit = {},
     onBindDirectFolder: () -> Unit = {},
     onPickBookPdf: () -> Unit = {},
@@ -1085,20 +1087,36 @@ private fun WeakConceptsReinforcementCard(
                                 color = EduMuted
                             )
                         }
-                        Button(
-                            onClick = { onLaunchConceptReinforcement(item.conceptTag) },
-                            shape = RoundedCornerShape(10.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = EduPurple,
-                                contentColor = EduWhite
-                            ),
-                            modifier = Modifier
-                                .minimumInteractiveComponentSize()
-                                .testTag("reinforce_concept_${item.conceptTag}")
-                        ) {
-                            Icon(Icons.Rounded.PlayArrow, contentDescription = null, modifier = Modifier.size(15.dp))
-                            Spacer(modifier = Modifier.width(3.dp))
-                            Text("تدريب", style = MaterialTheme.typography.labelSmall)
+                        Column(horizontalAlignment = Alignment.End) {
+                            Button(
+                                onClick = { onLaunchConceptReinforcement(item.conceptTag) },
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = EduPurple,
+                                    contentColor = EduWhite
+                                ),
+                                modifier = Modifier
+                                    .minimumInteractiveComponentSize()
+                                    .testTag("reinforce_concept_${item.conceptTag}")
+                            ) {
+                                Icon(Icons.Rounded.PlayArrow, contentDescription = null, modifier = Modifier.size(15.dp))
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text("تدريب", style = MaterialTheme.typography.labelSmall)
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                TextButton(
+                                    onClick = { onGenerateConceptRemediation(item.conceptTag, TaskType.EXPLANATION) },
+                                    modifier = Modifier.testTag("generate_explanation_${item.conceptTag}")
+                                ) {
+                                    Text("شرح تقوية", style = MaterialTheme.typography.labelSmall)
+                                }
+                                TextButton(
+                                    onClick = { onGenerateConceptRemediation(item.conceptTag, TaskType.QUESTIONS) },
+                                    modifier = Modifier.testTag("generate_adaptive_questions_${item.conceptTag}")
+                                ) {
+                                    Text("أسئلة تكيفية", style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
                         }
                     }
                 }
