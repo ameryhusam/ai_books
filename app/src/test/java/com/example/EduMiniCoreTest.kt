@@ -2049,8 +2049,25 @@ class EduMiniCoreTest {
 
     @Test
     fun reinforcementSelectionExcludesUnreviewedGeneratedQuestions() {
-        val approved = sampleQuestion().copy(id = "approved-q", reviewed = true, conceptTag = "fractions")
-        val pending = sampleQuestion().copy(id = "pending-q", reviewed = false, conceptTag = "fractions")
+        fun question(id: String, reviewed: Boolean) = QuestionItem(
+            id = id,
+            workspaceId = "ws-review",
+            gradeKey = "G04",
+            bookKey = "MATH",
+            unitKey = "unit_01",
+            lessonKey = "lesson_01",
+            lessonTitle = "الكسور",
+            type = QuestionType.MCQ,
+            prompt = "ما ناتج نصف الواحد؟",
+            options = listOf("1/2", "1/3"),
+            correctAnswer = "1/2",
+            rationale = "النصف جزء من جزأين متساويين",
+            difficulty = QuestionDifficulty.EASY,
+            reviewed = reviewed,
+            conceptTag = "fractions"
+        )
+        val approved = question("approved-q", true)
+        val pending = question("pending-q", false)
         val selected = ConceptMasteryEngine.selectReinforcementQuestions(
             questions = listOf(approved, pending),
             attempts = emptyList(),
