@@ -1005,7 +1005,7 @@ class EduMiniRepository(
             totalQuestions = summary.totalQuestions,
             scorePercent = summary.scorePercent,
             passed = passed,
-            lessonMarkedCompleted = passed,
+            lessonMarkedCompleted = existingProgress?.completed == true || passed,
             earnedXp = bonusXp + if (passed && existingProgress?.completed != true) POINTS_LESSON_COMPLETED else 0,
             weakConcepts = conceptSummaries.filter { it.status == MasteryStatus.NEEDS_REINFORCEMENT },
             masteredConcepts = conceptSummaries.filter { it.status == MasteryStatus.MASTERED }
