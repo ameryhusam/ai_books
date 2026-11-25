@@ -999,6 +999,8 @@ class EduMiniRepository(
         val conceptSummaries = ConceptMasteryEngine.computeConceptSummaries(questions, allAttempts)
         return LessonQuizCompletionResult(
             lessonKey = lesson.lessonKey,
+            bookKey = lesson.bookKey,
+            unitKey = lesson.unitKey,
             correctCount = summary.correctCount,
             totalQuestions = summary.totalQuestions,
             scorePercent = summary.scorePercent,
