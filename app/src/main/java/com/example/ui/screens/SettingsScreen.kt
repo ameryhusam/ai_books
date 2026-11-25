@@ -115,7 +115,7 @@ fun SettingsScreen(
     onMoveProvider: (String, Int) -> Unit,
     onDeleteProvider: (String) -> Unit,
     onClearRecentRuns: () -> Unit = {},
-    onSavePromptTemplate: (String, TaskType, String, String) -> Unit = { _, _, _, _ -> },
+    onSavePromptTemplate: (String, TaskType, String, String, String) -> Unit = { _, _, _, _, _ -> },
     onDeletePromptTemplate: (String) -> Unit = {},
     onUseTemplateInStudio: (PromptTemplateRecord) -> Unit = {},
     modifier: Modifier = Modifier
@@ -127,6 +127,7 @@ fun SettingsScreen(
     var newTplTask by remember { mutableStateOf(TaskType.EXPLANATION) }
     var newTplInstructions by remember { mutableStateOf("") }
     var newTplSchema by remember { mutableStateOf("") }
+    var newTplMapping by remember { mutableStateOf("") }
 
     Box(
         modifier = modifier.fillMaxSize(),
@@ -643,6 +644,26 @@ fun SettingsScreen(
                         modifier = Modifier.fillMaxWidth().testTag("new_template_response_schema_input")
                     )
                     Text(
+                        text = "خريطة توافق الحقول (اختيارية)",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = EduInk,
+                        modifier = Modifier.padding(top = 6.dp)
+                    )
+                    OutlinedTextField(
+                        value = newTplMapping,
+                        onValueChange = { newTplMapping = it },
+                        placeholder = { Text("""{"rootArray":"items","fields":{"prompt":"stem","options":"choices","correctAnswer":"answer"}}""") },
+                        minLines = 3,
+                        shape = RoundedCornerShape(12.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = EduFieldBg,
+                            unfocusedContainerColor = EduFieldBg,
+                            focusedBorderColor = EduGreen,
+                            unfocusedBorderColor = EduLine
+                        ),
+                        modifier = Modifier.fillMaxWidth().testTag("new_template_response_mapping_input")
+                    )
+                    Text(
                         text = "يُحفظ المخطط مع القالب ويُرسل ضمن البرومبت. اتركه فارغاً للمخرجات النصية.",
                         style = MaterialTheme.typography.bodySmall,
                         color = EduMuted
@@ -650,10 +671,11 @@ fun SettingsScreen(
                     OutlinedButton(
                         onClick = {
                             if (newTplTitle.isNotBlank() && newTplInstructions.isNotBlank()) {
-                                onSavePromptTemplate(newTplTitle, newTplTask, newTplInstructions, newTplSchema)
+                                onSavePromptTemplate(newTplTitle, newTplTask, newTplInstructions, newTplSchema, newTplMapping)
                                 newTplTitle = ""
                                 newTplInstructions = ""
                                 newTplSchema = ""
+                                newTplMapping = ""
                             }
                         },
                         enabled = newTplTitle.isNotBlank() && newTplInstructions.isNotBlank(),
