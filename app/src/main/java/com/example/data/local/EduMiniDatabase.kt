@@ -743,6 +743,9 @@ interface EduMiniDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPromptTemplate(template: PromptTemplateEntity)
 
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertPromptTemplates(templates: List<PromptTemplateEntity>)
+
     @Query("UPDATE prompt_templates SET title = :title, instructions = :instructions, response_schema_json = :responseSchemaJson, response_mapping_json = :responseMappingJson, response_format = :responseFormat, source_attachment_mode = :sourceAttachmentMode, version = version + 1 WHERE id = :templateId")
     suspend fun updatePromptTemplate(templateId: String, title: String, instructions: String, responseSchemaJson: String, responseMappingJson: String, responseFormat: String, sourceAttachmentMode: String)
 
