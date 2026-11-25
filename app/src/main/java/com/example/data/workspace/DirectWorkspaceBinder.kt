@@ -473,10 +473,10 @@ class DirectWorkspaceBinder(private val context: Context) {
         }
 
         if (validSlots.isEmpty()) {
-            val details = warnings.distinct().take(8).joinToString("\\n")
+            val details = warnings.distinct().take(8).joinToString("\n")
             throw IllegalArgumentException(
                 "لم يجتز أي كتاب التحقق الأولي؛ لم يتم تنفيذ الربط." +
-                    if (details.isBlank()) "" else "\\n$details"
+                    if (details.isBlank()) "" else "\n$details"
             )
         }
 
