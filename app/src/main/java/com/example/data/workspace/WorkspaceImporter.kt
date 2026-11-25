@@ -185,28 +185,58 @@ class WorkspaceImporter(private val context: Context) {
             val allFileSet = allFiles.toHashSet()
             val baseStamp = System.currentTimeMillis()
             gradesToImport.forEachIndexed { idx, gradeKey ->
+                val gradeFiles = allFiles.filter { it.startsWith("workspace/$gradeKey/") }
+                val validationWarnings = mutableListOf<String>()
+                val validatedPreview = parseGradeFromDir(
+                    baseDir = tempDir,
+                    destRootPath = tempDir.absolutePath,
+                    gradeKey = gradeKey,
+                    zipNames = gradeFiles,
+                    zipNameSet = allFileSet,
+                    warningsOut = validationWarnings
+                )
+                require(validatedPreview.books.isNotEmpty()) {
+                    "لم يجتز أي كتاب في الصف $gradeKey التحقق النهائي قبل النسخ."
+                }
+
                 val workspaceId = "import-${baseStamp}-$gradeKey-${idx + 1}"
                 val destDir = File(workspacesRoot.apply { mkdirs() }, workspaceId)
-                // Copy grade subtree + shared top metadata into dedicated workspace folder
-                val gradeSourceDir = File(tempDir, "workspace/$gradeKey")
-                if (gradeSourceDir.exists()) {
-                    val destGradeDir = File(destDir, "workspace/$gradeKey")
-                    gradeSourceDir.copyRecursively(destGradeDir, overwrite = true)
-                }
-                listOf("full_backup.json", "manifest.json").forEach { name ->
-                    val source = File(tempDir, name)
-                    if (source.isFile) source.copyTo(File(destDir, name), overwrite = true)
-                }
-                val warnings = mutableListOf<String>()
-                val parsed = parseGradeFromDir(
-                    baseDir = destDir,
-                    destRootPath = destDir.absolutePath,
-                    gradeKey = gradeKey,
-                    zipNames = allFiles.filter { it.startsWith("workspace/$gradeKey/") },
-                    zipNameSet = allFileSet,
-                    warningsOut = warnings
-                )
-                if (parsed.books.isNotEmpty()) {
+                try {
+                    val validBookFiles = validatedPreview.books.flatMap { book ->
+                        val bookPrefix = book.relativePath.trimEnd('/')
+                        allFiles.filter { it == bookPrefix || it.startsWith("$bookPrefix/") }
+                    }.distinct()
+                    require(validBookFiles.isNotEmpty()) {
+                        "لم يتم تحديد ملفات الكتب الصالحة للنسخ في الصف $gradeKey."
+                    }
+
+                    validatedPreview.books.forEach { book ->
+                        val sourceBookDir = File(tempDir, book.relativePath)
+                        val destinationBookDir = File(destDir, book.relativePath)
+                        val sourceCanonical = sourceBookDir.canonicalPath
+                        val tempCanonical = tempDir.canonicalPath + File.separator
+                        require(sourceCanonical.startsWith(tempCanonical) && sourceBookDir.isDirectory) {
+                            "مسار كتاب غير آمن أو غير موجود: ${book.relativePath}"
+                        }
+                        sourceBookDir.copyRecursively(destinationBookDir, overwrite = true)
+                    }
+                    listOf("full_backup.json", "manifest.json").forEach { name ->
+                        val source = File(tempDir, name)
+                        if (source.isFile) source.copyTo(File(destDir, name), overwrite = true)
+                    }
+
+                    val commitWarnings = validationWarnings.toMutableList()
+                    val parsed = parseGradeFromDir(
+                        baseDir = destDir,
+                        destRootPath = destDir.absolutePath,
+                        gradeKey = gradeKey,
+                        zipNames = validBookFiles,
+                        zipNameSet = validBookFiles.toSet(),
+                        warningsOut = commitWarnings
+                    )
+                    require(parsed.books.isNotEmpty()) {
+                        "فشل التحقق من الكتب بعد نسخها إلى مساحة العمل الداخلية للصف $gradeKey."
+                    }
                     committed.add(
                         ImportedWorkspace(
                             workspaceId = workspaceId,
@@ -215,11 +245,14 @@ class WorkspaceImporter(private val context: Context) {
                             title = "$gradeKey • ${parsed.books.size} كتاب",
                             books = parsed.books,
                             lessons = parsed.lessons,
-                            filesCount = allFiles.count { it.startsWith("workspace/$gradeKey/") },
-                            warnings = warnings.distinct(),
+                            filesCount = validBookFiles.size,
+                            warnings = commitWarnings.distinct(),
                             importedAt = baseStamp + idx
                         )
                     )
+                } catch (e: Exception) {
+                    destDir.deleteRecursively()
+                    throw e
                 }
             }
             if (committed.isEmpty()) {
