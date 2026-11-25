@@ -136,8 +136,20 @@ class FirestoreSyncRepository(
                     mapOf(
                         "title" to safeTitle,
                         "content" to safeContent,
+                        "templateId" to draft.templateId.take(160),
+                        "templateVersion" to draft.templateVersion.toLong().coerceIn(1L, 10_000L),
+                        "responseSchemaHash" to draft.responseSchemaHash.take(128),
+                        "requestFingerprint" to draft.requestFingerprint.take(128),
+                        "contentHash" to draft.contentHash.take(128),
+                        "sourcePdfHash" to draft.sourcePdfHash.take(128),
                         "status" to safeStatus,
                         "version" to safeVersion,
+                        "templateId" to draft.templateId.take(160),
+                        "templateVersion" to draft.templateVersion.toLong().coerceIn(1L, 10_000L),
+                        "responseSchemaHash" to draft.responseSchemaHash.take(128),
+                        "requestFingerprint" to draft.requestFingerprint.take(128),
+                        "contentHash" to draft.contentHash.take(128),
+                        "sourcePdfHash" to draft.sourcePdfHash.take(128),
                         "updatedAt" to FieldValue.serverTimestamp()
                     )
                 ).await()
