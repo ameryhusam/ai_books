@@ -2489,7 +2489,7 @@ class MainViewModel(
 
         generationJob?.cancel()
         generationJob = viewModelScope.launch {
-            _uiState.update { it.copy(isBusy = true) }
+            _uiState.update { it.copy(isBusy = true, generationProgressPercent = 2, generationStage = "بدء تجهيز الطلب") }
             try {
                 val out = repository.generateContent(
                     workspaceId = snapshot.workspace?.workspaceId.orEmpty(),
@@ -2584,7 +2584,7 @@ class MainViewModel(
                 }
             } finally {
                 generationJob = null
-                _uiState.update { it.copy(isBusy = false) }
+                _uiState.update { it.copy(isBusy = false, generationProgressPercent = null, generationStage = null) }
             }
         }
     }
@@ -2592,7 +2592,7 @@ class MainViewModel(
     fun cancelActiveGeneration() {
         generationJob?.cancel()
         generationJob = null
-        _uiState.update { it.copy(isBusy = false, toastMessage = "تم إيقاف التوليد") }
+        _uiState.update { it.copy(isBusy = false, generationProgressPercent = null, generationStage = null, toastMessage = "تم إيقاف التوليد") }
     }
 
     fun importInteractivePackage(uri: Uri) {
