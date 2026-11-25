@@ -65,6 +65,19 @@ This is evidence-guided generation, not a trained predictive ML model. Mastery r
 - `fullBackupPreservesLocalLearnerOwnership` verifies learner ownership survives backup serialization.
 - `directWorkspaceCatalogSyncUpdatesIndexAndUnitRowsWithoutDuplicates` now also verifies that catalog refresh preserves stable book and lesson row IDs.
 
+## Additional learning workflow changes (2026-11-25)
+
+- Added a role-aware learning progress report with first-attempt accuracy, latest accuracy, stable-concept evidence, delayed recall, recall gap, repeated wrong answers, recurring concepts, and weekly assessment trend.
+- Added a Markdown export through Android's document picker.
+- Added a learner-facing summary card that avoids showing individual wrong answers and misconception details. The detailed report remains in the current adult `ADMIN` view.
+- Replaced the learner mastery screen's concept-by-concept diagnostic list with a concise progress summary.
+- Added sequential lesson gating: a learner cannot open a later lesson in a book until all earlier lessons have passed their quizzes.
+- A failed retake no longer changes a previously completed lesson to incomplete in the returned completion state.
+- Lesson progress is no longer pushed to account-wide Firestore for non-default local learner profiles. The cloud contract remains unchanged.
+- Added per-book progress badges at 25%, 50%, 75%, and 100%.
+- Prevented unreviewed AI-generated questions from entering learner reinforcement practice, bank quizzes, flashcards, or new assessments. Existing timed assessments are blocked if one of their questions loses approval.
+- Added regression tests for report metrics, sequential lesson gates, badge thresholds, and question review safeguards.
+
 ## Deliberately deferred
 
 1. **Foreign keys and deletion policy:** curriculum refreshes must not accidentally cascade-delete drafts, questions, attempts, or progress. Define archival/retention behavior before adding foreign keys.
@@ -76,5 +89,7 @@ This is evidence-guided generation, not a trained predictive ML model. Mastery r
 ## Verification status
 
 The source and regression-test changes have been committed to `main`. This environment has not run Gradle, Room schema validation, the 14-to-15 migration on an existing device database, or Android assembly. A commit is not evidence that these checks passed.
+
+The progress report uses question-attempt and assessment-attempt history already stored in Room; no new Room entity or migration was introduced for the report. The learner progression policy is implemented in the ViewModel and tested as a pure policy, but a full UI/device test is still required to confirm every navigation entry point respects the gate.
 
 Run the focused and full commands in `docs/LOCAL_ANDROID_TESTING.md`. Before release, back up a real version-14 database and verify upgrade to version 15 while retaining existing records under `learner_default`.
