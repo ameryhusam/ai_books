@@ -5,7 +5,7 @@
 ### Source attachment behavior
 
 - Gemini requests receive the original lesson PDF as a native `inlineData` part with MIME type `application/pdf`, in the same user content as the assembled prompt.
-- The PDF is read from the existing lesson PDF reference. No permanent text/JSON copy of the lesson is created.
+- The PDF is read from the existing lesson PDF reference and is the generation source; generation no longer depends on a saved `.txt` sidecar. No permanent text/JSON copy of the lesson is created.
 - The local file is checked for a PDF signature and an 18 MiB limit before Base64 encoding.
 - OpenAI-compatible Chat Completions do not have one universal PDF attachment contract. For those profiles, the app renders lesson pages as JPEG image parts and sends those with the prompt. The provider-specific behavior is explicit rather than pretending every endpoint accepts PDF.
 - The current lesson PDF reference is expected to identify the lesson-level PDF. If it points to an entire book, the complete PDF is sent to Gemini; page-range extraction is not yet implemented for native PDF uploads.
