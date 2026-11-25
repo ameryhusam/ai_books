@@ -33,7 +33,7 @@ enum class DraftStatus(val id: String, val labelAr: String) {
 @Serializable
 enum class ProviderType(val id: String, val displayName: String) {
     GEMINI("gemini", "Gemini"),
-    OPENAI_COMPATIBLE("openai-compatible", "OpenAI Compatible");
+    OPENAI_COMPATIBLE("openai-compatible", "OpenAI");
 
     companion object {
         fun fromId(id: String): ProviderType = entries.firstOrNull { it.id == id } ?: GEMINI
