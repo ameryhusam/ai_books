@@ -502,7 +502,7 @@ class AiGenerationService(
                     ?.let { it as? JsonPrimitive }
                     ?.contentOrNull
                     ?: "API HTTP ${response.code}"
-                throw ProviderCallException(errMsg, isTransientHttp(response.code))
+                throw ProviderCallException(errMsg, isTransientHttp(response.code), response.code, retryAfterEpochMs(response))
             }
 
             val choices = jsonObj?.get("choices") as? JsonArray
