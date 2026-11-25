@@ -319,7 +319,8 @@ class EduMiniRepository(
                 pageRange = lesson.pageRange,
                 pdfPath = lesson.pdfPath,
                 sourceTextPath = lesson.sourceTextPath,
-                interactivePath = lesson.interactivePath
+                interactivePath = lesson.interactivePath,
+                printedPageRange = lesson.printedPageRange
             )
         }
         if (imported.indexRecords.isNotEmpty()) {
@@ -1941,7 +1942,8 @@ class EduMiniRepository(
         pdfPath = pdfPath,
         workspaceId = wsId,
         sourceTextPath = sourceTextPath,
-        interactivePath = interactivePath
+        interactivePath = interactivePath,
+        printedPageRange = printedPageRange
     )
 
     fun openOutputStreamForUri(uri: Uri): OutputStream? {
