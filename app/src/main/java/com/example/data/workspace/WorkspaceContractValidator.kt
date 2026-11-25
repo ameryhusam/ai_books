@@ -99,6 +99,7 @@ object WorkspaceContractValidator {
             val assignmentStatus = unit.string("assignmentStatus")
             if (canonical && partKey !in setOf("P01", "P02")) errors.add("الوحدة ${unitTitle.ifBlank { unitKey }} غير مسندة إلى P01 أو P02.")
             else if (!canonical && partKey.isBlank()) warnings.add("إسناد الجزء غير موجود للوحدة ${unitTitle.ifBlank { unitKey }}.")
+            if (canonical && assignmentStatus.isBlank()) warnings.add("حقل assignmentStatus غير موجود للوحدة ${unitTitle.ifBlank { unitKey }}؛ تم الاعتماد على partKey مع حالة مراجعة المصدر.")
             if (canonical && assignmentStatus.isNotBlank() && assignmentStatus != "assigned") errors.add("الوحدة ${unitTitle.ifBlank { unitKey }} تحتاج مراجعة إسناد الجزء.")
             if (unit.boolean("provisionalAssignment")) errors.add("الوحدة ${unitTitle.ifBlank { unitKey }} تحمل provisionalAssignment.")
 
