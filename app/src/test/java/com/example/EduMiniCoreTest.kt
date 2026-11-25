@@ -5,6 +5,7 @@ import androidx.room.Room
 import com.example.data.ai.AiGenerationService
 import com.example.data.ai.Indexer2PromptRegistry
 import com.example.data.ai.TemplateResponseAdapter
+import com.example.data.ai.TemplateOutputValidator
 import com.example.data.local.DraftEntity
 import com.example.data.local.BookEntity
 import com.example.data.local.LessonEntity
@@ -2756,6 +2757,39 @@ class EduMiniCoreTest {
         assertEquals(0, report.questionAttemptsCount)
         assertNull(report.firstTryAccuracyPercent)
         assertNull(report.latestAccuracyPercent)
+    }
+
+
+    @Test
+    fun templateOutputValidatorRejectsInvalidSchemaAndMalformedAiOutput() {
+        val schema = """
+            {
+              "type": "OBJECT",
+              "properties": {
+                "questions": {
+                  "type": "ARRAY",
+                  "items": {
+                    "type": "OBJECT",
+                    "properties": {
+                      "prompt": { "type": "STRING" },
+                      "correctAnswer": { "type": "STRING" }
+                    },
+                    "required": ["prompt", "correctAnswer"]
+                  }
+                }
+              },
+              "required": ["questions"]
+            }
+        """.trimIndent()
+        assertTrue(TemplateOutputValidator.validateSchema(schema).isEmpty())
+        val valid = """{"questions":[{"prompt":"ما ناتج 2+2؟","correctAnswer":"4"}]}"""
+        assertTrue(TemplateOutputValidator.validateOutput(valid, schema).isEmpty())
+        val invalid = """{"questions":[{"prompt":"ما ناتج 2+2؟","correctAnswer":4}]}"""
+        val issues = TemplateOutputValidator.validateOutput(invalid, schema)
+        assertTrue(issues.any { it.contains("correctAnswer") && it.contains("expected string") })
+        val malformedSchema = """{"type":"OBJECT","properties":{"prompt":{"type":"MAGIC"}}}"""
+        assertTrue(TemplateOutputValidator.validateSchema(malformedSchema).isNotEmpty())
+        assertTrue(TemplateOutputValidator.validateOutput("not-json", schema).isNotEmpty())
     }
 
 }
