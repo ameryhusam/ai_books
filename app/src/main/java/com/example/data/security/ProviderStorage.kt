@@ -71,6 +71,7 @@ class ProviderStorage(context: Context) {
                     val nextUsage = profile.dailyRequestsUsed + 1
                     profile = profile.copy(
                         dailyRequestsUsed = nextUsage,
+                        lastUsedAtEpochMs = nowMillis,
                         runtimeStatus = if (profile.dailyRequestLimit > 0 &&
                             nextUsage >= profile.dailyRequestLimit
                         ) STATUS_QUOTA_EXHAUSTED else STATUS_ACTIVE
