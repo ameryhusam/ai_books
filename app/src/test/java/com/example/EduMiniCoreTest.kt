@@ -31,6 +31,9 @@ import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.PDPage
 import com.tom_roush.pdfbox.pdmodel.PDPageContentStream
 import com.tom_roush.pdfbox.pdmodel.font.PDType1Font
+import com.example.model.AchievementBadge
+import com.example.model.BadgeCategory
+import com.example.model.DashboardSummary
 import com.example.model.AssessmentKind
 import com.example.model.AssessmentAttemptRecord
 import com.example.model.BookRef
@@ -2074,6 +2077,32 @@ class EduMiniCoreTest {
             targetConceptTag = "fractions"
         )
         assertEquals(listOf("approved-q"), selected.map { it.id })
+    }
+
+    @Test
+    fun learnerPointsExcludeAuthoringOnlyBadgeBonuses() {
+        val summary = DashboardSummary(
+            totalPoints = 300,
+            badges = listOf(
+                AchievementBadge(
+                    id = "author",
+                    title = "مؤلف ذكي",
+                    subtitle = "إنشاء محتوى",
+                    unlocked = true,
+                    pointsBonus = 40,
+                    category = BadgeCategory.CREATION
+                ),
+                AchievementBadge(
+                    id = "mastery",
+                    title = "إتقان",
+                    subtitle = "إكمال مادة",
+                    unlocked = true,
+                    pointsBonus = 60,
+                    category = BadgeCategory.MASTERY
+                )
+            )
+        )
+        assertEquals(260, summary.learnerPoints)
     }
 
     @Test
