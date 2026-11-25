@@ -40,6 +40,7 @@ import java.io.File
 import java.io.IOException
 import java.io.InputStream
 import java.net.URLEncoder
+import java.security.MessageDigest
 import java.nio.charset.StandardCharsets
 import java.time.Instant
 import java.util.concurrent.TimeUnit
@@ -209,6 +210,7 @@ class AiGenerationService(
         source: String,
         extra: String,
         providers: List<ProviderConfig>,
+        selectedProvider: ProviderType,
         questionCount: Int = 5,
         pdfPageImagesBase64: List<String> = emptyList(),
         questionStyleHint: String = "",
@@ -226,11 +228,11 @@ class AiGenerationService(
         onAttemptFinished: (suspend (providerLabel: String, model: String, success: Boolean, error: String?) -> Unit)? = null
     ): GeneratedResult = withContext(Dispatchers.IO) {
         val active = providers
-            .filter { it.enabled && it.apiKey.isNotBlank() && it.model.isNotBlank() }
+            .filter { it.provider == selectedProvider && it.enabled && it.apiKey.isNotBlank() && it.model.isNotBlank() }
             .sortedWith(compareBy<ProviderConfig> { it.lastUsedAtEpochMs }.thenBy { it.priority }.thenBy { it.createdAt })
 
         if (active.isEmpty()) {
-            throw IllegalStateException("أضف مفتاح API فعّال في الإعدادات")
+            throw IllegalStateException("لا يوجد ملف ${selectedProvider.displayName} فعّال بمفتاح ونموذج صالحين. لا يتم التحويل تلقائياً إلى مزود آخر.")
         }
 
         val prompt = buildPrompt(
@@ -306,11 +308,14 @@ class AiGenerationService(
                             else -> "ERROR"
                         }
                         onProviderStateChanged?.invoke(profile.id, failureStatus, e.retryAfterEpochMs)
-                        if (!e.isTransient) {
+                        // HTTP 429 is handled by moving to the next compatible model/key
+                        // within the selected provider. Never retry the same saturated slot
+                        // after a short fixed delay and never cross provider boundaries.
+                        if (e.httpCode == 429 || !e.isTransient) {
                             break
                         }
                         if (retry == 0) {
-                            delay(650L)
+                            delay(800L)
                         }
                     } catch (e: IOException) {
                         val reason = e.message?.takeIf { it.isNotBlank() } ?: "خطأ شبكة"
@@ -318,7 +323,7 @@ class AiGenerationService(
                         onAttemptFinished?.invoke(profile.label, modelName, false, reason)
                         onProviderStateChanged?.invoke(profile.id, "ERROR", 0L)
                         if (retry == 0) {
-                            delay(650L)
+                            delay(800L)
                         }
                     } catch (e: Exception) {
                         val reason = e.message?.takeIf { it.isNotBlank() } ?: "فشل"
