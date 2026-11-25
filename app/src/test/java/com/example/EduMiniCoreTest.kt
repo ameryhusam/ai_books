@@ -1578,6 +1578,20 @@ class EduMiniCoreTest {
         val progressAfterPass = db.eduMiniDao().observeProgressForWorkspace(wsId).first()
         assertTrue(progressAfterPass.any { it.lessonKey == lesson.lessonKey && it.completed })
 
+        // A failed review retake must not revoke a lesson that was already passed.
+        val failedReview = repo.recordLessonQuizAttempt(
+            workspaceId = wsId,
+            lesson = lesson,
+            questions = listOf(q1, q2),
+            selectedAnswers = mapOf(q1.id to "خطأ 1", q2.id to "لا")
+        )
+        assertFalse(failedReview.passed)
+        assertTrue(failedReview.lessonMarkedCompleted)
+        assertTrue(
+            db.eduMiniDao().observeProgressForWorkspace(wsId).first()
+                .any { it.lessonKey == lesson.lessonKey && it.completed }
+        )
+
         // Mixed history on both concepts keeps them in NEEDS_REINFORCEMENT (because earlier attempt was wrong)
         val recordedAttempts = db.eduMiniDao().observeQuestionAttemptsForWorkspace(wsId).first()
         assertEquals(4, recordedAttempts.size)
