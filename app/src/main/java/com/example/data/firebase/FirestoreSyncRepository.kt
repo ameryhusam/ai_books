@@ -36,6 +36,14 @@ class FirestoreSyncRepository(
         )
     )
 
+    private fun normalizeSha256(value: String, fieldName: String): String {
+        val normalized = value.trim().lowercase()
+        require(normalized.isEmpty() || normalized.matches(Regex("^[a-f0-9]{64}$"))) {
+            "$fieldName must be empty or a 64-character SHA-256 hex digest."
+        }
+        return normalized
+    }
+
     private fun requireUserId(): String {
         return auth.currentUser?.uid?.takeIf { it.isNotBlank() }
             ?: throw IllegalStateException("يجب تسجيل الدخول بحساب Google قبل المزامنة مع السحابة.")
@@ -123,6 +131,12 @@ class FirestoreSyncRepository(
                 else -> DraftStatus.DRAFT.id
             }
             val safeVersion = draft.version.coerceIn(1, 10_000).toLong()
+            val safeTemplateId = draft.templateId.trim().take(160)
+            val safeTemplateVersion = draft.templateVersion.coerceIn(1, 10_000).toLong()
+            val safeResponseSchemaHash = normalizeSha256(draft.responseSchemaHash, "responseSchemaHash")
+            val safeRequestFingerprint = normalizeSha256(draft.requestFingerprint, "requestFingerprint")
+            val safeContentHash = normalizeSha256(draft.contentHash, "contentHash")
+            val safeSourcePdfHash = normalizeSha256(draft.sourcePdfHash, "sourcePdfHash")
 
             val docRef = db.collection("users")
                 .document(uid)
@@ -136,12 +150,12 @@ class FirestoreSyncRepository(
                     mapOf(
                         "title" to safeTitle,
                         "content" to safeContent,
-                        "templateId" to draft.templateId.take(160),
-                        "templateVersion" to draft.templateVersion.toLong().coerceIn(1L, 10_000L),
-                        "responseSchemaHash" to draft.responseSchemaHash.take(128),
-                        "requestFingerprint" to draft.requestFingerprint.take(128),
-                        "contentHash" to draft.contentHash.take(128),
-                        "sourcePdfHash" to draft.sourcePdfHash.take(128),
+                        "templateId" to safeTemplateId,
+                        "templateVersion" to safeTemplateVersion,
+                        "responseSchemaHash" to safeResponseSchemaHash,
+                        "requestFingerprint" to safeRequestFingerprint,
+                        "contentHash" to safeContentHash,
+                        "sourcePdfHash" to safeSourcePdfHash,
                         "status" to safeStatus,
                         "version" to safeVersion,
                         "updatedAt" to FieldValue.serverTimestamp()
@@ -161,12 +175,12 @@ class FirestoreSyncRepository(
                         "provider" to safeProvider,
                         "model" to safeModel,
                         "content" to safeContent,
-                        "templateId" to draft.templateId.take(160),
-                        "templateVersion" to draft.templateVersion.toLong().coerceIn(1L, 10_000L),
-                        "responseSchemaHash" to draft.responseSchemaHash.take(128),
-                        "requestFingerprint" to draft.requestFingerprint.take(128),
-                        "contentHash" to draft.contentHash.take(128),
-                        "sourcePdfHash" to draft.sourcePdfHash.take(128),
+                        "templateId" to safeTemplateId,
+                        "templateVersion" to safeTemplateVersion,
+                        "responseSchemaHash" to safeResponseSchemaHash,
+                        "requestFingerprint" to safeRequestFingerprint,
+                        "contentHash" to safeContentHash,
+                        "sourcePdfHash" to safeSourcePdfHash,
                         "status" to safeStatus,
                         "version" to safeVersion,
                         "createdAt" to FieldValue.serverTimestamp(),
