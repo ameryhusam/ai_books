@@ -2024,6 +2024,93 @@ class EduMiniCoreTest {
         }
     }
 
+    @Test
+    fun fullBackupPreservesLocalLearnerOwnership() {
+        val attempts = listOf(
+            AssessmentAttemptEntity(
+                id = "backup-attempt-a",
+                assessmentId = "assessment",
+                assessmentTitle = "اختبار",
+                workspaceId = "ws-backup",
+                correctCount = 4,
+                totalQuestions = 5,
+                scorePercent = 80,
+                passed = true,
+                durationSeconds = 120,
+                earnedXp = 20,
+                completedAt = "2026-11-25T10:00:00Z",
+                userId = "learner_a"
+            ),
+            AssessmentAttemptEntity(
+                id = "backup-attempt-b",
+                assessmentId = "assessment",
+                assessmentTitle = "اختبار",
+                workspaceId = "ws-backup",
+                correctCount = 2,
+                totalQuestions = 5,
+                scorePercent = 40,
+                passed = false,
+                durationSeconds = 180,
+                earnedXp = 10,
+                completedAt = "2026-11-25T10:01:00Z",
+                userId = "learner_b"
+            )
+        )
+        val progress = listOf(
+            LessonProgressEntity(
+                workspaceId = "ws-backup",
+                bookKey = "SCI",
+                unitKey = "unit_01",
+                lessonKey = "lesson_01",
+                completed = true,
+                pointsEarned = 50,
+                userId = "learner_a"
+            ),
+            LessonProgressEntity(
+                workspaceId = "ws-backup",
+                bookKey = "SCI",
+                unitKey = "unit_01",
+                lessonKey = "lesson_01",
+                completed = false,
+                pointsEarned = 0,
+                userId = "learner_b"
+            )
+        )
+        val studyDays = listOf(
+            StudyDayEntity(
+                activityDate = "2026-11-25",
+                actionsCount = 3,
+                lastUpdatedAt = "2026-11-25T10:00:00Z",
+                userId = "learner_a"
+            ),
+            StudyDayEntity(
+                activityDate = "2026-11-25",
+                actionsCount = 1,
+                lastUpdatedAt = "2026-11-25T10:01:00Z",
+                userId = "learner_b"
+            )
+        )
+
+        val raw = WorkspaceExporter.serializeFullBackup(
+            workspaceId = "ws-backup",
+            drafts = emptyList(),
+            questions = emptyList(),
+            assessments = emptyList(),
+            attempts = attempts,
+            progress = progress,
+            notes = emptyList(),
+            studyDays = studyDays,
+            templates = emptyList()
+        )
+        val restored = WorkspaceExporter.parseFullBackup(raw)
+
+        assertEquals("edu-mini-backup-1.2", restored.formatVersion)
+        assertEquals(setOf("learner_a", "learner_b"), restored.attempts.map { it.userId }.toSet())
+        assertEquals(setOf("learner_a", "learner_b"), restored.progress.map { it.userId }.toSet())
+        assertEquals(setOf("learner_a", "learner_b"), restored.studyDayRecords.map { it.userId }.toSet())
+        assertEquals(4, restored.studyDayRecords.first { it.userId == "learner_a" }.actionsCount.coerceAtLeast(3))
+    }
+
     private fun sampleLesson() = LessonRef(
         grade = "G04",
         rootPath = "/tmp/ws",
