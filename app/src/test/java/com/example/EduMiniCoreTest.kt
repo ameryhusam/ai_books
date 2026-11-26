@@ -3726,6 +3726,7 @@ class RobolectricAndroidKeyStoreSpi : java.security.KeyStoreSpi() {
         assertNull(mapper.componentDisplayName("STUDENT"))
         assertFalse(mapper.isValidBookIdentity("G07", "SCI", "WB"))
         assertFalse(mapper.isValidBookIdentity("G10", "SCI", null))
+        assertFalse(mapper.isValidBookIdentity("G07", "BIO", null))
         assertTrue(mapper.isValidBookIdentity("G07", "ENG", "COURSE"))
         assertTrue(mapper.isValidBookIdentity("G07", "SOC", "TARBIA"))
     }
