@@ -3446,6 +3446,8 @@ class EduMiniCoreTest {
                 extra = "",
                 providers = providers,
                 selectedProvider = ProviderType.OPENAI_COMPATIBLE,
+                selectedModelId = "gpt-test",
+                selectedProfileId = "openai-text-only",
                 questionCount = 5,
                 attachPdfPages = true,
                 template = template
