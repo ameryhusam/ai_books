@@ -383,11 +383,13 @@ fun SettingsScreen(
                             color = EduInk,
                             style = MaterialTheme.typography.labelMedium
                         )
+                        Text("معرّف النموذج وإصداره كما يحدده مزود الخدمة", color = EduInk, style = MaterialTheme.typography.labelSmall)
                         SettingsField(
                             value = modelIdInput,
                             onValueChange = { modelIdInput = it },
                             testTag = "ai_model_id_input"
                         )
+                        Text("اسم العرض في قائمة المستخدم", color = EduInk, style = MaterialTheme.typography.labelSmall)
                         SettingsField(
                             value = modelNameInput,
                             onValueChange = { modelNameInput = it },
