@@ -2,126 +2,167 @@
 
 ## 1. Responsibility boundary
 
-Indexer2 prepares and exports the workspace. Edu Mini imports or directly binds that prepared workspace.
+**Indexer2 is the workspace producer and the single source of truth for book structure. Edu Mini is a workspace consumer.**
 
-Edu Mini must not:
+Indexer2 is responsible for:
+- identifying grade, subject, optional component, source layout and part assignment;
+- reviewing and approving the index and page calibration;
+- slicing lesson PDFs;
+- writing every index, manifest, validation artifact and lesson-file reference;
+- recording hashes and review provenance.
 
-- rerun PDF discovery or AI index extraction;
-- regenerate unit/lesson structure from the PDF;
-- re-slice the source PDF;
-- invent grade, subject, component, unit, lesson, part, or page values;
-- modify the source `index.json`, `book_manifest.json`, or lesson PDFs during binding.
+Edu Mini must not repeat PDF discovery, AI index extraction, part classification, unit assignment, page calibration or lesson slicing. It must not reconstruct lesson paths when the index already provides a valid `sliceFile.workspaceUri`.
 
-The binder validates the package, stores metadata and file references, and keeps source assets at their selected location.
+Edu Mini validates the package, reads the prepared index records, resolves their declared file references, and persists application metadata/references. It does not rewrite source artifacts.
 
-## 2. Supported book root
+## 2. Workspace root and index placement
 
-The canonical book root is:
+The logical curriculum root is:
 
 `workspace/<gradeKey>/<subjectKey>[/<componentKey>]/`
 
-The book root contains the root `index.json` and `book_manifest.json`. The path identifies the curriculum grouping; the JSON files confirm the identity and source metadata.
+The placement of `index.json` depends on the verified source layout. The path alone does not change source identity.
 
-A grade workspace can contain multiple subject books and component books. Each paired root index and manifest belongs to one book root. The importer must not select the first `index.json` under a grade as if it represented all books.
+### 2.1 Independent single-part PDF
 
-## 3. Identity validation
+An independent PDF contains one part only. Its index and companion manifest live inside that part directory:
 
-Before binding a book:
+```text
+workspace/G07/ENG/COURSE/
+  P01/
+    index.json
+    book_manifest.json
+    cover.png
+    units/...
+```
 
-1. Parse the root `index.json`.
-2. Parse `book_manifest.json`.
-3. Resolve grade, subject, and optional component from the canonical path and declared identity fields.
-4. Require a recognized grade key from G01–G12.
-5. Require a recognized `subjectKey`.
-6. Validate optional `componentKey` against the canonical catalog and its parent subject.
-7. Verify path and metadata identity agree.
-8. Verify index/manifest identity and source integrity fields required by the canonical contract.
-9. Validate units, lessons, part assignments, page ranges, and referenced PDF files.
+For a P02 source, use `P02/index.json` and `P02/book_manifest.json`. Do not require or synthesize a root `index.json` for this layout. Each independent PDF has its own source SHA-256 and source identity.
 
-A missing or unknown `subjectKey` is a blocking identity error. The binder must not use a generic subject label or infer a key from a book title. A missing grade is also blocking; no default grade is permitted.
+### 2.2 One merged PDF containing both parts
 
-The canonical display names are obtained from `BookMetadataMapper`. Names declared in index/manifest are not allowed to replace canonical key-to-label mappings.
+A merged PDF is one source and one logical book identity. Its root index is canonical; part indexes are filtered views, not separate books:
 
-## 4. Manifest and index integrity
+```text
+workspace/G07/ENG/COURSE/
+  index.json
+  book_manifest.json
+  cover.png
+  P01/
+    index.json
+    cover.png
+    units/...
+  P02/
+    index.json
+    cover.png
+    units/...
+```
 
-For canonical Indexer2 exports:
+The root index contains the complete unit list. Each part index contains only units assigned to that part. Edu Mini binds the root index once and must not create duplicate books from its derived part indexes.
 
-- `book_manifest.json` declares `manifestVersion=edu.book_manifest.v1`.
-- `sourceSha256` identifies the original PDF bytes.
-- `indexSha256` identifies the serialized root `index.json`.
-- The manifest and index must agree on grade and subject.
-- The canonical validator checks the index hash and source review/approval requirements.
-- A canonical index must contain units and lessons with stable source identity and valid page ranges.
-- Canonical units must be assigned to P01 or P02 before binding.
+### 2.3 Merged PDF with unresolved unit assignments
 
-The current Android validator also checks that each expected lesson PDF can be resolved and that canonical lesson PDFs are readable as PDF files.
+The source remains `MERGED_PARTS_FILE`. An unclear TOC does not convert it into a single-part PDF.
 
-## 5. Lesson file resolution
+The root index and manifest remain review artifacts. For an unresolved unit:
+- keep the actual `partKey` unresolved;
+- an optional `proposedPartKey=P01` is only a proposal;
+- record `assignmentStatus=NEEDS_REVIEW` and the proposal/evidence source;
+- do not export an approved part index for that unresolved unit;
+- do not slice or mark the source approved until a reviewer explicitly confirms or changes the assignment.
 
-The binder resolves a lesson file using the explicit lesson reference first. In particular, `sliceFile.workspaceUri` is the preferred reference. It then considers the other explicit file-reference fields supported by the validator and finally the known canonical path candidates.
+A P01 proposal must never be silently promoted to a confirmed assignment.
 
-A file must match the lesson's own unit and part. If a canonical lesson file is missing or unreadable, the book is rejected with a diagnostic. The binder must not substitute a different lesson PDF.
+## 3. Identity and display metadata
 
-## 6. Part indexes
+The canonical identity fields are `gradeKey`, `subjectKey`, and optional `componentKey`. They are validated against the Indexer2 key catalog and the workspace path.
 
-For a merged book:
+Display labels are presentation data:
+- use a non-empty `displayName` / `subjectName` / `componentName` declared by the prepared index when available;
+- otherwise use the Android catalog as a fallback;
+- never use a display label to derive or replace a canonical key.
 
-- Root `index.json` remains canonical.
-- `P01/index.json` and `P02/index.json` are optional derived views.
-- Derived views must not be used as a replacement for the root index.
-- A part directory/index is expected only when units are assigned to that part.
-- The unit's own `partKey` controls its part placement.
+The same rule applies to grade labels. Unknown or inconsistent canonical keys remain blocking errors; a display string cannot repair them.
 
-For a single-part source, the root index remains canonical and its units carry the corresponding P01 or P02 assignment.
+## 4. Discovering workspaces
 
-## 7. Unit and lesson identifiers
+The binder/importer must discover both supported index locations:
+- root index: `<bookRoot>/index.json`;
+- part index: `<bookRoot>/P01/index.json` or `<bookRoot>/P02/index.json`.
 
-The Indexer2 template model carries source unit and lesson numbers. The Android validator derives stable keys from those numbers when explicit keys are absent:
+Classification is based on the index and companion manifest fields, not folder name alone:
+- `sourceLayout=SINGLE_PART_FILE` plus a part-local index/manifest is one independent source;
+- `sourceLayout=MERGED_PARTS_FILE` plus a root index/manifest is one merged source;
+- a merged part-local index is a derived view and must be associated with its root merged source, never imported as an independent source.
 
-- `unit_01`, `unit_02`, and so on;
-- `lesson_01`, `lesson_02`, and so on.
+Reject ambiguous or contradictory combinations rather than guessing.
 
-When the same unit number exists in both parts, the application key includes the part to avoid collision. The folder key used for the unit PDF directory remains the canonical padded unit-number form.
+## 5. Index and manifest integrity
 
-Array position is never the canonical identity. Reordering a JSON array must not silently change a unit or lesson's identity.
+The manifest must identify the source PDF using `sourceSha256`. Hashes identify exact serialized index bytes:
+- independent part: the part-local `index.json` hash;
+- merged source: the root `index.json` hash, plus hashes for each exported part view when present.
+
+The exporter must declare the exact relative index paths and hashes in the manifest. The consumer verifies every declared file against its own hash. It must not compare a part index with the root index hash.
+
+For backward compatibility, the consumer may read the legacy root-index manifest contract when its fields and hash validate. Compatibility must not weaken validation of new packages.
+
+## 6. Lesson file resolution
+
+Resolve lesson PDFs in this order:
+1. the lesson's explicit `sliceFile.workspaceUri` relative to the workspace root (or a supported workspace URI form);
+2. another explicit relative file path only if the Indexer2 schema declares it;
+3. legacy path reconstruction only for older workspaces that lack a usable explicit reference.
+
+Normalize and validate paths to prevent traversal outside the selected workspace. Confirm the referenced file exists, is readable as a PDF, and belongs to the lesson record being imported. Do not substitute another lesson file.
+
+Do not infer the PDF path from unit number, lesson number, or part folder when a valid `workspaceUri` exists.
+
+## 7. Unit and lesson identity
+
+Use stable unit/lesson identifiers from the index when present. Otherwise derive compatibility keys from source numbers, including the part context where duplicate unit numbers can occur in a merged source.
+
+Array order is not identity. A part view is not a second book identity. Duplicate source unit numbers across P01/P02 are valid only when their source identifiers and part context distinguish them.
 
 ## 8. Binding sequence
 
 ```mermaid
 flowchart TD
-    A[Select workspace folder] --> B[Index files and directories]
-    B --> C[Discover each book root]
-    C --> D[Read root index and manifest]
-    D --> E[Resolve canonical grade/subject/component]
-    E --> F{Identity known and consistent?}
-    F -- No --> X[Reject book with diagnostic]
-    F -- Yes --> G[Validate manifest and index hashes]
-    G --> H[Validate units, lessons and part keys]
-    H --> I[Resolve exact lesson PDF references]
-    I --> J{All canonical files valid?}
-    J -- No --> X
-    J -- Yes --> K[Persist metadata and source references]
-    K --> L[Expose books, units and lessons]
+  A[Select workspace] --> B[Enumerate files]
+  B --> C[Discover root and part-local indexes]
+  C --> D[Read index and companion manifest]
+  D --> E[Classify source layout and index role]
+  E --> F{Identity and layout consistent?}
+  F -- No --> X[Reject with diagnostic]
+  F -- Yes --> G[Validate declared index hashes]
+  G --> H[Validate approval and unit assignments]
+  H --> I[Resolve explicit lesson workspaceUri]
+  I --> J{All required files valid?}
+  J -- No --> X
+  J -- Yes --> K[Bind one source identity]
+  K --> L[Expose units and lessons]
 ```
 
-## 9. Persistence boundary
+## 9. Current implementation status versus target contract
 
-The direct binder stores workspace metadata and references in the application database. Source PDFs and workspace JSON files remain in the selected workspace. Generated educational content is a separate application-owned data concern and must not be written into canonical source files as a side effect of binding.
+The current Android implementation is not yet fully aligned with this contract:
+- discovery filters part-local indexes, so independent P01/P02 packages are not yet first-class inputs;
+- the importer currently selects root indexes and excludes part indexes;
+- the validator assumes one `indexSha256` for the root index;
+- some lesson path fallback logic reconstructs paths even though Indexer2 writes `sliceFile.workspaceUri`;
+- display names are primarily obtained from the Android mapper rather than the prepared index.
+
+These are implementation gaps, not permission to change the target contract. Update binder, importer, validator, persistence where necessary, and tests together. Preserve existing workspace compatibility while adding the new layouts.
 
 ## 10. Rejection diagnostics
 
-A rejected book should identify the failing book root and the specific field or file:
-
-- unknown or missing `gradeKey`;
-- unknown or missing `subjectKey`;
-- unknown or incompatible `componentKey`;
+Report the book root, index path and failing field/file. At minimum distinguish:
+- missing or invalid grade/subject/component key;
 - path/metadata identity mismatch;
-- malformed JSON;
-- manifest/index hash mismatch;
-- unapproved source or index;
-- unresolved unit part;
-- missing stable unit/lesson identity;
-- invalid page range;
-- missing or unreadable lesson PDF.
+- unsupported source-layout/index-placement combination;
+- missing or invalid manifest;
+- root or part index hash mismatch;
+- unapproved source or unresolved unit assignment;
+- duplicate unit/lesson identity;
+- unsafe, missing, unreadable or mismatched lesson PDF reference.
 
-A rejection must not be repaired by a guessed key, a default grade, a display-name substitution, or a different lesson file.
+Never repair a failed package by guessing a grade, subject, part, title, page range or file path.
