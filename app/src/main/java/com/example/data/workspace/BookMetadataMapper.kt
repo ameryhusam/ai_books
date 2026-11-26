@@ -62,7 +62,6 @@ object BookMetadataMapper {
     )
 
     private val basicGrades = (1..9).map { "G%02d".format(Locale.ROOT, it) }.toSet()
-    private val secondaryGrades = setOf("G10", "G11", "G12")
 
     /** Accept canonical G01..G12 and compact G1..G9 forms only. Unknown input returns null. */
     fun normalizeGradeKey(raw: String?): String? {
@@ -104,7 +103,6 @@ object BookMetadataMapper {
             else normalizeComponentKey(rawComponent) ?: return false
 
         if (subject == "SCI" && grade !in basicGrades) return false
-        if (subject in setOf("BIO", "CHEM", "PHYS") && grade !in secondaryGrades) return false
         if (component in setOf("GEO", "HIST", "TARBIA") && subject != "SOC") return false
         if (component == "COURSE" && subject != "ENG") return false
         return true
