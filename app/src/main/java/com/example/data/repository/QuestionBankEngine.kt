@@ -6,6 +6,7 @@ import com.example.model.QuestionDifficulty
 import com.example.model.QuestionItem
 import com.example.model.QuestionType
 import com.example.data.ai.QuestionResponseContract
+import com.example.data.ai.TemplateOutputValidator
 import com.example.ui.components.LearningProgressCalculator
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -93,6 +94,10 @@ object QuestionBankEngine {
         val root = runCatching { json.parseToJsonElement(cleaned) }.getOrElse {
             throw IllegalArgumentException("استجابة الأسئلة ليست JSON صالحاً: ${it.message ?: "خطأ تحليل"}")
         } as? JsonObject ?: throw IllegalArgumentException("يجب أن يكون جذر استجابة الأسئلة كائن JSON.")
+        val schemaIssues = TemplateOutputValidator.validateOutput(cleaned, QuestionResponseContract.schemaJson)
+        require(schemaIssues.isEmpty()) {
+            "استجابة الأسئلة لا تطابق عقد بنك الأسئلة: ${schemaIssues.take(5).joinToString("; ")}"
+        }
         val array = root["questions"] as? JsonArray
             ?: throw IllegalArgumentException("مصفوفة questions غير موجودة في استجابة النموذج.")
         require(array.size == expectedCount) {
