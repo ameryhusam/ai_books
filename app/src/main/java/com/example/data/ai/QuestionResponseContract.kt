@@ -54,11 +54,7 @@ object QuestionResponseContract {
         ).toString()
     }
 
-    val defaultTypeIds: List<String> = listOf(
-        QuestionType.MCQ.id,
-        QuestionType.TRUE_FALSE.id,
-        QuestionType.SHORT_ANSWER.id
-    )
+    val defaultTypeIds: List<String> = QuestionType.DEFAULT_GENERATION_IDS
 
     fun effectiveTypes(selectedTypeIds: List<String>): List<QuestionType> {
         val requested = selectedTypeIds.toSet().ifEmpty { defaultTypeIds.toSet() }
