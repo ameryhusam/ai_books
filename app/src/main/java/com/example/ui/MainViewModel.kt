@@ -328,17 +328,22 @@ class MainViewModel(
     init {
         loadLearnerProfiles()
         viewModelScope.launch {
-            val localFallback = runCatching { repository.loadAiModelCatalog() }.getOrDefault(emptyList())
-            _uiState.update { it.copy(aiModelCatalog = localFallback) }
+            // A local seed is not an authority for a system-managed catalogue.
+            // Without an authenticated account and a readable Firestore catalogue,
+            // no model is offered for generation.
+            _uiState.update { it.copy(aiModelCatalog = emptyList()) }
             if (isCloudAuthenticated) {
                 runCatching { firestoreSync.fetchAiModelCatalog() }
                     .onSuccess { catalog -> _uiState.update { it.copy(aiModelCatalog = catalog) } }
                     .onFailure { error ->
                         _uiState.update {
-                            it.copy(alert = AlertMessage(
-                                "تعذر تحميل قائمة النماذج المركزية",
-                                error.message ?: "تحقق من الاتصال أو صلاحية قراءة الكتالوج."
-                            ))
+                            it.copy(
+                                aiModelCatalog = emptyList(),
+                                alert = AlertMessage(
+                                    "تعذر تحميل قائمة النماذج المركزية",
+                                    error.message ?: "تحقق من الاتصال أو صلاحية قراءة الكتالوج."
+                                )
+                            )
                         }
                     }
                 runCatching {
@@ -347,15 +352,17 @@ class MainViewModel(
                     }
                 }.onFailure { error ->
                     _uiState.update {
-                        it.copy(alert = AlertMessage(
-                            "توقف تحديث قائمة النماذج",
-                            error.message ?: "تعذر متابعة مزامنة النماذج المركزية."
-                        ))
+                        it.copy(
+                            aiModelCatalog = emptyList(),
+                            alert = AlertMessage(
+                                "توقف تحديث قائمة النماذج",
+                                error.message ?: "تعذر متابعة مزامنة النماذج المركزية."
+                            )
+                        )
                     }
                 }
             }
-        }
-        viewModelScope.launch {
+        }        viewModelScope.launch {
             runCatching { repository.ensureDefaultPromptTemplates() }
             runCatching { repository.loadProviders() }
                 .onSuccess { loaded ->
