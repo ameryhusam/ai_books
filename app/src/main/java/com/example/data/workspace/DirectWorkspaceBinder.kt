@@ -773,27 +773,29 @@ class DirectWorkspaceBinder(private val context: Context) {
                 }
                 // Grade folder selected directly or a single book/component root: extract identity dynamically from index.json / book_manifest.json.
                 else -> {
-                    val detectedGrade = CurriculumDisplayMapper.normalizeGradeKey(
-                        firstNonBlank(
-                            indexObj?.str("gradeKey"),
-                            indexMetadata?.str("gradeKey"),
-                            indexBook?.str("gradeKey"),
-                            manifestObj?.str("gradeKey"),
-                            indexObj?.str("grade"),
-                            manifestObj?.str("grade"),
-                            GRADE_EMBEDDED_REGEX.find(folderDisplayName)?.value,
-                            "G07"
-                        )
+                    val rawGrade = firstNonBlank(
+                        indexObj?.str("gradeKey"),
+                        indexMetadata?.str("gradeKey"),
+                        indexBook?.str("gradeKey"),
+                        manifestObj?.str("gradeKey"),
+                        indexObj?.str("grade"),
+                        manifestObj?.str("grade"),
+                        GRADE_EMBEDDED_REGEX.find(folderDisplayName)?.value
                     )
+                    val detectedGrade = CurriculumDisplayMapper.normalizeGradeKey(rawGrade)
+                    require(detectedGrade.isNotBlank()) {
+                        "[gradeKey] لا يمكن تحديد الصف من مسار المجلد أو index.json أو book_manifest.json؛ لن يتم تخمين الصف."
+                    }
                     val subject = firstNonBlank(
                         indexObj?.str("subjectKey"),
                         indexMetadata?.str("subjectKey"),
                         indexBook?.str("subjectKey"),
                         manifestObj?.str("subjectKey"),
-                        segments.getOrNull(0),
-                        folderDisplayName.takeIf { it.isNotBlank() },
-                        "BOOK"
+                        segments.getOrNull(0)
                     ).uppercase()
+                    require(subject.isNotBlank()) {
+                        "[subjectKey] مفتاح المادة غير موجود في index.json أو book_manifest.json أو مسار الكتاب."
+                    }
                     val relativeBookSegments = if (segments.firstOrNull()?.equals(subject, ignoreCase = true) == true) {
                         segments.drop(1)
                     } else {
@@ -828,6 +830,9 @@ class DirectWorkspaceBinder(private val context: Context) {
     }
 
     private fun componentIdentityError(slot: BookIndexSlot): String? {
+        if (!BookMetadataMapper.isValidBookIdentity(slot.gradeKey, slot.subjectKey, slot.componentKey)) {
+            return "[book identity] gradeKey أو subjectKey أو componentKey غير معروف أو غير متوافق مع فهرس Indexer2."
+        }
         if (slot.componentMetadataMismatch) {
             return "[index.json vs book_manifest.json] componentKey غير متطابق بين الفهرس والبطاقة."
         }
