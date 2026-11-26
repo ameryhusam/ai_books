@@ -2669,31 +2669,8 @@ class EduMiniRepository(
                 task = TaskType.QUESTIONS,
                 instructions = "وزّع الأسئلة بين مستويات بلوم: سؤال تذكر مباشر، سؤال فهم واستنتاج، وسؤال تطبيقي مع الإجابة والتفسير.",
                 isBuiltIn = true,
-                responseSchemaJson = """
-                    {
-                      "type": "OBJECT",
-                      "properties": {
-                        "questions": {
-                          "type": "ARRAY",
-                          "items": {
-                            "type": "OBJECT",
-                            "properties": {
-                              "type": { "type": "STRING" },
-                              "conceptTag": { "type": "STRING" },
-                              "prompt": { "type": "STRING" },
-                              "options": { "type": "ARRAY", "items": { "type": "STRING" } },
-                              "correctAnswer": { "type": "STRING" },
-                              "rationale": { "type": "STRING" },
-                              "difficulty": { "type": "STRING" },
-                              "sourcePages": { "type": "STRING" }
-                            },
-                            "required": ["type", "prompt", "correctAnswer", "difficulty"]
-                          }
-                        }
-                      },
-                      "required": ["questions"]
-                    }
-                """.trimIndent(),
+                responseSchemaJson = QuestionResponseContract.schemaJson,
+                responseFormat = "json"
                 responseFormat = "json"
             ),
             PromptTemplateRecord(
