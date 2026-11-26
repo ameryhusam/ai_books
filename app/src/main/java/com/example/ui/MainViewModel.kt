@@ -1688,6 +1688,20 @@ class MainViewModel(
         _uiState.update { it.copy(questionCount = count.coerceIn(1, 30)) }
     }
 
+    fun updateQuestionTypes(typeIds: List<String>) {
+        val allowed = com.example.model.QuestionType.entries.map { it.id }.toSet()
+        val normalized = typeIds.map { it.trim() }.filter { it in allowed }.distinct()
+        if (normalized.isNotEmpty()) {
+            _uiState.update { it.copy(selectedQuestionTypeIds = normalized) }
+        }
+    }
+
+    fun updateQuestionLanguage(language: String) {
+        if (language in setOf("ar", "en", "ar_en")) {
+            _uiState.update { it.copy(questionLanguage = language) }
+        }
+    }
+
     fun updateQuestionStyle(style: String) {
         _uiState.update { it.copy(questionStyle = style) }
     }
@@ -2937,6 +2951,8 @@ class MainViewModel(
                     selectedModelId = selectedModelId,
                     selectedProfileId = selectedProfileId,
                     questionCount = snapshot.questionCount,
+                    questionTypeIds = snapshot.selectedQuestionTypeIds,
+                    questionLanguage = snapshot.questionLanguage,
                     attachPdfPages = snapshot.attachPdfPages,
                     questionStyleHint = snapshot.questionStyle.takeIf { snapshot.task == TaskType.QUESTIONS && it != "متنوعة" }.orEmpty(),
                     difficultyHint = if (snapshot.task == TaskType.QUESTIONS) snapshot.questionDifficulty.labelAr else "",
