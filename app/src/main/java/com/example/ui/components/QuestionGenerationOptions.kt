@@ -62,7 +62,7 @@ fun QuestionGenerationOptions(
                     Text("العدد: $questionCount")
                 }
                 DropdownMenu(expanded = countExpanded, onDismissRequest = { countExpanded = false }) {
-                    listOf(3, 5, 10, 15, 20, 30).forEach { count ->
+                    listOf(3, 5, 10, 15, 20, 30).filter { it >= selectedTypes.size }.forEach { count ->
                         DropdownMenuItem(
                             text = { Text("$count سؤال") },
                             onClick = {
@@ -85,6 +85,7 @@ fun QuestionGenerationOptions(
                     QuestionType.entries.forEach { type ->
                         val checked = type.id in selectedQuestionTypeIds
                         DropdownMenuItem(
+                            enabled = checked || selectedQuestionTypeIds.size < questionCount,
                             text = {
                                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                     Checkbox(checked = checked, onCheckedChange = null)
