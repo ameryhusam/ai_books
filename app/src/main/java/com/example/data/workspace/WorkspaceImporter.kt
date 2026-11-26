@@ -326,8 +326,9 @@ class WorkspaceImporter(private val context: Context) {
                 if (primary.exists()) primary else File(baseDir, "$bookRel/manifest.json")
             }
             val parentManifestFile = File(baseDir, "$identityBookRel/book_manifest.json")
+            val hasLocalManifest = localManifestFile.isFile
             val manifestFile = when {
-                localManifestFile.isFile -> localManifestFile
+                hasLocalManifest -> localManifestFile
                 partKeyFromPath != null && parentManifestFile.isFile -> parentManifestFile
                 else -> localManifestFile
             }
@@ -344,9 +345,9 @@ class WorkspaceImporter(private val context: Context) {
             }
 
             val parentIndexFile = File(baseDir, "$identityBookRel/index.json")
-            if (partKeyFromPath != null &&
-                manifestObj?.str("sourceLayout").equals("MERGED_PARTS_FILE", ignoreCase = true) &&
-                parentIndexFile.isFile
+            if (partKeyFromPath != null && parentIndexFile.isFile &&
+                (!hasLocalManifest ||
+                    manifestObj?.str("sourceLayout").equals("MERGED_PARTS_FILE", ignoreCase = true))
             ) {
                 // Merged part indexes are derived views; import the merged root once.
                 continue
