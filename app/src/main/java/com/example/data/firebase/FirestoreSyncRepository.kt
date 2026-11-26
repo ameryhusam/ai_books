@@ -3,6 +3,7 @@ package com.example.data.firebase
 import android.content.Context
 import com.example.R
 import com.example.model.AuthRoleDestination
+import com.example.data.ai.AiModelDefinition
 import com.example.model.CloudDraft
 import com.example.model.CloudUserAccount
 import com.example.model.DraftRecord
@@ -372,6 +373,85 @@ class FirestoreSyncRepository(
             handleFirestoreError(e, OperationType.WRITE, docPath)
             Result.failure(e)
         }
+    }
+
+    /**
+     * System-wide catalogue. All signed-in users can read; Firestore rules
+     * restrict every mutation to accounts whose users/{uid}.role is admin.
+     */
+    fun observeAiModelCatalog(): Flow<List<AiModelDefinition>> = flow {
+        requireUserId()
+        emitAll(
+            requireFirestore().collection("ai_model_catalog")
+                .snapshots()
+                .map { snapshot ->
+                    snapshot.documents.mapNotNull { document ->
+                        val modelId = document.getString("modelId") ?: document.id
+                        val providerId = document.getString("provider") ?: return@mapNotNull null
+                        AiModelDefinition(
+                            modelId = modelId,
+                            displayName = document.getString("displayName") ?: modelId,
+                            provider = com.example.model.ProviderType.fromId(providerId),
+                            lifecycleStatus = document.getString("lifecycleStatus") ?: AiModelDefinition.STATUS_AVAILABLE,
+                            replacementModelId = document.getString("replacementModelId"),
+                            isDefault = document.getBoolean("isDefault") ?: false,
+                            isEnabled = document.getBoolean("isEnabled") ?: true,
+                            supportsGenerateContent = document.getBoolean("supportsGenerateContent") ?: true,
+                            source = document.getString("source") ?: AiModelDefinition.SOURCE_USER
+                        )
+                    }.sortedWith(compareBy<AiModelDefinition> { it.provider.id }.thenByDescending { it.isDefault }.thenBy { it.displayName })
+                }
+        )
+    }
+
+    suspend fun upsertAiModelDefinition(model: AiModelDefinition) {
+        requireUserId()
+        val normalized = model.copy(
+            modelId = model.modelId.trim(),
+            displayName = model.displayName.trim()
+        )
+        require(normalized.modelId.matches(Regex("^[A-Za-z0-9._:-]{1,120}$"))) { "معرّف النموذج غير صالح." }
+        require(normalized.displayName.isNotBlank() && normalized.displayName.length <= 120) { "اسم النموذج مطلوب وبحد أقصى 120 حرفاً." }
+        val payload = mutableMapOf<String, Any>(
+            "modelId" to normalized.modelId,
+            "displayName" to normalized.displayName,
+            "provider" to normalized.provider.id,
+            "lifecycleStatus" to normalized.lifecycleStatus,
+            "isDefault" to normalized.isDefault,
+            "isEnabled" to normalized.isEnabled,
+            "supportsGenerateContent" to normalized.supportsGenerateContent,
+            "source" to normalized.source,
+            "updatedAt" to FieldValue.serverTimestamp()
+        )
+        normalized.replacementModelId?.takeIf { it.isNotBlank() }?.let { payload["replacementModelId"] = it }
+        requireFirestore().collection("ai_model_catalog").document(normalized.modelId)
+            .set(payload).await()
+    }
+
+    suspend fun deleteAiModelDefinition(modelId: String) {
+        requireUserId()
+        val ref = requireFirestore().collection("ai_model_catalog").document(modelId)
+        val snapshot = ref.get().await()
+        require(snapshot.exists()) { "النموذج غير موجود في الكتالوج المركزي." }
+        require(snapshot.getBoolean("isDefault") != true) { "عيّن نموذجاً افتراضياً بديلاً قبل حذف النموذج." }
+        ref.delete().await()
+    }
+
+    suspend fun setDefaultAiModel(provider: com.example.model.ProviderType, modelId: String) {
+        requireUserId()
+        val collection = requireFirestore().collection("ai_model_catalog")
+        val target = collection.document(modelId).get().await()
+        require(target.exists()) { "النموذج المحدد غير موجود في الكتالوج المركزي." }
+        require(target.getString("provider") == provider.id && target.getBoolean("isEnabled") != false &&
+            target.getBoolean("supportsGenerateContent") != false) {
+            "النموذج المحدد غير متاح لمزود الخدمة."
+        }
+        val providerModels = collection.whereEqualTo("provider", provider.id).get().await()
+        val batch = requireFirestore().batch()
+        providerModels.documents.forEach { document ->
+            batch.update(document.reference, "isDefault", document.id == modelId)
+        }
+        batch.commit().await()
     }
 
     companion object {
