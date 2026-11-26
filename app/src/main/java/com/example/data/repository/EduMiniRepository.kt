@@ -2695,7 +2695,7 @@ class EduMiniRepository(
                 task = TaskType.QUESTIONS,
                 instructions = "وزّع الأسئلة بين مستويات بلوم: سؤال تذكر مباشر، سؤال فهم واستنتاج، وسؤال تطبيقي مع الإجابة والتفسير.",
                 isBuiltIn = true,
-                responseSchemaJson = QuestionResponseContract.schemaJson,
+                responseSchemaJson = "",
                 responseFormat = "json"
             ),
             PromptTemplateRecord(
