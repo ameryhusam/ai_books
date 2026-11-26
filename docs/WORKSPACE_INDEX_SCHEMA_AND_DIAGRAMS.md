@@ -108,16 +108,17 @@ The slicer currently calculates physical page ranges from `printedPageStart + of
 
 ## 7. Manifest contract
 
-The existing exporter writes `manifestVersion`, `gradeKey`, `subjectKey`, `componentKey`, `partKey`, `sourceLayout`, `sourceReviewStatus`, `sourceFileName`, `sourceSha256`, `indexSha256`, lesson/unit counts, offset, cover paths and `partIndexPaths`.
+The TypeScript exporter now writes `edu.book_manifest.v2` with:
+- `manifestVersion`, `gradeKey`, `subjectKey`, `componentKey`, `partKey`, `sourceLayout`, `sourceReviewStatus`;
+- `sourceFileName` and `sourceSha256`;
+- `canonicalIndexPath` and `canonicalIndexSha256`;
+- `indexSha256` as a compatibility alias for the canonical index hash;
+- `partIndexes`, containing each derived part-index path and its own SHA-256;
+- lesson/unit counts, offset, cover paths and legacy `partIndexPaths`.
 
-The target manifest contract must identify the index files unambiguously:
-- `canonicalIndexPath`: `P01/index.json`, `P02/index.json`, or `index.json`;
-- `canonicalIndexSha256`: hash of that exact canonical index;
-- `partIndexes`: optional map/list of derived part-index paths and each exact hash;
-- retain legacy `indexSha256` for compatibility during migration, with its meaning explicitly tied to the canonical index path.
+For an independent source, the canonical index path is `P01/index.json` or `P02/index.json`, and the manifest is beside that index. For a merged source, the canonical index path is root `index.json`; derived part indexes are optional filtered views.
 
-For an independent source, the canonical index path and hash refer to the part-local index. For a merged source, they refer to the root index. Never compare one file's bytes against another file's hash.
-
+Hashes are calculated from the exact serialized bytes written to each file. Never compare one index file against another file's hash.
 ## 8. Identity and key rules
 
 - Canonical identity keys are grade, subject and optional component.
