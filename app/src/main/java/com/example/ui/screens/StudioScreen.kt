@@ -154,6 +154,7 @@ fun StudioScreen(
     lessonPackages: List<InteractivePackageRecord>,
     teacherNote: TeacherNoteRecord? = null,
     promptTemplates: List<PromptTemplateRecord> = emptyList(),
+    activePromptTemplateId: String = "",
     isBusy: Boolean,
     onBackToLibrary: () -> Unit,
     onSelectLesson: (LessonRef) -> Unit = {},
@@ -263,6 +264,7 @@ fun StudioScreen(
                     lessonPackages = lessonPackages,
                     teacherNote = teacherNote,
                     promptTemplates = promptTemplates,
+                    activePromptTemplateId = activePromptTemplateId,
                     isBusy = isBusy,
                     onBackToLibrary = onBackToLibrary,
                     onOpenLessonSwitcher = { showLessonSwitcher = true },
@@ -329,6 +331,7 @@ fun StudioScreen(
                     lessonPackages = lessonPackages,
                     teacherNote = teacherNote,
                     promptTemplates = promptTemplates,
+                    activePromptTemplateId = activePromptTemplateId,
                     isBusy = isBusy,
                     onBackToLibrary = onBackToLibrary,
                     onOpenLessonSwitcher = { showLessonSwitcher = true },
@@ -410,6 +413,7 @@ private fun StudioWorkbench(
     lessonPackages: List<InteractivePackageRecord>,
     teacherNote: TeacherNoteRecord?,
     promptTemplates: List<PromptTemplateRecord>,
+    activePromptTemplateId: String,
     isBusy: Boolean,
     onBackToLibrary: () -> Unit,
     onOpenLessonSwitcher: () -> Unit,
@@ -463,11 +467,17 @@ private fun StudioWorkbench(
     }
 
     val activeBlueprint = remember(task) { Indexer2PromptRegistry.blueprintFor(task) }
+    val activePromptTemplate = remember(promptTemplates, activePromptTemplateId, task) {
+        promptTemplates.firstOrNull { it.id == activePromptTemplateId }
+            ?: promptTemplates.firstOrNull { it.task == task }
+    }
     val livePromptPreview = remember(
         selectedLesson,
         task,
         sourceText,
         extraInstructions,
+        promptTemplates,
+        activePromptTemplateId,
         questionCount,
         selectedQuestionTypeIds,
         questionLanguage,
@@ -480,13 +490,18 @@ private fun StudioWorkbench(
                 lesson = selectedLesson,
                 task = task,
                 source = sourceText,
-                extra = extraInstructions,
+                extra = listOf(activePromptTemplate?.instructions.orEmpty().trim(), extraInstructions.trim())
+                    .filter { it.isNotBlank() }.distinct().joinToString("\n\n"),
                 questionCount = questionCount,
                 questionTypeIds = selectedQuestionTypeIds,
                 questionLanguage = questionLanguage,
                 attachedPdfPagesCount = if (attachPdfPages && !selectedLesson.pdfPath.isNullOrBlank()) 1 else 0,
                 questionStyleHint = questionStyle.takeIf { task == TaskType.QUESTIONS && it != "متنوعة" }.orEmpty(),
-                difficultyHint = if (task == TaskType.QUESTIONS) questionDifficulty.id else ""
+                difficultyHint = if (task == TaskType.QUESTIONS) questionDifficulty.id else "",
+                promptTemplate = activePromptTemplate?.instructions.orEmpty(),
+                responseSchemaJson = activePromptTemplate?.responseSchemaJson.orEmpty(),
+                responseFormat = activePromptTemplate?.responseFormat
+                    ?: if (activePromptTemplate?.responseSchemaJson.isNullOrBlank()) "text" else "json"
             )
         } else {
             "${activeBlueprint.roleInstruction}\n${activeBlueprint.outputContract}"
