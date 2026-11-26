@@ -2262,9 +2262,9 @@ class MainViewModel(
                     title = title,
                     task = task,
                     instructions = instructions,
-                    responseSchemaJson = responseSchemaJson,
-                    responseMappingJson = responseMappingJson,
-                    responseFormat = if (responseSchemaJson.isBlank()) "text" else "json",
+                    responseSchemaJson = if (task == TaskType.QUESTIONS) "" else responseSchemaJson,
+                    responseMappingJson = if (task == TaskType.QUESTIONS) "" else responseMappingJson,
+                    responseFormat = if (task == TaskType.QUESTIONS || responseSchemaJson.isNotBlank()) "json" else "text",
                     templateId = templateId
                 )
                 _uiState.update {
