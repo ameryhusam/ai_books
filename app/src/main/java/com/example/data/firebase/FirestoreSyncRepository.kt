@@ -431,6 +431,9 @@ class FirestoreSyncRepository(
         )
         require(normalized.modelId.matches(Regex("^[A-Za-z0-9._:-]{1,120}$"))) { "معرّف النموذج غير صالح." }
         require(normalized.displayName.isNotBlank() && normalized.displayName.length <= 120) { "اسم النموذج مطلوب وبحد أقصى 120 حرفاً." }
+        require(!normalized.isDefault || (normalized.isEnabled && normalized.lifecycleStatus != AiModelDefinition.STATUS_DEPRECATED)) {
+            "لا يمكن جعل نموذج معطّل أو متقاعد هو النموذج الافتراضي."
+        }
         val payload = mutableMapOf<String, Any>(
             "modelId" to normalized.modelId,
             "displayName" to normalized.displayName,
@@ -463,6 +466,9 @@ class FirestoreSyncRepository(
         require(!collection.document(newModelId).get().await().exists()) { "معرّف النموذج الجديد مستخدم بالفعل." }
         val normalized = model.copy(modelId = newModelId, displayName = model.displayName.trim())
         require(normalized.displayName.isNotBlank() && normalized.displayName.length <= 120) { "اسم النموذج مطلوب وبحد أقصى 120 حرفاً." }
+        require(!normalized.isDefault || (normalized.isEnabled && normalized.lifecycleStatus != AiModelDefinition.STATUS_DEPRECATED)) {
+            "لا يمكن جعل نموذج معطّل أو متقاعد هو النموذج الافتراضي."
+        }
         val payload = mutableMapOf<String, Any>(
             "modelId" to normalized.modelId,
             "displayName" to normalized.displayName,
@@ -499,7 +505,8 @@ class FirestoreSyncRepository(
         val target = collection.document(modelId).get().await()
         require(target.exists()) { "النموذج المحدد غير موجود في الكتالوج المركزي." }
         require(target.getString("provider") == provider.id && target.getBoolean("isEnabled") != false &&
-            target.getBoolean("supportsGenerateContent") != false) {
+            target.getBoolean("supportsGenerateContent") != false &&
+            target.getString("lifecycleStatus") != AiModelDefinition.STATUS_DEPRECATED) {
             "النموذج المحدد غير متاح لمزود الخدمة."
         }
         val providerModels = collection.whereEqualTo("provider", provider.id).get().await()
