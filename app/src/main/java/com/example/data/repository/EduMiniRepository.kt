@@ -563,7 +563,7 @@ class EduMiniRepository(
         }
         // Question JSON is derived from the canonical question-content contract, not a second editable template schema.
         val responseSchema = if (task == TaskType.QUESTIONS) {
-            QuestionResponseContract.schemaJson
+            QuestionResponseContract.schemaFor(questionTypeIds)
         } else {
             activeTemplate?.responseSchemaJson.orEmpty()
         }
