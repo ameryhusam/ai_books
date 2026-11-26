@@ -119,8 +119,9 @@ For a standalone source, the canonical index is `P01/index.json` or `P02/index.j
 The following changes are now present in the TypeScript main path:
 - shared types define `assignmentStatus`, `proposedPartKey`, `assignmentSource`, and `assignmentEvidence`;
 - the extraction schema accepts assignment provenance, and the extraction prompt requires explicit evidence for `assigned`; the model must not invent a P01 proposal;
+- source layout is derived from PDF discovery evidence or an explicit reviewer choice, not from filename, model output, or top-level partKey alone; a cover label P01/P02 identifies a candidate part but does not prove the PDF is standalone. Automatic SINGLE_PART_FILE classification requires explicit standalone wording; otherwise the UI requires a reviewer to select the physical layout;
 - the intake UI adds a P01 proposal only for unresolved units in a source already classified as merged, displays it as unconfirmed, and records reviewer confirmation when P01/P02 is selected;
-- approval and slicing reject an unresolved `sourceLayout`, a source-level `partKey` that conflicts with the layout, or any unit with `need_review`;
+- approval and slicing reject an unresolved `sourceLayout`, a source-level `partKey` that conflicts with the layout, or any unit without `assignmentStatus=assigned`, trusted `assignmentSource`, and non-empty `assignmentEvidence`;
 - the exporter writes an independent source's canonical index and manifest inside P01/P02; a merged source retains one root canonical index and may write filtered part views;
 - manifest v2 records the canonical index path/hash and an independent hash for each derived part index;
 - lesson records retain `sliceFile.workspaceUri`, which is the consumer-facing path.
