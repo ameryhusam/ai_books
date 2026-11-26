@@ -381,7 +381,7 @@ class DirectWorkspaceBinder(private val context: Context) {
                 )
                 preloadedPackages.add(
                     InteractivePackageEntity(
-                        id = "pkg-direct-${computeStableWorkspaceId(htmlEntryPath, lesson.lessonKey)}",
+                        id = "pkg-direct-${computeStableWorkspaceId(workspaceId, "${lesson.bookKey}:${lesson.unitKey}:${lesson.lessonKey}")}",
                         workspaceId = workspaceId,
                         gradeKey = gradeKey,
                         bookKey = lesson.bookKey,
@@ -402,10 +402,12 @@ class DirectWorkspaceBinder(private val context: Context) {
             }
         }
 
-        val relevantFilesCount = entries.count {
-            it.relativePath.contains("/$gradeKey/", ignoreCase = true) ||
-                it.relativePath.startsWith("$gradeKey/", ignoreCase = true) ||
-                discoveredIndexes.any { idx -> idx.bookRelPath.isBlank() }
+        val boundBookPrefixes = discoveredIndexes.map { it.bookRelPath.trim('/').lowercase() }
+        val relevantFilesCount = entries.count { entry ->
+            val relLower = entry.relativePath.lowercase()
+            boundBookPrefixes.any { prefix ->
+                prefix.isEmpty() || relLower == prefix || relLower.startsWith("$prefix/")
+            } || relLower.contains("/${gradeKey.lowercase()}/") || relLower.startsWith("${gradeKey.lowercase()}/")
         }.coerceAtLeast(lessons.size)
 
         val workspace = ImportedWorkspace(
@@ -529,7 +531,7 @@ class DirectWorkspaceBinder(private val context: Context) {
             }
 
             val invalidPdfs = parsedLessons.filter { lesson ->
-                lesson.pdfPath.isNullOrBlank() || !isReadablePdf(lesson.pdfPath)
+                lesson.pdfPath.isNullOrBlank() || !hasPdfHeaderOrExists(lesson.pdfPath)
             }
             if (validation.canonicalContract && invalidPdfs.isNotEmpty()) {
                 warnings.add("$bookLabel: لم تجتز ملفات PDF الخاصة بجميع الدروس فحص القراءة؛ تم استبعاد الكتاب من خيارات الربط.")
@@ -736,6 +738,17 @@ class DirectWorkspaceBinder(private val context: Context) {
         return null
     }
 
+    private fun hasPdfHeaderOrExists(path: String?): Boolean {
+        val stream = UriIO.openInputStream(context, path) ?: return false
+        return runCatching {
+            stream.use { input ->
+                val header = ByteArray(5)
+                val read = input.read(header)
+                read >= 5 && String(header, Charsets.US_ASCII) == "%PDF-"
+            }
+        }.getOrDefault(false)
+    }
+
     private fun isReadablePdf(path: String?): Boolean {
         val descriptor = UriIO.openReadPfd(context, path) ?: return false
         return runCatching {
@@ -801,12 +814,26 @@ class DirectWorkspaceBinder(private val context: Context) {
                     if (num >= 0) num.toString().padStart(2, '0') else "-1"
                 }
 
+                val bookEntries = if (bookRel.isBlank()) {
+                    entries
+                } else {
+                    val bookPrefix = "${bookRel.trim('/').lowercase()}/"
+                    entries.filter { it.relativePath.lowercase().startsWith(bookPrefix) }
+                }
+
                 val linkedPdf = (l["sliceFile"] as? JsonObject)?.str("workspaceUri").orEmpty()
+                    .trim()
+                    .replace('\\', '/')
+                    .takeIf { it.isNotBlank() && !it.split('/').contains("..") }
+                    .orEmpty()
                 val pdfCandidates = buildList {
                     if (linkedPdf.isNotBlank()) {
                         add(linkedPdf)
                         if (linkedPdf.startsWith("workspace/", ignoreCase = true)) {
                             add(linkedPdf.removePrefix("workspace/"))
+                        }
+                        if (bookRel.isNotBlank()) {
+                            add(joinRel(bookRel, linkedPdf))
                         }
                     }
                     if (p == "P01" || p == "P02") {
@@ -816,7 +843,13 @@ class DirectWorkspaceBinder(private val context: Context) {
                 }
                 val matchedPdf = firstExisting(entryMap, *pdfCandidates.toTypedArray())
 
+                val explicitTextRel = l.str("sourceTextPath").trim().replace('\\', '/')
+                    .takeIf { it.isNotBlank() && !it.split('/').contains("..") }
                 val txtCandidates = buildList {
+                    if (explicitTextRel != null) {
+                        add(explicitTextRel)
+                        if (bookRel.isNotBlank()) add(joinRel(bookRel, explicitTextRel))
+                    }
                     if (p == "P01" || p == "P02") {
                         add(joinRel(bookRel, "$p/units/$unitFolderKey/lesson_$lessonNumStr.txt"))
                         add(joinRel(bookRel, "$p/units/$unitFolderKey/lesson_$lessonNumStr.md"))
@@ -833,15 +866,25 @@ class DirectWorkspaceBinder(private val context: Context) {
                     add(joinRel(bookRel, "units/$unitFolderKey/$lk.md"))
                 }
                 val matchedTxt = firstExisting(entryMap, *txtCandidates.toTypedArray())
-                    ?: entries.firstOrNull { entry ->
+                    ?: bookEntries.firstOrNull { entry ->
                         val lower = entry.relativePath.lowercase()
-                        (lower.endsWith(".txt") || lower.endsWith(".md")) &&
+                        val matchesPart = p.isBlank() || lower.contains("/${p.lowercase()}/") || !lower.contains("/p0")
+                        matchesPart &&
+                            (lower.endsWith(".txt") || lower.endsWith(".md")) &&
                             lower.contains("/$unitFolderKey/", ignoreCase = true) &&
                             (lower.contains("/$lk.", ignoreCase = true) ||
                                 (lessonNumStr != "-1" && lower.contains("lesson_$lessonNumStr.", ignoreCase = true)))
                     }
 
+                val explicitHtmlRel = firstNonBlank(l.str("interactivePath"), l.str("htmlPath"))
+                    .trim()
+                    .replace('\\', '/')
+                    .takeIf { it.isNotBlank() && !it.split('/').contains("..") }
                 val htmlCandidates = buildList {
+                    if (explicitHtmlRel != null) {
+                        add(explicitHtmlRel)
+                        if (bookRel.isNotBlank()) add(joinRel(bookRel, explicitHtmlRel))
+                    }
                     if (p == "P01" || p == "P02") {
                         add(joinRel(bookRel, "$p/units/$unitFolderKey/lesson_$lessonNumStr/index.html"))
                         add(joinRel(bookRel, "$p/units/$unitFolderKey/lesson_${lessonNumStr}_interactive.html"))
@@ -858,9 +901,11 @@ class DirectWorkspaceBinder(private val context: Context) {
                     add(joinRel(bookRel, "units/$unitFolderKey/lesson_$lessonNumStr.html"))
                 }
                 val matchedHtml = firstExisting(entryMap, *htmlCandidates.toTypedArray())
-                    ?: entries.firstOrNull { entry ->
+                    ?: bookEntries.firstOrNull { entry ->
                         val lower = entry.relativePath.lowercase()
-                        lower.endsWith(".html") &&
+                        val matchesPart = p.isBlank() || lower.contains("/${p.lowercase()}/") || !lower.contains("/p0")
+                        matchesPart &&
+                            lower.endsWith(".html") &&
                             lower.contains("/$unitFolderKey/", ignoreCase = true) &&
                             (lower.contains("/$lk", ignoreCase = true) ||
                                 (lessonNumStr != "-1" && lower.contains("lesson_$lessonNumStr", ignoreCase = true)))
@@ -899,13 +944,18 @@ class DirectWorkspaceBinder(private val context: Context) {
         val sourceUnitFolder = uk.removePrefix("p01_").removePrefix("p02_")
         val lk = lesson.lessonKey.lowercase()
         val bk = lesson.bookKey.lowercase()
+        val gradeLower = lesson.grade.lowercase()
+        val otherGradeRegex = Regex("(?:^|/)g\\d{2}(?:/|$)")
         return entries.filter { entry ->
             val p = entry.relativePath.lowercase()
-            p.endsWith(".json") &&
+            val matchesGrade = !otherGradeRegex.containsMatchIn(p) || p.contains("/$gradeLower/") || p.startsWith("$gradeLower/")
+            val matchesBook = p.contains("/$bk/") || p.startsWith("$bk/") || p.startsWith("questions/$uk/$lk/")
+            matchesGrade &&
+                matchesBook &&
+                p.endsWith(".json") &&
                 (p.contains("/questions/") || p.startsWith("questions/")) &&
                 (p.contains("/$uk/") || p.contains("/$sourceUnitFolder/")) &&
-                p.contains("/$lk/") &&
-                (p.contains("/$bk/") || !p.contains("/g"))
+                p.contains("/$lk/")
         }
     }
 

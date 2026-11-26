@@ -121,7 +121,6 @@ fun LibraryScreen(
     onBindDirectFolder: () -> Unit = {},
     onRefreshIndex: () -> Unit = {},
     onPickZip: () -> Unit = {},
-    onPickBookPdf: () -> Unit = {},
     onPickStandalonePdf: () -> Unit = {},
     onSelectWorkspace: (String) -> Unit,
     onDeleteWorkspace: (String, String) -> Unit = { _, _ -> },
@@ -316,12 +315,12 @@ fun LibraryScreen(
                                     style = MaterialTheme.typography.titleSmall,
                                     color = EduInk
                                 )
-                                val isDirectSaf = remember(workspace.rootPath) {
-                                    UriIO.isContentUri(workspace.rootPath)
+                                val isDirectWorkspace = remember(workspace.workspaceId, workspace.rootPath) {
+                                    workspace.workspaceId.startsWith("direct-") || UriIO.isContentUri(workspace.rootPath)
                                 }
                                 Text(
-                                    text = if (isDirectSaf) {
-                                        "${workspace.gradeKey} • ${workspace.filesCount} ملف • ربط مباشر محلي (بدون نسخ)"
+                                    text = if (isDirectWorkspace) {
+                                        "${workspace.gradeKey} • ${workspace.books.size} كتاب • ${workspace.lessons.size} درس • ${workspace.filesCount} ملف • ربط مباشر محلي (بدون نسخ)"
                                     } else {
                                         "${workspace.gradeKey} • ${workspace.filesCount} ملف • الحجم على القرص: $diskLabel"
                                     },
@@ -356,7 +355,7 @@ fun LibraryScreen(
                                 }
                             }
                         }
-                        if (UriIO.isContentUri(workspace.rootPath)) {
+                        if (workspace.workspaceId.startsWith("direct-") || UriIO.isContentUri(workspace.rootPath)) {
                             OutlinedButton(
                                 onClick = onRefreshIndex,
                                 shape = RoundedCornerShape(12.dp),

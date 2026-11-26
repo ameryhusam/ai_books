@@ -160,7 +160,6 @@ fun DashboardScreen(
     onGenerateConceptRemediation: (String?, TaskType) -> Unit = { _, _ -> },
     onOpenGlobalSearch: () -> Unit = {},
     onBindDirectFolder: () -> Unit = {},
-    onPickBookPdf: () -> Unit = {},
     onPickZip: () -> Unit = {},
     onOpenLibrary: () -> Unit = {},
     modifier: Modifier = Modifier
@@ -323,7 +322,8 @@ fun DashboardScreen(
                     item(key = "weak_concepts_panel") {
                         WeakConceptsReinforcementCard(
                             weakConcepts = summary.weakConcepts,
-                            onLaunchConceptReinforcement = onLaunchConceptReinforcement
+                            onLaunchConceptReinforcement = onLaunchConceptReinforcement,
+                            onGenerateConceptRemediation = onGenerateConceptRemediation
                         )
                     }
                 }
@@ -1071,7 +1071,8 @@ private fun NextRecommendedStepCard(
 @Composable
 private fun WeakConceptsReinforcementCard(
     weakConcepts: List<ConceptMasterySummary>,
-    onLaunchConceptReinforcement: (String?) -> Unit
+    onLaunchConceptReinforcement: (String?) -> Unit,
+    onGenerateConceptRemediation: (String?, TaskType) -> Unit
 ) {
     EduPanel(
         modifier = Modifier

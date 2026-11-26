@@ -97,7 +97,7 @@ class EduMiniRepository(
     private val providerStorage: ProviderStorage,
     private val workspaceImporter: WorkspaceImporter,
     private val aiGenerationService: AiGenerationService,
-    private val pdfBookSplitter: PdfBookSplitter,
+    private val pdfBookSplitter: PdfBookSplitter? = null,
     private val interactivePackageImporter: InteractivePackageImporter,
     private val directWorkspaceBinder: DirectWorkspaceBinder? = null,
     private val appContext: Context? = null
@@ -229,13 +229,15 @@ class EduMiniRepository(
             }
         }
         if (bound.preloadedInteractivePackages.isNotEmpty()) {
-            val existingIds = dao.observePackagesForWorkspace(bound.workspace.workspaceId)
+            val existingById = dao.observePackagesForWorkspace(bound.workspace.workspaceId)
                 .first()
-                .map { it.id }
-                .toHashSet()
-            bound.preloadedInteractivePackages
-                .filter { it.id !in existingIds }
-                .forEach { dao.insertInteractivePackage(it) }
+                .associateBy { it.id }
+            bound.preloadedInteractivePackages.forEach { pkg ->
+                val existing = existingById[pkg.id]
+                if (existing == null || existing.rootDir != pkg.rootDir || existing.entryFile != pkg.entryFile || existing.reportJson != pkg.reportJson) {
+                    dao.insertInteractivePackage(pkg)
+                }
+            }
         }
         return bound.workspace
     }
@@ -258,10 +260,16 @@ class EduMiniRepository(
         dir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
     }
 
-    suspend fun ingestBookPdf(uri: Uri): PdfBookInfo = pdfBookSplitter.ingestBookPdf(uri)
+    suspend fun ingestBookPdf(uri: Uri): PdfBookInfo {
+        val splitter = pdfBookSplitter
+            ?: throw IllegalStateException("ميزة تقطيع الكتب من PDF متوقفة حالياً؛ استخدم الربط المباشر بمجلد workspace.")
+        return splitter.ingestBookPdf(uri)
+    }
 
     fun generateAutoSplits(totalPages: Int, pagesPerLesson: Int): List<LessonSplitDraft> {
-        return pdfBookSplitter.generateAutoSplits(totalPages, pagesPerLesson)
+        val splitter = pdfBookSplitter
+            ?: throw IllegalStateException("ميزة تقطيع الكتب من PDF متوقفة حالياً؛ استخدم الربط المباشر بمجلد workspace.")
+        return splitter.generateAutoSplits(totalPages, pagesPerLesson)
     }
 
     suspend fun createWorkspaceFromPdfSplits(
@@ -271,7 +279,9 @@ class EduMiniRepository(
         bookTitle: String,
         splits: List<LessonSplitDraft>
     ): ImportedWorkspace {
-        val workspace = pdfBookSplitter.buildWorkspaceFromSplits(
+        val splitter = pdfBookSplitter
+            ?: throw IllegalStateException("ميزة تقطيع الكتب من PDF متوقفة حالياً؛ استخدم الربط المباشر بمجلد workspace.")
+        val workspace = splitter.buildWorkspaceFromSplits(
             pdfInfo = pdfInfo,
             gradeKey = gradeKey,
             subjectKey = subjectKey,
@@ -442,10 +452,11 @@ class EduMiniRepository(
         } else null
         // OpenAI-compatible chat endpoints do not share a universal native-PDF contract.
         // Rendered page images are retained as a compatibility fallback for those providers.
-        val needsRenderedPages = shouldAttachSource && (
-            attachmentMode == "rendered_pages" ||
-                selectedProvider == ProviderType.OPENAI_COMPATIBLE
-            )
+        val needsRenderedPages = shouldAttachSource &&
+            !lesson.pdfPath.isNullOrBlank() && (
+                attachmentMode == "rendered_pages" ||
+                    selectedProvider == ProviderType.OPENAI_COMPATIBLE
+                )
         val pageImages = if (needsRenderedPages) {
             aiGenerationService.extractLessonPdfPageImagesBase64(lesson.pdfPath)
         } else emptyList()
@@ -786,26 +797,7 @@ class EduMiniRepository(
             unitKey = lesson.unitKey,
             lessonKey = lesson.lessonKey
         ).map { list ->
-            list.map { entity ->
-                DraftRecord(
-                    id = entity.id,
-                    workspaceId = entity.workspaceId,
-                    grade = entity.gradeKey,
-                    bookKey = entity.bookKey,
-                    unitKey = entity.unitKey,
-                    lessonKey = entity.lessonKey,
-                    task = TaskType.fromId(entity.task),
-                    title = entity.title,
-                    provider = entity.provider,
-                    model = entity.model,
-                    createdAt = entity.createdAt,
-                    content = entity.content,
-                    status = entity.status,
-                    version = entity.version,
-                    sourcePages = entity.sourcePages,
-                    sourceHash = entity.sourceHash
-                )
-            }
+            list.map { it.toDraftRecord() }
         }
     }
 

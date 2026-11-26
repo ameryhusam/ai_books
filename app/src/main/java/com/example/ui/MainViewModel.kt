@@ -88,7 +88,7 @@ data class ProviderFormState(
     val editingProviderId: String? = null,
     val provider: ProviderType = ProviderType.GEMINI,
     val label: String = "Gemini",
-    val model: String = "gemini-3.8-flash",
+    val model: String = "gemini-2.5-flash",
     val fallbackModels: String = "",
     val strictModel: Boolean = false,
     val baseUrl: String = "https://api.openai.com/v1",
@@ -150,7 +150,6 @@ data class MainUiState(
     val stagedPreview: StagedWorkspacePreview? = null,
     val globalSearchOpen: Boolean = false,
     val pendingExportAssessment: AssessmentRecord? = null,
-    val pdfSplitter: PdfSplitterUiState? = null,
     val providers: List<ProviderConfig> = emptyList(),
     val selectedProvider: ProviderType = ProviderType.GEMINI,
     val providerForm: ProviderFormState = ProviderFormState(),
@@ -631,6 +630,15 @@ class MainViewModel(
                         alert = AlertMessage(
                             "تم تحديث فهرس مساحة العمل",
                             "${refreshed.indexRecords.size} فهرس • ${refreshed.books.size} مادة/كتاب • ${refreshed.units.size} وحدة • ${refreshed.lessons.size} درس. لم يتم نسخ ملفات PDF."
+                        )
+                    )
+                }
+            } catch (e: SecurityException) {
+                _uiState.update {
+                    it.copy(
+                        alert = AlertMessage(
+                            "انتهت صلاحية الوصول إلى المجلد",
+                            "تعذر قراءة مجلد مساحة العمل المحلي (${e.message ?: "SecurityException"}). أعد اختيار المجلد عبر زر «ربط مجلد مساحة العمل» لاستعادة صلاحية القراءة دون فقدان بياناتك."
                         )
                     )
                 }
@@ -1767,14 +1775,6 @@ class MainViewModel(
         _uiState.update { it.copy(providerForm = it.providerForm.copy(apiKey = value)) }
     }
 
-    fun updateFormDailyRequestLimit(value: String) {
-        _uiState.update { it.copy(providerForm = it.providerForm.copy(dailyRequestLimit = value.filter(Char::isDigit).take(7))) }
-    }
-
-    fun updateFormQuotaTimeZone(value: String) {
-        _uiState.update { it.copy(providerForm = it.providerForm.copy(quotaTimeZone = value.trim())) }
-    }
-
     fun toggleFormStrictModel() {
         _uiState.update { it.copy(providerForm = it.providerForm.copy(strictModel = !it.providerForm.strictModel)) }
     }
@@ -2418,156 +2418,6 @@ class MainViewModel(
                             message = e.message ?: "تعذر قراءة ملف ZIP"
                         )
                     )
-                }
-            } finally {
-                _uiState.update { it.copy(isBusy = false) }
-            }
-        }
-    }
-
-    fun openBookPdfForSplitting(uri: Uri) {
-        viewModelScope.launch {
-            _uiState.update { it.copy(isBusy = true) }
-            try {
-                val info = repository.ingestBookPdf(uri)
-                val defaultSplits = repository.generateAutoSplits(info.totalPages, pagesPerLesson = 5)
-                _uiState.update {
-                    it.copy(
-                        pdfSplitter = PdfSplitterUiState(
-                            pdfInfo = info,
-                            splits = defaultSplits
-                        )
-                    )
-                }
-            } catch (e: Exception) {
-                _uiState.update {
-                    it.copy(alert = AlertMessage("خطأ في PDF", e.message ?: "تعذر قراءة ملف PDF"))
-                }
-            } finally {
-                _uiState.update { it.copy(isBusy = false) }
-            }
-        }
-    }
-
-    fun updateSplitterGrade(value: String) {
-        _uiState.update { it.copy(pdfSplitter = it.pdfSplitter?.copy(gradeKey = value)) }
-    }
-
-    fun updateSplitterSubject(value: String) {
-        _uiState.update { it.copy(pdfSplitter = it.pdfSplitter?.copy(subjectKey = value)) }
-    }
-
-    fun updateSplitterBookTitle(value: String) {
-        _uiState.update { it.copy(pdfSplitter = it.pdfSplitter?.copy(bookTitle = value)) }
-    }
-
-    fun updateSplitterPagesPerLesson(count: Int) {
-        _uiState.update { state ->
-            val current = state.pdfSplitter ?: return@update state
-            val cleanCount = count.coerceIn(1, current.pdfInfo.totalPages.coerceAtLeast(1))
-            val regenerated = repository.generateAutoSplits(current.pdfInfo.totalPages, cleanCount)
-            state.copy(
-                pdfSplitter = current.copy(
-                    pagesPerLesson = cleanCount,
-                    splits = regenerated
-                )
-            )
-        }
-    }
-
-    fun updateSplitLesson(
-        splitId: String,
-        title: String,
-        unitTitle: String,
-        startPage: Int,
-        endPage: Int
-    ) {
-        _uiState.update { state ->
-            val current = state.pdfSplitter ?: return@update state
-            val maxPage = current.pdfInfo.totalPages
-            val nextSplits = current.splits.map { split ->
-                if (split.id == splitId) {
-                    val safeStart = startPage.coerceIn(1, maxPage)
-                    val safeEnd = endPage.coerceIn(safeStart, maxPage)
-                    split.copy(
-                        title = title,
-                        unitTitle = unitTitle,
-                        startPage = safeStart,
-                        endPage = safeEnd
-                    )
-                } else split
-            }
-            state.copy(pdfSplitter = current.copy(splits = nextSplits))
-        }
-    }
-
-    fun addSplitLesson() {
-        _uiState.update { state ->
-            val current = state.pdfSplitter ?: return@update state
-            val maxPage = current.pdfInfo.totalPages
-            val nextIndex = current.splits.size + 1
-            val lastEnd = current.splits.lastOrNull()?.endPage ?: 0
-            val start = (lastEnd + 1).coerceAtMost(maxPage)
-            val end = (start + current.pagesPerLesson - 1).coerceAtMost(maxPage)
-            val num = nextIndex.toString().padStart(2, '0')
-            val newItem = LessonSplitDraft(
-                id = "split-${System.currentTimeMillis()}-$nextIndex",
-                unitKey = "unit_01",
-                unitTitle = current.splits.lastOrNull()?.unitTitle ?: "الوحدة الأولى",
-                lessonKey = "lesson_$num",
-                title = "الدرس $nextIndex",
-                startPage = start,
-                endPage = end
-            )
-            state.copy(pdfSplitter = current.copy(splits = current.splits + newItem))
-        }
-    }
-
-    fun removeSplitLesson(splitId: String) {
-        _uiState.update { state ->
-            val current = state.pdfSplitter ?: return@update state
-            if (current.splits.size <= 1) return@update state
-            state.copy(
-                pdfSplitter = current.copy(splits = current.splits.filterNot { it.id == splitId })
-            )
-        }
-    }
-
-    fun dismissPdfSplitter() {
-        _uiState.update { it.copy(pdfSplitter = null) }
-    }
-
-    fun createWorkspaceFromPdfSplits(openFirstLessonInStudio: Boolean) {
-        val splitter = _uiState.value.pdfSplitter ?: return
-        viewModelScope.launch {
-            _uiState.update { it.copy(isBusy = true) }
-            try {
-                val created = repository.createWorkspaceFromPdfSplits(
-                    pdfInfo = splitter.pdfInfo,
-                    gradeKey = splitter.gradeKey,
-                    subjectKey = splitter.subjectKey,
-                    bookTitle = splitter.bookTitle,
-                    splits = splitter.splits
-                )
-                val firstLesson = created.lessons.firstOrNull()
-                _uiState.update {
-                    it.copy(
-                        pdfSplitter = null,
-                        selectedWorkspaceId = created.workspaceId,
-                        workspace = created,
-                        selectedBookKey = created.books.firstOrNull()?.bookKey.orEmpty(),
-                        selectedLesson = if (openFirstLessonInStudio) firstLesson else null,
-                        packageSourcePages = if (openFirstLessonInStudio) firstLesson?.pageRange.orEmpty() else "",
-                        page = if (openFirstLessonInStudio && firstLesson != null) AppPage.STUDIO else AppPage.LIBRARY,
-                        alert = AlertMessage(
-                            title = "تم إنشاء مساحة العمل",
-                            message = "تم تجزئة الكتاب إلى ${created.lessons.size} درس وحفظ ملفات PDF الخاصة بكل درس بنجاح."
-                        )
-                    )
-                }
-            } catch (e: Exception) {
-                _uiState.update {
-                    it.copy(alert = AlertMessage("تعذر تجزئة الكتاب", e.message ?: "خطأ غير متوقع"))
                 }
             } finally {
                 _uiState.update { it.copy(isBusy = false) }

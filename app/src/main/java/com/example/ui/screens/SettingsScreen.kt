@@ -109,8 +109,6 @@ fun SettingsScreen(
     onFallbackModelsChange: (String) -> Unit,
     onBaseUrlChange: (String) -> Unit,
     onApiKeyChange: (String) -> Unit,
-    onDailyRequestLimitChange: (String) -> Unit = {},
-    onQuotaTimeZoneChange: (String) -> Unit = {},
     onToggleStrictModel: () -> Unit = {},
     onAddOrUpdateProvider: () -> Unit,
     onCancelEditProvider: () -> Unit = {},
@@ -369,7 +367,7 @@ fun SettingsScreen(
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         val presets = if (form.provider == ProviderType.GEMINI) {
-                            listOf("gemini-3.5-flash", "gemini-3.6-flash", "gemini-3.7-flash", "gemini-3.8-flash")
+                            listOf("gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite")
                         } else {
                             listOf("gpt-4o-mini", "gpt-4.1-mini", "deepseek-chat")
                         }

@@ -10,6 +10,11 @@ ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
 }
 
+val googleServicesFile = file("google-services.json")
+val allowMissingGoogleServices = providers.gradleProperty("allowMissingGoogleServices")
+    .map { it.toBoolean() }
+    .getOrElse(false)
+
 android {
     namespace = "com.example"
     compileSdk = 36
@@ -37,6 +42,8 @@ android {
     }
 
     buildTypes {
+        getByName("debug") {
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(
@@ -95,4 +102,12 @@ dependencies {
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core)
     testImplementation(libs.androidx.room.testing)
+}
+
+if (!googleServicesFile.exists() && allowMissingGoogleServices) {
+    tasks.configureEach {
+        if (name.contains("GoogleServices", ignoreCase = true) && name.contains("Debug", ignoreCase = true)) {
+            enabled = false
+        }
+    }
 }

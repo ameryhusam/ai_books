@@ -98,7 +98,6 @@ import com.example.data.packageimport.InteractivePackageImporter
 import com.example.data.repository.EduMiniRepository
 import com.example.data.security.ProviderStorage
 import com.example.data.workspace.DirectWorkspaceBinder
-import com.example.data.workspace.PdfBookSplitter
 import com.example.data.workspace.WorkspaceImporter
 import com.example.model.AppPage
 import com.example.model.UserRole
@@ -109,7 +108,6 @@ import com.example.ui.components.BookCoverPreviewDialog
 import com.example.ui.components.GlobalSearchDialog
 import com.example.ui.components.InteractiveJsonActivityDialog
 import com.example.ui.components.InteractivePackagePreviewDialog
-import com.example.ui.components.PdfBookSplitterDialog
 import com.example.ui.components.PdfReaderDialog
 import com.example.ui.components.PreImportPreviewDialog
 import com.example.ui.components.PromptSourcesAndSchemasDialog
@@ -170,7 +168,6 @@ fun EduMiniApp(
                                     providerStorage = ProviderStorage(app),
                                     workspaceImporter = WorkspaceImporter(app),
                                     aiGenerationService = AiGenerationService(app),
-                                    pdfBookSplitter = PdfBookSplitter(app),
                                     interactivePackageImporter = InteractivePackageImporter(app),
                                     directWorkspaceBinder = DirectWorkspaceBinder(app),
                                     appContext = app
@@ -289,14 +286,6 @@ private fun AuthenticatedEduMiniContent(
     ) { uri: Uri? ->
         if (uri != null) {
             viewModel.exportLearningProgressReport(uri)
-        }
-    }
-
-    val pdfPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri: Uri? ->
-        if (uri != null) {
-            viewModel.openBookPdfForSplitting(uri)
         }
     }
 
@@ -518,9 +507,6 @@ private fun AuthenticatedEduMiniContent(
                                                     )
                                                 )
                                             },
-                                            onPickBookPdf = {
-                                                pdfPickerLauncher.launch(arrayOf("application/pdf"))
-                                            },
                                             onPickStandalonePdf = {
                                                 standalonePdfPickerLauncher.launch(arrayOf("application/pdf"))
                                             },
@@ -660,8 +646,6 @@ private fun AuthenticatedEduMiniContent(
                                             onFallbackModelsChange = viewModel::updateFormFallbackModels,
                                             onBaseUrlChange = viewModel::updateFormBaseUrl,
                                             onApiKeyChange = viewModel::updateFormApiKey,
-                                            onDailyRequestLimitChange = viewModel::updateFormDailyRequestLimit,
-                                            onQuotaTimeZoneChange = viewModel::updateFormQuotaTimeZone,
                                             onToggleStrictModel = viewModel::toggleFormStrictModel,
                                             onAddOrUpdateProvider = viewModel::addOrUpdateProvider,
                                             onCancelEditProvider = viewModel::cancelEditProvider,
@@ -701,22 +685,6 @@ private fun AuthenticatedEduMiniContent(
                         isBusy = state.isBusy,
                         onConfirmImport = viewModel::confirmStagedImport,
                         onDismiss = viewModel::dismissStagedPreview
-                    )
-                }
-
-                state.pdfSplitter?.let { splitterState ->
-                    PdfBookSplitterDialog(
-                        state = splitterState,
-                        isBusy = state.isBusy,
-                        onDismiss = viewModel::dismissPdfSplitter,
-                        onGradeChange = viewModel::updateSplitterGrade,
-                        onSubjectChange = viewModel::updateSplitterSubject,
-                        onBookTitleChange = viewModel::updateSplitterBookTitle,
-                        onPagesPerLessonChange = viewModel::updateSplitterPagesPerLesson,
-                        onUpdateSplit = viewModel::updateSplitLesson,
-                        onAddSplit = viewModel::addSplitLesson,
-                        onRemoveSplit = viewModel::removeSplitLesson,
-                        onCreateWorkspace = viewModel::createWorkspaceFromPdfSplits
                     )
                 }
 

@@ -17,8 +17,11 @@ import com.example.data.local.WorkspaceEntity
 import com.example.data.local.WorkspaceIndexEntity
 import com.example.data.local.WorkspaceUnitEntity
 import com.example.data.local.GenerationRunEntity
+import com.example.data.local.AssessmentAttemptEntity
 import com.example.data.local.EduMiniDatabase
+import com.example.data.local.InteractivePackageEntity
 import com.example.data.local.LessonProgressEntity
+import com.example.data.local.StudyDayEntity
 import com.example.data.packageimport.InteractivePackageImporter
 import com.example.data.repository.ConceptMasteryEngine
 import com.example.data.repository.EduMiniRepository
@@ -40,6 +43,8 @@ import com.tom_roush.pdfbox.pdmodel.font.PDType1Font
 import com.example.model.AchievementBadge
 import com.example.model.BadgeCategory
 import com.example.model.DashboardSummary
+import com.example.model.DraftStatus
+import com.example.model.GeneratedResult
 import com.example.model.AssessmentKind
 import com.example.model.AssessmentAttemptRecord
 import com.example.model.BookRef
@@ -51,6 +56,7 @@ import com.example.model.LessonRef
 import com.example.model.MasteryStatus
 import com.example.model.PackageKind
 import com.example.model.PdfBookInfo
+import com.example.model.PromptTemplateRecord
 import com.example.model.QuestionAttemptRecord
 import com.example.model.QuestionDifficulty
 import com.example.model.QuestionItem
@@ -92,6 +98,11 @@ import java.util.zip.ZipOutputStream
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class EduMiniCoreTest {
+
+    @org.junit.Before
+    fun registerTestAndroidKeyStore() {
+        ensureTestAndroidKeyStore()
+    }
 
     @Test
     fun importerParsesCanonicalBookIndexAndIgnoresPartDerivedIndex() = runBlocking {
@@ -184,7 +195,7 @@ class EduMiniCoreTest {
             availableRelativePaths = setOf("workspace/G04/SCI/P01/units/unit_01/lesson_01.pdf")
         )
         assertFalse(result.isValid)
-        assertTrue(result.errors.any { it.contains("sourceReviewStatus") })
+        assertTrue(result.errors.any { it.contains("NEEDS_REVIEW") || it.contains("غير معتمد للمراجعة النهائية") })
     }
 
     @Test
@@ -271,8 +282,8 @@ class EduMiniCoreTest {
         assertTrue(prompt.contains("G04"))
         assertTrue(prompt.contains("الدرس الأول"))
         assertTrue(prompt.contains("نص تجريبي"))
-        assertTrue(prompt.contains("2 صفحة مصورة"))
-        assertTrue(prompt.contains("يجب أن تكون الإجابة الصحيحة صريحة ومسنودة بالمصدر."))
+        assertTrue(prompt.contains("ملف PDF الأصلي للدرس مرفق"))
+        assertTrue(prompt.contains("التزم بالمصدر ولا تخترع معلومات أو صفحات."))
     }
 
     @Test
@@ -449,10 +460,10 @@ class EduMiniCoreTest {
         assertEquals(1, summary.unitPaths.size)
         assertEquals(LearningNodeStatus.COMPLETED, summary.unitPaths[0].nodes[0].status)
         assertEquals(LearningNodeStatus.NOT_STARTED, summary.unitPaths[0].nodes[1].status)
-        // 50 (completed) + 20 (approved draft) + 40 (first lesson badge) + 25 (workspace badge) + 30 (ai author badge) + 50 (halfway badge) = 215 XP
-        assertEquals(215, summary.totalPoints)
+        // 50 (completed) + 20 (approved draft) + 40 (first lesson) + 25 (workspace) + 30 (ai author) + 50 (halfway) + 10 (25% subject) + 20 (50% subject) = 245 XP
+        assertEquals(245, summary.totalPoints)
         assertEquals(2, summary.level)
-        assertEquals(4, summary.unlockedBadgesCount)
+        assertEquals(6, summary.unlockedBadgesCount)
         assertTrue(summary.badges.first { it.id == "badge_first_lesson" }.unlocked)
         assertFalse(summary.badges.first { it.id == "badge_5_day_streak" }.unlocked)
         assertEquals(lesson2.lessonKey, summary.nextRecommendedLesson?.lessonKey)
@@ -1064,16 +1075,16 @@ class EduMiniCoreTest {
         val lesson = sampleLesson()
 
         val vocabPrompt = service.buildPrompt(lesson, TaskType.VOCABULARY, "نص", "", questionCount = 4)
-        assertTrue(vocabPrompt.contains("مفردات ومصطلحات"))
+        assertTrue(vocabPrompt.contains("باني المفردات"))
 
         val workedPrompt = service.buildPrompt(lesson, TaskType.WORKED_EXAMPLES, "نص", "", questionCount = 4)
         assertTrue(workedPrompt.contains("أمثلة محلولة"))
 
         val reviewPrompt = service.buildPrompt(lesson, TaskType.LESSON_REVIEW, "نص", "", questionCount = 4)
-        assertTrue(reviewPrompt.contains("مراجعة شاملة"))
+        assertTrue(reviewPrompt.contains("مراجعة الدرس"))
 
         val adapterPrompt = service.buildPrompt(lesson, TaskType.DIFFICULTY_ADAPTER, "نص", "", questionCount = 4)
-        assertTrue(adapterPrompt.contains("ثلاثة مستويات"))
+        assertTrue(adapterPrompt.contains("تكييف الصعوبة"))
 
         val interactivePrompt = service.buildPrompt(
             lesson,
@@ -1153,7 +1164,7 @@ class EduMiniCoreTest {
             }
         }
 
-        assertEquals(5, Indexer2PromptRegistry.schemas.size)
+        assertEquals(6, Indexer2PromptRegistry.schemas.size)
         assertTrue(Indexer2PromptRegistry.schemas.any { it.fileName.contains("index.json") })
         assertTrue(Indexer2PromptRegistry.schemas.any { it.fileName.contains("book_manifest.json") })
         assertTrue(Indexer2PromptRegistry.schemas.any { it.fileName.contains("interactive.json") })
@@ -1169,7 +1180,7 @@ class EduMiniCoreTest {
         )
         assertTrue(prompt.contains("prompts/indexer2/lesson_explanation.prompt.md"))
         assertTrue(prompt.contains("مفهوم القسمة المطولة"))
-        assertTrue(prompt.contains("1 صفحة مصورة"))
+        assertTrue(prompt.contains("ملف PDF الأصلي للدرس مرفق"))
     }
 
     @Test
@@ -2476,10 +2487,11 @@ class EduMiniCoreTest {
     }
 
     @Test
-    fun providerQuotaReservationFreezesKeyUntilNextTimezoneDay() {
+    fun providerQuotaReservationTracksDiagnosticsAndRespectsCooldownAndInvalidState() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val storage = ProviderStorage(context)
-        val dayOne = java.time.Instant.parse("2026-11-25T10:00:00Z").toEpochMilli()
+        val todayUtc = java.time.LocalDate.now(java.time.ZoneOffset.UTC)
+        val dayOne = todayUtc.atTime(10, 0).toInstant(java.time.ZoneOffset.UTC).toEpochMilli()
         val provider = ProviderConfig(
             id = "quota-test-key",
             provider = ProviderType.GEMINI,
@@ -2498,11 +2510,24 @@ class EduMiniCoreTest {
             val sameDayReservations = coroutineScope {
                 (1..8).map { async { storage.reserveProviderKey(provider.id, dayOne) } }.awaitAll()
             }
-            assertEquals(1, sameDayReservations.count { it })
+            // Local dailyRequestLimit is diagnostic only; all active concurrent reservations succeed.
+            assertEquals(8, sameDayReservations.count { it })
+            assertEquals(8, storage.loadProviders().single { it.id == provider.id }.dailyRequestsUsed)
+
+            // Diagnostic QUOTA_EXHAUSTED does not act as a hard local block unless key is disabled/rate-limited/invalid.
+            storage.updateProviderRuntimeState(provider.id, ProviderStorage.STATUS_QUOTA_EXHAUSTED, 0L)
+            assertTrue(storage.reserveProviderKey(provider.id, dayOne + 30_000L))
+
+            // Active RATE_LIMITED blocks until retryAfterEpochMs expires.
+            val cooldownEnd = dayOne + 120_000L
+            storage.updateProviderRuntimeState(provider.id, ProviderStorage.STATUS_RATE_LIMITED, cooldownEnd)
             assertFalse(storage.reserveProviderKey(provider.id, dayOne + 60_000L))
-            val nextDay = java.time.Instant.parse("2026-11-26T00:01:00Z").toEpochMilli()
-            assertTrue(storage.reserveProviderKey(provider.id, nextDay))
-            assertFalse(storage.reserveProviderKey(provider.id, nextDay + 60_000L))
+            assertTrue(storage.reserveProviderKey(provider.id, cooldownEnd + 1_000L))
+
+            // INVALID_KEY and DISABLED remain blocked even across UTC day rollover.
+            storage.updateProviderRuntimeState(provider.id, ProviderStorage.STATUS_INVALID_KEY, 0L)
+            val nextDay = todayUtc.plusDays(1).atTime(0, 1).toInstant(java.time.ZoneOffset.UTC).toEpochMilli()
+            assertFalse(storage.reserveProviderKey(provider.id, nextDay))
         }
     }
 
@@ -2962,4 +2987,385 @@ class EduMiniCoreTest {
         )
     }
 
+    @Test
+    fun observeDraftsForLessonPreservesAllProvenanceFields() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val database = Room.inMemoryDatabaseBuilder(context, EduMiniDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            val repository = EduMiniRepository(
+                dao = database.eduMiniDao(),
+                providerStorage = ProviderStorage(context),
+                workspaceImporter = WorkspaceImporter(context),
+                aiGenerationService = AiGenerationService(context),
+                interactivePackageImporter = InteractivePackageImporter(context),
+                appContext = context
+            )
+            val lesson = sampleLesson()
+            val generated = GeneratedResult(
+                text = "محتوى مولّد",
+                providerLabel = "Gemini",
+                model = "gemini-2.5-flash",
+                createdAt = "2026-11-25T12:00:00Z",
+                templateId = "tpl-custom-1",
+                templateVersion = 4,
+                responseSchemaHash = "a".repeat(64),
+                requestFingerprint = "b".repeat(64),
+                contentHash = "c".repeat(64),
+                sourcePdfHash = "d".repeat(64)
+            )
+            val saved = repository.persistDraft(
+                workspaceId = lesson.workspaceId,
+                lesson = lesson,
+                task = TaskType.EXPLANATION,
+                providerLabel = generated.providerLabel,
+                model = generated.model,
+                text = generated.text,
+                title = lesson.title,
+                sourceText = "نص الدرس",
+                status = DraftStatus.DRAFT,
+                generation = generated
+            )
+            val observed = repository.observeDraftsForLesson(lesson.workspaceId, lesson).first().single { it.id == saved.id }
+            assertEquals("tpl-custom-1", observed.templateId)
+            assertEquals(4, observed.templateVersion)
+            assertEquals("a".repeat(64), observed.responseSchemaHash)
+            assertEquals("b".repeat(64), observed.requestFingerprint)
+            assertEquals("d".repeat(64), observed.sourcePdfHash)
+            assertEquals(64, observed.contentHash.length)
+        } finally {
+            database.close()
+        }
+    }
+
+    @Test
+    fun generateContentAllowsOpenAiTextOnlyRunWithoutPdfPath() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val database = Room.inMemoryDatabaseBuilder(context, EduMiniDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        val server = java.net.ServerSocket(0)
+        val serverThread = Thread {
+            runCatching {
+                server.accept().use { socket ->
+                    val input = socket.getInputStream()
+                    val headerBuf = ByteArrayOutputStream()
+                    var prev3 = 0
+                    var prev2 = 0
+                    var prev1 = 0
+                    while (true) {
+                        val b = input.read()
+                        if (b == -1) break
+                        headerBuf.write(b)
+                        if (prev3 == '\r'.code && prev2 == '\n'.code && prev1 == '\r'.code && b == '\n'.code) break
+                        prev3 = prev2
+                        prev2 = prev1
+                        prev1 = b
+                    }
+                    val headersText = headerBuf.toString(Charsets.US_ASCII.name())
+                    val contentLength = headersText.lineSequence()
+                        .firstOrNull { it.startsWith("Content-Length:", ignoreCase = true) }
+                        ?.substringAfter(":")
+                        ?.trim()
+                        ?.toIntOrNull()
+                        ?: 0
+                    var remaining = contentLength
+                    val drainBuf = ByteArray(1024)
+                    while (remaining > 0) {
+                        val read = input.read(drainBuf, 0, minOf(remaining, drainBuf.size))
+                        if (read <= 0) break
+                        remaining -= read
+                    }
+                    val payload = """{"choices":[{"message":{"content":"شرح نصي من OpenAI بدون PDF"}}]}"""
+                    val responseBytes = payload.toByteArray(Charsets.UTF_8)
+                    val out = socket.getOutputStream()
+                    out.write(
+                        ("HTTP/1.1 200 OK\r\n" +
+                            "Content-Type: application/json\r\n" +
+                            "Content-Length: ${responseBytes.size}\r\n" +
+                            "Connection: close\r\n\r\n").toByteArray(Charsets.US_ASCII)
+                    )
+                    out.write(responseBytes)
+                    out.flush()
+                }
+            }
+        }
+        serverThread.start()
+        try {
+            val providerStorage = ProviderStorage(context)
+            val providers = listOf(
+                ProviderConfig(
+                    id = "openai-text-only",
+                    provider = ProviderType.OPENAI_COMPATIBLE,
+                    label = "Local Mock OpenAI",
+                    model = "gpt-test",
+                    baseUrl = "http://127.0.0.1:${server.localPort}/v1",
+                    apiKey = "test-openai-key",
+                    enabled = true,
+                    createdAt = System.currentTimeMillis()
+                )
+            )
+            providerStorage.saveProviders(providers)
+            val repository = EduMiniRepository(
+                dao = database.eduMiniDao(),
+                providerStorage = providerStorage,
+                workspaceImporter = WorkspaceImporter(context),
+                aiGenerationService = AiGenerationService(context),
+                interactivePackageImporter = InteractivePackageImporter(context),
+                appContext = context
+            )
+            val lessonWithoutPdf = sampleLesson().copy(pdfPath = null)
+            val template = PromptTemplateRecord(
+                id = "tpl-text-only",
+                title = "Text Only",
+                task = TaskType.EXPLANATION,
+                instructions = "اشرح الدرس بوضوح",
+                responseFormat = "text",
+                sourceAttachmentMode = "pdf_native"
+            )
+            val generated = repository.generateContent(
+                workspaceId = lessonWithoutPdf.workspaceId,
+                lesson = lessonWithoutPdf,
+                task = TaskType.EXPLANATION,
+                source = "محتوى نصي كافٍ للشرح بدون ملف PDF",
+                extra = "",
+                providers = providers,
+                selectedProvider = ProviderType.OPENAI_COMPATIBLE,
+                questionCount = 5,
+                attachPdfPages = true,
+                template = template
+            )
+            assertEquals("شرح نصي من OpenAI بدون PDF", generated.text)
+            assertEquals("Local Mock OpenAI", generated.providerLabel)
+        } finally {
+            runCatching { server.close() }
+            serverThread.join(2000)
+            database.close()
+        }
+    }
+
+    @Test
+    fun directWorkspaceBinderIsolatesBooksAndGradesAndCountsGradeRootFiles() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val rootDir = File(context.cacheDir, "direct_ws_isolation_${System.currentTimeMillis()}").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        try {
+            val g04Dir = File(rootDir, "workspace/G04").apply { mkdirs() }
+            val g04Math = File(g04Dir, "MATH").apply { mkdirs() }
+            val g04Sci = File(g04Dir, "SCI").apply { mkdirs() }
+            val g07Math = File(rootDir, "workspace/G07/MATH").apply { mkdirs() }
+
+            fun writeBook(dir: File, grade: String, subject: String, sliceUri: String? = null) {
+                val sliceJson = if (sliceUri != null) ""","sliceFile":{"workspaceUri":"$sliceUri"}""" else ""
+                File(dir, "book_manifest.json").writeText("""{"title":"$grade-$subject","gradeKey":"$grade","subjectKey":"$subject"}""")
+                File(dir, "index.json").writeText(
+                    """
+                    {
+                      "gradeKey": "$grade",
+                      "subjectKey": "$subject",
+                      "units": [{
+                        "unitKey": "unit_01",
+                        "title": "الوحدة 1",
+                        "partKey": "P01",
+                        "lessons": [{
+                          "lessonKey": "lesson_01",
+                          "title": "الدرس 1"
+                          $sliceJson
+                        }]
+                      }]
+                    }
+                    """.trimIndent()
+                )
+            }
+
+            writeBook(g04Math, "G04", "MATH", sliceUri = "custom_slices/l1.pdf")
+            writeBook(g04Sci, "G04", "SCI")
+            writeBook(g07Math, "G07", "MATH")
+
+            val g04MathSlice = File(g04Math, "custom_slices/l1.pdf").apply {
+                parentFile?.mkdirs()
+                writeText("%PDF-1.4 math")
+            }
+            val sciTxt = File(g04Sci, "P01/units/unit_01/lesson_01.txt").apply {
+                parentFile?.mkdirs()
+                writeText("نص العلوم فقط")
+            }
+            val sciHtml = File(g04Sci, "P01/units/unit_01/lesson_01_interactive.html").apply {
+                writeText("<!doctype html><html><body>SCI</body></html>")
+            }
+            File(g07Math, "questions/unit_01/lesson_01").apply { mkdirs() }
+                .let { File(it, "ai_generated.json") }
+                .writeText("""{"questions":[{"prompt":"سؤال سابع","options":["أ","ب"],"correctAnswer":"أ"}]}""")
+
+            val binder = DirectWorkspaceBinder(context)
+            val boundG04 = binder.bindSingleGrade(rootDir.absolutePath, "G04")
+            val mathLesson = boundG04.workspace.lessons.single { it.bookKey == "MATH" }
+            val sciLesson = boundG04.workspace.lessons.single { it.bookKey == "SCI" }
+
+            // Book-relative sliceFile.workspaceUri resolves within G04/MATH without leaking SCI assets or G07 questions.
+            assertEquals(g04MathSlice.absolutePath, mathLesson.pdfPath)
+            assertNull(mathLesson.sourceTextPath)
+            assertNull(mathLesson.interactivePath)
+            assertTrue(boundG04.preloadedQuestions.isEmpty())
+            assertEquals(sciTxt.absolutePath, sciLesson.sourceTextPath)
+            assertEquals(sciHtml.absolutePath, sciLesson.interactivePath)
+
+            // Direct binding when user picks workspace/G04 itself reports positive non-zero filesCount.
+            val directGradeInspection = binder.inspectDirectory(g04Dir)
+            assertEquals(1, directGradeInspection.grades.size)
+            val directGradeBound = binder.bindSingleGrade(g04Dir.absolutePath, "G04")
+            assertTrue(directGradeBound.workspace.filesCount >= 6)
+        } finally {
+            rootDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun directWorkspaceCatalogRefreshUpdatesPreloadedHtmlPackageInPlace() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val database = Room.inMemoryDatabaseBuilder(context, EduMiniDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        val rootDir = File(context.cacheDir, "direct_ws_refresh_${System.currentTimeMillis()}").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        try {
+            val mathDir = File(rootDir, "workspace/G04/MATH").apply { mkdirs() }
+            File(mathDir, "book_manifest.json").writeText("""{"title":"الرياضيات","gradeKey":"G04","subjectKey":"MATH"}""")
+            File(mathDir, "index.json").writeText(
+                """
+                {
+                  "gradeKey": "G04",
+                  "subjectKey": "MATH",
+                  "units": [{
+                    "unitKey": "unit_01",
+                    "title": "الوحدة 1",
+                    "partKey": "P01",
+                    "lessons": [{"lessonKey": "lesson_01", "title": "الدرس 1"}]
+                  }]
+                }
+                """.trimIndent()
+            )
+            val htmlV1 = File(mathDir, "P01/units/unit_01/lesson_01_interactive.html").apply {
+                parentFile?.mkdirs()
+                writeText("<!doctype html><html><body>V1</body></html>")
+            }
+
+            val dao = database.eduMiniDao()
+            val repository = EduMiniRepository(
+                dao = dao,
+                providerStorage = ProviderStorage(context),
+                workspaceImporter = WorkspaceImporter(context),
+                aiGenerationService = AiGenerationService(context),
+                interactivePackageImporter = InteractivePackageImporter(context),
+                directWorkspaceBinder = DirectWorkspaceBinder(context),
+                appContext = context
+            )
+            val ws1 = repository.bindDirectWorkspace(rootDir.absolutePath, "G04")
+            val pkg1 = dao.observePackagesForWorkspace(ws1.workspaceId).first().single()
+            assertEquals(htmlV1.parentFile!!.absolutePath, pkg1.rootDir)
+            assertEquals("lesson_01_interactive.html", pkg1.entryFile)
+
+            // Replace HTML entry with folder-style index.html and re-bind in place.
+            htmlV1.delete()
+            val htmlV2 = File(mathDir, "P01/units/unit_01/lesson_01/index.html").apply {
+                parentFile?.mkdirs()
+                writeText("<!doctype html><html><body>V2</body></html>")
+            }
+            val ws2 = repository.bindDirectWorkspace(rootDir.absolutePath, "G04")
+            assertEquals(ws1.workspaceId, ws2.workspaceId)
+            val pkg2 = dao.observePackagesForWorkspace(ws2.workspaceId).first().single()
+            assertEquals(pkg1.id, pkg2.id)
+            assertEquals(htmlV2.parentFile!!.absolutePath, pkg2.rootDir)
+            assertEquals("index.html", pkg2.entryFile)
+        } finally {
+            rootDir.deleteRecursively()
+            database.close()
+        }
+    }
+
+}
+
+private val testKeyStoreMap = java.util.concurrent.ConcurrentHashMap<String, java.security.Key>()
+
+private fun ensureTestAndroidKeyStore() {
+    if (java.security.Security.getProvider("AndroidKeyStore") != null) return
+    val provider = object : java.security.Provider("AndroidKeyStore", 1.0, "Robolectric in-memory KeyStore") {
+        init {
+            put("KeyStore.AndroidKeyStore", RobolectricAndroidKeyStoreSpi::class.java.name)
+            put("KeyGenerator.AES", RobolectricAndroidAesKeyGeneratorSpi::class.java.name)
+        }
+    }
+    java.security.Security.addProvider(provider)
+}
+
+class RobolectricAndroidKeyStoreSpi : java.security.KeyStoreSpi() {
+    override fun engineGetKey(alias: String?, password: CharArray?): java.security.Key? =
+        if (alias == null) null else testKeyStoreMap[alias]
+
+    override fun engineGetCertificateChain(alias: String?): Array<java.security.cert.Certificate>? = null
+    override fun engineGetCertificate(alias: String?): java.security.cert.Certificate? = null
+    override fun engineGetCreationDate(alias: String?): java.util.Date? = null
+    override fun engineSetKeyEntry(
+        alias: String?,
+        key: java.security.Key?,
+        password: CharArray?,
+        chain: Array<java.security.cert.Certificate>?
+    ) {
+        if (alias != null && key != null) testKeyStoreMap[alias] = key
+    }
+
+    override fun engineSetKeyEntry(
+        alias: String?,
+        key: ByteArray?,
+        chain: Array<java.security.cert.Certificate>?
+    ) = Unit
+
+    override fun engineSetCertificateEntry(alias: String?, cert: java.security.cert.Certificate?) = Unit
+    override fun engineDeleteEntry(alias: String?) {
+        if (alias != null) testKeyStoreMap.remove(alias)
+    }
+
+    override fun engineAliases(): java.util.Enumeration<String> =
+        java.util.Collections.enumeration(testKeyStoreMap.keys)
+
+    override fun engineContainsAlias(alias: String?): Boolean =
+        alias != null && testKeyStoreMap.containsKey(alias)
+
+    override fun engineSize(): Int = testKeyStoreMap.size
+    override fun engineIsKeyEntry(alias: String?): Boolean = engineContainsAlias(alias)
+    override fun engineIsCertificateEntry(alias: String?): Boolean = false
+    override fun engineGetCertificateAlias(cert: java.security.cert.Certificate?): String? = null
+    override fun engineStore(stream: java.io.OutputStream?, password: CharArray?) = Unit
+    override fun engineLoad(stream: java.io.InputStream?, password: CharArray?) = Unit
+}
+
+class RobolectricAndroidAesKeyGeneratorSpi : javax.crypto.KeyGeneratorSpi() {
+    private var alias: String = "edu_mini_providers_aes_key"
+    private var keySize: Int = 256
+
+    override fun engineInit(random: java.security.SecureRandom?) = Unit
+
+    override fun engineInit(params: java.security.spec.AlgorithmParameterSpec?, random: java.security.SecureRandom?) {
+        if (params is android.security.keystore.KeyGenParameterSpec) {
+            alias = params.keystoreAlias
+            if (params.keySize > 0) keySize = params.keySize
+        }
+    }
+
+    override fun engineInit(keysize: Int, random: java.security.SecureRandom?) {
+        if (keysize > 0) keySize = keysize
+    }
+
+    override fun engineGenerateKey(): javax.crypto.SecretKey {
+        val generator = javax.crypto.KeyGenerator.getInstance("AES")
+        generator.init(keySize)
+        val secretKey = generator.generateKey()
+        testKeyStoreMap[alias] = secretKey
+        return secretKey
+    }
 }

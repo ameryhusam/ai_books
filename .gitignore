@@ -8,3 +8,4 @@ local.properties
 firestore-debug.log
 firebase-debug.log
 debug.keystore
+app/google-services.json
