@@ -2791,24 +2791,99 @@ class MainViewModel(
         val snapshot = _uiState.value
         val lesson = snapshot.selectedLesson
         if (lesson == null) {
-            _uiState.update {
-                it.copy(alert = AlertMessage("حدد الدرس", "اختر درساً من المكتبة أولاً."))
-            }
+            _uiState.update { it.copy(alert = AlertMessage("حدد الدرس", "اختر درساً من المكتبة أولاً.")) }
             return
         }
         val hasPdfSource = snapshot.attachPdfPages && !lesson.pdfPath.isNullOrBlank()
         if (snapshot.sourceText.trim().isEmpty() && !hasPdfSource) {
             _uiState.update {
-                it.copy(
-                    alert = AlertMessage(
-                        "أدخل نص المصدر",
-                        "اكتب مقتطف الدرس أو فعّل إرفاق صفحات PDF للدرس."
-                    )
-                )
+                it.copy(alert = AlertMessage("أدخل نص المصدر", "اكتب مقتطف الدرس أو فعّل إرفاق صفحات PDF للدرس."))
             }
             return
         }
+        val availableModels = snapshot.aiModelCatalog.filter {
+            it.provider == snapshot.selectedProvider && it.isEnabled &&
+                it.supportsGenerateContent && it.lifecycleStatus != AiModelDefinition.STATUS_DEPRECATED
+        }
+        if (availableModels.isEmpty()) {
+            _uiState.update {
+                it.copy(alert = AlertMessage(
+                    "لا توجد نماذج متاحة",
+                    "لم يضف مدير النظام نموذجاً مفعّلاً لمزود ${snapshot.selectedProvider.displayName}."
+                ))
+            }
+            return
+        }
+        val availableProfiles = snapshot.providers.filter {
+            it.provider == snapshot.selectedProvider && it.enabled && it.apiKey.isNotBlank()
+        }
+        if (availableProfiles.isEmpty()) {
+            _uiState.update {
+                it.copy(alert = AlertMessage("لا يوجد اتصال API", "أضف أو فعّل ملف اتصال لهذا المزود في الإعدادات."))
+            }
+            return
+        }
+        val defaultModel = availableModels.firstOrNull { it.isDefault } ?: availableModels.first()
+        val selectedProfile = availableProfiles.firstOrNull { it.id == snapshot.selectedGenerationProfileId }
+            ?: availableProfiles.first()
+        _uiState.update {
+            it.copy(
+                isGenerationModelPickerOpen = true,
+                selectedGenerationModelId = availableModels.firstOrNull {
+                    it.modelId == snapshot.selectedGenerationModelId
+                }?.modelId ?: defaultModel.modelId,
+                selectedGenerationProfileId = selectedProfile.id
+            )
+        }
+    }
 
+    fun selectGenerationModel(modelId: String) {
+        _uiState.update { it.copy(selectedGenerationModelId = modelId) }
+    }
+
+    fun selectGenerationProfile(profileId: String) {
+        _uiState.update { it.copy(selectedGenerationProfileId = profileId) }
+    }
+
+    fun dismissGenerationModelPicker() {
+        _uiState.update { it.copy(isGenerationModelPickerOpen = false) }
+    }
+
+    fun confirmGenerationSelection(modelId: String, profileId: String) {
+        val snapshot = _uiState.value
+        val model = snapshot.aiModelCatalog.firstOrNull {
+            it.modelId == modelId && it.provider == snapshot.selectedProvider &&
+                it.isEnabled && it.supportsGenerateContent &&
+                it.lifecycleStatus != AiModelDefinition.STATUS_DEPRECATED
+        }
+        val profile = snapshot.providers.firstOrNull {
+            it.id == profileId && it.provider == snapshot.selectedProvider &&
+                it.enabled && it.apiKey.isNotBlank()
+        }
+        if (model == null || profile == null) {
+            _uiState.update {
+                it.copy(alert = AlertMessage(
+                    "اختيار غير صالح",
+                    "النموذج أو ملف الاتصال لم يعد متاحاً. حدّث القائمة ثم أعد الاختيار."
+                ))
+            }
+            return
+        }
+        _uiState.update {
+            it.copy(
+                isGenerationModelPickerOpen = false,
+                selectedGenerationModelId = modelId,
+                selectedGenerationProfileId = profileId
+            )
+        }
+        startGeneration(snapshot, modelId, profileId)
+    }
+
+    private fun startGeneration(
+        snapshot: MainUiState,
+        selectedModelId: String,
+        selectedProfileId: String
+    ) {
         generationJob?.cancel()
         generationJob = viewModelScope.launch {
             _uiState.update { it.copy(isBusy = true, generationProgressPercent = 2, generationStage = "بدء تجهيز الطلب") }
@@ -2821,6 +2896,8 @@ class MainViewModel(
                     extra = snapshot.extraInstructions,
                     providers = snapshot.providers,
                     selectedProvider = snapshot.selectedProvider,
+                    selectedModelId = selectedModelId,
+                    selectedProfileId = selectedProfileId,
                     questionCount = snapshot.questionCount,
                     attachPdfPages = snapshot.attachPdfPages,
                     questionStyleHint = snapshot.questionStyle.takeIf { snapshot.task == TaskType.QUESTIONS && it != "متنوعة" }.orEmpty(),
