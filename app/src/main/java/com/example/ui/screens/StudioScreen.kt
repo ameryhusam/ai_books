@@ -486,7 +486,7 @@ private fun StudioWorkbench(
                 questionLanguage = questionLanguage,
                 attachedPdfPagesCount = if (attachPdfPages && !selectedLesson.pdfPath.isNullOrBlank()) 1 else 0,
                 questionStyleHint = questionStyle.takeIf { task == TaskType.QUESTIONS && it != "متنوعة" }.orEmpty(),
-                difficultyHint = if (task == TaskType.QUESTIONS) questionDifficulty.labelAr else ""
+                difficultyHint = if (task == TaskType.QUESTIONS) questionDifficulty.id else ""
             )
         } else {
             "${activeBlueprint.roleInstruction}\n${activeBlueprint.outputContract}"
