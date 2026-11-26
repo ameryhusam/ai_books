@@ -1,186 +1,137 @@
 # Workspace Index Schema and Structural Diagrams
 
-## 1. Canonical workspace root
+## 1. Contract overview
 
-Indexer2 exports each book under:
+Indexer2 produces a workspace package. Edu Mini consumes it without rerunning indexing or reconstructing the curriculum structure.
+
+Logical book root:
+
+`workspace/<gradeKey>/<subjectKey>[/<componentKey>]/`
+
+The root path establishes curriculum context. Index placement and manifest metadata establish whether the package is an independent single-part source or one merged source.
+
+## 2. Supported layouts
+
+### 2.1 Independent PDF for P01
 
 ```text
-workspace/
-└── <gradeKey>/
-    └── <subjectKey>/
-        └── [<componentKey>/]
-            ├── index.json
-            ├── book_manifest.json
-            ├── cover.png
-            ├── validation_report.json
-            ├── manual_review/
-            │   └── slice_approval_index.json
-            ├── P01/
-            │   ├── index.json        # merged source only; derived view
-            │   └── units/
-            │       └── <unit-folder>/
-            │           └── lesson_<nn>.pdf
-            └── P02/
-                ├── index.json        # merged source only; derived view
-                └── units/
-                    └── <unit-folder>/
-                        └── lesson_<nn>.pdf
+workspace/G07/ENG/COURSE/
+  P01/
+    index.json
+    book_manifest.json
+    cover.png
+    units/
+      unit_01/lesson_01.pdf
 ```
 
-The optional component directory is present only when the template has a component key. The exporter writes the canonical root `index.json` and `book_manifest.json` at the book root.
+P02 uses the corresponding `P02/` folder. The index is local to the part. The part-local manifest identifies the independent PDF and its own `sourceSha256`. There is no canonical root index for this independent-source layout.
 
-## 2. Authority and relationships
+### 2.2 One merged PDF for P01 and P02
 
-```mermaid
-flowchart TD
-    PDF[Original PDF] -->|SHA-256| Manifest[book_manifest.json]
-    Template[Reviewed IndexTemplate] --> RootIndex[index.json]
-    RootIndex -->|filtered by unit partKey| P01[P01/index.json]
-    RootIndex -->|filtered by unit partKey| P02[P02/index.json]
-    Template --> Slices[Lesson PDF slices]
-    Slices --> P01Files[P01/units/...]
-    Slices --> P02Files[P02/units/...]
-    RootIndex --> Manifest
-    RootIndex --> Report[validation_report.json]
-    RootIndex --> Approval[manual_review/slice_approval_index.json]
+```text
+workspace/G07/ENG/COURSE/
+  index.json
+  book_manifest.json
+  cover.png
+  P01/
+    index.json
+    cover.png
+    units/...
+  P02/
+    index.json
+    cover.png
+    units/...
 ```
 
-Authority rules:
+There is one source PDF, one source identity, one root canonical index and one root manifest. Part indexes are derived filtered views. They do not create additional book identities.
 
-1. Root `index.json` is the canonical lesson/unit index.
-2. `book_manifest.json` is the companion source/identity/export manifest.
-3. `P01/index.json` and `P02/index.json` are derived filtered views for merged books.
-4. Lesson PDFs are files referenced by the canonical lesson metadata and/or the known workspace path contract.
-5. Validation and approval files provide evidence; they do not replace the index or source PDF.
+### 2.3 Merged source with uncertain assignment
 
-## 3. Canonical identity tuple
+```text
+workspace/G07/ENG/COURSE/
+  index.json                 # review draft; not approved for slicing
+  book_manifest.json         # sourceLayout remains MERGED_PARTS_FILE
+  manual_review/
+    part_assignment_review.json
+```
 
-A book's workspace identity is represented by:
+The index records unresolved unit assignments and any suggested P01 value separately. A suggestion is not an assignment. No approved P01/P02 index view or lesson slice may be produced for unresolved units.
 
-`gradeKey + subjectKey + optional componentKey`
+## 3. Source layout versus part assignment
 
-Example:
+These are independent dimensions.
 
-`G07 / ENG / COURSE`
-
-The part is not a substitute for subject identity. `partKey` describes whether a template represents P01, P02, or a merged BOTH source. For merged sources, every unit has its own P01/P02 assignment.
-
-## 4. Root index structure
-
-The root `index.json` is serialized from the Indexer2 `IndexTemplate` object. The TypeScript interface defines these fields:
-
-### 4.1 Book-level fields
-
-| Field | Type | Contract |
+| Field | Meaning | Examples |
 |---|---|---|
-| `templateId` | string | Template contract identifier |
-| `templateName` | string | Canonical template filename with JSON extension |
-| `title` | string | Book title |
-| `displayName` | string | Human-readable book title |
-| `gradeKey` | string | Canonical grade key |
-| `subjectKey` | string | Canonical subject key |
-| `componentKey` | string or null | Optional canonical component key |
-| `partKey` | P01 / P02 / BOTH / unknown | Template-level part state |
-| `offset` | number | Printed-to-physical page offset used by current slicer |
-| `coverPdfPage` | number | Physical page used as cover |
-| `expectedPdfPages` | number or null | Optional expected source page count |
-| `sourceMetadata` | object | Evidence and source metadata |
-| `units` | array | Ordered unit records |
-| `sourceLayout` | enum | UNKNOWN_REVIEW / MERGED_PARTS_FILE / SINGLE_PART_FILE |
-| `sourceReviewStatus` | enum | NEEDS_REVIEW / VERIFIED / REJECTED |
-| `approvalStatus` | enum | PENDING / APPROVED / REJECTED |
-| `requiresReview` | boolean | Whether review remains required |
+| `sourceLayout` | Physical source PDF layout | `SINGLE_PART_FILE`, `MERGED_PARTS_FILE` |
+| template `partKey` | Declared source-level part for a standalone PDF or BOTH for merged | `P01`, `P02`, `BOTH` |
+| unit `partKey` | Confirmed part assignment of one unit | `P01`, `P02`, `unknown` |
+| `assignmentStatus` | Whether unit assignment is confirmed | `ASSIGNED`, `NEEDS_REVIEW` |
+| `proposedPartKey` | Suggested value requiring explicit confirmation | `P01` |
+| `assignmentEvidence` | Why/how the assignment was made | TOC evidence, explicit extraction, reviewer decision, confirmed proposal |
 
-Other optional interface fields include description, reviewReason, reviewerName, approvalReason, approvedAt, published, publishedAt, createdAt, totalPdfPages, fileName, workspaceRelPath, and profileId.
+A merged source remains merged even when the TOC does not identify unit parts. Do not set `SINGLE_PART_FILE` as a fallback for unclear assignment.
 
-## 5. Unit and lesson structure
+## 4. Authority and index roles
 
-### 5.1 Unit
+- An independent source's part-local `index.json` is its canonical index.
+- A merged source's root `index.json` is its canonical index.
+- Merged `P01/index.json` and `P02/index.json` are derived views.
+- A part index must not be imported twice when the root merged index is present.
+- A manifest belongs beside the canonical index it describes: part-local for an independent source; root-level for a merged source.
 
-A unit contains:
+## 5. Book-level index fields
 
-| Field | Type | Meaning |
-|---|---|---|
-| `unitNumber` | number | Source unit number |
-| `title` | string | Unit title |
-| `unitPrintedPage` | number? | Printed page of unit heading |
-| `unitPdfPage` | number? | Physical PDF page when populated |
-| `partKey` | P01 / P02 / BOTH / unknown | Unit's own part assignment |
-| `lessons` | array | Lessons in source order |
-| `unitReview` | object or null | Optional unit assessment page range |
+The Indexer2 `IndexTemplate` currently declares:
+- `templateId`, `templateName`, `title`, `displayName`;
+- `gradeKey`, `subjectKey`, optional `componentKey`;
+- `partKey`, `offset`, `coverPdfPage`, `expectedPdfPages`;
+- `sourceMetadata`, `units`;
+- `sourceLayout`, `sourceReviewStatus`, `approvalStatus`, `requiresReview`, `reviewReason`.
 
-The slicing gate requires each sliced unit to have `partKey=P01` or `partKey=P02`.
+The unit assignment contract must be extended in Indexer2's shared type and serializer to include, where applicable:
+- `partKey`: confirmed value or `unknown`;
+- `assignmentStatus`: `ASSIGNED` or `NEEDS_REVIEW`;
+- `proposedPartKey`: optional suggested part, not authoritative;
+- `assignmentEvidence`: provenance for automatic evidence or reviewer confirmation.
 
-### 5.2 Lesson
+Do not claim these fields exist in all current exports until the Indexer2 implementation and fixtures have been updated.
 
-The `Lesson` interface defines:
+## 6. Lesson fields and file references
 
-| Field | Type | Meaning |
-|---|---|---|
-| `lessonNumber` | number | Lesson number within its unit |
-| `title` | string | Lesson title |
-| `contentType` | string? | Content classification |
-| `printedPageStart`, `printedPageEnd` | number | Printed page range |
-| `pdfPageStart`, `pdfPageEnd` | number? | Optional physical PDF page metadata |
-| `summary` | string? | Optional summary |
-| `keyConcepts` | string[]? | Optional concepts |
-| `sliceFile` | object? | Generated lesson file reference |
-| `requiresReview`, `reviewReason` | optional | Lesson review state |
+A lesson contains source numbering, title, printed page range, optional physical PDF page range, and optional descriptive metadata.
 
-`sliceFile` is a `LessonSliceLink` with `workspaceUri`, `fileName`, optional `fileSha256`, `byteSize`, `extractedText`, `isAvailable`, `isAnalyzed`, `analyzedAt`, and `chunksCount`.
+`sliceFile.workspaceUri` is the preferred explicit path to the generated lesson PDF. It is workspace-relative and must resolve from the selected workspace root. The consumer must not prepend the part or unit path again when this URI is already present.
 
-Important: the current slicer calculates the actual cut using `printedPageStart + offset` and `printedPageEnd + offset`. The optional `pdfPageStart` / `pdfPageEnd` fields are not the current slicer's input.
+The slicer currently calculates physical page ranges from `printedPageStart + offset` and `printedPageEnd + offset`. Optional `pdfPageStart` / `pdfPageEnd` fields must not be treated as slicer inputs unless the Indexer2 implementation is deliberately changed and tested.
 
-## 6. Manifest structure
+## 7. Manifest contract
 
-The current `downloadPythonWorkspaceZip` exporter writes `book_manifest.json` with:
+The existing exporter writes `manifestVersion`, `gradeKey`, `subjectKey`, `componentKey`, `partKey`, `sourceLayout`, `sourceReviewStatus`, `sourceFileName`, `sourceSha256`, `indexSha256`, lesson/unit counts, offset, cover paths and `partIndexPaths`.
 
-| Field | Type | Meaning |
-|---|---|---|
-| `manifestVersion` | string | `edu.book_manifest.v1` |
-| `bookTitle` | string | Template title |
-| `gradeKey` | string | Canonical grade |
-| `subjectKey` | string | Canonical subject |
-| `componentKey` | string or null | Optional component |
-| `partKey` | string | Template-level part |
-| `sourceLayout` | string | Source layout |
-| `sourceReviewStatus` | string | Review state |
-| `sourceFileName` | string | Original PDF name |
-| `sourceSha256` | string | Original PDF SHA-256 |
-| `indexSha256` | string | Root index SHA-256 |
-| `totalLessons` | number | Exported lesson count |
-| `unitsCount` | number | Unit count |
-| `offset` | number | Slicing offset |
-| `coverImagePaths` | string[] | Cover paths |
-| `partIndexPaths` | string[] | Derived part-index paths |
-| `createdAt` | ISO timestamp | Export time |
+The target manifest contract must identify the index files unambiguously:
+- `canonicalIndexPath`: `P01/index.json`, `P02/index.json`, or `index.json`;
+- `canonicalIndexSha256`: hash of that exact canonical index;
+- `partIndexes`: optional map/list of derived part-index paths and each exact hash;
+- retain legacy `indexSha256` for compatibility during migration, with its meaning explicitly tied to the canonical index path.
 
-The manifest is written by the exporter. Fields not listed above must not be assumed to exist in this exporter output.
+For an independent source, the canonical index path and hash refer to the part-local index. For a merged source, they refer to the root index. Never compare one file's bytes against another file's hash.
 
-## 7. Identifier derivation
+## 8. Identity and key rules
 
-Indexer2's template interfaces identify units and lessons by their source numbers. The Android contract validator derives stable application keys when explicit keys are absent:
+- Canonical identity keys are grade, subject and optional component.
+- A display name from the index may be shown to the user; it never replaces a canonical key.
+- Duplicate unit numbers in P01 and P02 are allowed when the part context distinguishes them.
+- Array position is not identity.
+- A derived part view is not a separate source identity.
 
-- Unit: `unit_<two-digit unitNumber>`
-- Lesson: `lesson_<two-digit lessonNumber>`
-- For repeated unit numbers in different parts, the validator includes the part in the unit key (for example, `P01_unit_01` and `P02_unit_01`) while preserving the unit folder key used by the PDF path.
+## 9. Validation invariants
 
-An explicit stable key in an index takes precedence where the validator supports it. Array position is not a replacement for source numbering.
-
-## 8. Page-number semantics
-
-- `printedPageStart` and `printedPageEnd` refer to the printed numbering in the textbook.
-- The physical PDF page is the one-based page index in the source PDF file.
-- The current slicer derives physical pages using the template `offset`.
-- `pdfPageStart` and `pdfPageEnd` are optional metadata in the interface; they do not override the current slicer calculation.
-
-Never add an offset twice. Never use printed page numbers directly as physical PDF page numbers without applying the reviewed mapping.
-
-## 9. Canonical invariants
-
-- Every book root has one canonical root `index.json`.
-- The root index and manifest describe the same grade, subject, component, part, and source.
-- A merged book may have derived part indexes; these are not independent source-of-truth files.
-- Each lesson PDF belongs to exactly one unit and one part.
-- A missing lesson PDF is a binding/validation error; do not substitute another lesson's file.
-- A page range outside the source PDF is a slicing error and must be reviewed.
+1. Source layout and index placement must be compatible.
+2. Manifest and canonical index identity must agree.
+3. Each declared index hash must match that file's exact bytes.
+4. A standalone source must contain one valid canonical part index and its companion manifest.
+5. A merged source must contain one root canonical index and manifest; derived indexes are optional but must match the declared filtered units and hashes.
+6. Unresolved merged unit assignments block approval and slicing.
+7. Every lesson path must resolve safely and identify a readable PDF.
+8. The consumer must bind a merged root index once and ignore its derived indexes as independent books.
