@@ -61,6 +61,7 @@ import com.example.model.PdfBookInfo
 import com.example.model.PromptTemplateRecord
 import com.example.model.QuestionAttemptRecord
 import com.example.model.QuestionContentPayload
+import com.example.model.QuestionRequiredField
 import com.example.model.QuestionDifficulty
 import com.example.model.QuestionItem
 import com.example.model.QuestionType
@@ -650,10 +651,13 @@ class EduMiniCoreTest {
         val payloadFields = (0 until payloadDescriptor.elementsCount)
             .map { payloadDescriptor.getElementName(it) }.toSet()
         assertEquals(payloadFields, itemProperties.keys)
-        val requiredFields = schema["properties"]!!.jsonObject["questions"]!!
+        val requiredFields = (0 until payloadDescriptor.elementsCount)
+            .filter { index -> payloadDescriptor.getElementAnnotations(index).any { it is QuestionRequiredField } }
+            .map { payloadDescriptor.getElementName(it) }.toSet()
+        val schemaRequiredFields = schema["properties"]!!.jsonObject["questions"]!!
             .jsonObject["items"]!!.jsonObject["required"]!!.jsonArray
             .map { it.jsonPrimitive.content }.toSet()
-        assertEquals(setOf("type", "prompt", "options", "correctAnswer", "difficulty"), requiredFields)
+        assertEquals(requiredFields, schemaRequiredFields)
         assertEquals(
             QuestionType.entries.map { it.id }.toSet(),
             itemProperties["type"]!!.jsonObject["enum"]!!.jsonArray.map { it.jsonPrimitive.content }.toSet()
