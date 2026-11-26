@@ -2315,7 +2315,8 @@ class MainViewModel(
                 workspaceId = canonicalWs,
                 lesson = lesson,
                 expectedCount = expectedQuestionCount,
-                selectedTypeIds = expectedQuestionTypeIds
+                selectedTypeIds = expectedQuestionTypeIds,
+                expectedDifficultyId = snapshot.questionDifficulty.id
             )
         }
         if (parsedResult.isFailure) {
@@ -2335,7 +2336,8 @@ class MainViewModel(
                     lesson = lesson,
                     rawText = text,
                     expectedQuestionCount = expectedQuestionCount,
-                    expectedQuestionTypeIds = expectedQuestionTypeIds
+                    expectedQuestionTypeIds = expectedQuestionTypeIds,
+                    expectedQuestionDifficultyId = snapshot.questionDifficulty.id
                 )
             }
             val saved = savedResult.getOrElse { error ->
@@ -3024,7 +3026,8 @@ class MainViewModel(
                             responseSchemaJson = out.responseSchemaJson,
                             sourceIndexSha256 = persistedDraft.sourceIndexSha256,
                             expectedQuestionCount = snapshot.questionCount,
-                            expectedQuestionTypeIds = snapshot.selectedQuestionTypeIds
+                            expectedQuestionTypeIds = snapshot.selectedQuestionTypeIds,
+                            expectedQuestionDifficultyId = snapshot.questionDifficulty.id
                         )
                     }
                 } else null
