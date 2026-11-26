@@ -9,6 +9,7 @@ import com.example.data.ai.AiGenerationService
 import com.example.data.ai.Indexer2PromptRegistry
 import com.example.data.ai.TemplateResponseAdapter
 import com.example.data.ai.TemplateOutputValidator
+import com.example.data.ai.QuestionResponseContract
 import com.example.data.ai.PromptPrivacySanitizer
 import com.example.data.local.DraftEntity
 import com.example.data.local.BookEntity
@@ -634,6 +635,60 @@ class EduMiniCoreTest {
         }.isFailure
 
         assertTrue(failed)
+    }
+
+    @Test
+    fun canonicalQuestionSchemaValidatesAndExposesOnlyPersistedQuestionContentFields() {
+        val schema = Json.parseToJsonElement(QuestionResponseContract.schemaJson).jsonObject
+        assertTrue(TemplateOutputValidator.validateSchema(QuestionResponseContract.schemaJson).isEmpty())
+        val itemProperties = schema["properties"]!!.jsonObject["questions"]!!
+            .jsonObject["items"]!!.jsonObject["properties"]!!.jsonObject
+        assertEquals(
+            setOf("type", "conceptTag", "prompt", "options", "correctAnswer", "rationale", "difficulty", "sourcePages"),
+            itemProperties.keys
+        )
+        assertEquals(
+            QuestionType.entries.map { it.id }.toSet(),
+            itemProperties["type"]!!.jsonObject["enum"]!!.jsonArray.map { it.jsonPrimitive.content }.toSet()
+        )
+    }
+
+    @Test
+    fun strictGeneratedQuestionParserEnforcesExactCountAndTypeDistribution() {
+        val raw = """{"questions":[
+            {"type":"mcq","prompt":"سؤال اختيار 1؟","options":["أ","ب"],"correctAnswer":"أ","difficulty":"easy"},
+            {"type":"mcq","prompt":"سؤال اختيار 2؟","options":["ج","د"],"correctAnswer":"ج","difficulty":"medium"},
+            {"type":"true_false","prompt":"عبارة صحيحة؟","options":["صح","خطأ"],"correctAnswer":"صح","difficulty":"easy"},
+            {"type":"true_false","prompt":"عبارة خاطئة؟","options":["صح","خطأ"],"correctAnswer":"خطأ","difficulty":"hard"},
+            {"type":"short_answer","prompt":"ما المفهوم؟","options":[],"correctAnswer":"المفهوم","difficulty":"medium"}
+        ]}"""
+        assertTrue(TemplateOutputValidator.validateOutput(raw, QuestionResponseContract.schemaJson).isEmpty())
+        val parsed = QuestionBankEngine.parseGeneratedQuestions(
+            rawText = raw,
+            workspaceId = "ws-test",
+            lesson = sampleLesson(),
+            expectedCount = 5,
+            selectedTypeIds = listOf("mcq", "true_false", "short_answer")
+        )
+        assertEquals(5, parsed.size)
+        assertEquals(mapOf("mcq" to 2, "true_false" to 2, "short_answer" to 1), parsed.groupingBy { it.type.id }.eachCount())
+    }
+
+    @Test
+    fun strictGeneratedQuestionParserRejectsCountAndTypeMixMismatch() {
+        val raw = """{"questions":[
+            {"type":"mcq","prompt":"سؤال 1؟","options":["أ","ب"],"correctAnswer":"أ","difficulty":"easy"},
+            {"type":"mcq","prompt":"سؤال 2؟","options":["ج","د"],"correctAnswer":"ج","difficulty":"medium"},
+            {"type":"mcq","prompt":"سؤال 3؟","options":["هـ","و"],"correctAnswer":"هـ","difficulty":"hard"}
+        ]}"""
+        val countFailure = runCatching {
+            QuestionBankEngine.parseGeneratedQuestions(raw, "ws-test", sampleLesson(), 2, listOf("mcq"))
+        }.isFailure
+        val typeFailure = runCatching {
+            QuestionBankEngine.parseGeneratedQuestions(raw, "ws-test", sampleLesson(), 3, listOf("mcq", "true_false"))
+        }.isFailure
+        assertTrue(countFailure)
+        assertTrue(typeFailure)
     }
 
     @Test
