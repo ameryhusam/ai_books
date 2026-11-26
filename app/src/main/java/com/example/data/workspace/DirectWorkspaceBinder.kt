@@ -648,6 +648,7 @@ class DirectWorkspaceBinder(private val context: Context) {
         val gradePrefixRel: String,
         val subjectKey: String,
         val componentKey: String?,
+        val pathSubjectKey: String?,
         val pathComponentKey: String?,
         val componentPathIsAuthoritative: Boolean,
         val componentMetadataMismatch: Boolean,
@@ -735,6 +736,7 @@ class DirectWorkspaceBinder(private val context: Context) {
                             gradePrefixRel = "workspace/$grade",
                             subjectKey = subject,
                             componentKey = component,
+                            pathSubjectKey = segments[2],
                             pathComponentKey = effectivePathComponent,
                             componentPathIsAuthoritative = effectivePathComponent != null || rawPathComponent == null,
                             componentMetadataMismatch = componentMetadataMismatch,
@@ -762,6 +764,7 @@ class DirectWorkspaceBinder(private val context: Context) {
                             gradePrefixRel = grade,
                             subjectKey = subject,
                             componentKey = component,
+                            pathSubjectKey = segments[1],
                             pathComponentKey = effectivePathComponent,
                             componentPathIsAuthoritative = effectivePathComponent != null || rawPathComponent == null,
                             componentMetadataMismatch = componentMetadataMismatch,
@@ -815,6 +818,7 @@ class DirectWorkspaceBinder(private val context: Context) {
                             gradePrefixRel = "",
                             subjectKey = subject,
                             componentKey = component,
+                            pathSubjectKey = relativeBookSegments.firstOrNull()?.takeIf { BookMetadataMapper.normalizeSubjectKey(it) != null },
                             pathComponentKey = effectivePathComponent,
                             componentPathIsAuthoritative = effectivePathComponent != null && relativeBookSegments.isNotEmpty(),
                             componentMetadataMismatch = componentMetadataMismatch,
@@ -830,6 +834,9 @@ class DirectWorkspaceBinder(private val context: Context) {
     }
 
     private fun componentIdentityError(slot: BookIndexSlot): String? {
+        if (slot.pathSubjectKey != null && !slot.subjectKey.equals(slot.pathSubjectKey, ignoreCase = true)) {
+            return "[subjectKey] لا يطابق مجلد المادة في المسار (${slot.subjectKey} مقابل ${slot.pathSubjectKey})."
+        }
         if (!BookMetadataMapper.isValidBookIdentity(slot.gradeKey, slot.subjectKey, slot.componentKey)) {
             return "[book identity] gradeKey أو subjectKey أو componentKey غير معروف أو غير متوافق مع فهرس Indexer2."
         }
