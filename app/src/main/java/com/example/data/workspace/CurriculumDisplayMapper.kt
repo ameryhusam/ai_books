@@ -24,7 +24,6 @@ object CurriculumDisplayMapper {
         componentKey: String? = null,
         declaredSubjectName: String? = null
     ): String {
-        val metadata = BookMetadataMapper.mapBookMetadata("G01", subjectKey, componentKey)
         val subject = BookMetadataMapper.subjectDisplayName(subjectKey).orEmpty()
         val component = BookMetadataMapper.componentDisplayName(componentKey)
         return if (component != null) "$subject • $component" else subject
