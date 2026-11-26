@@ -57,6 +57,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.example.R
+import com.example.data.ai.AiModelDefinition
 import com.example.model.CloudDraft
 import com.example.model.GenerationRunRecord
 import com.example.model.LessonProgress
@@ -93,6 +94,11 @@ fun SettingsScreen(
     form: ProviderFormState,
     providers: List<ProviderConfig>,
     selectedProvider: ProviderType,
+    modelCatalog: List<AiModelDefinition> = emptyList(),
+    onAddAiModel: (AiModelDefinition) -> Unit = {},
+    onUpdateAiModel: (String, AiModelDefinition) -> Unit = { _, _ -> },
+    onDeleteAiModel: (String) -> Unit = {},
+    onSetDefaultAiModel: (ProviderType, String) -> Unit = { _, _ -> },
     onSelectDefaultProvider: (ProviderType) -> Unit,
     recentRuns: List<GenerationRunRecord>,
     promptTemplates: List<PromptTemplateRecord> = emptyList(),
@@ -135,6 +141,9 @@ fun SettingsScreen(
     var newTplMapping by remember { mutableStateOf("") }
     var editingTemplateId by remember { mutableStateOf<String?>(null) }
     var templateValidationError by remember { mutableStateOf<String?>(null) }
+    var modelIdInput by remember { mutableStateOf("") }
+    var modelNameInput by remember { mutableStateOf("") }
+    var editingModelId by remember { mutableStateOf<String?>(null) }
 
     Box(
         modifier = modifier.fillMaxSize(),
@@ -318,6 +327,86 @@ fun SettingsScreen(
                 }
             }
 
+            item(key = "ai_model_catalog") {
+                EduPanel(modifier = Modifier.fillMaxWidth()) {
+                    Text("كتالوج نماذج الذكاء الاصطناعي", style = MaterialTheme.typography.titleSmall, color = EduInk)
+                    Text(
+                        "المعرّفات وأسماء العرض تُدار هنا وتُحفظ محلياً. ملف اتصال API يحتفظ بمفتاحه ومزوده، ويمكن ربطه بنموذج من الكتالوج.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = EduMuted
+                    )
+                    modelCatalog.forEach { model ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(model.displayName, color = EduInk, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    "${model.modelId} • ${model.provider.displayName} • ${model.lifecycleStatus}",
+                                    color = EduMuted,
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                                if (model.isDefault) Text("النموذج الافتراضي", color = EduGreenDark, style = MaterialTheme.typography.labelSmall)
+                            }
+                            TextButton(onClick = { onSetDefaultAiModel(model.provider, model.modelId) }) {
+                                Text(if (model.isDefault) "افتراضي" else "تعيين")
+                            }
+                            TextButton(onClick = {
+                                editingModelId = model.modelId
+                                modelIdInput = model.modelId
+                                modelNameInput = model.displayName
+                            }) { Text("تعديل") }
+                            TextButton(onClick = { onDeleteAiModel(model.modelId) }) { Text("حذف", color = EduRed) }
+                        }
+                    }
+                    Text(
+                        if (editingModelId == null) "إضافة نموذج لمزود الخدمة المحدد" else "تعديل النموذج المحدد",
+                        color = EduInk,
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                    SettingsField(
+                        value = modelIdInput,
+                        onValueChange = { modelIdInput = it },
+                        testTag = "ai_model_id_input"
+                    )
+                    SettingsField(
+                        value = modelNameInput,
+                        onValueChange = { modelNameInput = it },
+                        testTag = "ai_model_name_input"
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick = {
+                                val current = modelCatalog.firstOrNull { it.modelId == editingModelId }
+                                val entry = (current ?: AiModelDefinition(
+                                    modelId = modelIdInput.trim(),
+                                    displayName = modelNameInput.trim(),
+                                    provider = selectedProvider
+                                )).copy(
+                                    modelId = modelIdInput.trim(),
+                                    displayName = modelNameInput.trim()
+                                )
+                                if (editingModelId == null) onAddAiModel(entry)
+                                else onUpdateAiModel(editingModelId!!, entry)
+                                modelIdInput = ""
+                                modelNameInput = ""
+                                editingModelId = null
+                            },
+                            enabled = modelIdInput.isNotBlank() && modelNameInput.isNotBlank()
+                        ) {
+                            Text(if (editingModelId == null) "إضافة النموذج" else "حفظ التعديل")
+                        }
+                        TextButton(onClick = {
+                            modelIdInput = ""
+                            modelNameInput = ""
+                            editingModelId = null
+                        }) { Text("إلغاء") }
+                    }
+                }
+            }
+
             item(key = "provider_form") {
                 EduPanel(modifier = Modifier.fillMaxWidth()) {
                     Text(
@@ -366,16 +455,11 @@ fun SettingsScreen(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        val presets = if (form.provider == ProviderType.GEMINI) {
-                            listOf("gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite")
-                        } else {
-                            listOf("gpt-4o-mini", "gpt-4.1-mini", "deepseek-chat")
-                        }
-                        presets.forEach { preset ->
+                        modelCatalog.filter { it.provider == form.provider && it.supportsGenerateContent }.forEach { model ->
                             EduPill(
-                                text = preset,
-                                active = form.model == preset,
-                                onClick = { onModelChange(preset) }
+                                text = model.displayName,
+                                active = form.model == model.modelId,
+                                onClick = { onModelChange(model.modelId) }
                             )
                         }
                     }
