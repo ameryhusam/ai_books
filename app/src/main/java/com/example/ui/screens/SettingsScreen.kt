@@ -146,6 +146,7 @@ fun SettingsScreen(
     var modelNameInput by remember { mutableStateOf("") }
     var editingModelId by remember { mutableStateOf<String?>(null) }
     var modelLifecycleStatus by remember { mutableStateOf(AiModelDefinition.STATUS_AVAILABLE) }
+    var catalogProvider by remember { mutableStateOf(ProviderType.GEMINI) }
 
     Box(
         modifier = modifier.fillMaxSize(),
@@ -367,6 +368,7 @@ fun SettingsScreen(
                                 modelIdInput = model.modelId
                                 modelNameInput = model.displayName
                                 modelLifecycleStatus = model.lifecycleStatus
+                                catalogProvider = model.provider
                             }) { Text("تعديل") }
                             if (canManageAiModels) TextButton(
                                 enabled = !model.isDefault,
@@ -379,10 +381,22 @@ fun SettingsScreen(
                     }
                     if (canManageAiModels) {
                         Text(
-                            if (editingModelId == null) "إضافة نموذج لمزود الخدمة المحدد" else "تعديل النموذج المحدد",
+                            if (editingModelId == null) "إضافة نموذج إلى الكتالوج المركزي" else "تعديل النموذج المحدد",
                             color = EduInk,
                             style = MaterialTheme.typography.labelMedium
                         )
+                        if (editingModelId == null) {
+                            Text("مزود النموذج", color = EduInk, style = MaterialTheme.typography.labelSmall)
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                ProviderType.entries.forEach { type ->
+                                    EduPill(
+                                        text = type.displayName,
+                                        active = catalogProvider == type,
+                                        onClick = { catalogProvider = type }
+                                    )
+                                }
+                            }
+                        }
                         Text("معرّف النموذج وإصداره كما يحدده مزود الخدمة", color = EduInk, style = MaterialTheme.typography.labelSmall)
                         SettingsField(
                             value = modelIdInput,
@@ -417,7 +431,7 @@ fun SettingsScreen(
                                     val entry = (current ?: AiModelDefinition(
                                         modelId = modelIdInput.trim(),
                                         displayName = modelNameInput.trim(),
-                                        provider = form.provider
+                                        provider = catalogProvider
                                     )).copy(
                                         modelId = modelIdInput.trim(),
                                         displayName = modelNameInput.trim(),
