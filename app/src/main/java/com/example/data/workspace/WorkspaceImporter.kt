@@ -306,9 +306,7 @@ class WorkspaceImporter(private val context: Context) {
         warningsOut: MutableList<String>
     ): ParsedGradeTree {
         val bookIndexPaths = zipNames.filter { path ->
-            path.startsWith("workspace/$gradeKey/") &&
-                CANONICAL_INDEX_REGEX.matches(path) &&
-                !PART_INDEX_REGEX.matches(path)
+            path.startsWith("workspace/$gradeKey/") && CANONICAL_INDEX_REGEX.matches(path)
         }
 
         val books = mutableListOf<BookRef>()
@@ -316,13 +314,22 @@ class WorkspaceImporter(private val context: Context) {
 
         for (indexPath in bookIndexPaths) {
             val bookRel = indexPath.removeSuffix("/index.json")
-            val segments = bookRel.split("/").drop(2)
+            val lastSegment = bookRel.substringAfterLast('/')
+            val partKeyFromPath = lastSegment.takeIf { it == "P01" || it == "P02" }
+            val identityBookRel = if (partKeyFromPath != null) bookRel.substringBeforeLast('/') else bookRel
+            val segments = identityBookRel.split("/").drop(2)
             val subjectKey = segments.getOrNull(0)?.takeIf { it.isNotBlank() } ?: "UNKNOWN"
             val componentKey = segments.getOrNull(1)?.takeIf { it.isNotBlank() }
-            val bookKey = segments.joinToString("/")
+            val bookKey = segments.joinToString("/") + (partKeyFromPath?.let { "|$it" } ?: "")
 
-            val manifestFile = File(baseDir, "$bookRel/book_manifest.json").let { primary ->
+            val localManifestFile = File(baseDir, "$bookRel/book_manifest.json").let { primary ->
                 if (primary.exists()) primary else File(baseDir, "$bookRel/manifest.json")
+            }
+            val parentManifestFile = File(baseDir, "$identityBookRel/book_manifest.json")
+            val manifestFile = when {
+                localManifestFile.isFile -> localManifestFile
+                partKeyFromPath != null && parentManifestFile.isFile -> parentManifestFile
+                else -> localManifestFile
             }
 
             val manifestObj: JsonObject? = if (manifestFile.exists()) {
@@ -334,6 +341,15 @@ class WorkspaceImporter(private val context: Context) {
             } else {
                 warningsOut.add("manifest غير موجود أو غير صالح: $bookRel")
                 null
+            }
+
+            val parentIndexFile = File(baseDir, "$identityBookRel/index.json")
+            if (partKeyFromPath != null &&
+                manifestObj?.str("sourceLayout").equals("MERGED_PARTS_FILE", ignoreCase = true) &&
+                parentIndexFile.isFile
+            ) {
+                // Merged part indexes are derived views; import the merged root once.
+                continue
             }
 
             val indexFile = File(baseDir, indexPath)
@@ -372,6 +388,9 @@ class WorkspaceImporter(private val context: Context) {
 
             val fallbackTitle = subjectKey + (if (componentKey != null) " / $componentKey" else "")
             val title = firstNonBlank(
+                indexObj.str("displayName"),
+                indexObj.str("title"),
+                manifestObj?.str("displayName"),
                 manifestObj?.str("title"),
                 manifestObj?.str("bookTitle"),
                 manifestObj?.str("displayTitle"),
@@ -452,7 +471,8 @@ class WorkspaceImporter(private val context: Context) {
                     relativePath = bookRel,
                     lessonsCount = parsedLessons.size,
                     coverPath = resolvedCoverPath,
-                    sourcePdfPath = resolvedBookPdfPath
+                    sourcePdfPath = resolvedBookPdfPath,
+                    subjectName = firstNonBlank(indexObj.str("subjectName"), manifestObj?.str("subjectName")).ifBlank { null }
                 )
             )
             lessons.addAll(parsedLessons)
