@@ -2882,6 +2882,10 @@ class MainViewModel(
         selectedModelId: String,
         selectedProfileId: String
     ) {
+        val lesson = snapshot.selectedLesson ?: run {
+            _uiState.update { it.copy(alert = AlertMessage("حدد الدرس", "اختر درساً من المكتبة أولاً.")) }
+            return
+        }
         generationJob?.cancel()
         generationJob = viewModelScope.launch {
             _uiState.update { it.copy(isBusy = true, generationProgressPercent = 2, generationStage = "بدء تجهيز الطلب") }
