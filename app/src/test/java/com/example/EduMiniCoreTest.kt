@@ -60,6 +60,7 @@ import com.example.model.PackageKind
 import com.example.model.PdfBookInfo
 import com.example.model.PromptTemplateRecord
 import com.example.model.QuestionAttemptRecord
+import com.example.model.QuestionContentPayload
 import com.example.model.QuestionDifficulty
 import com.example.model.QuestionItem
 import com.example.model.QuestionType
@@ -645,10 +646,14 @@ class EduMiniCoreTest {
         assertTrue(TemplateOutputValidator.validateSchema(QuestionResponseContract.schemaJson).isEmpty())
         val itemProperties = schema["properties"]!!.jsonObject["questions"]!!
             .jsonObject["items"]!!.jsonObject["properties"]!!.jsonObject
-        assertEquals(
-            setOf("type", "conceptTag", "prompt", "options", "correctAnswer", "rationale", "difficulty", "sourcePages"),
-            itemProperties.keys
-        )
+        val payloadDescriptor = QuestionContentPayload.serializer().descriptor
+        val payloadFields = (0 until payloadDescriptor.elementsCount)
+            .map { payloadDescriptor.getElementName(it) }.toSet()
+        assertEquals(payloadFields, itemProperties.keys)
+        val requiredFields = schema["properties"]!!.jsonObject["questions"]!!
+            .jsonObject["items"]!!.jsonObject["required"]!!.jsonArray
+            .map { it.jsonPrimitive.content }.toSet()
+        assertEquals(setOf("type", "prompt", "options", "correctAnswer", "difficulty"), requiredFields)
         assertEquals(
             QuestionType.entries.map { it.id }.toSet(),
             itemProperties["type"]!!.jsonObject["enum"]!!.jsonArray.map { it.jsonPrimitive.content }.toSet()
