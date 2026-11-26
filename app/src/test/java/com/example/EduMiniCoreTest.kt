@@ -744,6 +744,22 @@ class EduMiniCoreTest {
                 requireAllNew = true
             )
             assertTrue(duplicateResult.isEmpty())
+            val partialDuplicateFailure = runCatching {
+                service.saveQuestionsWithConceptTags(
+                    workspaceId = "ws-contract",
+                    lesson = lesson,
+                    parsedQuestions = listOf(
+                        parsed.single(),
+                        parsed.single().copy(
+                            id = "q-new",
+                            prompt = "سؤال جديد لا يكرر السابق؟",
+                            fingerprint = QuestionBankEngine.computeFingerprint("سؤال جديد لا يكرر السابق؟")
+                        )
+                    ),
+                    requireAllNew = true
+                )
+            }.isFailure
+            assertTrue(partialDuplicateFailure)
             assertEquals(1, db.eduMiniDao().observeQuestionsForWorkspace("ws-contract").first().size)
         } finally {
             db.close()
