@@ -5,7 +5,6 @@ import com.example.model.QuestionDifficulty
 import com.example.model.QuestionType
 import kotlinx.serialization.descriptors.PrimitiveKind
 import kotlinx.serialization.descriptors.StructureKind
-import kotlinx.serialization.descriptors.isElementOptional
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -59,6 +58,8 @@ object QuestionResponseContract {
             allowedDifficultyIds = allowedDifficulties
         ).toString()
     }
+
+    private val requiredPayloadFields = setOf("type", "prompt", "options", "correctAnswer", "difficulty")
 
     val defaultTypeIds: List<String> = QuestionType.DEFAULT_GENERATION_IDS
 
@@ -119,7 +120,7 @@ object QuestionResponseContract {
                         }
                         putJsonArray("required") {
                             for (index in 0 until payloadDescriptor.elementsCount) {
-                                if (!payloadDescriptor.isElementOptional(index)) {
+                                if (payloadDescriptor.getElementName(index) in requiredPayloadFields) {
                                     add(JsonPrimitive(payloadDescriptor.getElementName(index)))
                                 }
                             }
