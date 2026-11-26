@@ -29,8 +29,10 @@ service cloud.firestore {
 
     function isSystemAdmin() {
       return isSignedIn() &&
-             exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+             exists(/databases/$(database)/documents/system_admins/$(request.auth.uid)) &&
+             get(/databases/$(database)/documents/system_admins/$(request.auth.uid)).data.enabled == true &&
+             get(/databases/$(database)/documents/system_admins/$(request.auth.uid)).data.permissions is list &&
+             get(/databases/$(database)/documents/system_admins/$(request.auth.uid)).data.permissions.hasAny(['manage_ai_models']);
     }
 
     function isValidAiModel(data, modelId) {
@@ -118,6 +120,13 @@ service cloud.firestore {
     }
 
     // 4. Collection Match Blocks
+    match /system_admins/{userId} {
+      // The allowlist is provisioned out-of-band; clients cannot grant themselves access.
+      allow get: if isOwner(userId);
+      allow list: if false;
+      allow create, update, delete: if false;
+    }
+
     match /ai_model_catalog/{modelId} {
       // All authenticated app users can read the centrally managed catalogue.
       allow get, list: if isSignedIn();
