@@ -52,6 +52,7 @@ object WorkspaceContractValidator {
         }
 
         val manifestVersion = manifest?.string("manifestVersion").orEmpty()
+        val strictProvenance = manifestVersion.equals("edu.book_manifest.v2", ignoreCase = true)
         val manifestLayout = manifest?.string("sourceLayout").orEmpty()
         val indexLayout = index.string("sourceLayout")
         val sourceLayout = firstNonBlank(manifestLayout, indexLayout)
@@ -194,6 +195,16 @@ object WorkspaceContractValidator {
 
             val partKey = resolveUnitPartKey(unit, index, manifest)
             val assignmentStatus = unit.string("assignmentStatus")
+            val assignmentSource = unit.string("assignmentSource").uppercase(Locale.ROOT)
+            val assignmentEvidence = unit.string("assignmentEvidence").trim()
+            if (strictProvenance) {
+                if (assignmentSource !in setOf("INDEX_EVIDENCE", "REVIEWER")) {
+                    errors.add("[index.json → units[$unitKey].assignmentSource] مصدر إسناد الوحدة غير موثوق أو غير مسجل.")
+                }
+                if (assignmentEvidence.isBlank()) {
+                    errors.add("[index.json → units[$unitKey].assignmentEvidence] دليل الإسناد مطلوب في manifest v2.")
+                }
+            }
             if (canonical && partKey !in setOf("P01", "P02")) {
                 errors.add("[index.json → units[${unitKey.ifBlank { unitIndex.toString() }}].partKey] الوحدة «${unitTitle.ifBlank { unitKey }}» غير مسندة إلى P01 أو P02.")
             } else if (!canonical && partKey.isBlank()) {
