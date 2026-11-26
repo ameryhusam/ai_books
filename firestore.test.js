@@ -112,14 +112,26 @@ test("AI model catalogue is readable by signed-in users and writable only by pro
   };
   await assertFails(studentDb.collection("ai_model_catalog").doc(modelPayload.modelId).set(modelPayload));
 
+  // An application admin/teacher is not automatically a system administrator.
   await testEnv.withSecurityRulesDisabled(async (context) => {
+    await context.firestore().collection("users").doc(ALICE_UID).set({
+      userId: ALICE_UID,
+      role: "admin",
+      createdAt: new Date(Date.now() - 3000),
+      updatedAt: new Date(Date.now() - 2000),
+    });
     await context.firestore().collection("users").doc(BOB_UID).set({
       userId: BOB_UID,
       role: "admin",
       createdAt: new Date(Date.now() - 2000),
       updatedAt: new Date(Date.now() - 1000),
     });
+    await context.firestore().collection("system_admins").doc(BOB_UID).set({
+      enabled: true,
+      permissions: ["manage_ai_models"],
+    });
   });
+  await assertFails(studentDb.collection("ai_model_catalog").doc(modelPayload.modelId).set(modelPayload));
   const adminDb = testEnv.authenticatedContext(BOB_UID).firestore();
   await assertSucceeds(adminDb.collection("ai_model_catalog").doc(modelPayload.modelId).set(modelPayload));
   await assertSucceeds(studentDb.collection("ai_model_catalog").doc(modelPayload.modelId).get());
