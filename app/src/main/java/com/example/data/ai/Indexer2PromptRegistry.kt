@@ -318,7 +318,7 @@ object Indexer2PromptRegistry {
             if (task == TaskType.QUESTIONS) {
                 append("لغة نص السؤال والخيارات والإجابة والتفسير: $languageInstruction.\n")
                 append("أنواع الأسئلة المسموح بها حصراً: ${requestedQuestionTypes.joinToString(", ") { "${it.id} (${it.labelAr})" }}. لا تنتج أي نوع خارج هذه القائمة.\n")
-                append("التوزيع المطلوب للعدد الإجمالي حسب النوع: ${typeDistribution.joinToString(", ") { "${it.first}=${it.second}" }}. التزم بالأعداد المحددة لكل نوع.\n")
+                append("التوزيع المطلوب للعدد الإجمالي حسب النوع: ${typeDistribution.entries.joinToString(", ") { "${it.key}=${it.value}" }}. التزم بالأعداد المحددة لكل نوع.\n")
             }
             if (questionStyleHint.isNotBlank()) append("تنسيق/تنويع العناصر المطلوب: $questionStyleHint.\n")
             if (difficultyHint.isNotBlank()) append("مستوى الصعوبة المطلوب (قيمة difficulty في JSON): $difficultyHint. استخدم هذه القيمة المعيارية كما هي.\n")
