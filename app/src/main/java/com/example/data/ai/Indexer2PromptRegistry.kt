@@ -4,6 +4,7 @@ import com.example.model.Indexer2SchemaSpec
 import com.example.model.LessonRef
 import com.example.model.PromptBlueprintSpec
 import com.example.model.TaskType
+import com.example.model.QuestionType
 
 object Indexer2PromptRegistry {
 
@@ -309,6 +310,8 @@ object Indexer2PromptRegistry {
         source: String,
         extra: String,
         questionCount: Int = 5,
+        questionTypeIds: List<String> = emptyList(),
+        questionLanguage: String = "ar",
         attachedPdfPagesCount: Int = 0,
         questionStyleHint: String = "",
         difficultyHint: String = "",
@@ -319,6 +322,26 @@ object Indexer2PromptRegistry {
         val safeCount = questionCount.coerceIn(1, 30)
         val blueprint = blueprintFor(task)
         val taskInstruction = task.labelAr
+        val requestedQuestionTypes = if (questionTypeIds.isEmpty()) {
+            QuestionType.entries
+        } else {
+            QuestionType.entries.filter { it.id in questionTypeIds }
+        }
+        require(task != TaskType.QUESTIONS || requestedQuestionTypes.isNotEmpty()) {
+            "يجب اختيار نوع سؤال واحد على الأقل من الأنواع المدعومة."
+        }
+        val languageInstruction = when (questionLanguage.trim().lowercase()) {
+            "en" -> "English"
+            "ar_en" -> "Arabic and English (bilingual question and answer text)"
+            else -> "Arabic"
+        }
+        val typeDistribution = if (requestedQuestionTypes.isEmpty()) emptyList() else {
+            val baseCount = safeCount / requestedQuestionTypes.size
+            val remainder = safeCount % requestedQuestionTypes.size
+            requestedQuestionTypes.mapIndexed { index, type ->
+                type.id to (baseCount + if (index < remainder) 1 else 0)
+            }
+        }
 
         return buildString {
             append("أنت مساعد إعداد محتوى تعليمي. أنشئ ")
@@ -343,9 +366,14 @@ object Indexer2PromptRegistry {
                 append("مخطط الخرج المتوقع: ${blueprint.outputContract}\n")
             }
             if (task == TaskType.QUESTIONS || task == TaskType.INTERACTIVE) {
-                append("العدد المطلوب من العناصر: $safeCount.\n")
+                append("العدد الإجمالي المطلوب من الأسئلة: $safeCount، وليس العدد لكل نوع.\\n")
             }
-            if (questionStyleHint.isNotBlank()) append("تنسيق/تنويع العناصر المطلوب: $questionStyleHint.\n")
+            if (task == TaskType.QUESTIONS) {
+                append("لغة نص السؤال والخيارات والإجابة والتفسير: $languageInstruction.\\n")
+                append("أنواع الأسئلة المسموح بها حصراً: ${requestedQuestionTypes.joinToString(", ") { "${it.id} (${it.labelAr})" }}. لا تنتج أي نوع خارج هذه القائمة.\\n")
+                append("التوزيع المطلوب للعدد الإجمالي حسب النوع: ${typeDistribution.joinToString(", ") { "${it.first}=${it.second}" }}. التزم بالأعداد المحددة لكل نوع.\\n")
+            }
+            if (questionStyleHint.isNotBlank()) append("تنسيق/تنويع العناصر المطلوب: $questionStyleHint.\\n")
             if (difficultyHint.isNotBlank()) append("مستوى الصعوبة المطلوب: $difficultyHint.\n")
             if (promptTemplate.isNotBlank()) {
                 append("\nتعليمات المهمة المرجعية من ملف ${blueprint.sourcePath}:\n")
