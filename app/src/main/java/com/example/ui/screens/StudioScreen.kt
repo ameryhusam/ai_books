@@ -98,6 +98,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.R
 import com.example.data.ai.Indexer2PromptRegistry
+import com.example.data.ai.QuestionResponseContract
 import com.example.model.BookRef
 import com.example.model.CloudDraft
 import com.example.model.DraftRecord
@@ -511,8 +512,8 @@ private fun StudioWorkbench(
                 questionStyleHint = questionStyle.takeIf { task == TaskType.QUESTIONS && it != "متنوعة" }.orEmpty(),
                 difficultyHint = if (task == TaskType.QUESTIONS) questionDifficulty.id else "",
                 promptTemplate = promptTemplateContent,
-                responseSchemaJson = activePromptTemplate?.responseSchemaJson.orEmpty(),
-                responseFormat = activePromptTemplate?.responseFormat
+                responseSchemaJson = if (task == TaskType.QUESTIONS) QuestionResponseContract.schemaJson else activePromptTemplate?.responseSchemaJson.orEmpty(),
+                responseFormat = if (task == TaskType.QUESTIONS) "json" else activePromptTemplate?.responseFormat
                     ?: if (activePromptTemplate?.responseSchemaJson.isNullOrBlank()) "text" else "json"
             )
         } else {
