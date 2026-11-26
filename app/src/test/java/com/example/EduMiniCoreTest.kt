@@ -737,15 +737,13 @@ class EduMiniCoreTest {
             assertEquals(listOf("3", "4"), Json.decodeFromString<List<String>>(stored.optionsJson))
             assertEquals("الجمع", stored.conceptTag)
 
-            val duplicateFailure = runCatching {
-                service.saveQuestionsWithConceptTags(
-                    workspaceId = "ws-contract",
-                    lesson = lesson,
-                    parsedQuestions = parsed,
-                    requireAllNew = true
-                )
-            }.isFailure
-            assertTrue(duplicateFailure)
+            val duplicateResult = service.saveQuestionsWithConceptTags(
+                workspaceId = "ws-contract",
+                lesson = lesson,
+                parsedQuestions = parsed,
+                requireAllNew = true
+            )
+            assertTrue(duplicateResult.isEmpty())
             assertEquals(1, db.eduMiniDao().observeQuestionsForWorkspace("ws-contract").first().size)
         } finally {
             db.close()
