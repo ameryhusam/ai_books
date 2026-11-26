@@ -56,8 +56,7 @@ class ProviderStorage(context: Context) {
     suspend fun loadModelCatalog(): List<AiModelDefinition> = withContext(Dispatchers.IO) {
         synchronized(lock) {
             val raw = prefs.getString(KEY_MODEL_CATALOG, null)
-            if (raw == null) {
-                writeModelCatalogLocked(AiModelCatalogDefaults.entries)
+            val stored = if (raw == null) {
                 AiModelCatalogDefaults.entries
             } else {
                 try {
@@ -66,6 +65,25 @@ class ProviderStorage(context: Context) {
                     throw IllegalStateException("تعذر قراءة فهرس نماذج AI المحفوظ؛ لم يتم استبدال البيانات.", error)
                 }
             }
+            // Preserve model IDs already used by legacy API profiles by importing
+            // their references into the editable catalog instead of silently dropping them.
+            val referencedModels = readProfilesLocked().flatMap { profile ->
+                (listOf(profile.model) + profile.fallbackModels).filter { it.isNotBlank() }
+                    .map { profile.provider to it.trim() }
+            }.distinct()
+            val additions = referencedModels
+                .filterNot { (provider, modelId) -> stored.any { it.provider == provider && it.modelId == modelId } }
+                .map { (provider, modelId) ->
+                    AiModelDefinition(
+                        modelId = modelId,
+                        displayName = modelId,
+                        provider = provider,
+                        source = AiModelDefinition.SOURCE_USER
+                    )
+                }
+            val merged = stored + additions
+            if (raw == null || merged != stored) writeModelCatalogLocked(merged)
+            merged
         }
     }
 
