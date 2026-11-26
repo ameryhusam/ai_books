@@ -87,17 +87,20 @@ object BookMetadataMapper {
         return clean.takeIf { components.containsKey(it) }
     }
 
-    fun gradeDisplayName(gradeKey: String?, declaredGradeName: String? = null): String? =
-        declaredGradeName?.trim()?.takeIf { it.isNotEmpty() }
-            ?: normalizeGradeKey(gradeKey)?.let(grades::get)
+    fun gradeDisplayName(gradeKey: String?, declaredGradeName: String? = null): String? {
+        val normalized = normalizeGradeKey(gradeKey) ?: return null
+        return declaredGradeName?.trim()?.takeIf { it.isNotEmpty() } ?: grades[normalized]
+    }
 
-    fun subjectDisplayName(subjectKey: String?, declaredSubjectName: String? = null): String? =
-        declaredSubjectName?.trim()?.takeIf { it.isNotEmpty() }
-            ?: normalizeSubjectKey(subjectKey)?.let(subjects::get)
+    fun subjectDisplayName(subjectKey: String?, declaredSubjectName: String? = null): String? {
+        val normalized = normalizeSubjectKey(subjectKey) ?: return null
+        return declaredSubjectName?.trim()?.takeIf { it.isNotEmpty() } ?: subjects[normalized]
+    }
 
-    fun componentDisplayName(componentKey: String?, declaredComponentName: String? = null): String? =
-        declaredComponentName?.trim()?.takeIf { it.isNotEmpty() }
-            ?: normalizeComponentKey(componentKey)?.let(components::get)
+    fun componentDisplayName(componentKey: String?, declaredComponentName: String? = null): String? {
+        val normalized = normalizeComponentKey(componentKey) ?: return null
+        return declaredComponentName?.trim()?.takeIf { it.isNotEmpty() } ?: components[normalized]
+    }
 
     fun isValidBookIdentity(gradeKey: String?, subjectKey: String?, componentKey: String?): Boolean {
         val grade = normalizeGradeKey(gradeKey) ?: return false
