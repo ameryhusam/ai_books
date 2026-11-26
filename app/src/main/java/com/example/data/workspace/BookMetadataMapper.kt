@@ -11,7 +11,7 @@ import java.util.Locale
  * template establish a new key.
  */
 object BookMetadataMapper {
-    const val CATALOG_VERSION = "indexer2-curriculum-catalog.v1"
+    const val CATALOG_VERSION = "indexer2-curriculum-catalog.v2"
 
     data class BookDisplayMetadata(
         val gradeKey: String?,
