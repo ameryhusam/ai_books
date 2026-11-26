@@ -1993,37 +1993,47 @@ class MainViewModel(
 
     fun addAiModel(model: AiModelDefinition) {
         viewModelScope.launch {
-            runCatching { repository.addAiModel(model) }
-                .onSuccess {
-                    _uiState.update { it.copy(aiModelCatalog = repository.loadAiModelCatalog(), toastMessage = "تمت إضافة النموذج.") }
-                }
-                .onFailure { error -> _uiState.update { it.copy(alert = AlertMessage("تعذر إضافة النموذج", error.message ?: "تحقق من بيانات النموذج.")) } }
+            try {
+                repository.addAiModel(model)
+                val catalog = repository.loadAiModelCatalog()
+                _uiState.update { it.copy(aiModelCatalog = catalog, toastMessage = "تمت إضافة النموذج.") }
+            } catch (error: Exception) {
+                _uiState.update { it.copy(alert = AlertMessage("تعذر إضافة النموذج", error.message ?: "تحقق من بيانات النموذج.")) }
+            }
         }
     }
 
     fun updateAiModel(originalModelId: String, model: AiModelDefinition) {
         viewModelScope.launch {
-            runCatching { repository.updateAiModel(originalModelId, model) }
-                .onSuccess {
-                    _uiState.update {
-                        it.copy(
-                            aiModelCatalog = repository.loadAiModelCatalog(),
-                            providers = repository.loadProviders(),
-                            toastMessage = "تم تحديث بيانات النموذج."
-                        )
-                    }
+            try {
+                repository.updateAiModel(originalModelId, model)
+                val catalog = repository.loadAiModelCatalog()
+                val providers = repository.loadProviders()
+                _uiState.update {
+                    it.copy(
+                        aiModelCatalog = catalog,
+                        providers = providers,
+                        providerForm = if (it.providerForm.model == originalModelId) {
+                            it.providerForm.copy(model = model.modelId)
+                        } else it.providerForm,
+                        toastMessage = "تم تحديث بيانات النموذج."
+                    )
                 }
-                .onFailure { error -> _uiState.update { it.copy(alert = AlertMessage("تعذر تعديل النموذج", error.message ?: "تحقق من بيانات النموذج.")) } }
+            } catch (error: Exception) {
+                _uiState.update { it.copy(alert = AlertMessage("تعذر تعديل النموذج", error.message ?: "تحقق من بيانات النموذج.")) }
+            }
         }
     }
 
     fun deleteAiModel(modelId: String) {
         viewModelScope.launch {
-            runCatching { repository.deleteAiModel(modelId) }
-                .onSuccess {
-                    _uiState.update { it.copy(aiModelCatalog = repository.loadAiModelCatalog(), toastMessage = "تم حذف النموذج.") }
-                }
-                .onFailure { error -> _uiState.update { it.copy(alert = AlertMessage("تعذر حذف النموذج", error.message ?: "قد يكون النموذج مستخدماً في ملف اتصال.")) } }
+            try {
+                repository.deleteAiModel(modelId)
+                val catalog = repository.loadAiModelCatalog()
+                _uiState.update { it.copy(aiModelCatalog = catalog, toastMessage = "تم حذف النموذج.") }
+            } catch (error: Exception) {
+                _uiState.update { it.copy(alert = AlertMessage("تعذر حذف النموذج", error.message ?: "قد يكون النموذج مستخدماً في ملف اتصال.")) }
+            }
         }
     }
 
