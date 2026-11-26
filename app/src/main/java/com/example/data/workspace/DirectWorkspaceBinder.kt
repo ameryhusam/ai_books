@@ -204,10 +204,10 @@ class DirectWorkspaceBinder(private val context: Context) {
                 manifestObj?.str("gradeName")
             )
             val declaredSubjectName = firstNonBlank(
+                indexObj.str("subjectName"),
                 indexMetadata?.str("subjectName"),
                 indexBook?.str("subjectName"),
-                manifestObj?.str("subjectName"),
-                indexObj.str("subjectName")
+                manifestObj?.str("subjectName")
             )
             val subjectName = CurriculumDisplayMapper.subjectDisplayName(
                 subjectKey = slot.subjectKey,
