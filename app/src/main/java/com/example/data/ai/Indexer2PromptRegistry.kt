@@ -330,6 +330,9 @@ object Indexer2PromptRegistry {
         require(task != TaskType.QUESTIONS || requestedQuestionTypes.isNotEmpty()) {
             "يجب اختيار نوع سؤال واحد على الأقل من الأنواع المدعومة."
         }
+        require(task != TaskType.QUESTIONS || requestedQuestionTypes.size <= safeCount) {
+            "عدد أنواع الأسئلة المختارة أكبر من العدد الإجمالي للأسئلة. زد العدد أو قلّل الأنواع."
+        }
         val languageInstruction = when (questionLanguage.trim().lowercase()) {
             "en" -> "English"
             "ar_en" -> "Arabic and English (bilingual question and answer text)"
@@ -365,8 +368,10 @@ object Indexer2PromptRegistry {
             if (blueprint.outputContract.isNotBlank()) {
                 append("مخطط الخرج المتوقع: ${blueprint.outputContract}\n")
             }
-            if (task == TaskType.QUESTIONS || task == TaskType.INTERACTIVE) {
+            if (task == TaskType.QUESTIONS) {
                 append("العدد الإجمالي المطلوب من الأسئلة: $safeCount، وليس العدد لكل نوع.\\n")
+            } else if (task == TaskType.INTERACTIVE) {
+                append("العدد المطلوب من العناصر التفاعلية: $safeCount.\\n")
             }
             if (task == TaskType.QUESTIONS) {
                 append("لغة نص السؤال والخيارات والإجابة والتفسير: $languageInstruction.\\n")
