@@ -2959,6 +2959,21 @@ class EduMiniCoreTest {
     }
 
     @Test
+    fun explicitCatalogueModelSelectionNeverAddsProfileFallbacks() {
+        assertEquals(
+            listOf("gemini-3.8-flash"),
+            com.example.data.ai.ProviderRoutingPolicy.exactModelCandidate("gemini-3.8-flash")
+        )
+        assertEquals(
+            listOf("gpt-enterprise-v7"),
+            com.example.data.ai.ProviderRoutingPolicy.exactModelCandidate(" gpt-enterprise-v7 ")
+        )
+        assertTrue(runCatching {
+            com.example.data.ai.ProviderRoutingPolicy.exactModelCandidate(" ")
+        }.isFailure)
+    }
+
+    @Test
     fun geminiModelCooldownDoesNotBlockSiblingModelsOrOtherKeys() {
         val router = com.example.data.ai.GeminiModelRouter(defaultCooldownMs = 60_000L)
         val now = 1_000_000L
@@ -3454,6 +3469,7 @@ class EduMiniCoreTest {
             )
             assertEquals("شرح نصي من OpenAI بدون PDF", generated.text)
             assertEquals("Local Mock OpenAI", generated.providerLabel)
+            assertEquals("gpt-test", generated.model)
         } finally {
             runCatching { server.close() }
             serverThread.join(2000)
