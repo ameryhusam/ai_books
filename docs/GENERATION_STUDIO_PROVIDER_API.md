@@ -647,12 +647,13 @@ The following must not be silently folded into the current Generation Studio con
 Question generation is intentionally different from general prompt templates:
 
 - `QuestionResponseContract` is the single provider-facing JSON contract for question content. Its allowed question types and difficulty values are derived from `QuestionType` and `QuestionDifficulty`.
-- The contract contains only model-authored question content: `type`, `conceptTag`, `prompt`, `options`, `correctAnswer`, `rationale`, `difficulty`, and optional `sourcePages`.
+- The contract contains only model-authored question content: `type`, `conceptTag`, `prompt`, `options`, `correctAnswer`, `rationale`, `difficulty`, and optional `sourcePages`. The provider schema narrows `type` to the selected types and `difficulty` to the selected level for each request.
 - Application-owned persistence metadata (workspace/grade/book/unit/lesson IDs, generated question ID, fingerprint, timestamps, review state, draft/template provenance and index hash) is never requested from the model.
 - `QuestionBankService` maps the canonical content fields into `QuestionEntity`; `options` is encoded into the Room `options_json` column. The database remains the persistence authority.
 - For `TaskType.QUESTIONS`, the runtime ignores template-level `responseSchemaJson` and `responseMappingJson`. Template instructions remain editable, but the schema and field mapping are application-owned and cannot drift independently.
 - The prompt preview, Indexer2 question schema reference, built-in question template, provider request and strict parser all use `QuestionResponseContract.schemaJson`.
-- Before any generated batch is inserted, the application validates JSON shape, supported enums, non-empty prompt/answer, option/answer consistency, exact requested count, exact per-type distribution, and within-batch duplicates. If validation fails, the batch is rejected; invalid rows are not silently dropped.
+- Before any generated batch is inserted, the application validates JSON shape, supported enums, non-empty prompt/answer, option/answer consistency, exact requested count, exact per-type distribution, selected difficulty, and within-batch duplicates. If validation fails, the batch is rejected; invalid rows are not silently dropped.
+- The original count, type distribution and difficulty are recovered from the saved generation prompt when a teacher later approves a question draft, so approval does not rely on the current Studio controls.
 - Before insertion, the service also rejects a batch containing questions already stored for the same lesson. This avoids partial writes and misleading "requested count vs saved count" results.
 
 No Room entity, column, database version, or migration was changed by this contract consolidation. If the persisted question-content model evolves, update its canonical content contract/mapping once and regenerate the provider schema from that source; storage-only metadata remains application-managed.
