@@ -3065,6 +3065,8 @@ class MainViewModel(
                         "تم حفظ المسودة، لكن لم تُضف الأسئلة إلى بنك الأسئلة لأن التحقق من الدفعة أو منع التكرار لم ينجح: $questionSaveError"
                     snapshot.task == TaskType.QUESTIONS && syncedQuestionsCount > 0 ->
                         "تم التوليد عبر ${out.providerLabel} (${out.model})، وحُفظت المسودة وتم التحقق من العدد والأنواع قبل إضافة $syncedQuestionsCount سؤالاً إلى بنك الأسئلة واختبار الدرس."
+                    snapshot.task == TaskType.QUESTIONS ->
+                        "تم حفظ المسودة. الأسئلة المطابقة موجودة مسبقاً في بنك أسئلة الدرس، لذلك لم تُضف نسخ مكررة."
                     snapshot.task == TaskType.LESSON_TEXT && lessonTextSaved != null ->
                         "تم استخراج وحفظ المحتوى النصي للدرس بنجاح في قاعدة البيانات وتحديث مصدر الاستوديو (v${lessonTextSaved.version})."
                     snapshot.task == TaskType.INTERACTIVE && publishedBundle != null ->
