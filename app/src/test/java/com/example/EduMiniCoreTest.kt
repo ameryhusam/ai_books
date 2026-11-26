@@ -325,6 +325,28 @@ class EduMiniCoreTest {
     }
 
     @Test
+    fun explicitWorkspaceUriPreventsLessonPathReconstructionFallback() {
+        val lesson = Json.parseToJsonElement(
+            """{"lessonNumber":1,"title":"Lesson","sliceFile":{"workspaceUri":"workspace/G07/ENG/COURSE/P01/custom/unit-a/lesson-source.pdf"}}"""
+        ).jsonObject
+        val unit = Json.parseToJsonElement(
+            """{"unitNumber":1,"partKey":"P01","title":"Unit"}"""
+        ).jsonObject
+
+        val candidates = com.example.data.workspace.WorkspaceContractValidator.lessonPdfCandidates(
+            lesson = lesson,
+            unit = unit,
+            lessonPart = "P01",
+            bookRelativePath = "workspace/G07/ENG/COURSE/P01",
+            expectedGrade = "G07",
+            expectedSubject = "ENG"
+        )
+
+        assertTrue(candidates.contains("workspace/G07/ENG/COURSE/P01/custom/unit-a/lesson-source.pdf"))
+        assertFalse(candidates.any { it.endsWith("P01/units/unit_01/lesson_01.pdf") })
+    }
+
+    @Test
     fun importerRejectsZipSlipPath() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val importer = WorkspaceImporter(context)
