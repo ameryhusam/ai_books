@@ -390,6 +390,8 @@ class EduMiniCoreTest {
         )
 
         assertTrue(candidates.contains("workspace/G07/ENG/COURSE/P01/custom/unit-a/lesson-source.pdf"))
+        assertTrue(candidates.contains("P01/custom/unit-a/lesson-source.pdf"))
+        assertTrue(candidates.contains("custom/unit-a/lesson-source.pdf"))
         assertFalse(candidates.any { it.endsWith("P01/units/unit_01/lesson_01.pdf") })
 
         val unsafeLesson = Json.parseToJsonElement(
