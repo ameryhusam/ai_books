@@ -4278,6 +4278,61 @@ class EduMiniCoreTest {
         }
     }
 
+    @Test
+    fun aiModelCatalogPersistsDefaultsAndSupportsCrudSafely() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        context.getSharedPreferences("edu_mini_secure_prefs", android.content.Context.MODE_PRIVATE)
+            .edit().clear().commit()
+        val storage = ProviderStorage(context)
+
+        val initial = storage.loadModelCatalog()
+        assertTrue(initial.any { it.modelId == "gemini-3.5-flash" && it.isDefault })
+
+        val custom = com.example.data.ai.AiModelDefinition(
+            modelId = "gemini-custom-test",
+            displayName = "Gemini Custom Test",
+            provider = ProviderType.GEMINI
+        )
+        storage.addModelDefinition(custom)
+        storage.setDefaultModel(ProviderType.GEMINI, custom.modelId)
+        val afterDefault = storage.loadModelCatalog()
+        assertTrue(afterDefault.any { it.modelId == custom.modelId && it.isDefault })
+        assertFalse(afterDefault.any { it.modelId == "gemini-3.5-flash" && it.isDefault })
+
+        val renamed = custom.copy(modelId = "gemini-custom-renamed", displayName = "Renamed model")
+        storage.updateModelDefinition(custom.modelId, renamed)
+        assertTrue(storage.loadModelCatalog().any { it.modelId == renamed.modelId && it.displayName == renamed.displayName })
+        storage.deleteModelDefinition(renamed.modelId)
+        assertFalse(storage.loadModelCatalog().any { it.modelId == renamed.modelId })
+    }
+
+    @Test
+    fun aiModelCatalogPreventsDeletingDefaultOrProfileReferencedModels() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        context.getSharedPreferences("edu_mini_secure_prefs", android.content.Context.MODE_PRIVATE)
+            .edit().clear().commit()
+        val storage = ProviderStorage(context)
+        val catalog = storage.loadModelCatalog()
+        assertTrue(runCatching { storage.deleteModelDefinition(catalog.first { it.isDefault }.modelId) }.isFailure)
+
+        val referencedModel = catalog.first { it.provider == ProviderType.GEMINI && !it.isDefault }
+        storage.saveProviders(
+            listOf(
+                ProviderConfig(
+                    id = "catalog-test-profile",
+                    provider = ProviderType.GEMINI,
+                    label = "Catalog test",
+                    model = referencedModel.modelId,
+                    baseUrl = "",
+                    apiKey = "test-key",
+                    enabled = true,
+                    createdAt = 1L
+                )
+            )
+        )
+        assertTrue(runCatching { storage.deleteModelDefinition(referencedModel.modelId) }.isFailure)
+    }
+
 }
 
 private val testKeyStoreMap = java.util.concurrent.ConcurrentHashMap<String, java.security.Key>()
