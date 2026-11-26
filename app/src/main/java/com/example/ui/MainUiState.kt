@@ -1,6 +1,7 @@
 package com.example.ui
 
 import com.example.model.*
+import com.example.data.ai.AiModelDefinition
 
 /**
  * UI-facing state models shared by Compose screens and MainViewModel.
@@ -88,6 +89,7 @@ data class MainUiState(
     val globalSearchOpen: Boolean = false,
     val pendingExportAssessment: AssessmentRecord? = null,
     val providers: List<ProviderConfig> = emptyList(),
+    val aiModelCatalog: List<AiModelDefinition> = emptyList(),
     val selectedProvider: ProviderType = ProviderType.GEMINI,
     val providerForm: ProviderFormState = ProviderFormState(),
     val recentRuns: List<GenerationRunRecord> = emptyList(),
