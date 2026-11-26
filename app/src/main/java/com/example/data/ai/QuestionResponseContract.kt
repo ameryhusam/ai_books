@@ -41,7 +41,7 @@ object QuestionResponseContract {
         return ExpectedBatch(count, pairs.map { it.first }, difficultyId)
     }
 
-    val schemaJson: String by lazy { buildSchema(QuestionType.entries.map { it.id }).toString() }
+    val schemaJson: String by lazy { buildSchema(QuestionType.entries.map { it.id }, QuestionDifficulty.entries.map { it.id }).toString() }
 
     fun schemaFor(selectedTypeIds: List<String>, difficultyId: String? = null): String {
         val requestedDifficulty = difficultyId?.takeIf { it.isNotBlank() }
