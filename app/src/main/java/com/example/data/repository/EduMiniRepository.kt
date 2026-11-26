@@ -563,7 +563,7 @@ class EduMiniRepository(
         }
         // Question JSON is derived from the canonical question-content contract, not a second editable template schema.
         val responseSchema = if (task == TaskType.QUESTIONS) {
-            QuestionResponseContract.schemaFor(questionTypeIds)
+            QuestionResponseContract.schemaFor(questionTypeIds, difficultyHint)
         } else {
             activeTemplate?.responseSchemaJson.orEmpty()
         }
@@ -694,7 +694,8 @@ class EduMiniRepository(
                 workspaceId = workspaceId.ifBlank { lesson.workspaceId }.ifBlank { lesson.rootPath },
                 lesson = lesson,
                 expectedCount = questionCount,
-                selectedTypeIds = questionTypeIds
+                selectedTypeIds = questionTypeIds,
+                expectedDifficultyId = difficultyHint
             )
         }
         val adaptedText = TemplateResponseAdapter.adapt(result.text, responseMapping)
@@ -869,7 +870,8 @@ class EduMiniRepository(
             responseSchemaJson = draft.responseSchemaJson,
             sourceIndexSha256 = draft.sourceIndexSha256,
             expectedQuestionCount = expectedBatch?.count,
-            expectedQuestionTypeIds = expectedBatch?.typeIds.orEmpty()
+            expectedQuestionTypeIds = expectedBatch?.typeIds.orEmpty(),
+            expectedQuestionDifficultyId = expectedBatch?.difficultyId
         )
         dao.updateDraftStatus(draftId, DraftStatus.APPROVED.id)
         return savedQuestions.size
@@ -1684,7 +1686,8 @@ class EduMiniRepository(
         responseSchemaJson: String = "",
         sourceIndexSha256: String = "",
         expectedQuestionCount: Int? = null,
-        expectedQuestionTypeIds: List<String> = emptyList()
+        expectedQuestionTypeIds: List<String> = emptyList(),
+        expectedQuestionDifficultyId: String? = null
     ): List<QuestionItem> {
         val canonicalWs = workspaceId.ifBlank { lesson.workspaceId }.ifBlank { lesson.rootPath }
         val parsed = if (expectedQuestionCount != null) {
@@ -1693,7 +1696,8 @@ class EduMiniRepository(
                 workspaceId = canonicalWs,
                 lesson = lesson,
                 expectedCount = expectedQuestionCount,
-                selectedTypeIds = expectedQuestionTypeIds
+                selectedTypeIds = expectedQuestionTypeIds,
+                expectedDifficultyId = expectedQuestionDifficultyId
             )
         } else {
             QuestionBankEngine.parseQuestionsFromText(rawText, canonicalWs, lesson)
