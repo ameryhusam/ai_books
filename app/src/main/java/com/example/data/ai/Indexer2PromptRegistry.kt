@@ -5,6 +5,7 @@ import com.example.model.LessonRef
 import com.example.model.PromptBlueprintSpec
 import com.example.model.TaskType
 import com.example.model.QuestionType
+import com.example.data.ai.QuestionResponseContract
 
 object Indexer2PromptRegistry {
 
@@ -121,22 +122,7 @@ object Indexer2PromptRegistry {
             sourcePath = "prompts/indexer2/question_bank.prompt.md",
             roleInstruction = "بنك أسئلة مع الخيارات والإجابة الصحيحة والتفسير ومستوى الصعوبة وربط كل سؤال بالصفحة المرجعية",
             outputContract = "رقم السؤال + الخيارات أو صيغة التوصيل/الترتيب + الإجابة: + التفسير: + الصعوبة: أو مصفوفة JSON",
-            schemaSnippet = """
-                {
-                  "questions": [
-                    {
-                      "type": "mcq",
-                      "conceptTag": "المفهوم الأساسي في الدرس",
-                      "prompt": "نص السؤال المرتبط بصفحات الدرس",
-                      "options": ["أ", "ب", "ج", "د"],
-                      "correctAnswer": "أ",
-                      "rationale": "تعليل الإجابة استناداً إلى الدرس",
-                      "difficulty": "medium",
-                      "sourcePages": "5–8"
-                    }
-                  ]
-                }
-            """.trimIndent(),
+            schemaSnippet = QuestionResponseContract.schemaJson,
             quickInstructions = "نوّع الأسئلة بين اختيار من متعدد، صح أم خطأ، إكمال الفراغ، وترتيب مع تحديد conceptTag لكل سؤال."
         ),
         PromptBlueprintSpec(
@@ -214,36 +200,7 @@ object Indexer2PromptRegistry {
             fileName = "questions/<unit>/<lesson>/ai_generated.json",
             titleAr = "مخطط بنك الأسئلة التفاعلي (questions.json)",
             descriptionAr = "يدعم 6 أنماط: mcq, true_false, fill_blank, ordering, matching, short_answer مع تصنيف المفهوم conceptTag.",
-            schemaJson = """
-                {
-                  "questions": [
-                    {
-                      "type": "mcq",
-                      "conceptTag": "استخلاص الفكرة الرئيسة",
-                      "prompt": "ما الفكرة الرئيسة في الفقرة الأولى؟",
-                      "options": ["الخيار الأول", "الخيار الثاني", "الخيار الثالث", "الخيار الرابع"],
-                      "correctAnswer": "الخيار الأول",
-                      "rationale": "ورد ذلك في الصفحة 6 من الكتاب.",
-                      "difficulty": "easy"
-                    },
-                    {
-                      "type": "fill_blank",
-                      "conceptTag": "تركيب الماء الكيميائي",
-                      "prompt": "يتكون الماء من ذرتي ___ وذرة أكسجين.",
-                      "correctAnswer": "هيدروجين",
-                      "difficulty": "medium"
-                    },
-                    {
-                      "type": "ordering",
-                      "conceptTag": "خطوات المنهج العلمي",
-                      "prompt": "رتب مراحل التجربة:",
-                      "options": ["الملاحظة", "الفرضية", "التجربة", "الاستنتاج"],
-                      "correctAnswer": "الملاحظة | الفرضية | التجربة | الاستنتاج",
-                      "difficulty": "hard"
-                    }
-                  ]
-                }
-            """.trimIndent()
+            schemaJson = QuestionResponseContract.schemaJson
         ),
         Indexer2SchemaSpec(
             id = "schema_interactive",
