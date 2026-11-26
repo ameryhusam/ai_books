@@ -4302,6 +4302,7 @@ class EduMiniCoreTest {
         val renamed = custom.copy(modelId = "gemini-custom-renamed", displayName = "Renamed model")
         storage.updateModelDefinition(custom.modelId, renamed)
         assertTrue(storage.loadModelCatalog().any { it.modelId == renamed.modelId && it.displayName == renamed.displayName })
+        storage.setDefaultModel(ProviderType.GEMINI, "gemini-3.5-flash")
         storage.deleteModelDefinition(renamed.modelId)
         assertFalse(storage.loadModelCatalog().any { it.modelId == renamed.modelId })
     }
