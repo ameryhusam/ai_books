@@ -246,6 +246,85 @@ class EduMiniCoreTest {
     }
 
     @Test
+    fun importerAcceptsStandalonePartLocalCanonicalIndexAndUsesExplicitLessonUri() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val importer = WorkspaceImporter(context)
+        val indexRaw = """
+            {
+              "gradeKey": "G07",
+              "subjectKey": "ENG",
+              "componentKey": "COURSE",
+              "gradeName": "الصف السابع",
+              "subjectName": "اللغة الإنجليزية",
+              "displayName": "اللغة الإنجليزية — الجزء الأول",
+              "title": "Student Book",
+              "partKey": "P01",
+              "sourceLayout": "SINGLE_PART_FILE",
+              "sourceReviewStatus": "VERIFIED",
+              "approvalStatus": "APPROVED",
+              "units": [{
+                "unitNumber": 1,
+                "unitKey": "unit_01",
+                "title": "Unit One",
+                "partKey": "P01",
+                "assignmentStatus": "assigned",
+                "assignmentSource": "INDEX_EVIDENCE",
+                "assignmentEvidence": "Standalone P01 source",
+                "lessons": [{
+                  "lessonNumber": 1,
+                  "lessonKey": "lesson_01",
+                  "title": "Lesson One",
+                  "pdfPageStart": 3,
+                  "pdfPageEnd": 7,
+                  "sliceFile": {
+                    "workspaceUri": "workspace/G07/ENG/COURSE/P01/units/unit_01/lesson_01.pdf"
+                  }
+                }]
+              }]
+            }
+        """.trimIndent()
+        val indexHash = MessageDigest.getInstance("SHA-256").digest(indexRaw.toByteArray())
+            .joinToString("") { "%02x".format(it) }
+        val manifestRaw = """
+            {
+              "manifestVersion": "edu.book_manifest.v2",
+              "gradeKey": "G07",
+              "subjectKey": "ENG",
+              "componentKey": "COURSE",
+              "partKey": "P01",
+              "sourceLayout": "SINGLE_PART_FILE",
+              "sourceReviewStatus": "VERIFIED",
+              "sourceSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+              "canonicalIndexPath": "P01/index.json",
+              "canonicalIndexSha256": "$indexHash",
+              "indexSha256": "$indexHash",
+              "partIndexes": []
+            }
+        """.trimIndent()
+        val zipBytes = createTestZip(
+            mapOf(
+                "workspace/G07/ENG/COURSE/P01/index.json" to indexRaw,
+                "workspace/G07/ENG/COURSE/P01/book_manifest.json" to manifestRaw,
+                "workspace/G07/ENG/COURSE/P01/units/unit_01/lesson_01.pdf" to "%PDF-1.4 sample"
+            )
+        )
+
+        val imported = importer.importFromStream(ByteArrayInputStream(zipBytes), zipBytes.size.toLong())
+
+        assertEquals("G07", imported.gradeKey)
+        assertEquals(1, imported.books.size)
+        assertEquals("ENG", imported.books.single().subjectKey)
+        assertEquals("COURSE", imported.books.single().componentKey)
+        assertEquals("ENG/COURSE|P01", imported.books.single().bookKey)
+        assertEquals("اللغة الإنجليزية — الجزء الأول", imported.books.single().title)
+        assertEquals("اللغة الإنجليزية", imported.books.single().subjectName)
+        assertTrue(imported.books.single().relativePath.endsWith("/P01"))
+        assertEquals(1, imported.lessons.size)
+        assertNotNull(imported.lessons.single().pdfPath)
+        assertEquals("3–7", imported.lessons.single().pageRange)
+    }
+
+    @Test
     fun importerRejectsZipSlipPath() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val importer = WorkspaceImporter(context)
