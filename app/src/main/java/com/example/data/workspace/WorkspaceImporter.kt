@@ -483,7 +483,10 @@ class WorkspaceImporter(private val context: Context) {
                     lessonsCount = parsedLessons.size,
                     coverPath = resolvedCoverPath,
                     sourcePdfPath = resolvedBookPdfPath,
-                    subjectName = firstNonBlank(indexObj.str("subjectName"), manifestObj?.str("subjectName")).ifBlank { null }
+                    subjectName = BookMetadataMapper.subjectDisplayName(
+                        subjectKey,
+                        firstNonBlank(indexObj.str("subjectName"), manifestObj?.str("subjectName")).ifBlank { null }
+                    )
                 )
             )
             lessons.addAll(parsedLessons)
