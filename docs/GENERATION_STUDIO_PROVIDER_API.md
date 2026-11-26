@@ -462,6 +462,36 @@ Rules:
 The current `dailyRequestLimit` and `dailyRequestsUsed` fields are not an authoritative local quota gate. `ProviderStorage` explicitly treats the counter as diagnostic telemetry and relies on the provider response for actual quota status. Do not promise that the app enforces a daily request cap until that behavior is deliberately implemented and tested.
 
 Quota date normalization uses each profile's configured timezone. Provider runtime status and `Retry-After` timestamps are retained separately from the prompt-template data.
+### 8.2 Central model catalog
+
+Model metadata and editable model definitions are centralized in
+`app/src/main/java/com/example/data/ai/AiModelCatalog.kt`. Runtime request
+methods and UI components must not maintain their own model-ID preset lists.
+The initial Gemini seed preserves the configured `gemini-3.5-flash` default
+and includes the documented replacement candidate; user-defined and legacy
+profile model IDs are retained in the same catalog.
+
+The catalog is stored in the non-secret SharedPreferences entry
+`edu_mini_ai_model_catalog_v1` inside `edu_mini_secure_prefs`. API profiles
+remain separately encrypted under `edu_mini_ai_profiles_v1`; model metadata
+is not secret and must not be mixed into the encrypted credential payload.
+When the catalog is first loaded, model IDs already referenced by saved
+profiles are imported as user-defined entries so existing profiles are not
+silently invalidated.
+
+Catalog operations enforce unique IDs, one default model per provider, and
+safe deletion: the current default or a model referenced by a saved profile
+cannot be deleted. Renaming a model ID updates matching primary and fallback
+references in the saved profiles. The selected profile continues to hold its
+own model and fallback configuration.
+
+**Current integration boundary:** the catalog now drives the Settings model
+list and profile model selection. Generation dispatch still resolves the
+actual request model from the selected API profile through
+`ProviderRoutingPolicy`; a separate per-generation model picker and explicit
+runtime override are still required before changing the catalog default can
+override an already-saved profile's model. Do not claim that global default
+selection changes existing profile dispatch until that integration is added.
 
 ## 9. Output persistence, editing and task-specific actions
 
