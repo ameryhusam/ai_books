@@ -1,7 +1,11 @@
 package com.example.data.ai
 
+import com.example.model.QuestionContentPayload
 import com.example.model.QuestionDifficulty
 import com.example.model.QuestionType
+import kotlinx.serialization.descriptors.PrimitiveKind
+import kotlinx.serialization.descriptors.StructureKind
+import kotlinx.serialization.descriptors.isElementOptional
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -77,46 +81,53 @@ object QuestionResponseContract {
         }.toMap()
     }
 
-    private fun buildSchema(allowedTypeIds: List<String>, allowedDifficultyIds: List<String>): JsonObject = buildJsonObject {
-        put("type", "object")
-        putJsonObject("properties") {
-            putJsonObject("questions") {
-                put("type", "array")
-                putJsonObject("items") {
-                    put("type", "object")
-                    putJsonObject("properties") {
-                        putJsonObject("type") {
-                            put("type", "string")
-                            putJsonArray("enum") {
-                                allowedTypeIds.forEach { add(JsonPrimitive(it)) }
+    private fun buildSchema(
+        allowedTypeIds: List<String>,
+        allowedDifficultyIds: List<String>
+    ): JsonObject {
+        val payloadDescriptor = QuestionContentPayload.serializer().descriptor
+        return buildJsonObject {
+            put("type", "object")
+            putJsonObject("properties") {
+                putJsonObject("questions") {
+                    put("type", "array")
+                    putJsonObject("items") {
+                        put("type", "object")
+                        putJsonObject("properties") {
+                            for (index in 0 until payloadDescriptor.elementsCount) {
+                                val fieldName = payloadDescriptor.getElementName(index)
+                                val fieldDescriptor = payloadDescriptor.getElementDescriptor(index)
+                                putJsonObject(fieldName) {
+                                    when (fieldDescriptor.kind) {
+                                        PrimitiveKind.STRING -> put("type", "string")
+                                        StructureKind.LIST -> {
+                                            put("type", "array")
+                                            putJsonObject("items") { put("type", "string") }
+                                        }
+                                        else -> error("Unsupported question payload field: $fieldName")
+                                    }
+                                    when (fieldName) {
+                                        "type" -> putJsonArray("enum") {
+                                            allowedTypeIds.forEach { add(JsonPrimitive(it)) }
+                                        }
+                                        "difficulty" -> putJsonArray("enum") {
+                                            allowedDifficultyIds.forEach { add(JsonPrimitive(it)) }
+                                        }
+                                    }
+                                }
                             }
                         }
-                        putJsonObject("conceptTag") { put("type", "string") }
-                        putJsonObject("prompt") { put("type", "string") }
-                        putJsonObject("options") {
-                            put("type", "array")
-                            putJsonObject("items") { put("type", "string") }
-                        }
-                        putJsonObject("correctAnswer") { put("type", "string") }
-                        putJsonObject("rationale") { put("type", "string") }
-                        putJsonObject("difficulty") {
-                            put("type", "string")
-                            putJsonArray("enum") {
-                                allowedDifficultyIds.forEach { add(JsonPrimitive(it)) }
+                        putJsonArray("required") {
+                            for (index in 0 until payloadDescriptor.elementsCount) {
+                                if (!payloadDescriptor.isElementOptional(index)) {
+                                    add(JsonPrimitive(payloadDescriptor.getElementName(index)))
+                                }
                             }
                         }
-                        putJsonObject("sourcePages") { put("type", "string") }
-                    }
-                    putJsonArray("required") {
-                        add(JsonPrimitive("type"))
-                        add(JsonPrimitive("prompt"))
-                        add(JsonPrimitive("options"))
-                        add(JsonPrimitive("correctAnswer"))
-                        add(JsonPrimitive("difficulty"))
                     }
                 }
             }
+            putJsonArray("required") { add(JsonPrimitive("questions")) }
         }
-        putJsonArray("required") { add(JsonPrimitive("questions")) }
     }
 }
