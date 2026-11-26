@@ -315,7 +315,7 @@ class WorkspaceImporter(private val context: Context) {
                 val raw = runCatching { file.readText(Charsets.UTF_8) }.getOrNull() ?: return@mapNotNull null
                 val hash = MessageDigest.getInstance("SHA-256").digest(raw.toByteArray(Charsets.UTF_8))
                     .joinToString("") { "%02x".format(it) }
-                relative.replace('\\\\', '/').trimStart('/').lowercase(Locale.ROOT) to hash
+                relative.replace('\\', '/').trimStart('/').lowercase(Locale.ROOT) to hash
             }.toMap()
 
         val books = mutableListOf<BookRef>()
