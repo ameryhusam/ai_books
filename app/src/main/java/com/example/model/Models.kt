@@ -1,6 +1,7 @@
 package com.example.model
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerialInfo
 import kotlinx.serialization.json.Json
 
 @Serializable
@@ -661,13 +662,18 @@ enum class QuestionDifficulty(val id: String, val labelAr: String) {
     }
 }
 
+@SerialInfo
+@Target(AnnotationTarget.PROPERTY)
+@Retention(AnnotationRetention.RUNTIME)
+annotation class QuestionRequiredField
+
 @Serializable
 data class QuestionContentPayload(
-    val type: String,
-    val prompt: String,
-    val options: List<String>,
-    val correctAnswer: String,
-    val difficulty: String,
+    @QuestionRequiredField val type: String,
+    @QuestionRequiredField val prompt: String,
+    @QuestionRequiredField val options: List<String>,
+    @QuestionRequiredField val correctAnswer: String,
+    @QuestionRequiredField val difficulty: String,
     val conceptTag: String = "",
     val rationale: String = "",
     val sourcePages: String = ""
