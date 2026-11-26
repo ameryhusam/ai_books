@@ -594,6 +594,49 @@ class EduMiniCoreTest {
     }
 
     @Test
+    fun questionPromptIncludesSelectedTypesDistributionLanguageDifficultyAndTemplateSchema() {
+        val service = AiGenerationService()
+        val schema = """{"type":"OBJECT","properties":{"questions":{"type":"ARRAY"}}}"""
+        val prompt = service.buildPrompt(
+            lesson = sampleLesson(),
+            task = TaskType.QUESTIONS,
+            source = "مصدر الدرس",
+            extra = "",
+            questionCount = 5,
+            questionTypeIds = listOf("mcq", "true_false", "short_answer"),
+            questionLanguage = "en",
+            difficultyHint = "hard",
+            responseSchemaJson = schema,
+            responseFormat = "json"
+        )
+
+        assertTrue(prompt.contains("العدد الإجمالي المطلوب من الأسئلة: 5"))
+        assertTrue(prompt.contains("mcq=2"))
+        assertTrue(prompt.contains("true_false=2"))
+        assertTrue(prompt.contains("short_answer=1"))
+        assertTrue(prompt.contains("English"))
+        assertTrue(prompt.contains("hard"))
+        assertTrue(prompt.contains(schema))
+    }
+
+    @Test
+    fun questionPromptRejectsMoreSelectedTypesThanRequestedQuestions() {
+        val service = AiGenerationService()
+        val failed = runCatching {
+            service.buildPrompt(
+                lesson = sampleLesson(),
+                task = TaskType.QUESTIONS,
+                source = "مصدر الدرس",
+                extra = "",
+                questionCount = 2,
+                questionTypeIds = listOf("mcq", "true_false", "short_answer")
+            )
+        }.isFailure
+
+        assertTrue(failed)
+    }
+
+    @Test
     fun pdfBookSplitterAutoSplitsAndCreatesWorkspaceWithLessonPdfs() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val splitter = PdfBookSplitter(context)
