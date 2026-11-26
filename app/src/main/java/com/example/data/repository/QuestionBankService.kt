@@ -213,6 +213,9 @@ class QuestionBankService(
                 sourceIndexSha256 = item.sourceIndexSha256.ifBlank { resolvedIndexSha }
             )
         }
+        if (requireAllNew && newItems.isEmpty()) {
+            return emptyList()
+        }
         if (requireAllNew && newItems.size != parsedQuestions.size) {
             val duplicateCount = parsedQuestions.size - newItems.size
             throw IllegalStateException(
