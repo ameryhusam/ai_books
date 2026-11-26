@@ -25,6 +25,12 @@ internal object ProviderRoutingPolicy {
         )
         .toList()
 
+    fun exactModelCandidate(requestedModelId: String): List<String> {
+        val exact = requestedModelId.trim()
+        require(exact.isNotBlank()) { "An explicit catalogue model ID is required." }
+        return listOf(exact)
+    }
+
     fun modelCandidates(profile: ProviderConfig): List<String> {
         val primary = profile.model.trim()
         if (primary.isBlank()) return emptyList()
