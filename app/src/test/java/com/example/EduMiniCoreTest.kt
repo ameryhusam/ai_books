@@ -4026,6 +4026,18 @@ class RobolectricAndroidKeyStoreSpi : java.security.KeyStoreSpi() {
         assertEquals("الرياضيات", mapper.subjectDisplayName("MATH"))
         assertEquals("الجغرافيا", mapper.componentDisplayName("GEO"))
         assertEquals("كتاب الطالب (Course)", mapper.componentDisplayName("COURSE"))
+        assertEquals("العلوم والحياة", mapper.subjectDisplayName("SCI", "العلوم والحياة"))
+        assertEquals("الصف التجريبي", mapper.gradeDisplayName("G07", "الصف التجريبي"))
+        val declaredDisplay = mapper.mapBookMetadata(
+            gradeKey = "G07",
+            subjectKey = "SCI",
+            componentKey = null,
+            declaredGradeName = "الصف التجريبي",
+            declaredSubjectName = "العلوم والحياة"
+        )
+        assertEquals("العلوم والحياة", declaredDisplay.subjectName)
+        assertEquals("الصف التجريبي", declaredDisplay.gradeName)
+        assertTrue(declaredDisplay.isKnown)
         assertNull(mapper.gradeDisplayName("G99"))
         assertNull(mapper.subjectDisplayName("PHY"))
         assertNull(mapper.componentDisplayName("STUDENT"))
