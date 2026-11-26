@@ -1,6 +1,7 @@
 package com.example.model
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 
 @Serializable
 enum class TaskType(val id: String, val labelAr: String) {
@@ -247,6 +248,35 @@ data class WorkspaceSummary(
     val importedAt: Long
 )
 
+@Serializable
+data class LessonGenerationMetadataDto(
+    val templateId: String = "",
+    val templateVersion: Int = 1,
+    val promptUsed: String = "",
+    val responseSchemaJson: String = "",
+    val responseSchemaHash: String = "",
+    val requestFingerprint: String = "",
+    val contentHash: String = "",
+    val sourcePdfHash: String = "",
+    val sourceIndexSha256: String = "",
+    val provider: String = "",
+    val model: String = "",
+    val taskType: String = "",
+    val createdAt: String = ""
+) {
+    fun toJsonString(): String = Json.encodeToString(this)
+
+    companion object {
+        fun fromJsonString(json: String): LessonGenerationMetadataDto {
+            return try {
+                Json.decodeFromString<LessonGenerationMetadataDto>(json)
+            } catch (e: Exception) {
+                LessonGenerationMetadataDto()
+            }
+        }
+    }
+}
+
 data class GeneratedResult(
     val text: String,
     val providerLabel: String,
@@ -311,6 +341,52 @@ data class LessonTextRecord(
     val version: Int = 1,
     val updatedAt: String = ""
 )
+
+fun GeneratedResult.toMetadataDto(taskType: String = ""): LessonGenerationMetadataDto =
+    LessonGenerationMetadataDto(
+        templateId = templateId,
+        templateVersion = templateVersion,
+        promptUsed = promptUsed,
+        responseSchemaJson = responseSchemaJson,
+        responseSchemaHash = responseSchemaHash,
+        requestFingerprint = requestFingerprint,
+        contentHash = contentHash,
+        sourcePdfHash = sourcePdfHash,
+        provider = providerLabel,
+        model = model,
+        taskType = taskType,
+        createdAt = createdAt
+    )
+
+fun DraftRecord.toMetadataDto(): LessonGenerationMetadataDto =
+    LessonGenerationMetadataDto(
+        templateId = templateId,
+        templateVersion = templateVersion,
+        promptUsed = promptUsed,
+        responseSchemaJson = responseSchemaJson,
+        responseSchemaHash = responseSchemaHash,
+        requestFingerprint = requestFingerprint,
+        contentHash = contentHash,
+        sourcePdfHash = sourcePdfHash,
+        sourceIndexSha256 = sourceIndexSha256,
+        provider = provider,
+        model = model,
+        taskType = task.id,
+        createdAt = createdAt
+    )
+
+fun LessonTextRecord.toMetadataDto(): LessonGenerationMetadataDto =
+    LessonGenerationMetadataDto(
+        templateId = templateId,
+        templateVersion = version,
+        promptUsed = promptUsed,
+        responseSchemaJson = responseSchemaJson,
+        contentHash = contentHash,
+        sourcePdfHash = sourcePdfHash,
+        sourceIndexSha256 = sourceIndexSha256,
+        taskType = "lesson_text",
+        createdAt = updatedAt
+    )
 
 data class GenerationRunRecord(
     val id: String,
