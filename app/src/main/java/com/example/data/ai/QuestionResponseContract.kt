@@ -44,7 +44,8 @@ object QuestionResponseContract {
     val schemaJson: String by lazy { buildSchema(QuestionType.entries.map { it.id }).toString() }
 
     fun schemaFor(selectedTypeIds: List<String>, difficultyId: String? = null): String {
-        val allowedDifficulties = difficultyId?.let { requested ->
+        val requestedDifficulty = difficultyId?.takeIf { it.isNotBlank() }
+        val allowedDifficulties = requestedDifficulty?.let { requested ->
             QuestionDifficulty.entries.filter { it.id == requested }.map { it.id }
         } ?: QuestionDifficulty.entries.map { it.id }
         return buildSchema(
