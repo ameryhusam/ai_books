@@ -447,6 +447,43 @@ class FirestoreSyncRepository(
             .set(payload).await()
     }
 
+    suspend fun renameAiModelDefinition(originalModelId: String, model: AiModelDefinition) {
+        requireUserId()
+        val firestore = requireFirestore()
+        val collection = firestore.collection("ai_model_catalog")
+        val oldRef = collection.document(originalModelId)
+        val newModelId = model.modelId.trim()
+        require(newModelId.matches(Regex("^[A-Za-z0-9._:-]{1,120}$"))) { "معرّف النموذج الجديد غير صالح." }
+        if (newModelId == originalModelId) {
+            upsertAiModelDefinition(model)
+            return
+        }
+        val oldSnapshot = oldRef.get().await()
+        require(oldSnapshot.exists()) { "النموذج الأصلي غير موجود في الكتالوج المركزي." }
+        require(!collection.document(newModelId).get().await().exists()) { "معرّف النموذج الجديد مستخدم بالفعل." }
+        val normalized = model.copy(modelId = newModelId, displayName = model.displayName.trim())
+        require(normalized.displayName.isNotBlank() && normalized.displayName.length <= 120) { "اسم النموذج مطلوب وبحد أقصى 120 حرفاً." }
+        val payload = mutableMapOf<String, Any>(
+            "modelId" to normalized.modelId,
+            "displayName" to normalized.displayName,
+            "provider" to normalized.provider.id,
+            "lifecycleStatus" to normalized.lifecycleStatus,
+            "isDefault" to normalized.isDefault,
+            "isEnabled" to normalized.isEnabled,
+            "supportsGenerateContent" to normalized.supportsGenerateContent,
+            "source" to normalized.source,
+            "updatedAt" to FieldValue.serverTimestamp()
+        )
+        normalized.replacementModelId?.takeIf { it.isNotBlank() }?.let { payload["replacementModelId"] = it }
+        val batch = firestore.batch()
+        batch.set(collection.document(newModelId), payload)
+        if (oldSnapshot.getBoolean("isDefault") == true) {
+            batch.update(oldRef, "isDefault", false)
+        }
+        batch.commit().await()
+        oldRef.delete().await()
+    }
+
     suspend fun deleteAiModelDefinition(modelId: String) {
         requireUserId()
         val ref = requireFirestore().collection("ai_model_catalog").document(modelId)
