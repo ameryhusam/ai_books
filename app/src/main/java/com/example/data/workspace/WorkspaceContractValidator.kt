@@ -265,8 +265,38 @@ object WorkspaceContractValidator {
     ): List<String> {
         val candidates = linkedSetOf<String>()
         val cleanBookRel = bookRelativePath.trim('/')
+        val declaredWorkspaceUri = (lesson["sliceFile"] as? JsonObject)?.string("workspaceUri")
+            ?.trim()?.replace('\\', '/').orEmpty()
+        if (declaredWorkspaceUri.isNotBlank()) {
+            val normalizedUri = declaredWorkspaceUri.removePrefix("./").trimStart('/')
+            // workspaceUri is the producer's authoritative path. If it is unsafe or
+            // missing, do not silently bind a different PDF by reconstructing a path.
+            if (normalizedUri.split('/').any { it == ".." || it.isBlank() } ||
+                normalizedUri.startsWith("/") ||
+                Regex("^[A-Za-z]:").containsMatchIn(normalizedUri)
+            ) return emptyList()
+
+            candidates.add(normalizedUri)
+            if (normalizedUri.startsWith("workspace/", ignoreCase = true)) {
+                val withoutWorkspace = normalizedUri.substringAfter('/')
+                candidates.add(withoutWorkspace)
+                if (expectedGrade.isNotBlank() && withoutWorkspace.startsWith("$expectedGrade/", ignoreCase = true)) {
+                    val withoutGrade = withoutWorkspace.substringAfter('/')
+                    candidates.add(withoutGrade)
+                    if (expectedSubject.isNotBlank() && withoutGrade.startsWith("$expectedSubject/", ignoreCase = true)) {
+                        candidates.add(withoutGrade.substringAfter('/'))
+                    }
+                }
+            }
+            if (cleanBookRel.isNotBlank() && normalizedUri.startsWith("$cleanBookRel/", ignoreCase = true)) {
+                candidates.add(normalizedUri.removePrefix("$cleanBookRel/"))
+            }
+            return candidates.toList()
+        }
+
+        // Legacy workspaces without workspaceUri may use explicit older path fields
+        // and, as a final compatibility fallback, the historical folder convention.
         val explicitPaths = listOfNotNull(
-            (lesson["sliceFile"] as? JsonObject)?.string("workspaceUri"),
             (lesson["sliceFile"] as? JsonObject)?.string("relativePath"),
             lesson.string("pdfPath"),
             lesson.string("path"),
