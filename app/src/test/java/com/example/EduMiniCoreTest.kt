@@ -31,6 +31,7 @@ import com.example.data.repository.LearningProgressAnalytics
 import com.example.data.repository.LessonSequenceGate
 import com.example.data.repository.MilestoneBadgeEngine
 import com.example.data.repository.QuestionBankEngine
+import com.example.data.repository.QuestionBankService
 import com.example.data.security.ProviderStorage
 import com.example.data.workspace.DirectWorkspaceBinder
 import com.example.data.workspace.PdfBookSplitter
@@ -672,6 +673,49 @@ class EduMiniCoreTest {
         )
         assertEquals(5, parsed.size)
         assertEquals(mapOf("mcq" to 2, "true_false" to 2, "short_answer" to 1), parsed.groupingBy { it.type.id }.eachCount())
+    }
+
+    @Test
+    fun canonicalQuestionPayloadMapsToRoomAndRejectsDuplicateBatchWithoutPartialWrites() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val db = Room.inMemoryDatabaseBuilder(context, EduMiniDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            val lesson = sampleLesson()
+            val raw = """{"questions":[{"type":"mcq","conceptTag":"الجمع","prompt":"ما ناتج 2 + 2؟","options":["3","4"],"correctAnswer":"4","rationale":"نجمع العددين.","difficulty":"easy","sourcePages":"5"}]}"""
+            val parsed = QuestionBankEngine.parseGeneratedQuestions(
+                raw, "ws-contract", lesson, 1, listOf("mcq")
+            )
+            val service = QuestionBankService(db.eduMiniDao())
+            val saved = service.saveQuestionsWithConceptTags(
+                workspaceId = "ws-contract",
+                lesson = lesson,
+                parsedQuestions = parsed,
+                requireAllNew = true
+            )
+            assertEquals(1, saved.size)
+            val stored = db.eduMiniDao().observeQuestionsForWorkspace("ws-contract").first().single()
+            assertEquals("mcq", stored.type)
+            assertEquals("ما ناتج 2 + 2؟", stored.prompt)
+            assertEquals("4", stored.correctAnswer)
+            assertEquals("easy", stored.difficulty)
+            assertEquals(listOf("3", "4"), Json.decodeFromString<List<String>>(stored.optionsJson))
+            assertEquals("الجمع", stored.conceptTag)
+
+            val duplicateFailure = runCatching {
+                service.saveQuestionsWithConceptTags(
+                    workspaceId = "ws-contract",
+                    lesson = lesson,
+                    parsedQuestions = parsed,
+                    requireAllNew = true
+                )
+            }.isFailure
+            assertTrue(duplicateFailure)
+            assertEquals(1, db.eduMiniDao().observeQuestionsForWorkspace("ws-contract").first().size)
+        } finally {
+            db.close()
+        }
     }
 
     @Test
