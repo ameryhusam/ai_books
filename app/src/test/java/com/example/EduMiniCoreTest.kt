@@ -116,6 +116,7 @@ class EduMiniCoreTest {
               "sourceLayout": "MERGED_PARTS_FILE",
               "sourceReviewStatus": "VERIFIED",
               "approvalStatus": "APPROVED",
+              "sourceMetadata": {"sourceRequiresReview": false, "partEvidence": "PDF discovery found both part sections in the source."},
               "units": [{
                 "unitKey": "unit_01",
                 "unitNumber": 1,
@@ -257,6 +258,7 @@ class EduMiniCoreTest {
               "sourceLayout": "SINGLE_PART_FILE",
               "sourceReviewStatus": "VERIFIED",
               "approvalStatus": "APPROVED",
+              "sourceMetadata": {"sourceRequiresReview": false, "partEvidence": "Reviewer confirmed standalone P01."},
               "units": [{
                 "unitNumber": 1,
                 "title": "الوحدة الأولى",
@@ -370,6 +372,7 @@ class EduMiniCoreTest {
               "sourceLayout": "SINGLE_PART_FILE",
               "sourceReviewStatus": "VERIFIED",
               "approvalStatus": "APPROVED",
+              "sourceMetadata": {"sourceRequiresReview": false, "partEvidence": "Reviewer confirmed the PDF is a standalone P01 source."},
               "units": [{
                 "unitNumber": 1,
                 "unitKey": "unit_01",
