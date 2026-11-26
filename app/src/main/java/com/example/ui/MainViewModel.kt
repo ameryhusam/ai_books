@@ -1305,6 +1305,29 @@ class MainViewModel(
             """.trimIndent()
         }
 
+        val selectedModel = snapshot.aiModelCatalog.firstOrNull {
+            it.provider == snapshot.selectedProvider && it.isDefault && it.isEnabled &&
+                it.supportsGenerateContent && it.lifecycleStatus != AiModelDefinition.STATUS_DEPRECATED
+        } ?: snapshot.aiModelCatalog.firstOrNull {
+            it.provider == snapshot.selectedProvider && it.isEnabled &&
+                it.supportsGenerateContent && it.lifecycleStatus != AiModelDefinition.STATUS_DEPRECATED
+        }
+        val selectedProfile = snapshot.providers.firstOrNull {
+            it.id == snapshot.selectedGenerationProfileId && it.provider == snapshot.selectedProvider &&
+                it.enabled && it.apiKey.isNotBlank()
+        } ?: snapshot.providers.firstOrNull {
+            it.provider == snapshot.selectedProvider && it.enabled && it.apiKey.isNotBlank()
+        }
+        if (selectedModel == null || selectedProfile == null) {
+            _uiState.update {
+                it.copy(alert = AlertMessage(
+                    "تعذر بدء التقوية",
+                    "تأكد من وجود نموذج مفعّل أضافه مدير النظام وملف اتصال API صالح."
+                ))
+            }
+            return
+        }
+
         generationJob?.cancel()
         generationJob = viewModelScope.launch {
             _uiState.update { it.copy(isBusy = true, alert = null) }
@@ -1317,6 +1340,8 @@ class MainViewModel(
                     extra = taskInstructions,
                     providers = snapshot.providers,
                     selectedProvider = snapshot.selectedProvider,
+                    selectedModelId = selectedModel.modelId,
+                    selectedProfileId = selectedProfile.id,
                     questionCount = 5,
                     attachPdfPages = true,
                     questionStyleHint = if (task == TaskType.QUESTIONS) "أسئلة تشخيصية تكيفية ومشتتات قائمة على الخطأ" else "",
