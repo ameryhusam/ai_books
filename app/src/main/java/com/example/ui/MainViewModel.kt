@@ -6,7 +6,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.firebase.AnalyticsTracker
 import com.example.data.ai.AiModelDefinition
-import com.example.data.ai.AiModelCatalogDefaults
 import com.example.data.firebase.FirestoreSyncRepository
 import com.example.data.repository.ConceptMasteryEngine
 import com.example.data.repository.EduMiniRepository
