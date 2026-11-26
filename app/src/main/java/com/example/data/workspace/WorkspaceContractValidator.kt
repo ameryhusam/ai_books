@@ -57,6 +57,15 @@ object WorkspaceContractValidator {
         val indexLayout = index.string("sourceLayout")
         val sourceLayout = firstNonBlank(manifestLayout, indexLayout)
         val sourceReviewStatus = firstNonBlank(manifest?.string("sourceReviewStatus"), index.string("sourceReviewStatus"))
+        if (strictProvenance) {
+            val sourceMetadata = index["sourceMetadata"] as? JsonObject
+            if (sourceMetadata?.get("sourceRequiresReview")?.jsonPrimitive?.contentOrNull != "false") {
+                errors.add("[index.json → sourceMetadata.sourceRequiresReview] يجب أن يكون false بعد اعتماد مراجعة المصدر.")
+            }
+            if (sourceMetadata?.string("partEvidence").orEmpty().isBlank()) {
+                errors.add("[index.json → sourceMetadata.partEvidence] دليل تحديد نمط المصدر مطلوب في manifest v2.")
+            }
+        }
         val canonical = manifestVersion.startsWith("edu.book_manifest.") || sourceLayout.isNotBlank()
 
         validateIdentityField(manifest, "gradeKey", expectedGrade, "book_manifest.json", errors)
