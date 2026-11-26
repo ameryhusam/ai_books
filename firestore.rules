@@ -27,6 +27,37 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
+    function isSystemAdmin() {
+      return isSignedIn() &&
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    function isValidAiModel(data, modelId) {
+      return data.keys().hasAll([
+               'modelId', 'displayName', 'provider', 'lifecycleStatus',
+               'isDefault', 'isEnabled', 'supportsGenerateContent', 'source', 'updatedAt'
+             ]) &&
+             data.keys().hasOnly([
+               'modelId', 'displayName', 'provider', 'lifecycleStatus',
+               'replacementModelId', 'isDefault', 'isEnabled',
+               'supportsGenerateContent', 'source', 'updatedAt'
+             ]) &&
+             data.modelId is string && data.modelId == modelId &&
+             data.modelId.size() >= 1 && data.modelId.size() <= 120 &&
+             !data.modelId.matches('.*[/].*') &&
+             data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 120 &&
+             data.provider in ['gemini', 'openai-compatible'] &&
+             data.lifecycleStatus in ['AVAILABLE', 'PREVIEW', 'ROUTED', 'DEPRECATED'] &&
+             data.isDefault is bool &&
+             data.isEnabled is bool &&
+             data.supportsGenerateContent is bool &&
+             data.source is string && data.source.size() >= 1 && data.source.size() <= 40 &&
+             data.updatedAt is timestamp &&
+             (!('replacementModelId' in data) ||
+               (data.replacementModelId is string && data.replacementModelId.size() <= 120));
+    }
+
     // 3. Entity Validation Helpers (Blueprint Parity)
     function isValidCloudDraft(data) {
       return data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128 &&
@@ -87,6 +118,17 @@ service cloud.firestore {
     }
 
     // 4. Collection Match Blocks
+    match /ai_model_catalog/{modelId} {
+      // All authenticated app users can read the centrally managed catalogue.
+      allow get, list: if isSignedIn();
+      // Only an account pre-provisioned with role=admin can manage model entries.
+      allow create: if isSystemAdmin() && isValidAiModel(incoming(), modelId);
+      allow update: if isSystemAdmin() &&
+                       isValidAiModel(incoming(), modelId) &&
+                       incoming().modelId == existing().modelId;
+      allow delete: if isSystemAdmin() && existing().isDefault != true;
+    }
+
     match /users/{userId} {
       allow get: if isOwner(userId) && isValidId(userId);
       allow list: if false;
