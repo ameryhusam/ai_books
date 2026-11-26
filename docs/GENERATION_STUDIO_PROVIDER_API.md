@@ -470,10 +470,13 @@ methods must not embed model IDs or maintain independent model preset lists.
 
 The authoritative catalogue is the global Firestore collection
 `ai_model_catalog/{modelId}`. Every authenticated app user may read the
-catalogue. Only a user whose pre-provisioned `users/{uid}.role` is
-`admin` may create, edit, rename, enable/disable, set defaults, or delete
-entries. The Firestore rules are the security boundary; hiding controls in
-Compose or checking the local UI role is not sufficient authorization.
+catalogue. Only a user with both the pre-provisioned `users/{uid}.role = admin` role and
+an explicit `system_admins/{uid}` grant containing `enabled: true` and
+`permissions: ["manage_ai_models"]` may create, edit, rename, enable/disable,
+set defaults, or delete entries. Provision this grant through Firebase Console
+or a trusted Admin SDK process; client rules deny all writes to `system_admins`.
+The Firestore rules are the security boundary; hiding controls in Compose or
+checking the local UI role is not sufficient authorization.
 
 The local SharedPreferences key `edu_mini_ai_model_catalog_v1` is retained
 only as a legacy/offline seed/cache. It is not authoritative for authenticated
