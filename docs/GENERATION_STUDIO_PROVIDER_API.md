@@ -81,130 +81,158 @@ A request must have a selected lesson and at least one usable source: non-empty 
 
 The selected provider is captured for the request. Changing the default provider affects subsequent requests, not a request already in progress.
 
-## 3. Lesson context and source selection
+## 3. Lesson context, post-segmentation extraction and source selection
 
-### 3.1 Lesson context passed to the prompt
+### 3.1 Pipeline boundary: extraction happens after lesson segmentation
 
-The assembled request includes the available lesson identity and context:
+The source-processing lifecycle has distinct stages:
 
-- grade;
-- book title/key;
-- unit title/key;
-- lesson title/key;
-- printed/source page range when available;
-- task type;
-- requested question count where relevant;
-- question style and difficulty hints where relevant;
-- the source representation explicitly selected by the user;
-- template instructions and additional instructions.
+1. **Book segmentation:** identify unit/lesson boundaries and create a separate PDF file for each lesson.
+2. **Lesson source preparation:** process each lesson-level PDF to produce an optional text sidecar.
+3. **Generation Studio:** select the lesson and choose which available representation to send with the generation prompt.
+4. **Provider transport:** encode the selected representation in the format supported by the chosen provider.
 
-The workspace identifiers are context, not values to be guessed. A missing lesson identity or source reference must be surfaced as a validation problem rather than replaced with fabricated metadata.
+Text extraction is therefore a **post-segmentation preparation stage**, not part of book segmentation and not an implicit side effect of every Generation Studio request.
 
-### 3.2 Separate the user's source choice from provider transport
+The intended workspace relationship is:
 
-There are two different decisions. They must not be conflated:
+- `lesson_XX.pdf`: the segmented source PDF for one lesson;
+- `lesson_XX.txt`: optional extracted text for that same lesson;
+- `lesson_XX.extraction.json`: optional extraction metadata/provenance;
+- `index.json`: canonical lesson identity and references such as `pdfPath` and `sourceTextPath`.
 
-1. **Source representation — user decision:** choose either the lesson PDF or extracted lesson text for this generation request.
-2. **Provider transport — application responsibility:** convert the selected source into the input representation supported by the selected provider/profile.
+The PDF is the primary source artifact. The TXT file is a derived, optional representation. It must never replace the PDF or become the authority for lesson identity/page boundaries.
 
-The user-facing source choices are:
+### 3.2 Lesson extraction methods
 
-| User selection | Meaning |
-|---|---|
-| `PDF` | Use the lesson PDF as the source. The application may adapt its transport representation to the selected provider, without changing the user's source choice. |
-| `EXTRACTED_TEXT` | Use text extracted from the lesson PDF. Send the extracted text as text content with the prompt; do not attach the PDF unless the user explicitly changes the source selection. |
+The extraction process operates on the already segmented lesson PDF, not the original whole-book PDF.
 
-Do not automatically send both the PDF and its full extracted text. That duplicates source content, increases request size/cost, and can create conflicting or repeated context. A future explicit `PDF + text` diagnostic mode may be considered, but it is not the default and must be user-selected.
+The supported design should allow these methods:
 
-The selected source representation is a **request-level choice**, not an intrinsic property of a reusable prompt template. The template may declare supported or preferred source modes, but it must not silently override the user's choice. The current Room field `source_attachment_mode` is retained for compatibility with the existing implementation; the target design should move the effective source selection into the generation request and its provenance, then deprecate the template-level field through a deliberate migration.
+1. **Embedded PDF text extraction:** use the PDF's existing text layer when it is present and sufficiently complete. This is preferable to OCR for born-digital PDFs because it avoids recognition errors.
+2. **OCR extraction:** for scanned/image-only pages or pages whose embedded text is missing/unusable, run OCR with both Arabic and English language support. Preserve reading order, page boundaries, Arabic shaping/direction, and mixed Arabic/English passages. Record OCR engine/language configuration and confidence or quality indicators.
+3. **AI-assisted transcription:** optionally send the lesson-level PDF to a vision-capable AI model with a dedicated *verbatim transcription* prompt and request the lesson text, preserving headings, paragraphs, lists, tables and page markers. This is an extraction operation, not the later educational generation task (summary, explanation, questions, etc.).
 
-### 3.3 Provider transport adapters
+**Recommended extraction policy:** inspect the embedded text layer first; use OCR for scanned or poor-text pages; offer AI-assisted transcription as an explicit alternative or recovery path when OCR quality is inadequate or page layout is complex. Do not silently replace low-confidence OCR with AI output. AI transcription can omit, normalize or hallucinate text, so it must be checked against the PDF and marked as AI-derived.
 
-Provider differences are transport details, not different source-selection semantics.
+Do not combine OCR and AI outputs by blindly concatenating them. If both are run for quality comparison, retain separate candidates and require a deterministic selection/review step to avoid duplicated or conflicting paragraphs.
+
+The extraction stage should produce one chosen text artifact per lesson, with a clear method and provenance. It should not summarize, simplify, generate questions, or rewrite the educational content. Those are separate Generation Studio tasks.
+
+### 3.3 Verified current implementation and integration gaps
+
+The inspected code confirms some foundations, but not the complete extraction workflow:
+
+**Workspace segmentation**
+- `PdfBookSplitter` creates separate lesson-level PDF files from page ranges.
+- It writes a `sourceTextPath` reference such as `lesson_XX.txt` into the workspace index.
+- It also accounts for a possible `.extraction.json` sidecar when reporting existing split files.
+- Writing the expected `sourceTextPath` into the index does not itself create the extracted TXT file. A missing sidecar must remain an absent optional artifact, not be treated as an extraction success.
+
+**Current text extraction in Indexer2**
+- `server/index.ts` contains `extractPdfText()`, which reads the embedded PDF text layer page by page using PDF.js.
+- It adds physical PDF page markers and stops at a default maximum of 80,000 characters.
+- `readLessonSources()` calls it for a resolved lesson PDF and also reads/Base64-encodes that PDF for Indexer2's own server-side AI workflow.
+- This function does not perform OCR for image-only pages, does not itself create a durable `.txt` sidecar, and does not expose a complete per-page extraction-quality/truncation contract.
+- It does not apply the lesson's `pdfPageStart`/`pdfPageEnd` values itself. In the intended post-segmentation workflow, it should receive the already sliced lesson PDF; it must not silently be given a whole-book PDF and assumed to know lesson boundaries.
+
+**Current Android workspace reading**
+- `LessonRef` has an optional `sourceTextPath`.
+- `StudentStudyDialog` reads the referenced text file when it exists and can fall back to sibling `.txt`/`.md` files for displaying lesson content.
+- This proves that the workspace can carry and display an extracted text sidecar. It does not prove that Generation Studio consumes that file.
+
+**Current Generation Studio behavior**
+- The Studio currently exposes an editable `sourceText` field and a PDF-attachment checkbox.
+- The PDF checkbox defaults to enabled.
+- The generation path uses the text entered/provided in `sourceText`; it does not currently load `lesson.sourceTextPath` as the default generation text source.
+- If source text is present while PDF attachment remains enabled, the current request can send both the text and the PDF/page images.
+- If source text is empty but PDF attachment is enabled, the request can still proceed using the PDF.
+- Therefore the current UI is not yet the required mutually exclusive `PDF` / `EXTRACTED_TEXT` source selector, and it does not automatically fall back from a missing TXT sidecar to a selected PDF mode. This is a concrete implementation gap, not merely a documentation issue.
+
+### 3.4 User-facing source selection and default behavior
+
+The user-facing source choice must be independent of provider transport and prompt-template response schemas.
+
+Use exactly these conceptual choices:
+
+| Choice | Definition | Availability |
+|---|---|---|
+| `PDF` | Send the segmented lesson PDF as the source input alongside the prompt. | Always the default when a valid lesson PDF exists. |
+| `EXTRACTED_TEXT` | Send the extracted lesson text file (`sourceTextPath`) as text alongside the prompt. | Offer only when the referenced text file exists, is readable and passes basic completeness checks. |
+
+Required behavior:
+
+- **PDF is the default source mode**, including when a TXT sidecar exists, unless the user explicitly selects `EXTRACTED_TEXT`.
+- If the TXT file is absent, empty, unreadable or invalid, disable `EXTRACTED_TEXT` and use PDF. Do not show an empty text option or submit a blank source.
+- If the TXT file exists, show the user that it is the extracted lesson text and allow the user to choose it.
+- Choosing `EXTRACTED_TEXT` sends the text file content and does not attach PDF/image pages in the same request.
+- Choosing `PDF` sends the lesson PDF and does not also send the TXT content by default.
+- Keep manually entered supplementary instructions separate from the source artifact. If manual source editing is retained, label it as an explicit override/edited source, not as if it were the canonical extracted TXT file.
+- If neither a valid PDF nor a valid extracted text file exists, block generation and explain what is missing.
+- Record the selected mode and the actual source artifact/hash in the draft provenance and request fingerprint.
+
+The current Room field `source_attachment_mode` is stored on the template, but the user's source choice is request-specific. Do not let a prompt template silently force PDF versus text. Treat the existing field as a legacy provider-attachment setting during migration; introduce a request-level source mode and deprecate the template-level source choice deliberately rather than overloading one field with two meanings.
+
+### 3.5 Provider transport for the selected source
+
+Provider differences are transport details, not differences in the meaning of the user's choice.
 
 | User-selected source | Gemini transport | OpenAI-compatible transport |
 |---|---|---|
-| PDF | Prefer the original PDF as an `application/pdf` input part when the selected model/profile supports it. A rendered-page image path may be used when native PDF input is unavailable or not selected by policy. | Render the relevant PDF pages as image input parts for vision-capable endpoints. Do not claim universal native-PDF support across OpenAI-compatible endpoints. |
-| Extracted text | Send the extracted lesson text as a text part with the prompt. | Send the extracted lesson text as text content with the prompt. |
+| `PDF` | Prefer the original segmented lesson PDF as an `application/pdf` input part when supported by the selected model/profile. | Render pages from the segmented lesson PDF as image input parts for vision-capable endpoints. Do not assume universal native-PDF support across compatible endpoints. |
+| `EXTRACTED_TEXT` | Send the TXT content as text with the prompt. | Send the TXT content as text with the prompt. |
 
-The current Android implementation is narrower than this target user experience:
+Current Android provider transport:
+- Gemini supports the original PDF as `application/pdf` inline data in `pdf_native` mode, and rendered JPEG page images in `rendered_pages` mode.
+- OpenAI-compatible requests currently use rendered JPEG page images when PDF attachment is enabled.
+- The OpenAI-compatible renderer currently samples up to four pages distributed across the referenced PDF. This is not equivalent to sending every page and must not be described as full-document delivery.
+- The current PDF attachment limit for the native Gemini path is 18 MiB.
+- When the lesson reference points to a correctly segmented lesson PDF, the entire lesson PDF is the intended input. If it points to a whole-book PDF, the current native Gemini path can attach the whole book; this must be prevented by workspace validation or corrected before dispatch.
 
-- Gemini can receive the original PDF as an `application/pdf` inline-data part when `pdf_native` is selected.
-- Gemini can also receive rendered JPEG page images when `rendered_pages` is selected.
-- OpenAI-compatible requests currently receive rendered JPEG page images with the prompt when a PDF is attached.
-- With attachment mode `none`, no PDF/image input is sent; usable source text is required.
-- The current UI/template configuration does not yet provide a complete, explicit user-facing choice between `PDF` and `EXTRACTED_TEXT` as two equivalent source modes.
+**Terminology:** rendered JPEG pages are images sent *to the model as source input*. They are not images returned by the model. Generated image output is a separate response modality and task contract.
 
-**Important terminology:** rendered JPEG pages are images sent *to the model as source input*. They are not images returned by the model. Generated image output is a separate response modality and task contract. Documentation and UI labels must distinguish `source images` from `generated images`.
+Printed page numbers and physical PDF page numbers are different coordinate systems. Since this stage runs after segmentation, the lesson PDF itself should be the bounded source. Retain the original book page range only as metadata; do not re-slice the lesson PDF using printed page numbers.
 
-For OpenAI-compatible profiles, the current renderer selects up to four pages distributed across the referenced PDF. This is a transport sampling behavior, not a reliable lesson-range extraction algorithm. It must not be presented as equivalent to sending the complete lesson PDF or all lesson text.
+### 3.6 Extraction artifact contract
 
-For native Gemini PDF attachment:
+Indexer2 should own the canonical extraction implementation and expose its result to the workspace/Android importer through a stable, versioned artifact contract. Do not implement a second competing PDF-to-text algorithm inside Generation Studio.
 
-- the local file must have a valid PDF signature;
-- the current local size limit is 18 MiB;
-- the complete referenced PDF is attached;
-- if the lesson reference points to an entire book rather than a lesson-level PDF, the entire referenced book PDF is sent.
-
-The preferred input artifact is a lesson-level PDF already sliced and validated by the workspace pipeline. If only a full-book PDF is available, the application must use verified physical PDF page boundaries before extracting or rendering a lesson range. Printed page numbers and physical PDF page numbers are different coordinate systems; do not substitute one for the other or infer an offset without validated metadata.
-
-### 3.4 Indexer2 extraction capability — verified state and integration gap
-
-The current Indexer2 source contains a server-side `extractPdfText()` implementation in `server/index.ts`. It:
-
-- reads the PDF's embedded text layer page by page using PDF.js;
-- prefixes extracted page content with physical PDF page markers;
-- stops after a default maximum of 80,000 characters;
-- is called by `readLessonSources()` for the resolved lesson PDF;
-- returns extracted text in memory to Indexer2's own server-side AI task workflow.
-
-The same `readLessonSources()` path also reads and Base64-encodes the source PDF for those server-side tasks. This confirms that Indexer2 already has a text-extraction building block, but it does **not** prove that Generation Studio currently consumes that extracted text or that Indexer2 exposes a complete user-facing lesson-to-`.txt` export workflow.
-
-Important limitations in the inspected implementation:
-
-- `extractPdfText()` reads the complete resolved PDF and does not apply the lesson's `pdfPageStart`/`pdfPageEnd` values itself.
-- It extracts the embedded text layer; this function does not invoke OCR when a page is scanned/image-only.
-- The 80,000-character ceiling can truncate long content. The extraction result does not currently expose a sufficiently explicit truncation/coverage contract for Studio to treat the text as complete.
-- The function returns a string to the server workflow; it does not create a versioned, downloadable lesson text file.
-- Indexer2 has separate OCR and PDF slicing capabilities, but those must not be assumed to be integrated into this particular lesson-text extraction function.
-
-Therefore, Indexer2 provides a useful existing foundation, not a complete implementation of the proposed Studio source-selection feature. Before using its output as the sole source for generation, it needs a stable extraction contract, exact lesson-range handling, OCR coverage/fallback, truncation reporting and source provenance. Generation Studio also needs an explicit integration path to consume that contract.
-
-### 3.5 Recommended source preparation contract
-
-Use one canonical extraction implementation, owned by Indexer2, and expose its result to Generation Studio through a versioned API/data contract. Do not reimplement a second, subtly different PDF-to-text algorithm inside Studio.
-
-The extraction result should include at least:
+The extraction metadata should include at least:
 
 - workspace/book/unit/lesson identity;
-- source PDF SHA-256;
-- exact physical PDF page range used;
-- printed page range as separate metadata, when known;
-- extracted text with page markers;
-- extraction method per page (`embedded_text`, `ocr`, or `manual`);
-- OCR confidence/coverage where OCR was used;
-- total pages inspected and pages with usable text;
-- whether the result was truncated, plus the configured character/token limit;
-- extraction contract/schema version and timestamp.
+- lesson PDF relative path and SHA-256;
+- extraction artifact path and text SHA-256;
+- extraction method (`embedded_text`, `ocr`, or `ai_transcription`), including per-page method if mixed;
+- language configuration (Arabic, English, or both);
+- page count and page markers;
+- OCR confidence/quality indicators where available;
+- completeness/coverage and whether any content was truncated;
+- extraction tool/model and version;
+- extraction prompt version/hash for AI transcription, without storing provider secrets;
+- extraction timestamp and artifact schema version;
+- review status when quality is below the configured threshold or AI transcription was used.
 
-Required processing order:
+The processing order should be:
 
-1. Resolve the selected lesson from the canonical workspace index.
-2. Resolve its validated lesson PDF slice. If a full-book PDF is used, resolve the physical PDF page range from validated index metadata and page-offset calibration.
-3. Extract embedded text page by page.
-4. For pages with no usable embedded text, invoke the existing OCR capability and record that OCR was used. Do not silently treat an empty text layer as an empty lesson.
-5. Preserve page boundaries and ordering. Do not merge page text in a way that loses its source location.
-6. Check completeness, text quality, extraction errors and truncation. If the text is incomplete, show the user a warning and offer the PDF source mode instead of pretending the text is complete.
-7. Return the extraction result and provenance to Studio. Do not create a permanent lesson JSON snapshot as a side effect.
-8. When the user selects `EXTRACTED_TEXT`, send that text with the prompt. When the user selects `PDF`, send the PDF through the selected provider's transport adapter.
+1. Confirm segmentation is complete and reviewed; identify the separate lesson PDF.
+2. Validate the lesson PDF and compute its SHA-256.
+3. Inspect the embedded text layer and measure whether it is usable.
+4. Extract embedded text where adequate; run Arabic+English OCR on pages needing recognition.
+5. If the user/operator selects AI-assisted transcription or OCR quality is inadequate, send only that lesson PDF with the dedicated transcription prompt. Validate that the returned text covers the expected pages and preserves page markers.
+6. Compare quality/completeness signals; retain the selected candidate and mark review needs. Never label a truncated/low-confidence result as complete.
+7. Save the chosen lesson text as the optional `.txt` sidecar and extraction metadata as `.extraction.json`, then update/verify the workspace reference.
+8. Generation Studio reads the TXT sidecar only when the user selects `EXTRACTED_TEXT`; otherwise PDF remains the default source.
 
-The extracted text may be offered as a downloadable `.txt` file as a separate user action. It should not be silently saved as a canonical lesson record or replace the source PDF/index. Persistent lesson JSON remains deferred.
+The TXT sidecar is a derived, regenerable artifact. It does not become a permanent canonical lesson JSON snapshot, does not replace the PDF, and does not rewrite the canonical lesson identity in `index.json`.
 
-### 3.6 Privacy and size boundary
+### 3.7 Privacy and quality boundaries
 
-Prompt text and selected lesson metadata are passed through the text privacy sanitizer. That does **not** redact personal information embedded in the PDF or rendered page images. Extracted text must also pass through the text privacy policy before dispatch.
-
-The UI must disclose which source representation will be transmitted to the selected external provider. Users must be able to choose text instead of PDF when a valid text extraction is available, and choose PDF when diagrams, images, layout or scanned content are important. Do not describe text sanitization as PDF/image redaction.
+- Text sent to a provider must pass the text privacy policy. This does not redact personal information embedded in PDF pages or images.
+- The UI must disclose which representation will be sent to the selected external provider.
+- AI-assisted transcription is itself an external AI request and may incur provider cost. It must be a separately identifiable operation from lesson explanation/question generation.
+- Preserve page references so a teacher can compare extracted passages with the original PDF.
+- Do not claim OCR or AI transcription is perfectly accurate. For Arabic/English mixed content, verify reading order, punctuation, diacritics where relevant, tables, equations and right-to-left layout.
+- Do not silently send both PDF and TXT. A future comparison/debug mode may send both only when explicitly selected and clearly disclosed.
 
 
 ## 4. Prompt templates are the generation contract
