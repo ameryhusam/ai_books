@@ -2048,7 +2048,7 @@ class MainViewModel(
     }
 
     private fun canManageSystemAiModels(): Boolean =
-        isCloudAuthenticated && _uiState.value.isSystemAdmin
+        isCloudAuthenticated && _uiState.value.authenticatedUserRole == UserRole.ADMIN && _uiState.value.isSystemAdmin
 
     fun addAiModel(model: AiModelDefinition) {
         if (!canManageSystemAiModels()) {
