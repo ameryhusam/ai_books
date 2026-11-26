@@ -150,7 +150,7 @@ The commit subjects also record fixes to PDF streaming/hash consistency, duplica
 - `docs/GENERATION_STUDIO_PROVIDER_API.md`
 - `docs/LEARNING_PROGRESS_REPORT_AND_ASSESSMENT.md`
 - `docs/LOCAL_ANDROID_TESTING.md`
-- `docs/TEMPLATE_DRIVEN_GENERATION_AND_API_GOVERNANCE.md` (new)
+- The former `docs/TEMPLATE_DRIVEN_GENERATION_AND_API_GOVERNANCE.md` was later consolidated into `docs/GENERATION_STUDIO_PROVIDER_API.md` and removed to keep one Generation Studio source of truth.
 
 ## 4. Fixed compatibility contract — preserve these foundations
 
