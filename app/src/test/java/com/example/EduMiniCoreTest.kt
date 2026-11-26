@@ -3426,6 +3426,85 @@ class EduMiniCoreTest {
     }
 
     @Test
+    fun directBinderBindsStandalonePartLocalIndexWithoutTreatingPartFolderAsComponent() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val rootDir = File(context.cacheDir, "direct_part_local_${System.currentTimeMillis()}").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        try {
+            val partDir = File(rootDir, "workspace/G07/ENG/COURSE/P01").apply { mkdirs() }
+            val lessonRelative = "workspace/G07/ENG/COURSE/P01/units/unit_01/lesson_01.pdf"
+            File(rootDir, lessonRelative).apply {
+                parentFile?.mkdirs()
+                writeText("%PDF-1.4 standalone lesson")
+            }
+            val indexRaw = """
+                {
+                  "gradeKey": "G07",
+                  "subjectKey": "ENG",
+                  "componentKey": "COURSE",
+                  "subjectName": "اللغة الإنجليزية",
+                  "displayName": "كتاب الطالب — الجزء الأول",
+                  "partKey": "P01",
+                  "sourceLayout": "SINGLE_PART_FILE",
+                  "sourceReviewStatus": "VERIFIED",
+                  "approvalStatus": "APPROVED",
+                  "units": [{
+                    "unitNumber": 1,
+                    "unitKey": "unit_01",
+                    "title": "Unit One",
+                    "partKey": "P01",
+                    "assignmentStatus": "assigned",
+                    "lessons": [{
+                      "lessonNumber": 1,
+                      "lessonKey": "lesson_01",
+                      "title": "Lesson One",
+                      "pdfPageStart": 2,
+                      "pdfPageEnd": 4,
+                      "sliceFile": {"workspaceUri": "$lessonRelative"}
+                    }]
+                  }]
+                }
+            """.trimIndent()
+            val indexSha = MessageDigest.getInstance("SHA-256").digest(indexRaw.toByteArray())
+                .joinToString("") { "%02x".format(it) }
+            File(partDir, "index.json").writeText(indexRaw)
+            File(partDir, "book_manifest.json").writeText(
+                """
+                    {
+                      "manifestVersion": "edu.book_manifest.v2",
+                      "gradeKey": "G07",
+                      "subjectKey": "ENG",
+                      "componentKey": "COURSE",
+                      "partKey": "P01",
+                      "sourceLayout": "SINGLE_PART_FILE",
+                      "sourceReviewStatus": "VERIFIED",
+                      "sourceSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                      "canonicalIndexPath": "P01/index.json",
+                      "canonicalIndexSha256": "$indexSha",
+                      "indexSha256": "$indexSha"
+                    }
+                """.trimIndent()
+            )
+
+            val binder = DirectWorkspaceBinder(context)
+            val bound = binder.bindSingleGrade(rootDir.absolutePath, "G07")
+
+            assertEquals(1, bound.workspace.books.size)
+            val book = bound.workspace.books.single()
+            assertEquals("ENG", book.subjectKey)
+            assertEquals("COURSE", book.componentKey)
+            assertTrue(book.bookKey.endsWith("|P01"))
+            assertEquals("اللغة الإنجليزية", book.subjectName)
+            assertEquals(1, bound.workspace.lessons.size)
+            assertNotNull(bound.workspace.lessons.single().pdfPath)
+        } finally {
+            rootDir.deleteRecursively()
+        }
+    }
+
+    @Test
     fun multiGradeAdminBindingIsolatesLearnersToEnrolledGradeAndPreservesBackup() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val database = Room.inMemoryDatabaseBuilder(context, EduMiniDatabase::class.java)
