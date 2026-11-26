@@ -63,12 +63,12 @@ The root index contains the complete unit list. Each part index contains only un
 
 The source remains `MERGED_PARTS_FILE`. An unclear TOC does not convert it into a single-part PDF.
 
-The root index and manifest remain review artifacts. For an unresolved unit:
-- keep the actual `partKey` unresolved;
+Keep the source as `MERGED_PARTS_FILE` in the intake/review state. Do not export a final workspace, root manifest, derived part indexes, or lesson slices while any required assignment remains unresolved. For an unresolved unit:
+- keep the actual `partKey=unknown`;
 - an optional `proposedPartKey=P01` is only a proposal;
-- record `assignmentStatus=NEEDS_REVIEW` and the proposal/evidence source;
-- do not export an approved part index for that unresolved unit;
-- do not slice or mark the source approved until a reviewer explicitly confirms or changes the assignment.
+- record `assignmentStatus=need_review` and `assignmentSource=DEFAULT_PROPOSAL`;
+- keep the evidence/proposal explanation in `assignmentEvidence`;
+- do not promote the proposal until a reviewer explicitly selects P01 or P02.
 
 A P01 proposal must never be silently promoted to a confirmed assignment.
 
@@ -109,9 +109,9 @@ For backward compatibility, the consumer may read the legacy root-index manifest
 ## 6. Lesson file resolution
 
 Resolve lesson PDFs in this order:
-1. the lesson's explicit `sliceFile.workspaceUri` relative to the workspace root (or a supported workspace URI form);
-2. another explicit relative file path only if the Indexer2 schema declares it;
-3. legacy path reconstruction only for older workspaces that lack a usable explicit reference.
+1. if `sliceFile.workspaceUri` is present, normalize and resolve only that declared workspace path (including deterministic path-root normalization); if it is unsafe, missing or unreadable, reject the lesson reference and do not fall back to another filename;
+2. only when `workspaceUri` is absent, inspect older explicit relative path fields declared by the legacy schema;
+3. only for older packages with no explicit path fields, use the legacy path convention.
 
 Normalize and validate paths to prevent traversal outside the selected workspace. Confirm the referenced file exists, is readable as a PDF, and belongs to the lesson record being imported. Do not substitute another lesson file.
 
@@ -121,7 +121,7 @@ Do not infer the PDF path from unit number, lesson number, or part folder when a
 
 Use stable unit/lesson identifiers from the index when present. Otherwise derive compatibility keys from source numbers, including the part context where duplicate unit numbers can occur in a merged source.
 
-Array order is not identity. A part view is not a second book identity. Duplicate source unit numbers across P01/P02 are valid only when their source identifiers and part context distinguish them.
+Array order is not identity. A part view is not a second book identity. Duplicate source unit numbers across P01/P02 are valid only when their source identifiers and part context distinguish them. For manifest v2, a final unit assignment requires `assignmentStatus=assigned`, `assignmentSource=INDEX_EVIDENCE` or `REVIEWER`, and non-empty `assignmentEvidence`.
 
 ## 8. Binding sequence
 
