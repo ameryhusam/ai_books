@@ -476,7 +476,7 @@ fun SettingsScreen(
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         val selectedFallbacks = form.fallbackModels
-                            .split(",", "،", "\\n")
+                            .split(",", "،", "\n")
                             .map { it.trim() }
                             .filter { it.isNotBlank() }
                             .toSet()
