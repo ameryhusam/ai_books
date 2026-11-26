@@ -263,10 +263,11 @@ class AiGenerationService(
 
         for (profile in active) {
             // The selected model is exact: do not silently substitute a profile fallback.
+            val exactSelectedModel = ProviderRoutingPolicy.exactModelCandidate(requestedModelId)
             val modelCandidates = if (
                 profile.provider == ProviderType.GEMINI &&
                 geminiModelRouter.isCoolingDown(profile.id, requestedModelId)
-            ) emptyList() else listOf(requestedModelId)
+            ) emptyList() else exactSelectedModel
             if (modelCandidates.isEmpty()) {
                 val message = "${profile.label}: لا توجد نماذج متاحة لهذا المفتاح حالياً"
                 errors.add(message)
