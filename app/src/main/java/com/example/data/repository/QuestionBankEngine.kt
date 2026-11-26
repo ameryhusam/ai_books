@@ -5,6 +5,7 @@ import com.example.model.LessonRef
 import com.example.model.QuestionDifficulty
 import com.example.model.QuestionItem
 import com.example.model.QuestionType
+import com.example.data.ai.QuestionResponseContract
 import com.example.ui.components.LearningProgressCalculator
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -70,6 +71,87 @@ object QuestionBankEngine {
         if (jsonParsed.isNotEmpty()) return jsonParsed
 
         return parseStructuredTextQuestions(trimmed, workspaceId, lesson)
+    }
+
+    /**
+     * Strict parser for AI-generated question JSON. Unlike the legacy/manual parser,
+     * this method never guesses unknown enum values, silently drops malformed rows,
+     * or falls back to free-form text. It validates the exact requested count and type mix.
+     */
+    fun parseGeneratedQuestions(
+        rawText: String,
+        workspaceId: String,
+        lesson: LessonRef,
+        expectedCount: Int,
+        selectedTypeIds: List<String>
+    ): List<QuestionItem> {
+        val cleaned = rawText.trim()
+            .removePrefix("```json")
+            .removePrefix("```")
+            .removeSuffix("```")
+            .trim()
+        val root = runCatching { json.parseToJsonElement(cleaned) }.getOrElse {
+            throw IllegalArgumentException("استجابة الأسئلة ليست JSON صالحاً: ${it.message ?: "خطأ تحليل"}")
+        } as? JsonObject ?: throw IllegalArgumentException("يجب أن يكون جذر استجابة الأسئلة كائن JSON.")
+        val array = root["questions"] as? JsonArray
+            ?: throw IllegalArgumentException("مصفوفة questions غير موجودة في استجابة النموذج.")
+        require(array.size == expectedCount) {
+            "العدد الناتج غير مطابق: المطلوب $expectedCount سؤالاً، والناتج ${array.size}."
+        }
+
+        array.forEachIndexed { index, element ->
+            val obj = element as? JsonObject
+                ?: throw IllegalArgumentException("السؤال رقم ${index + 1} ليس كائن JSON.")
+            val typeId = firstStr(obj, "type")
+            val type = QuestionType.entries.firstOrNull { it.id == typeId }
+                ?: throw IllegalArgumentException("نوع السؤال رقم ${index + 1} غير مدعوم: '$typeId'.")
+            val difficultyId = firstStr(obj, "difficulty")
+            if (QuestionDifficulty.entries.none { it.id == difficultyId }) {
+                throw IllegalArgumentException("مستوى صعوبة السؤال رقم ${index + 1} غير صالح: '$difficultyId'.")
+            }
+            val prompt = firstStr(obj, "prompt")
+            require(prompt.isNotBlank()) { "نص السؤال رقم ${index + 1} فارغ." }
+            val answer = firstStr(obj, "correctAnswer")
+            require(answer.isNotBlank()) { "الإجابة الصحيحة للسؤال رقم ${index + 1} فارغة." }
+            val optionsElement = obj["options"] as? JsonArray
+                ?: throw IllegalArgumentException("حقل options للسؤال رقم ${index + 1} يجب أن يكون مصفوفة.")
+            val options = optionsElement.mapIndexed { optionIndex, option ->
+                (option as? JsonPrimitive)?.takeIf { it.isString }?.content?.trim()
+                    ?.takeIf { it.isNotBlank() }
+                    ?: throw IllegalArgumentException("الخيار ${optionIndex + 1} في السؤال رقم ${index + 1} فارغ أو ليس نصاً.")
+            }
+            when (type) {
+                QuestionType.MCQ, QuestionType.TRUE_FALSE -> {
+                    require(options.size >= 2) {
+                        "السؤال رقم ${index + 1} من نوع ${type.labelAr} يحتاج خيارين على الأقل."
+                    }
+                    require(options.any { it.equals(answer, ignoreCase = true) }) {
+                        "إجابة السؤال رقم ${index + 1} لا تطابق أياً من خياراته حرفياً."
+                    }
+                }
+                QuestionType.ORDERING, QuestionType.MATCHING -> {
+                    require(options.size >= 2) {
+                        "السؤال رقم ${index + 1} من نوع ${type.labelAr} يحتاج عنصرين على الأقل."
+                    }
+                }
+                QuestionType.FILL_BLANK, QuestionType.SHORT_ANSWER -> Unit
+            }
+        }
+
+        val parsed = tryParseJsonQuestions(cleaned, workspaceId, lesson)
+        require(parsed.size == array.size) {
+            "تعذر تحويل جميع عناصر JSON إلى أسئلة صالحة: ${parsed.size} من ${array.size}."
+        }
+        val expectedDistribution = QuestionResponseContract.expectedDistribution(expectedCount, selectedTypeIds)
+        val actualDistribution = parsed.groupingBy { it.type.id }.eachCount()
+        require(actualDistribution == expectedDistribution) {
+            "توزيع أنواع الأسئلة غير مطابق. المطلوب: $expectedDistribution، والناتج: $actualDistribution."
+        }
+        val duplicateCount = parsed.map { it.fingerprint }.distinct().size
+        require(duplicateCount == parsed.size) {
+            "تتضمن الاستجابة أسئلة مكررة؛ أعد التوليد قبل الحفظ."
+        }
+        return parsed
     }
 
     private fun tryParseJsonQuestions(
