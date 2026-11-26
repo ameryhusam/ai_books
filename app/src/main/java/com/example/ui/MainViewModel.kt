@@ -2032,8 +2032,18 @@ class MainViewModel(
         viewModelScope.launch {
             runCatching { repository.setDefaultAiModel(provider, modelId) }
                 .onSuccess {
-                    _uiState.update {
-                        it.copy(aiModelCatalog = repository.loadAiModelCatalog(), toastMessage = "تم تغيير النموذج الافتراضي.")
+                    val catalog = repository.loadAiModelCatalog()
+                    _uiState.update { state ->
+                        val defaultModel = catalog.firstOrNull {
+                            it.provider == provider && it.modelId == modelId
+                        }
+                        state.copy(
+                            aiModelCatalog = catalog,
+                            providerForm = if (state.providerForm.provider == provider &&
+                                state.providerForm.editingProviderId == null && defaultModel != null
+                            ) state.providerForm.copy(model = defaultModel.modelId) else state.providerForm,
+                            toastMessage = "تم تغيير النموذج الافتراضي."
+                        )
                     }
                 }
                 .onFailure { error -> _uiState.update { it.copy(alert = AlertMessage("تعذر تغيير النموذج الافتراضي", error.message ?: "النموذج غير متاح.")) } }
