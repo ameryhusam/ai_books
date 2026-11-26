@@ -116,6 +116,7 @@ import com.example.ui.auth.AuthScreen
 import com.example.ui.auth.authStateFlow
 import com.example.ui.auth.safeFirebaseAuth
 import com.example.ui.auth.signOutFromFirebase
+import com.example.ui.components.GenerationModelPickerDialog
 import com.example.ui.components.BookCoverPreviewDialog
 import com.example.ui.components.GlobalSearchDialog
 import com.example.ui.components.InteractiveJsonActivityDialog
@@ -776,6 +777,7 @@ private fun AuthenticatedEduMiniContent(
                                             providers = state.providers,
                                             selectedProvider = state.selectedProvider,
                                             modelCatalog = state.aiModelCatalog,
+                                            canManageAiModels = state.isCloudAuthenticated && state.authenticatedUserRole == UserRole.ADMIN,
                                             onAddAiModel = viewModel::addAiModel,
                                             onUpdateAiModel = viewModel::updateAiModel,
                                             onDeleteAiModel = viewModel::deleteAiModel,
@@ -836,6 +838,23 @@ private fun AuthenticatedEduMiniContent(
                         isBusy = state.isBusy,
                         onConfirmImport = viewModel::confirmStagedImport,
                         onDismiss = viewModel::dismissStagedPreview
+                    )
+                }
+
+                if (state.isGenerationModelPickerOpen) {
+                    GenerationModelPickerDialog(
+                        provider = state.selectedProvider,
+                        models = state.aiModelCatalog,
+                        profiles = state.providers,
+                        defaultModelId = state.aiModelCatalog.firstOrNull {
+                            it.provider == state.selectedProvider && it.isDefault
+                        }?.modelId.orEmpty(),
+                        selectedModelId = state.selectedGenerationModelId,
+                        selectedProfileId = state.selectedGenerationProfileId,
+                        onSelectModel = viewModel::selectGenerationModel,
+                        onSelectProfile = viewModel::selectGenerationProfile,
+                        onConfirm = viewModel::confirmGenerationSelection,
+                        onDismiss = viewModel::dismissGenerationModelPicker
                     )
                 }
 
