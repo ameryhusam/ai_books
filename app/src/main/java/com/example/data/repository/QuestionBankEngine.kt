@@ -94,7 +94,7 @@ object QuestionBankEngine {
         val root = runCatching { json.parseToJsonElement(cleaned) }.getOrElse {
             throw IllegalArgumentException("استجابة الأسئلة ليست JSON صالحاً: ${it.message ?: "خطأ تحليل"}")
         } as? JsonObject ?: throw IllegalArgumentException("يجب أن يكون جذر استجابة الأسئلة كائن JSON.")
-        val schemaIssues = TemplateOutputValidator.validateOutput(cleaned, QuestionResponseContract.schemaJson)
+        val schemaIssues = TemplateOutputValidator.validateOutput(cleaned, QuestionResponseContract.schemaFor(selectedTypeIds))
         require(schemaIssues.isEmpty()) {
             "استجابة الأسئلة لا تطابق عقد بنك الأسئلة: ${schemaIssues.take(5).joinToString("; ")}"
         }
