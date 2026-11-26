@@ -1,0 +1,55 @@
+{
+  "project_info": {
+    "project_number": "156286453740",
+    "project_id": "gen-lang-client-0680761772",
+    "storage_bucket": "gen-lang-client-0680761772.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:156286453740:android:0e5b50c02d3783cf6122c9",
+        "android_client_info": {
+          "package_name": "com.aistudio.edumini.qrxmzk"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "156286453740-aapu49qae1b92r9ai6klthhb2ium3nk7.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.aistudio.edumini.qrxmzk",
+            "certificate_hash": "60957ef47d8421dbb993f8d55b0ad96d6a5f8edd"
+          }
+        },
+        {
+          "client_id": "156286453740-aapu49qae1b92r9ai6klthhb2ium3nk7.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.aistudio.edumini.qrxmzk",
+            "certificate_hash": "0b3b42b9b31d7609ad732d64eea0cecebd89726f"
+          }
+        },
+        {
+          "client_id": "156286453740-8n583gsbvg9nvpmlo60b3htbjnu1coho.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCCgRw0bfeO9Aokuxz_utf-cPuJ5IaK-D0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "156286453740-8n583gsbvg9nvpmlo60b3htbjnu1coho.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

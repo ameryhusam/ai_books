@@ -167,11 +167,11 @@ fun onGoogleSignInClicked(
                 onAuthError("نوع بيانات الاعتماد المستلم غير متوقع.")
             }
         } catch (e: GetCredentialCancellationException) {
-            Log.w("Auth", "Google Sign-In flow cancelled or dismissed: ${e.message}", e)
+            Log.w("AuthMonitor", "Google Sign-In flow cancelled or dismissed: ${e.message}", e)
             onAuthCancelled()
         } catch (e: Exception) {
-            Log.e("Auth", "Google Sign-In failed", e)
-            onAuthError(e.localizedMessage ?: "تعذر تسجيل الدخول بحساب Google")
+            val (code, msg) = AuthDiagnosticLogger.logSignInError(e)
+            onAuthError("فشل الدخول [$code]: $msg")
         }
     }
 }
@@ -267,6 +267,7 @@ fun AuthScreen(
     val credentialManager = remember(context) { CredentialManager.create(context) }
     var checkingSilentSignIn by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var lastErrorCode by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
         attemptAutoSignIn(
@@ -337,50 +338,10 @@ fun AuthScreen(
                     textAlign = TextAlign.Center
                 )
 
-                Surface(
-                    shape = RoundedCornerShape(14.dp),
-                    color = EduBg,
-                    border = BorderStroke(1.dp, EduLine),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.CloudDone,
-                                contentDescription = null,
-                                tint = EduGreenDark,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Text(
-                                text = stringResource(R.string.auth_feature_sync),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = EduInk
-                            )
-                        }
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Security,
-                                contentDescription = null,
-                                tint = EduGreenDark,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Text(
-                                text = stringResource(R.string.auth_feature_security),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = EduInk
-                            )
-                        }
-                    }
-                }
+                AuthMonitorDiagnosticCard(
+                    lastErrorCode = lastErrorCode,
+                    lastErrorMessage = errorMessage
+                )
 
                 if (checkingSilentSignIn) {
                     Row(
@@ -403,10 +364,12 @@ fun AuthScreen(
                 GoogleSignInButton(
                     onAuthSuccess = {
                         errorMessage = null
+                        lastErrorCode = null
                         onAuthSuccess()
                     },
                     onAuthError = { msg ->
                         errorMessage = msg
+                        lastErrorCode = msg.substringAfter("[").substringBefore("]")
                     }
                 )
 
