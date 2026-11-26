@@ -23,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CloudDone
 import androidx.compose.material.icons.rounded.Login
+import androidx.compose.material.icons.rounded.School
 import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -260,6 +261,7 @@ fun GoogleSignInButton(
 @Composable
 fun AuthScreen(
     onAuthSuccess: () -> Unit,
+    onBypassForDemo: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -372,6 +374,31 @@ fun AuthScreen(
                         lastErrorCode = msg.substringAfter("[").substringBefore("]")
                     }
                 )
+
+                androidx.compose.material3.OutlinedButton(
+                    onClick = onBypassForDemo,
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(1.dp, EduGreen),
+                    colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
+                        contentColor = EduGreenDark
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .minimumInteractiveComponentSize()
+                        .testTag("demo_mode_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.School,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.size(8.dp))
+                    Text(
+                        text = "الدخول كوضع تجريبي / محلي (بدون حساب)",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
 
                 errorMessage?.let { msg ->
                     Text(

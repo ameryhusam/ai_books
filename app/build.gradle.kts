@@ -112,3 +112,22 @@ if (!googleServicesFile.exists()) {
         }
     }
 }
+
+tasks.register("verifyGoogleServicesConfig") {
+    doLast {
+        val gsFile = file("google-services.json")
+        if (gsFile.exists()) {
+            val content = gsFile.readText()
+            require(content.contains("com.aistudio.edumini.qrxmzk")) {
+                "google-services.json package_name does not match 'com.aistudio.edumini.qrxmzk'."
+            }
+            println("SUCCESS: google-services.json exists and package_name matches 'com.aistudio.edumini.qrxmzk'.")
+        } else {
+            println("WARNING: google-services.json does not exist in app/ directory.")
+        }
+    }
+}
+
+tasks.named("preBuild").configure {
+    dependsOn("verifyGoogleServicesConfig")
+}

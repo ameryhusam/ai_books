@@ -147,47 +147,69 @@ fun EduMiniApp(
     EduMiniTheme {
         CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
             val user = currentUser
-            if (user == null) {
-                AuthScreen(
-                    onAuthSuccess = { /* authStateFlow emits signed-in user automatically */ }
-                )
-            } else {
-                key(user.uid) {
-                    val context = LocalContext.current
-                    val credentialManager = remember(context) { CredentialManager.create(context) }
-                    val scope = rememberCoroutineScope()
-                    val viewModel: MainViewModel = viewModel(
-                        key = user.uid,
-                        factory = viewModelFactory {
-                            initializer {
-                                val app = checkNotNull(this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY])
-                                val dbId = app.getString(R.string.firestore_database_id)
-                                val firestoreDb = FirebaseFirestore.getInstance(dbId)
-                                val repository = EduMiniRepository(
-                                    dao = EduMiniDatabase.getInstance(app).eduMiniDao(),
-                                    providerStorage = ProviderStorage(app),
-                                    workspaceImporter = WorkspaceImporter(app),
-                                    aiGenerationService = AiGenerationService(app),
-                                    interactivePackageImporter = InteractivePackageImporter(app),
-                                    directWorkspaceBinder = DirectWorkspaceBinder(app),
-                                    appContext = app
-                                )
-                                val firestoreSync = FirestoreSyncRepository(firestoreDb, auth)
-                                MainViewModel(
-                                    repository = repository,
-                                    firestoreSync = firestoreSync,
-                                    currentUserId = user.uid,
-                                    currentUserEmail = user.email,
-                                    currentUserDisplayName = user.displayName
-                                )
-                            }
+            val userId = user?.uid ?: "local_offline_user"
+            val userEmail = user?.email
+            val userDisplayName = user?.displayName
+
+            key(userId) {
+                val context = LocalContext.current
+                val credentialManager = remember(context) { CredentialManager.create(context) }
+                val scope = rememberCoroutineScope()
+                val viewModel: MainViewModel = viewModel(
+                    key = userId,
+                    factory = viewModelFactory {
+                        initializer {
+                            val app = checkNotNull(this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY])
+                            val dbId = app.getString(R.string.firestore_database_id)
+                            val firestoreDb = FirebaseFirestore.getInstance(dbId)
+                            val repository = EduMiniRepository(
+                                dao = EduMiniDatabase.getInstance(app).eduMiniDao(),
+                                providerStorage = ProviderStorage(app),
+                                workspaceImporter = WorkspaceImporter(app),
+                                aiGenerationService = AiGenerationService(app),
+                                interactivePackageImporter = InteractivePackageImporter(app),
+                                directWorkspaceBinder = DirectWorkspaceBinder(app),
+                                appContext = app
+                            )
+                            val firestoreSync = FirestoreSyncRepository(firestoreDb, auth)
+                            MainViewModel(
+                                repository = repository,
+                                firestoreSync = firestoreSync,
+                                currentUserId = userId,
+                                currentUserEmail = userEmail,
+                                currentUserDisplayName = userDisplayName
+                            )
                         }
+                    }
+                )
+
+                val state by viewModel.uiState.collectAsStateWithLifecycle()
+
+                val folderPickerLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.OpenDocumentTree()
+                ) { uri: Uri? ->
+                    if (uri != null) {
+                        viewModel.inspectDirectFolderUri(uri)
+                    }
+                }
+
+                if (state.userRole == UserRole.ENTRY) {
+                    RoleEntryScreen(
+                        workspace = state.workspace,
+                        isBusy = state.isBusy,
+                        onSelectRole = viewModel::selectRole,
+                        onBindDirectFolder = { folderPickerLauncher.launch(null) }
                     )
+                } else {
                     AuthenticatedEduMiniContent(
                         viewModel = viewModel,
-                        userEmail = user.email,
-                        userDisplayName = user.displayName,
-                        onSignOut = { signOutFromFirebase(credentialManager, scope) }
+                        userEmail = userEmail,
+                        userDisplayName = userDisplayName,
+                        onSignOut = {
+                            signOutFromFirebase(credentialManager, scope) {
+                                viewModel.switchToRoleEntry()
+                            }
+                        }
                     )
                 }
             }
