@@ -379,6 +379,19 @@ class FirestoreSyncRepository(
      * System-wide catalogue. All signed-in users can read; Firestore rules
      * restrict every mutation to accounts whose users/{uid}.role is admin.
      */
+    /**
+     * System-administrator access is provisioned out-of-band in
+     * system_admins/{uid}; normal teacher/admin role documents do not grant it.
+     */
+    suspend fun isSystemAdmin(): Boolean {
+        val uid = requireUserId()
+        val access = requireFirestore().collection("system_admins").document(uid).get().await()
+        val permissions = access.get("permissions") as? List<*>
+        return access.exists() &&
+            access.getBoolean("enabled") == true &&
+            permissions?.contains("manage_ai_models") == true
+    }
+
     suspend fun fetchAiModelCatalog(): List<AiModelDefinition> {
         requireUserId()
         return requireFirestore().collection("ai_model_catalog").get().await().documents.mapNotNull { document ->
