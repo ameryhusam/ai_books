@@ -664,11 +664,9 @@ class DirectWorkspaceBinder(private val context: Context) {
     ): List<BookIndexSlot> {
         val rawIndexFiles = entries.filter { entry ->
             val rel = entry.relativePath
-            rel.equals("index.json", ignoreCase = true) ||
-                rel.endsWith("/index.json", ignoreCase = true)
-        }.filterNot { entry ->
-            PART_INDEX_SUFFIX_REGEX.containsMatchIn(entry.relativePath) ||
-                AUX_INDEX_DIR_REGEX.containsMatchIn(entry.relativePath)
+            (rel.equals("index.json", ignoreCase = true) ||
+                rel.endsWith("/index.json", ignoreCase = true)) &&
+                !AUX_INDEX_DIR_REGEX.containsMatchIn(rel)
         }
 
         val result = mutableListOf<BookIndexSlot>()
@@ -679,16 +677,29 @@ class DirectWorkspaceBinder(private val context: Context) {
             } else {
                 rel.removeSuffix("/index.json").removeSuffix("/INDEX.JSON")
             }
-            val segments = if (bookRel.isBlank()) emptyList() else bookRel.split('/').filter { it.isNotBlank() }
+            val isPartLocalIndex = PART_INDEX_SUFFIX_REGEX.containsMatchIn(rel)
+            val identityBookRel = if (isPartLocalIndex) bookRel.substringBeforeLast('/') else bookRel
+            val partKeyFromPath = if (isPartLocalIndex) bookRel.substringAfterLast('/').uppercase() else null
+            val segments = if (identityBookRel.isBlank()) emptyList() else identityBookRel.split('/').filter { it.isNotBlank() }
             val manifestEntry = firstExisting(
                 entryMap,
                 joinRel(bookRel, "book_manifest.json"),
-                joinRel(bookRel, "manifest.json")
+                joinRel(bookRel, "manifest.json"),
+                joinRel(identityBookRel, "book_manifest.json"),
+                joinRel(identityBookRel, "manifest.json")
             )
             val manifestObj = manifestEntry?.let { manifest ->
                 runCatching {
                     json.parseToJsonElement(UriIO.readText(context, manifest.uriOrPath).orEmpty()).jsonObject
                 }.getOrNull()
+            }
+            val parentIndexExists = isPartLocalIndex && firstExisting(entryMap, joinRel(identityBookRel, "index.json")) != null
+            if (isPartLocalIndex &&
+                manifestObj?.str("sourceLayout").equals("MERGED_PARTS_FILE", ignoreCase = true) &&
+                parentIndexExists
+            ) {
+                // A merged part index is a derived view. Bind the merged root index once.
+                continue
             }
             val indexObj = runCatching {
                 json.parseToJsonElement(UriIO.readText(context, entry.uriOrPath).orEmpty()).jsonObject
@@ -729,7 +740,8 @@ class DirectWorkspaceBinder(private val context: Context) {
                     ).uppercase()
                     val rawPathComponent = segments.getOrNull(3)?.takeIf { it.isNotBlank() }
                     val (component, effectivePathComponent) = resolveComponent(rawPathComponent, allowPathFallback = true)
-                    val bookKey = segments.drop(2).joinToString("/")
+                    val bookKey = segments.drop(2).joinToString("/") +
+                        (partKeyFromPath?.let { "|$it" } ?: "")
                     result.add(
                         BookIndexSlot(
                             gradeKey = grade,
@@ -757,7 +769,8 @@ class DirectWorkspaceBinder(private val context: Context) {
                     ).uppercase()
                     val rawPathComponent = segments.getOrNull(2)?.takeIf { it.isNotBlank() }
                     val (component, effectivePathComponent) = resolveComponent(rawPathComponent, allowPathFallback = true)
-                    val bookKey = segments.drop(1).joinToString("/")
+                    val bookKey = segments.drop(1).joinToString("/") +
+                        (partKeyFromPath?.let { "|$it" } ?: "")
                     result.add(
                         BookIndexSlot(
                             gradeKey = grade,
@@ -811,7 +824,8 @@ class DirectWorkspaceBinder(private val context: Context) {
                     } else {
                         listOf(subject) + relativeBookSegments
                     }
-                    val bookKey = bookKeyParts.distinct().joinToString("/")
+                    val bookKey = bookKeyParts.distinct().joinToString("/") +
+                        (partKeyFromPath?.let { "|$it" } ?: "")
                     result.add(
                         BookIndexSlot(
                             gradeKey = detectedGrade,
