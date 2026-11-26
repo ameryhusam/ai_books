@@ -106,7 +106,7 @@ The attachment toggle and template attachment mode control whether the lesson PD
 
 | Selected provider | Current attachment behavior |
 |---|---|
-| Gemini | When attachment is enabled and mode is `pdf_native`, the original PDF is sent as an `application/pdf` inline-data part in the same request content as the prompt. |
+| Gemini | With mode `pdf_native`, the original PDF is sent as an `application/pdf` inline-data part in the same request content as the prompt. With mode `rendered_pages`, rendered JPEG page images are sent instead. |
 | OpenAI-compatible | The lesson PDF is rendered into JPEG page images and sent as image parts with the prompt. A portable native-PDF contract is not assumed. |
 | Either provider, attachment mode `none` | No PDF/image attachment is sent; usable source text is therefore required. |
 
