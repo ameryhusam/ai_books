@@ -333,6 +333,9 @@ class MainViewModel(
             // no model is offered for generation.
             _uiState.update { it.copy(aiModelCatalog = emptyList()) }
             if (isCloudAuthenticated) {
+                runCatching { firestoreSync.isSystemAdmin() }
+                    .onSuccess { allowed -> _uiState.update { it.copy(isSystemAdmin = allowed) } }
+                    .onFailure { _uiState.update { it.copy(isSystemAdmin = false) } }
                 runCatching { firestoreSync.fetchAiModelCatalog() }
                     .onSuccess { catalog -> _uiState.update { it.copy(aiModelCatalog = catalog) } }
                     .onFailure { error ->
@@ -2045,7 +2048,7 @@ class MainViewModel(
     }
 
     private fun canManageSystemAiModels(): Boolean =
-        isCloudAuthenticated && _uiState.value.authenticatedUserRole == UserRole.ADMIN
+        isCloudAuthenticated && _uiState.value.isSystemAdmin
 
     fun addAiModel(model: AiModelDefinition) {
         if (!canManageSystemAiModels()) {
