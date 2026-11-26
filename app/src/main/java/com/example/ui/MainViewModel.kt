@@ -2035,10 +2035,7 @@ class MainViewModel(
         }
         viewModelScope.launch {
             runCatching {
-                require(originalModelId == model.modelId) {
-                    "لا يمكن تغيير معرّف المستند من عملية تعديل؛ احذف الإدخال القديم بعد تعيين بديل ثم أضف المعرّف الجديد."
-                }
-                firestoreSync.upsertAiModelDefinition(model)
+                firestoreSync.renameAiModelDefinition(originalModelId, model)
             }.onSuccess {
                 val catalog = runCatching { firestoreSync.fetchAiModelCatalog() }.getOrDefault(_uiState.value.aiModelCatalog)
                 _uiState.update { it.copy(aiModelCatalog = catalog, toastMessage = "تم تحديث النموذج المركزي.") }
