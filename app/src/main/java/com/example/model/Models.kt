@@ -661,6 +661,18 @@ enum class QuestionDifficulty(val id: String, val labelAr: String) {
     }
 }
 
+@Serializable
+data class QuestionContentPayload(
+    val type: String,
+    val prompt: String,
+    val options: List<String>,
+    val correctAnswer: String,
+    val difficulty: String,
+    val conceptTag: String = "",
+    val rationale: String = "",
+    val sourcePages: String = ""
+)
+
 data class QuestionItem(
     val id: String,
     val workspaceId: String,
