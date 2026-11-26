@@ -660,6 +660,13 @@ class EduMiniCoreTest {
             .jsonObject["items"]!!.jsonObject["properties"]!!.jsonObject["type"]!!
             .jsonObject["enum"]!!.jsonArray.map { it.jsonPrimitive.content }.toSet()
         assertEquals(setOf("mcq", "short_answer"), selectedTypeIds)
+        val selectedDifficultySchema = Json.parseToJsonElement(
+            QuestionResponseContract.schemaFor(listOf("mcq"), "hard")
+        ).jsonObject
+        val allowedDifficulties = selectedDifficultySchema["properties"]!!.jsonObject["questions"]!!
+            .jsonObject["items"]!!.jsonObject["properties"]!!.jsonObject["difficulty"]!!
+            .jsonObject["enum"]!!.jsonArray.map { it.jsonPrimitive.content }.toSet()
+        assertEquals(setOf("hard"), allowedDifficulties)
     }
 
     @Test
@@ -688,11 +695,13 @@ class EduMiniCoreTest {
         val prompt = """
             العدد الإجمالي المطلوب من الأسئلة: 5، وليس العدد لكل نوع.
             التوزيع المطلوب للعدد الإجمالي حسب النوع: mcq=2, true_false=2, short_answer=1. التزم بالأعداد المحددة.
+            مستوى الصعوبة المطلوب (قيمة difficulty في JSON): hard. استخدم هذه القيمة المعيارية كما هي.
         """.trimIndent()
         val expected = QuestionResponseContract.expectedBatchFromPrompt(prompt)
         assertNotNull(expected)
         assertEquals(5, expected?.count)
         assertEquals(listOf("mcq", "true_false", "short_answer"), expected?.typeIds)
+        assertEquals("hard", expected?.difficultyId)
     }
 
     @Test
@@ -751,8 +760,12 @@ class EduMiniCoreTest {
         val typeFailure = runCatching {
             QuestionBankEngine.parseGeneratedQuestions(raw, "ws-test", sampleLesson(), 3, listOf("mcq", "true_false"))
         }.isFailure
+        val difficultyFailure = runCatching {
+            QuestionBankEngine.parseGeneratedQuestions(raw, "ws-test", sampleLesson(), 3, listOf("mcq"), "easy")
+        }.isFailure
         assertTrue(countFailure)
         assertTrue(typeFailure)
+        assertTrue(difficultyFailure)
     }
 
     @Test
