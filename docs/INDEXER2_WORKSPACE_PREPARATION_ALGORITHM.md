@@ -92,7 +92,7 @@ The root index is the one canonical complete index. Part indexes are derived fil
 
 ### 4.3 Merged source requiring assignment review
 
-The root index and root manifest remain the review package. Unresolved units remain in the root index with a separate proposal and provenance. Do not write final derived part indexes or lesson slices until all required assignments are explicitly confirmed.
+Keep `sourceLayout=MERGED_PARTS_FILE`. The unresolved intake draft remains in the review state; do not export a final workspace, root manifest, derived part indexes, or lesson slices until all required assignments are explicitly confirmed. After confirmation, export one root canonical index and its derived part views.
 
 ## 5. Canonical identity and display values
 
@@ -106,13 +106,13 @@ Consumers should use that explicit reference directly. Reconstructing `P01/units
 
 ## 7. Manifest and hashes
 
-The current exporter writes one `indexSha256` for the root index. The target exporter must declare:
-- `canonicalIndexPath`;
-- `canonicalIndexSha256`;
-- `partIndexes` containing each derived path and its hash, where applicable;
-- `sourceSha256`, source layout, source review status, identity keys and export counts.
+The current TypeScript exporter writes `edu.book_manifest.v2` with:
+- `canonicalIndexPath` and `canonicalIndexSha256` for the canonical index;
+- `indexSha256` as a compatibility alias for that canonical hash;
+- `partIndexes` containing each derived part path and its independent SHA-256;
+- `sourceSha256`, `sourceLayout`, `sourceReviewStatus`, identity keys, cover paths and export counts.
 
-For a standalone source, the canonical index is `P01/index.json` or `P02/index.json`. For a merged source, it is root `index.json`. Hashes are calculated from the exact serialized bytes written to each file.
+For a standalone source, the canonical index is `P01/index.json` or `P02/index.json` and its manifest is beside it. For a merged source, the canonical index is root `index.json` and derived part views are inside P01/P02. Hashes are calculated from the exact serialized bytes written to each file.
 
 ## 8. Current implementation status (verified snapshot)
 
