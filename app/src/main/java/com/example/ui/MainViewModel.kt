@@ -2955,7 +2955,7 @@ class MainViewModel(
                     questionLanguage = snapshot.questionLanguage,
                     attachPdfPages = snapshot.attachPdfPages,
                     questionStyleHint = snapshot.questionStyle.takeIf { snapshot.task == TaskType.QUESTIONS && it != "متنوعة" }.orEmpty(),
-                    difficultyHint = if (snapshot.task == TaskType.QUESTIONS) snapshot.questionDifficulty.labelAr else "",
+                    difficultyHint = if (snapshot.task == TaskType.QUESTIONS) snapshot.questionDifficulty.id else "",
                     template = promptTemplates.value.firstOrNull { it.id == snapshot.activePromptTemplateId }
                         ?: promptTemplates.value.firstOrNull { it.task == snapshot.task },
                     onProgress = { percent, stage ->
