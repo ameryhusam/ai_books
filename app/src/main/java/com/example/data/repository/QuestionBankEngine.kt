@@ -98,6 +98,10 @@ object QuestionBankEngine {
         require(schemaIssues.isEmpty()) {
             "استجابة الأسئلة لا تطابق عقد بنك الأسئلة: ${schemaIssues.take(5).joinToString("; ")}"
         }
+        val unexpectedRootKeys = root.keys - setOf("questions")
+        require(unexpectedRootKeys.isEmpty()) {
+            "حقول غير معروفة في جذر استجابة الأسئلة: ${unexpectedRootKeys.joinToString()}."
+        }
         val array = root["questions"] as? JsonArray
             ?: throw IllegalArgumentException("مصفوفة questions غير موجودة في استجابة النموذج.")
         require(array.size == expectedCount) {
@@ -107,6 +111,11 @@ object QuestionBankEngine {
         array.forEachIndexed { index, element ->
             val obj = element as? JsonObject
                 ?: throw IllegalArgumentException("السؤال رقم ${index + 1} ليس كائن JSON.")
+            val allowedFields = setOf("type", "conceptTag", "prompt", "options", "correctAnswer", "rationale", "difficulty", "sourcePages")
+            val unexpectedFields = obj.keys - allowedFields
+            require(unexpectedFields.isEmpty()) {
+                "حقول غير معروفة في السؤال رقم ${index + 1}: ${unexpectedFields.joinToString()}."
+            }
             val typeId = firstStr(obj, "type")
             val type = QuestionType.entries.firstOrNull { it.id == typeId }
                 ?: throw IllegalArgumentException("نوع السؤال رقم ${index + 1} غير مدعوم: '$typeId'.")
