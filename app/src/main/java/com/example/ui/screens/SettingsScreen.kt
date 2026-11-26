@@ -145,6 +145,7 @@ fun SettingsScreen(
     var modelIdInput by remember { mutableStateOf("") }
     var modelNameInput by remember { mutableStateOf("") }
     var editingModelId by remember { mutableStateOf<String?>(null) }
+    var modelLifecycleStatus by remember { mutableStateOf(AiModelDefinition.STATUS_AVAILABLE) }
 
     Box(
         modifier = modifier.fillMaxSize(),
@@ -358,8 +359,12 @@ fun SettingsScreen(
                                 editingModelId = model.modelId
                                 modelIdInput = model.modelId
                                 modelNameInput = model.displayName
+                                modelLifecycleStatus = model.lifecycleStatus
                             }) { Text("تعديل") }
-                            TextButton(onClick = { onDeleteAiModel(model.modelId) }) { Text("حذف", color = EduRed) }
+                            if (canManageAiModels) TextButton(onClick = { onUpdateAiModel(model.modelId, model.copy(isEnabled = !model.isEnabled)) }) {
+                                Text(if (model.isEnabled) "تعطيل" else "تفعيل")
+                            }
+                            if (canManageAiModels) TextButton(onClick = { onDeleteAiModel(model.modelId) }) { Text("حذف", color = EduRed) }
                         }
                     }
                     if (canManageAiModels) {
@@ -378,6 +383,21 @@ fun SettingsScreen(
                             onValueChange = { modelNameInput = it },
                             testTag = "ai_model_name_input"
                         )
+                        Text("حالة دورة حياة النموذج", color = EduInk, style = MaterialTheme.typography.labelSmall)
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            listOf(
+                                AiModelDefinition.STATUS_AVAILABLE,
+                                AiModelDefinition.STATUS_PREVIEW,
+                                AiModelDefinition.STATUS_ROUTED,
+                                AiModelDefinition.STATUS_DEPRECATED
+                            ).forEach { status ->
+                                EduPill(
+                                    text = status,
+                                    active = modelLifecycleStatus == status,
+                                    onClick = { modelLifecycleStatus = status }
+                                )
+                            }
+                        }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             OutlinedButton(
                                 onClick = {
