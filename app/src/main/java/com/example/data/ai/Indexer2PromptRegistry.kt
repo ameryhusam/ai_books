@@ -379,7 +379,7 @@ object Indexer2PromptRegistry {
                 append("التوزيع المطلوب للعدد الإجمالي حسب النوع: ${typeDistribution.joinToString(", ") { "${it.first}=${it.second}" }}. التزم بالأعداد المحددة لكل نوع.\n")
             }
             if (questionStyleHint.isNotBlank()) append("تنسيق/تنويع العناصر المطلوب: $questionStyleHint.\n")
-            if (difficultyHint.isNotBlank()) append("مستوى الصعوبة المطلوب: $difficultyHint.\n")
+            if (difficultyHint.isNotBlank()) append("مستوى الصعوبة المطلوب (قيمة difficulty في JSON): $difficultyHint. استخدم هذه القيمة المعيارية كما هي.\n")
             if (promptTemplate.isNotBlank()) {
                 append("\nتعليمات المهمة المرجعية من ملف ${blueprint.sourcePath}:\n")
                 append(promptTemplate.trim())
