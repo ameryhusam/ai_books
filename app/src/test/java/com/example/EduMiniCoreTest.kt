@@ -3713,6 +3713,23 @@ class RobolectricAndroidKeyStoreSpi : java.security.KeyStoreSpi() {
     override fun engineGetCertificateAlias(cert: java.security.cert.Certificate?): String? = null
     override fun engineStore(stream: java.io.OutputStream?, password: CharArray?) = Unit
     override fun engineLoad(stream: java.io.InputStream?, password: CharArray?) = Unit
+
+    @Test
+    fun bookMetadataMapperUsesOnlyCanonicalIndexer2Keys() {
+        val mapper = com.example.data.workspace.BookMetadataMapper
+        assertEquals("الصف السابع الأساسي", mapper.gradeDisplayName("G07"))
+        assertEquals("الرياضيات", mapper.subjectDisplayName("MATH"))
+        assertEquals("الجغرافيا", mapper.componentDisplayName("GEO"))
+        assertEquals("كتاب الطالب (Course)", mapper.componentDisplayName("COURSE"))
+        assertNull(mapper.gradeDisplayName("G99"))
+        assertNull(mapper.subjectDisplayName("PHY"))
+        assertNull(mapper.componentDisplayName("STUDENT"))
+        assertFalse(mapper.isValidBookIdentity("G07", "SCI", "WB"))
+        assertFalse(mapper.isValidBookIdentity("G10", "SCI", null))
+        assertTrue(mapper.isValidBookIdentity("G07", "ENG", "COURSE"))
+        assertTrue(mapper.isValidBookIdentity("G07", "SOC", "TARBIA"))
+    }
+
 }
 
 class RobolectricAndroidAesKeyGeneratorSpi : javax.crypto.KeyGeneratorSpi() {
