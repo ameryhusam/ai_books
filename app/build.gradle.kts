@@ -104,9 +104,9 @@ dependencies {
     testImplementation(libs.androidx.room.testing)
 }
 
-if (!googleServicesFile.exists() && allowMissingGoogleServices) {
+if (!googleServicesFile.exists()) {
     tasks.configureEach {
-        if (name.contains("GoogleServices", ignoreCase = true) && name.contains("Debug", ignoreCase = true)) {
+        if (name.contains("GoogleServices", ignoreCase = true)) {
             enabled = false
         }
     }
