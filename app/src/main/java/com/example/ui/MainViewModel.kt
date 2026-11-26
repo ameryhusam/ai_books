@@ -327,13 +327,32 @@ class MainViewModel(
     init {
         loadLearnerProfiles()
         viewModelScope.launch {
-            runCatching { repository.loadAiModelCatalog() }
-                .onSuccess { catalog -> _uiState.update { it.copy(aiModelCatalog = catalog) } }
-                .onFailure { error ->
+            val localFallback = runCatching { repository.loadAiModelCatalog() }.getOrDefault(emptyList())
+            _uiState.update { it.copy(aiModelCatalog = localFallback) }
+            if (isCloudAuthenticated) {
+                runCatching { firestoreSync.fetchAiModelCatalog() }
+                    .onSuccess { catalog -> _uiState.update { it.copy(aiModelCatalog = catalog) } }
+                    .onFailure { error ->
+                        _uiState.update {
+                            it.copy(alert = AlertMessage(
+                                "تعذر تحميل قائمة النماذج المركزية",
+                                error.message ?: "تحقق من الاتصال أو صلاحية قراءة الكتالوج."
+                            ))
+                        }
+                    }
+                runCatching {
+                    firestoreSync.observeAiModelCatalog().collect { catalog ->
+                        _uiState.update { it.copy(aiModelCatalog = catalog) }
+                    }
+                }.onFailure { error ->
                     _uiState.update {
-                        it.copy(alert = AlertMessage("تعذر تحميل فهرس النماذج", error.message ?: "تعذر قراءة إعدادات النماذج."))
+                        it.copy(alert = AlertMessage(
+                            "توقف تحديث قائمة النماذج",
+                            error.message ?: "تعذر متابعة مزامنة النماذج المركزية."
+                        ))
                     }
                 }
+            }
         }
         viewModelScope.launch {
             runCatching { repository.ensureDefaultPromptTemplates() }
@@ -1991,69 +2010,69 @@ class MainViewModel(
         }
     }
 
+    private fun canManageSystemAiModels(): Boolean =
+        isCloudAuthenticated && _uiState.value.authenticatedUserRole == UserRole.ADMIN
+
     fun addAiModel(model: AiModelDefinition) {
+        if (!canManageSystemAiModels()) {
+            _uiState.update { it.copy(alert = AlertMessage("صلاحية غير كافية", "إدارة كتالوج النماذج متاحة لمدير النظام فقط.")) }
+            return
+        }
         viewModelScope.launch {
-            try {
-                repository.addAiModel(model)
-                val catalog = repository.loadAiModelCatalog()
-                _uiState.update { it.copy(aiModelCatalog = catalog, toastMessage = "تمت إضافة النموذج.") }
-            } catch (error: Exception) {
-                _uiState.update { it.copy(alert = AlertMessage("تعذر إضافة النموذج", error.message ?: "تحقق من بيانات النموذج.")) }
-            }
+            runCatching { firestoreSync.upsertAiModelDefinition(model) }
+                .onSuccess {
+                    val catalog = runCatching { firestoreSync.fetchAiModelCatalog() }.getOrDefault(_uiState.value.aiModelCatalog)
+                    _uiState.update { it.copy(aiModelCatalog = catalog, toastMessage = "تمت إضافة النموذج إلى القائمة المركزية.") }
+                }
+                .onFailure { error -> _uiState.update { it.copy(alert = AlertMessage("تعذر إضافة النموذج", error.message ?: "تحقق من صلاحيات مدير النظام.")) } }
         }
     }
 
     fun updateAiModel(originalModelId: String, model: AiModelDefinition) {
+        if (!canManageSystemAiModels()) {
+            _uiState.update { it.copy(alert = AlertMessage("صلاحية غير كافية", "إدارة كتالوج النماذج متاحة لمدير النظام فقط.")) }
+            return
+        }
         viewModelScope.launch {
-            try {
-                repository.updateAiModel(originalModelId, model)
-                val catalog = repository.loadAiModelCatalog()
-                val providers = repository.loadProviders()
-                _uiState.update {
-                    it.copy(
-                        aiModelCatalog = catalog,
-                        providers = providers,
-                        providerForm = if (it.providerForm.model == originalModelId) {
-                            it.providerForm.copy(model = model.modelId)
-                        } else it.providerForm,
-                        toastMessage = "تم تحديث بيانات النموذج."
-                    )
+            runCatching {
+                require(originalModelId == model.modelId) {
+                    "لا يمكن تغيير معرّف المستند من عملية تعديل؛ احذف الإدخال القديم بعد تعيين بديل ثم أضف المعرّف الجديد."
                 }
-            } catch (error: Exception) {
+                firestoreSync.upsertAiModelDefinition(model)
+            }.onSuccess {
+                val catalog = runCatching { firestoreSync.fetchAiModelCatalog() }.getOrDefault(_uiState.value.aiModelCatalog)
+                _uiState.update { it.copy(aiModelCatalog = catalog, toastMessage = "تم تحديث النموذج المركزي.") }
+            }.onFailure { error ->
                 _uiState.update { it.copy(alert = AlertMessage("تعذر تعديل النموذج", error.message ?: "تحقق من بيانات النموذج.")) }
             }
         }
     }
 
     fun deleteAiModel(modelId: String) {
+        if (!canManageSystemAiModels()) {
+            _uiState.update { it.copy(alert = AlertMessage("صلاحية غير كافية", "إدارة كتالوج النماذج متاحة لمدير النظام فقط.")) }
+            return
+        }
         viewModelScope.launch {
-            try {
-                repository.deleteAiModel(modelId)
-                val catalog = repository.loadAiModelCatalog()
-                _uiState.update { it.copy(aiModelCatalog = catalog, toastMessage = "تم حذف النموذج.") }
-            } catch (error: Exception) {
-                _uiState.update { it.copy(alert = AlertMessage("تعذر حذف النموذج", error.message ?: "قد يكون النموذج مستخدماً في ملف اتصال.")) }
-            }
+            runCatching { firestoreSync.deleteAiModelDefinition(modelId) }
+                .onSuccess {
+                    val catalog = runCatching { firestoreSync.fetchAiModelCatalog() }.getOrDefault(_uiState.value.aiModelCatalog)
+                    _uiState.update { it.copy(aiModelCatalog = catalog, toastMessage = "تم حذف النموذج من القائمة المركزية.") }
+                }
+                .onFailure { error -> _uiState.update { it.copy(alert = AlertMessage("تعذر حذف النموذج", error.message ?: "قد يكون النموذج افتراضياً.")) } }
         }
     }
 
     fun setDefaultAiModel(provider: ProviderType, modelId: String) {
+        if (!canManageSystemAiModels()) {
+            _uiState.update { it.copy(alert = AlertMessage("صلاحية غير كافية", "تحديد النموذج الافتراضي متاح لمدير النظام فقط.")) }
+            return
+        }
         viewModelScope.launch {
-            runCatching { repository.setDefaultAiModel(provider, modelId) }
+            runCatching { firestoreSync.setDefaultAiModel(provider, modelId) }
                 .onSuccess {
-                    val catalog = repository.loadAiModelCatalog()
-                    _uiState.update { state ->
-                        val defaultModel = catalog.firstOrNull {
-                            it.provider == provider && it.modelId == modelId
-                        }
-                        state.copy(
-                            aiModelCatalog = catalog,
-                            providerForm = if (state.providerForm.provider == provider &&
-                                state.providerForm.editingProviderId == null && defaultModel != null
-                            ) state.providerForm.copy(model = defaultModel.modelId) else state.providerForm,
-                            toastMessage = "تم تغيير النموذج الافتراضي."
-                        )
-                    }
+                    val catalog = runCatching { firestoreSync.fetchAiModelCatalog() }.getOrDefault(_uiState.value.aiModelCatalog)
+                    _uiState.update { it.copy(aiModelCatalog = catalog, toastMessage = "تم تغيير النموذج الافتراضي المركزي.") }
                 }
                 .onFailure { error -> _uiState.update { it.copy(alert = AlertMessage("تعذر تغيير النموذج الافتراضي", error.message ?: "النموذج غير متاح.")) } }
         }
