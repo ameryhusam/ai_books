@@ -133,6 +133,7 @@ test("AI model catalogue is readable by signed-in users and writable only by pro
   });
   await assertFails(studentDb.collection("ai_model_catalog").doc(modelPayload.modelId).set(modelPayload));
   const adminDb = testEnv.authenticatedContext(BOB_UID).firestore();
+  await assertFails(adminDb.collection("system_admins").doc(BOB_UID).update({ enabled: false }));
   await assertSucceeds(adminDb.collection("ai_model_catalog").doc(modelPayload.modelId).set(modelPayload));
   await assertSucceeds(studentDb.collection("ai_model_catalog").doc(modelPayload.modelId).get());
   await assertFails(studentDb.collection("ai_model_catalog").doc(modelPayload.modelId).update({ displayName: "Student changed this" }));
