@@ -186,7 +186,8 @@ class DirectWorkspaceBinder(private val context: Context) {
                 expectedGrade = gradeKey,
                 expectedSubject = slot.subjectKey,
                 bookRelativePath = slot.bookRelPath,
-                availableRelativePaths = entries.map { it.relativePath }.toSet()
+                availableRelativePaths = entries.map { it.relativePath }.toSet(),
+                availableIndexSha256 = indexHashes(entries)
             )
             warnings.addAll(validation.warnings.map { "$bookRel: $it" })
             if (!validation.isValid) {
@@ -536,7 +537,8 @@ class DirectWorkspaceBinder(private val context: Context) {
                 expectedGrade = slot.gradeKey,
                 expectedSubject = slot.subjectKey,
                 bookRelativePath = slot.bookRelPath,
-                availableRelativePaths = entries.map { it.relativePath }.toSet()
+                availableRelativePaths = entries.map { it.relativePath }.toSet(),
+                availableIndexSha256 = indexHashes(entries)
             )
             warnings.addAll(validation.warnings.map { "$bookLabel: $it" })
             if (!validation.isValid) {
@@ -1185,6 +1187,18 @@ class DirectWorkspaceBinder(private val context: Context) {
         MessageDigest.getInstance("SHA-256")
             .digest(value.toByteArray(Charsets.UTF_8))
             .joinToString("") { "%02x".format(it) }
+
+    private fun indexHashes(entries: List<IndexedEntry>): Map<String, String> {
+        val result = mutableMapOf<String, String>()
+        entries.filter { it.relativePath.equals("index.json", ignoreCase = true) ||
+            it.relativePath.endsWith("/index.json", ignoreCase = true) }
+            .forEach { entry ->
+                val raw = UriIO.readText(context, entry.uriOrPath) ?: return@forEach
+                val key = entry.relativePath.replace('\\\\', '/').trimStart('/').lowercase(Locale.ROOT)
+                result[key] = sha256(raw)
+            }
+        return result
+    }
 
     private fun computeStableWorkspaceId(rootUriOrPath: String, gradeKey: String): String {
         val stableHash = UUID.nameUUIDFromBytes("$rootUriOrPath|$gradeKey".toByteArray(Charsets.UTF_8))
