@@ -58,7 +58,7 @@ data class MainUiState(
     val task: TaskType = TaskType.QUESTIONS,
     val activePromptTemplateId: String = "",
     val questionCount: Int = 5,
-    val selectedQuestionTypeIds: List<String> = QuestionType.entries.map { it.id },
+    val selectedQuestionTypeIds: List<String> = listOf("mcq", "true_false", "short_answer"),
     val questionLanguage: String = "ar",
     val questionStyle: String = "متنوعة",
     val questionDifficulty: QuestionDifficulty = QuestionDifficulty.MEDIUM,
