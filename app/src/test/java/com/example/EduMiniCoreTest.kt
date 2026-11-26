@@ -391,6 +391,19 @@ class EduMiniCoreTest {
 
         assertTrue(candidates.contains("workspace/G07/ENG/COURSE/P01/custom/unit-a/lesson-source.pdf"))
         assertFalse(candidates.any { it.endsWith("P01/units/unit_01/lesson_01.pdf") })
+
+        val unsafeLesson = Json.parseToJsonElement(
+            """{"lessonNumber":1,"sliceFile":{"workspaceUri":"/storage/emulated/0/lesson.pdf"}}"""
+        ).jsonObject
+        val unsafeCandidates = com.example.data.workspace.WorkspaceContractValidator.lessonPdfCandidates(
+            lesson = unsafeLesson,
+            unit = unit,
+            lessonPart = "P01",
+            bookRelativePath = "workspace/G07/ENG/COURSE/P01",
+            expectedGrade = "G07",
+            expectedSubject = "ENG"
+        )
+        assertTrue(unsafeCandidates.isEmpty())
     }
 
     @Test
