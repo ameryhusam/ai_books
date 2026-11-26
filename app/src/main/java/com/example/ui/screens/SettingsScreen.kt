@@ -409,7 +409,12 @@ fun SettingsScreen(
                                     )).copy(
                                         modelId = modelIdInput.trim(),
                                         displayName = modelNameInput.trim(),
-                                        lifecycleStatus = modelLifecycleStatus
+                                        lifecycleStatus = modelLifecycleStatus,
+                                        source = if (editingModelId == null) {
+                                            AiModelDefinition.SOURCE_SYSTEM_ADMIN
+                                        } else {
+                                            current?.source ?: AiModelDefinition.SOURCE_SYSTEM_ADMIN
+                                        }
                                     )
                                     if (editingModelId == null) onAddAiModel(entry)
                                     else onUpdateAiModel(editingModelId!!, entry)
