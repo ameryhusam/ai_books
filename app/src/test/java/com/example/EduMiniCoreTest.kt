@@ -105,37 +105,84 @@ class EduMiniCoreTest {
     }
 
     @Test
-    fun importerParsesCanonicalBookIndexAndIgnoresPartDerivedIndex() = runBlocking {
+    fun importerParsesMergedCanonicalIndexValidatesDerivedHashAndIgnoresPartView() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val importer = WorkspaceImporter(context)
-
+        val indexRaw = """
+            {
+              "gradeKey": "G04",
+              "subjectKey": "ARAB",
+              "partKey": "BOTH",
+              "sourceLayout": "MERGED_PARTS_FILE",
+              "sourceReviewStatus": "VERIFIED",
+              "approvalStatus": "APPROVED",
+              "units": [{
+                "unitKey": "unit_01",
+                "unitNumber": 1,
+                "title": "الوحدة الأولى",
+                "partKey": "P01",
+                "assignmentStatus": "assigned",
+                "lessons": [
+                  {
+                    "lessonKey": "lesson_01",
+                    "lessonNumber": 1,
+                    "title": "الدرس الأول",
+                    "pdfPageStart": 5,
+                    "pdfPageEnd": 10,
+                    "sliceFile": {"workspaceUri":"workspace/G04/ARAB/P01/units/unit_01/lesson_01.pdf"}
+                  },
+                  {
+                    "lessonKey": "lesson_02",
+                    "lessonNumber": 2,
+                    "title": "الدرس الثاني",
+                    "pdfPageStart": 11,
+                    "pdfPageEnd": 14
+                  }
+                ]
+              }]
+            }
+        """.trimIndent()
+        val partIndexRaw = """
+            {
+              "gradeKey": "G04",
+              "subjectKey": "ARAB",
+              "partKey": "P01",
+              "sourceLayout": "MERGED_PARTS_FILE",
+              "units": [{
+                "unitKey": "unit_01",
+                "unitNumber": 1,
+                "title": "الوحدة الأولى",
+                "partKey": "P01",
+                "assignmentStatus": "assigned",
+                "lessons": []
+              }]
+            }
+        """.trimIndent()
+        fun hash(value: String) = MessageDigest.getInstance("SHA-256")
+            .digest(value.toByteArray()).joinToString("") { "%02x".format(it) }
+        val indexHash = hash(indexRaw)
+        val partIndexHash = hash(partIndexRaw)
+        val manifestRaw = """
+            {
+              "manifestVersion": "edu.book_manifest.v2",
+              "title": "لغتي العربية",
+              "gradeKey": "G04",
+              "subjectKey": "ARAB",
+              "partKey": "BOTH",
+              "sourceLayout": "MERGED_PARTS_FILE",
+              "sourceReviewStatus": "VERIFIED",
+              "sourceSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+              "canonicalIndexPath": "index.json",
+              "canonicalIndexSha256": "$indexHash",
+              "indexSha256": "$indexHash",
+              "partIndexes": [{"path":"P01/index.json","sha256":"$partIndexHash"}]
+            }
+        """.trimIndent()
         val zipBytes = createTestZip(
             mapOf(
-                "workspace/G04/ARAB/book_manifest.json" to """{"title":"لغتي العربية"}""",
-                "workspace/G04/ARAB/index.json" to """
-                    {
-                      "units": [
-                        {
-                          "unitKey": "unit_01",
-                          "title": "الوحدة الأولى",
-                          "partKey": "P01",
-                          "lessons": [
-                            {
-                              "lessonKey": "lesson_01",
-                              "title": "الدرس الأول",
-                              "pdfPageStart": 5,
-                              "pdfPageEnd": 10
-                            },
-                            {
-                              "lessonKey": "lesson_02",
-                              "title": "الدرس الثاني"
-                            }
-                          ]
-                        }
-                      ]
-                    }
-                """.trimIndent(),
-                "workspace/G04/ARAB/P01/index.json" to """{"units":[]}""",
+                "workspace/G04/ARAB/book_manifest.json" to manifestRaw,
+                "workspace/G04/ARAB/index.json" to indexRaw,
+                "workspace/G04/ARAB/P01/index.json" to partIndexRaw,
                 "workspace/G04/ARAB/P01/units/unit_01/lesson_01.pdf" to "%PDF-1.4 sample"
             )
         )
@@ -143,7 +190,7 @@ class EduMiniCoreTest {
         val imported = importer.importFromStream(ByteArrayInputStream(zipBytes), zipBytes.size.toLong())
         assertEquals("G04", imported.gradeKey)
         assertEquals(1, imported.books.size)
-        assertEquals("لغتي العربية", imported.books.first().title)
+        assertEquals("لغتي العربية", imported.books.single().title)
         assertEquals(2, imported.lessons.size)
         assertNotNull(imported.lessons[0].pdfPath)
         assertEquals("5–10", imported.lessons[0].pageRange)
