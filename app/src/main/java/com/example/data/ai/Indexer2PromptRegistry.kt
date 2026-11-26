@@ -4,7 +4,6 @@ import com.example.model.Indexer2SchemaSpec
 import com.example.model.LessonRef
 import com.example.model.PromptBlueprintSpec
 import com.example.model.TaskType
-import com.example.model.QuestionType
 
 object Indexer2PromptRegistry {
 
