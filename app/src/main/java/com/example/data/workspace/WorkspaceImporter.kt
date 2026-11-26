@@ -308,6 +308,15 @@ class WorkspaceImporter(private val context: Context) {
         val bookIndexPaths = zipNames.filter { path ->
             path.startsWith("workspace/$gradeKey/") && CANONICAL_INDEX_REGEX.matches(path)
         }
+        val availableIndexSha256 = zipNames
+            .filter { it.equals("index.json", ignoreCase = true) || it.endsWith("/index.json", ignoreCase = true) }
+            .mapNotNull { relative ->
+                val file = File(baseDir, relative)
+                val raw = runCatching { file.readText(Charsets.UTF_8) }.getOrNull() ?: return@mapNotNull null
+                val hash = MessageDigest.getInstance("SHA-256").digest(raw.toByteArray(Charsets.UTF_8))
+                    .joinToString("") { "%02x".format(it) }
+                relative.replace('\\\\', '/').trimStart('/').lowercase(Locale.ROOT) to hash
+            }.toMap()
 
         val books = mutableListOf<BookRef>()
         val lessons = mutableListOf<LessonRef>()
@@ -379,7 +388,8 @@ class WorkspaceImporter(private val context: Context) {
                 expectedGrade = gradeKey,
                 expectedSubject = subjectKey,
                 bookRelativePath = bookRel,
-                availableRelativePaths = zipNameSet
+                availableRelativePaths = zipNameSet,
+                availableIndexSha256 = availableIndexSha256
             )
             warningsOut.addAll(validation.warnings)
             if (!validation.isValid) {
