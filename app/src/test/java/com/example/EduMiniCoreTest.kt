@@ -677,6 +677,18 @@ class EduMiniCoreTest {
     }
 
     @Test
+    fun savedGenerationPromptRetainsExpectedQuestionBatchForLaterDraftApproval() {
+        val prompt = """
+            العدد الإجمالي المطلوب من الأسئلة: 5، وليس العدد لكل نوع.
+            التوزيع المطلوب للعدد الإجمالي حسب النوع: mcq=2, true_false=2, short_answer=1. التزم بالأعداد المحددة.
+        """.trimIndent()
+        val expected = QuestionResponseContract.expectedBatchFromPrompt(prompt)
+        assertNotNull(expected)
+        assertEquals(5, expected?.count)
+        assertEquals(listOf("mcq", "true_false", "short_answer"), expected?.typeIds)
+    }
+
+    @Test
     fun canonicalQuestionPayloadMapsToRoomAndRejectsDuplicateBatchWithoutPartialWrites() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val db = Room.inMemoryDatabaseBuilder(context, EduMiniDatabase::class.java)
