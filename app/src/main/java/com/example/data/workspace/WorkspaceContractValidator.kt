@@ -333,13 +333,15 @@ object WorkspaceContractValidator {
         val declaredWorkspaceUri = (lesson["sliceFile"] as? JsonObject)?.string("workspaceUri")
             ?.trim()?.replace('\\', '/').orEmpty()
         if (declaredWorkspaceUri.isNotBlank()) {
-            val normalizedUri = declaredWorkspaceUri.removePrefix("./").trimStart('/')
-            // workspaceUri is the producer's authoritative path. If it is unsafe or
-            // missing, do not silently bind a different PDF by reconstructing a path.
-            if (normalizedUri.split('/').any { it == ".." || it.isBlank() } ||
-                normalizedUri.startsWith("/") ||
-                Regex("^[A-Za-z]:").containsMatchIn(normalizedUri)
+            // workspaceUri must be a relative workspace path, never an absolute path or URI.
+            if (declaredWorkspaceUri.startsWith("/") ||
+                Regex("^[A-Za-z]:").containsMatchIn(declaredWorkspaceUri) ||
+                declaredWorkspaceUri.contains("://")
             ) return emptyList()
+            val normalizedUri = declaredWorkspaceUri.removePrefix("./").trimStart('/')
+            // If the declared path is unsafe or missing, do not silently bind a different
+            // PDF by reconstructing a path from unit/lesson numbers.
+            if (normalizedUri.split('/').any { it == ".." || it.isBlank() }) return emptyList()
 
             candidates.add(normalizedUri)
             if (normalizedUri.startsWith("workspace/", ignoreCase = true)) {
