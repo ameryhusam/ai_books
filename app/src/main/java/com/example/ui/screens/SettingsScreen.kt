@@ -817,7 +817,13 @@ fun SettingsScreen(
                             EduPill(
                                 text = t.labelAr,
                                 active = newTplTask == t,
-                                onClick = { newTplTask = t }
+                                onClick = {
+                                    newTplTask = t
+                                    if (t == TaskType.QUESTIONS) {
+                                        newTplSchema = ""
+                                        newTplMapping = ""
+                                    }
+                                }
                             )
                         }
                     }
@@ -842,54 +848,65 @@ fun SettingsScreen(
                             .fillMaxWidth()
                             .testTag("new_template_instructions_input")
                     )
-                    Text(
-                        text = "مخطط الاستجابة (JSON Schema أو مثال JSON تعاقدي)",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = EduInk,
-                        modifier = Modifier.padding(top = 6.dp)
-                    )
-                    OutlinedTextField(
-                        value = newTplSchema,
-                        onValueChange = { newTplSchema = it },
-                        placeholder = { Text("ضع هنا مخطط الاستجابة الذي يجب أن يلتزم به النموذج...") },
-                        minLines = 4,
-                        shape = RoundedCornerShape(12.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = EduFieldBg,
-                            unfocusedContainerColor = EduFieldBg,
-                            focusedBorderColor = EduGreen,
-                            unfocusedBorderColor = EduLine
-                        ),
-                        modifier = Modifier.fillMaxWidth().testTag("new_template_response_schema_input")
-                    )
-                    Text(
-                        text = "خريطة توافق الحقول (اختيارية)",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = EduInk,
-                        modifier = Modifier.padding(top = 6.dp)
-                    )
-                    OutlinedTextField(
-                        value = newTplMapping,
-                        onValueChange = { newTplMapping = it },
-                        placeholder = { Text("""{"rootArray":"items","fields":{"prompt":"stem","options":"choices","correctAnswer":"answer"}}""") },
-                        minLines = 3,
-                        shape = RoundedCornerShape(12.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = EduFieldBg,
-                            unfocusedContainerColor = EduFieldBg,
-                            focusedBorderColor = EduGreen,
-                            unfocusedBorderColor = EduLine
-                        ),
-                        modifier = Modifier.fillMaxWidth().testTag("new_template_response_mapping_input")
-                    )
-                    templateValidationError?.let { error ->
-                        Text(error, style = MaterialTheme.typography.bodySmall, color = EduRed)
+                    if (newTplTask == TaskType.QUESTIONS) {
+                        Text(
+                            text = "مخطط الأسئلة يُشتق تلقائياً من عقد بنك الأسئلة وحقول التخزين المعتمدة. لا يوجد مخطط أو تحويل حقول مستقل لهذا النوع.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = EduGreenDark,
+                            modifier = Modifier.padding(vertical = 8.dp)
+                        )
+                    } else {
+                        Text(
+                            text = "مخطط الاستجابة (JSON Schema أو مثال JSON تعاقدي)",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = EduInk,
+                            modifier = Modifier.padding(top = 6.dp)
+                        )
+                        OutlinedTextField(
+                            value = newTplSchema,
+                            onValueChange = { newTplSchema = it },
+                            placeholder = { Text("ضع هنا مخطط الاستجابة الذي يجب أن يلتزم به النموذج...") },
+                            minLines = 4,
+                            shape = RoundedCornerShape(12.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedContainerColor = EduFieldBg,
+                                unfocusedContainerColor = EduFieldBg,
+                                focusedBorderColor = EduGreen,
+                                unfocusedBorderColor = EduLine
+                            ),
+                            modifier = Modifier.fillMaxWidth().testTag("new_template_response_schema_input")
+                        )
+                        Text(
+                            text = "خريطة توافق الحقول (اختيارية)",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = EduInk,
+                            modifier = Modifier.padding(top = 6.dp)
+                        )
+                        OutlinedTextField(
+                            value = newTplMapping,
+                            onValueChange = { newTplMapping = it },
+                            placeholder = { Text("""{"rootArray":"items","fields":{"prompt":"stem","options":"choices","correctAnswer":"answer"}}""") },
+                            minLines = 3,
+                            shape = RoundedCornerShape(12.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedContainerColor = EduFieldBg,
+                                unfocusedContainerColor = EduFieldBg,
+                                focusedBorderColor = EduGreen,
+                                unfocusedBorderColor = EduLine
+                            ),
+                            modifier = Modifier.fillMaxWidth().testTag("new_template_response_mapping_input")
+                        )
+                        templateValidationError?.let { error ->
+                            Text(error, style = MaterialTheme.typography.bodySmall, color = EduRed)
+                        }
+                        Text(
+                            text = "يُحفظ المخطط مع القالب ويُرسل ضمن البرومبت. اتركه فارغاً للمخرجات النصية.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = EduMuted
+                        )
+    
                     }
-                    Text(
-                        text = "يُحفظ المخطط مع القالب ويُرسل ضمن البرومبت. اتركه فارغاً للمخرجات النصية.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = EduMuted
-                    )
+
                     OutlinedButton(
                         onClick = {
                             if (newTplTitle.isNotBlank() && newTplInstructions.isNotBlank()) {
@@ -944,8 +961,8 @@ fun SettingsScreen(
                                 newTplTitle = tpl.title
                                 newTplTask = tpl.task
                                 newTplInstructions = tpl.instructions
-                                newTplSchema = tpl.responseSchemaJson
-                                newTplMapping = tpl.responseMappingJson
+                                newTplSchema = if (tpl.task == TaskType.QUESTIONS) "" else tpl.responseSchemaJson
+                                newTplMapping = if (tpl.task == TaskType.QUESTIONS) "" else tpl.responseMappingJson
                             }) {
                                 Text("تعديل", color = EduBlue)
                             }
