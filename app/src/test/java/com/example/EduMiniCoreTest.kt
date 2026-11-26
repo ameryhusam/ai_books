@@ -122,6 +122,8 @@ class EduMiniCoreTest {
                 "title": "الوحدة الأولى",
                 "partKey": "P01",
                 "assignmentStatus": "assigned",
+                "assignmentSource": "INDEX_EVIDENCE",
+                "assignmentEvidence": "Unit section explicitly appears under P01 in the merged source TOC.",
                 "lessons": [
                   {
                     "lessonKey": "lesson_01",
@@ -3540,6 +3542,8 @@ class EduMiniCoreTest {
                     "title": "Unit One",
                     "partKey": "P01",
                     "assignmentStatus": "assigned",
+                    "assignmentSource": "REVIEWER",
+                    "assignmentEvidence": "Reviewer confirmed the unit belongs to P01.",
                     "lessons": [{
                       "lessonNumber": 1,
                       "lessonKey": "lesson_01",
