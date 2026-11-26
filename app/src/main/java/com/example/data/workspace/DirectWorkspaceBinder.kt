@@ -706,6 +706,9 @@ class DirectWorkspaceBinder(private val context: Context) {
                 // A merged part index is a derived view. Bind the merged root index once.
                 continue
             }
+            val effectivePartKey = partKeyFromPath ?: if (
+                manifestObj?.str("sourceLayout").equals("SINGLE_PART_FILE", ignoreCase = true)
+            ) manifestObj?.str("partKey")?.uppercase(Locale.ROOT) else null
             val indexObj = runCatching {
                 json.parseToJsonElement(UriIO.readText(context, entry.uriOrPath).orEmpty()).jsonObject
             }.getOrNull()
@@ -746,7 +749,7 @@ class DirectWorkspaceBinder(private val context: Context) {
                     val rawPathComponent = segments.getOrNull(3)?.takeIf { it.isNotBlank() }
                     val (component, effectivePathComponent) = resolveComponent(rawPathComponent, allowPathFallback = true)
                     val bookKey = segments.drop(2).joinToString("/") +
-                        (partKeyFromPath?.let { "|$it" } ?: "")
+                        (effectivePartKey?.let { "|$it" } ?: "")
                     result.add(
                         BookIndexSlot(
                             gradeKey = grade,
@@ -775,7 +778,7 @@ class DirectWorkspaceBinder(private val context: Context) {
                     val rawPathComponent = segments.getOrNull(2)?.takeIf { it.isNotBlank() }
                     val (component, effectivePathComponent) = resolveComponent(rawPathComponent, allowPathFallback = true)
                     val bookKey = segments.drop(1).joinToString("/") +
-                        (partKeyFromPath?.let { "|$it" } ?: "")
+                        (effectivePartKey?.let { "|$it" } ?: "")
                     result.add(
                         BookIndexSlot(
                             gradeKey = grade,
@@ -830,7 +833,7 @@ class DirectWorkspaceBinder(private val context: Context) {
                         listOf(subject) + relativeBookSegments
                     }
                     val bookKey = bookKeyParts.distinct().joinToString("/") +
-                        (partKeyFromPath?.let { "|$it" } ?: "")
+                        (effectivePartKey?.let { "|$it" } ?: "")
                     result.add(
                         BookIndexSlot(
                             gradeKey = detectedGrade,
