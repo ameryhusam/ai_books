@@ -144,14 +144,14 @@ flowchart TD
 
 ## 9. Current implementation status versus target contract
 
-The current Android implementation is not yet fully aligned with this contract:
-- discovery filters part-local indexes, so independent P01/P02 packages are not yet first-class inputs;
-- the importer currently selects root indexes and excludes part indexes;
-- the validator assumes one `indexSha256` for the root index;
-- some lesson path fallback logic reconstructs paths even though Indexer2 writes `sliceFile.workspaceUri`;
-- display names are primarily obtained from the Android mapper rather than the prepared index.
+The Android implementation has now been updated toward this contract:
+- the direct binder discovers root and part-local indexes; a part-local index is accepted as an independent source only with its local manifest, while a merged derived view is skipped when its root index exists;
+- the ZIP importer applies the same rule and keeps the P01/P02 suffix in the independent source identity without treating it as a component key;
+- the validator checks the canonical index hash/path and verifies every declared merged part-index path and SHA-256;
+- a declared `sliceFile.workspaceUri` is authoritative. If it is unsafe or cannot be resolved, the consumer does not silently reconstruct a different lesson path; legacy reconstruction is reserved for packages with no explicit URI;
+- the importer and binder prefer the index-provided `subjectName` for display, with the Android mapper as fallback.
 
-These are implementation gaps, not permission to change the target contract. Update binder, importer, validator, persistence where necessary, and tests together. Preserve existing workspace compatibility while adding the new layouts.
+Tests have been added for standalone part-local import/binding, merged derived-index hash validation, and explicit URI precedence. The repository test suite and Android build have not been run in this work session; the GitHub commits currently show no CI status checks. Do not treat code changes as test-passing until those commands run successfully.
 
 ## 10. Rejection diagnostics
 
