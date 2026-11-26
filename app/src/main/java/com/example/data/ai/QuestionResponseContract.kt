@@ -81,11 +81,9 @@ object QuestionResponseContract {
                         add(JsonPrimitive("correctAnswer"))
                         add(JsonPrimitive("difficulty"))
                     }
-                    put("additionalProperties", false)
                 }
             }
         }
         putJsonArray("required") { add(JsonPrimitive("questions")) }
-        put("additionalProperties", false)
     }
 }
