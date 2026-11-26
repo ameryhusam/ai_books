@@ -2,7 +2,6 @@ package com.example.data.ai
 
 import com.example.model.QuestionDifficulty
 import com.example.model.QuestionType
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
