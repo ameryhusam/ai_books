@@ -15,6 +15,7 @@ data class AiModelDefinition(
     val provider: ProviderType,
     val lifecycleStatus: String = STATUS_AVAILABLE,
     val replacementModelId: String? = null,
+    val isDefault: Boolean = false,
     val supportsGenerateContent: Boolean = true,
     val source: String = SOURCE_USER
 ) {
@@ -43,6 +44,7 @@ object AiModelCatalogDefaults {
             provider = ProviderType.GEMINI,
             lifecycleStatus = AiModelDefinition.STATUS_ROUTED,
             replacementModelId = "gemini-3.8-flash",
+            isDefault = true,
             source = AiModelDefinition.SOURCE_GOOGLE
         ),
         AiModelDefinition(
