@@ -1,6 +1,7 @@
 package com.example.data.ai
 
 import com.example.model.QuestionContentPayload
+import com.example.model.QuestionRequiredField
 import com.example.model.QuestionDifficulty
 import com.example.model.QuestionType
 import kotlinx.serialization.descriptors.PrimitiveKind
@@ -58,8 +59,6 @@ object QuestionResponseContract {
             allowedDifficultyIds = allowedDifficulties
         ).toString()
     }
-
-    private val requiredPayloadFields = setOf("type", "prompt", "options", "correctAnswer", "difficulty")
 
     val defaultTypeIds: List<String> = QuestionType.DEFAULT_GENERATION_IDS
 
@@ -120,7 +119,7 @@ object QuestionResponseContract {
                         }
                         putJsonArray("required") {
                             for (index in 0 until payloadDescriptor.elementsCount) {
-                                if (payloadDescriptor.getElementName(index) in requiredPayloadFields) {
+                                if (payloadDescriptor.getElementAnnotations(index).any { it is QuestionRequiredField }) {
                                     add(JsonPrimitive(payloadDescriptor.getElementName(index)))
                                 }
                             }
