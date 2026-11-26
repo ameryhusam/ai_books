@@ -383,7 +383,7 @@ fun SettingsScreen(
                                 val entry = (current ?: AiModelDefinition(
                                     modelId = modelIdInput.trim(),
                                     displayName = modelNameInput.trim(),
-                                    provider = selectedProvider
+                                    provider = form.provider
                                 )).copy(
                                     modelId = modelIdInput.trim(),
                                     displayName = modelNameInput.trim()
@@ -446,10 +446,11 @@ fun SettingsScreen(
                         color = EduInk,
                         modifier = Modifier.padding(top = 6.dp)
                     )
-                    SettingsField(
-                        value = form.model,
-                        onValueChange = onModelChange,
-                        testTag = "provider_model_input"
+                    Text(
+                        text = form.model.ifBlank { "لم يتم تحديد نموذج" },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = EduMuted,
+                        modifier = Modifier.padding(vertical = 4.dp)
                     )
                     FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -470,11 +471,31 @@ fun SettingsScreen(
                         color = EduInk,
                         modifier = Modifier.padding(top = 6.dp)
                     )
-                    SettingsField(
-                        value = form.fallbackModels,
-                        onValueChange = onFallbackModelsChange,
-                        testTag = "provider_fallback_input"
-                    )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        val selectedFallbacks = form.fallbackModels
+                            .split(",", "،", "\\n")
+                            .map { it.trim() }
+                            .filter { it.isNotBlank() }
+                            .toSet()
+                        modelCatalog.filter { it.provider == form.provider && it.supportsGenerateContent && it.modelId != form.model }
+                            .forEach { model ->
+                                EduPill(
+                                    text = model.displayName,
+                                    active = model.modelId in selectedFallbacks,
+                                    onClick = {
+                                        val updated = if (model.modelId in selectedFallbacks) {
+                                            selectedFallbacks - model.modelId
+                                        } else {
+                                            selectedFallbacks + model.modelId
+                                        }
+                                        onFallbackModelsChange(updated.joinToString(", "))
+                                    }
+                                )
+                            }
+                    }
 
                     if (form.provider == ProviderType.OPENAI_COMPATIBLE) {
                         Text(
