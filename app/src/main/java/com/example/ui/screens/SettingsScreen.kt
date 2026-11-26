@@ -408,7 +408,8 @@ fun SettingsScreen(
                                         provider = form.provider
                                     )).copy(
                                         modelId = modelIdInput.trim(),
-                                        displayName = modelNameInput.trim()
+                                        displayName = modelNameInput.trim(),
+                                        lifecycleStatus = modelLifecycleStatus
                                     )
                                     if (editingModelId == null) onAddAiModel(entry)
                                     else onUpdateAiModel(editingModelId!!, entry)
