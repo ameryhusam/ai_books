@@ -506,6 +506,17 @@ class EduMiniRepository(
         if (providers.none { it.provider == selectedProvider && it.enabled && it.apiKey.isNotBlank() }) {
             throw IllegalStateException("لا يوجد ملف ${selectedProvider.displayName} مفعّل بمفتاح ونموذج صالحين. اختر مزوداً آخر أو أضف إعداداته.")
         }
+        require(questionLanguage in setOf("ar", "en", "ar_en")) { "لغة الأسئلة المحددة غير مدعومة." }
+        if (task == TaskType.QUESTIONS) {
+            val allowedTypeIds = com.example.model.QuestionType.entries.map { it.id }.toSet()
+            require(questionTypeIds.distinct().size == questionTypeIds.size && questionTypeIds.all { it in allowedTypeIds }) {
+                "تتضمن قائمة أنواع الأسئلة قيمة غير مدعومة أو مكررة."
+            }
+            val effectiveTypeCount = if (questionTypeIds.isEmpty()) 3 else questionTypeIds.size
+            require(effectiveTypeCount in 1..questionCount.coerceIn(1, 30)) {
+                "عدد أنواع الأسئلة المختارة أكبر من عدد الأسئلة المطلوب."
+            }
+        }
         onProgress(8, "قراءة بيانات الدرس وتجهيز المصدر")
         val effectiveSource = source.trim()
         val activeTemplate = template ?: dao.observePromptTemplates().first()
@@ -587,6 +598,7 @@ class EduMiniRepository(
             questionCount.toString(),
             questionTypeIds.sorted().joinToString(","),
             questionLanguage,
+            questionStyleHint,
             difficultyHint,
             pdfHash,
             effectiveSource,
