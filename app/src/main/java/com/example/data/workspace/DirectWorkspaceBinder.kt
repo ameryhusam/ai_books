@@ -1197,7 +1197,7 @@ class DirectWorkspaceBinder(private val context: Context) {
             it.relativePath.endsWith("/index.json", ignoreCase = true) }
             .forEach { entry ->
                 val raw = UriIO.readText(context, entry.uriOrPath) ?: return@forEach
-                val key = entry.relativePath.replace('\\\\', '/').trimStart('/').lowercase(Locale.ROOT)
+                val key = entry.relativePath.replace('\\', '/').trimStart('/').lowercase(Locale.ROOT)
                 result[key] = sha256(raw)
             }
         return result
