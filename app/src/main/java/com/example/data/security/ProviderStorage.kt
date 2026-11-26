@@ -6,6 +6,8 @@ import android.security.keystore.KeyProperties
 import android.util.Base64
 import com.example.model.ProviderConfig
 import com.example.model.ProviderType
+import com.example.data.ai.AiModelCatalogDefaults
+import com.example.data.ai.AiModelDefinition
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
@@ -44,6 +46,139 @@ class ProviderStorage(context: Context) {
             check(prefs.edit().putString(KEY_SELECTED_PROVIDER, type.id).commit()) {
                 "تعذر حفظ مزود الذكاء الاصطناعي الافتراضي"
             }
+        }
+    }
+
+    /**
+     * Model metadata is stored separately from encrypted API credentials.
+     * The catalog is user-editable; profile credentials remain in KEY_PROFILES.
+     */
+    suspend fun loadModelCatalog(): List<AiModelDefinition> = withContext(Dispatchers.IO) {
+        synchronized(lock) {
+            val raw = prefs.getString(KEY_MODEL_CATALOG, null)
+            if (raw == null) {
+                writeModelCatalogLocked(AiModelCatalogDefaults.entries)
+                AiModelCatalogDefaults.entries
+            } else {
+                try {
+                    json.decodeFromString<List<AiModelDefinition>>(raw)
+                } catch (error: Exception) {
+                    throw IllegalStateException("تعذر قراءة فهرس نماذج AI المحفوظ؛ لم يتم استبدال البيانات.", error)
+                }
+            }
+        }
+    }
+
+    suspend fun addModelDefinition(model: AiModelDefinition) = withContext(Dispatchers.IO) {
+        synchronized(lock) {
+            val current = readModelCatalogLocked()
+            require(current.none { it.modelId.equals(model.modelId.trim(), ignoreCase = true) }) {
+                "معرّف النموذج موجود مسبقاً."
+            }
+            val normalized = model.copy(modelId = model.modelId.trim(), displayName = model.displayName.trim())
+            require(normalized.modelId.isNotBlank() && normalized.displayName.isNotBlank()) {
+                "معرّف النموذج واسمه مطلوبان."
+            }
+            val updated = if (normalized.isDefault) {
+                current.map { if (it.provider == normalized.provider) it.copy(isDefault = false) else it } + normalized
+            } else current + normalized
+            validateModelCatalog(updated)
+            writeModelCatalogLocked(updated)
+        }
+    }
+
+    suspend fun updateModelDefinition(originalModelId: String, updatedModel: AiModelDefinition) = withContext(Dispatchers.IO) {
+        synchronized(lock) {
+            val current = readModelCatalogLocked()
+            val original = current.firstOrNull { it.modelId == originalModelId }
+                ?: throw IllegalArgumentException("النموذج المراد تعديله غير موجود.")
+            val normalized = updatedModel.copy(
+                modelId = updatedModel.modelId.trim(),
+                displayName = updatedModel.displayName.trim()
+            )
+            require(normalized.modelId.isNotBlank() && normalized.displayName.isNotBlank()) {
+                "معرّف النموذج واسمه مطلوبان."
+            }
+            require(current.none { it.modelId != originalModelId && it.modelId.equals(normalized.modelId, true) }) {
+                "معرّف النموذج الجديد مستخدم بالفعل."
+            }
+            var updated = current.map { entry ->
+                when {
+                    entry.modelId == originalModelId -> normalized
+                    normalized.isDefault && entry.provider == normalized.provider -> entry.copy(isDefault = false)
+                    else -> entry
+                }
+            }
+            if (original.provider != normalized.provider) {
+                updated = updated.map { entry ->
+                    if (entry.modelId == normalized.modelId) entry else entry
+                }
+            }
+            val profiles = readProfilesLocked()
+            val migratedProfiles = profiles.map { profile ->
+                if (profile.provider != original.provider) profile else profile.copy(
+                    model = if (profile.model == originalModelId) normalized.modelId else profile.model,
+                    fallbackModels = profile.fallbackModels.map { if (it == originalModelId) normalized.modelId else it }.distinct()
+                )
+            }
+            validateModelCatalog(updated)
+            writeModelCatalogLocked(updated)
+            if (migratedProfiles != profiles) writeProfilesLocked(migratedProfiles)
+        }
+    }
+
+    suspend fun deleteModelDefinition(modelId: String) = withContext(Dispatchers.IO) {
+        synchronized(lock) {
+            val current = readModelCatalogLocked()
+            val model = current.firstOrNull { it.modelId == modelId }
+                ?: throw IllegalArgumentException("النموذج غير موجود.")
+            require(!model.isDefault) { "عيّن نموذجاً افتراضياً بديلاً قبل حذف النموذج الافتراضي." }
+            val profiles = readProfilesLocked()
+            require(profiles.none { profile ->
+                profile.provider == model.provider &&
+                    (profile.model == modelId || modelId in profile.fallbackModels)
+            }) { "لا يمكن حذف النموذج لأنه مستخدم في ملف اتصال API. عدّل ملف الاتصال أولاً." }
+            writeModelCatalogLocked(current.filterNot { it.modelId == modelId })
+        }
+    }
+
+    suspend fun setDefaultModel(provider: ProviderType, modelId: String) = withContext(Dispatchers.IO) {
+        synchronized(lock) {
+            val current = readModelCatalogLocked()
+            require(current.any { it.provider == provider && it.modelId == modelId && it.supportsGenerateContent }) {
+                "النموذج المحدد غير متاح لمزود الخدمة."
+            }
+            writeModelCatalogLocked(current.map { entry ->
+                if (entry.provider == provider) entry.copy(isDefault = entry.modelId == modelId) else entry
+            })
+        }
+    }
+
+    private fun readModelCatalogLocked(): List<AiModelDefinition> {
+        val raw = prefs.getString(KEY_MODEL_CATALOG, null) ?: return AiModelCatalogDefaults.entries
+        return try {
+            json.decodeFromString<List<AiModelDefinition>>(raw)
+        } catch (error: Exception) {
+            throw IllegalStateException("تعذر قراءة فهرس نماذج AI المحفوظ؛ لم يتم استبدال البيانات.", error)
+        }
+    }
+
+    private fun writeModelCatalogLocked(items: List<AiModelDefinition>) {
+        validateModelCatalog(items)
+        check(prefs.edit().putString(KEY_MODEL_CATALOG, json.encodeToString(items)).commit()) {
+            "تعذر حفظ فهرس نماذج AI."
+        }
+    }
+
+    private fun validateModelCatalog(items: List<AiModelDefinition>) {
+        require(items.map { it.modelId.lowercase() }.distinct().size == items.size) {
+            "توجد معرّفات نماذج مكررة."
+        }
+        require(items.all { it.modelId.isNotBlank() && it.displayName.isNotBlank() }) {
+            "كل نموذج يحتاج إلى معرّف واسم عرض."
+        }
+        require(items.filter { it.isDefault }.groupBy { it.provider }.values.all { it.size == 1 }) {
+            "يسمح بنموذج افتراضي واحد فقط لكل مزود."
         }
     }
 
@@ -271,6 +406,7 @@ class ProviderStorage(context: Context) {
         private const val PREFS_NAME = "edu_mini_secure_prefs"
         private const val KEY_PROFILES = "edu_mini_ai_profiles_v1"
         private const val KEY_SELECTED_PROVIDER = "edu_mini_selected_ai_provider_v1"
+        private const val KEY_MODEL_CATALOG = "edu_mini_ai_model_catalog_v1"
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
         private const val KEY_ALIAS = "edu_mini_providers_aes_key"
         private const val TRANSFORMATION = "AES/GCM/NoPadding"
