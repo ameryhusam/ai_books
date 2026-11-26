@@ -102,15 +102,22 @@ object WorkspaceContractValidator {
             if (canonicalIndexPath.isNotBlank() || canonicalIndexSha.isNotBlank()) {
                 val manifestPartKey = manifest?.string("partKey").orEmpty().uppercase(Locale.ROOT)
                 val indexPartKey = index.string("partKey").uppercase(Locale.ROOT)
+                val bookPathLeaf = bookRelativePath.trim('/').substringAfterLast('/', "")
                 if (sourceLayout.equals("SINGLE_PART_FILE", ignoreCase = true)) {
                     if (manifestPartKey !in setOf("P01", "P02") || indexPartKey != manifestPartKey) {
                         errors.add("[book_manifest.json / index.json → partKey] مصدر مستقل يتطلب partKey متطابقًا P01 أو P02 في manifest والفهرس.")
+                    }
+                    if (bookPathLeaf.isNotBlank() && !bookPathLeaf.equals(manifestPartKey, ignoreCase = true)) {
+                        errors.add("[book_manifest.json → sourceLayout] فهرس المصدر المستقل يجب أن يكون داخل مجلد الجزء نفسه، لا في جذر الكتاب.")
                     }
                     val expectedPath = "$manifestPartKey/index.json"
                     if (canonicalIndexPath.isNotBlank() && !canonicalIndexPath.equals(expectedPath, ignoreCase = true)) {
                         errors.add("[book_manifest.json → canonicalIndexPath] المسار '$canonicalIndexPath' لا يطابق الفهرس المستقل المتوقع '$expectedPath'.")
                     }
                 } else if (sourceLayout.equals("MERGED_PARTS_FILE", ignoreCase = true)) {
+                    if (bookPathLeaf.equals("P01", ignoreCase = true) || bookPathLeaf.equals("P02", ignoreCase = true)) {
+                        errors.add("[book_manifest.json → sourceLayout] الفهرس الأم للمصدر المدمج يجب أن يكون في جذر الكتاب، لا داخل مجلد جزء مشتق.")
+                    }
                     if (manifestPartKey != "BOTH" || indexPartKey != "BOTH") {
                         errors.add("[book_manifest.json / index.json → partKey] المصدر المدمج يجب أن يحمل partKey=BOTH على مستوى المصدر.")
                     }
