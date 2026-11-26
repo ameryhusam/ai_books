@@ -150,7 +150,7 @@ The commit subjects also record fixes to PDF streaming/hash consistency, duplica
 - `docs/GENERATION_STUDIO_PROVIDER_API.md`
 - `docs/LEARNING_PROGRESS_REPORT_AND_ASSESSMENT.md`
 - `docs/LOCAL_ANDROID_TESTING.md`
-- The former `docs/TEMPLATE_DRIVEN_GENERATION_AND_API_GOVERNANCE.md` was later consolidated into `docs/GENERATION_STUDIO_PROVIDER_API.md` and removed to keep one Generation Studio source of truth.
+- The former `docs/TEMPLATE_DRIVEN_GENERATION_AND_API_GOVERNANCE.md` was removed after consolidating its Generation Studio material (source/PDF handling, templates, response mapping, progress, provenance and provider behavior) into `docs/GENERATION_STUDIO_PROVIDER_API.md`. Its assessment-scheduling/remedial-learning topics remain in `docs/LEARNING_PROGRESS_REPORT_AND_ASSESSMENT.md`; its old local daily-quota enforcement claims were not carried forward because they contradict `ProviderStorage`, which treats request counts as diagnostic telemetry rather than an enforced quota gate.
 
 ## 4. Fixed compatibility contract — preserve these foundations
 
