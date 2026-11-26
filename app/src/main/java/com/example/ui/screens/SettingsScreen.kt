@@ -95,6 +95,7 @@ fun SettingsScreen(
     providers: List<ProviderConfig>,
     selectedProvider: ProviderType,
     modelCatalog: List<AiModelDefinition> = emptyList(),
+    canManageAiModels: Boolean = false,
     onAddAiModel: (AiModelDefinition) -> Unit = {},
     onUpdateAiModel: (String, AiModelDefinition) -> Unit = { _, _ -> },
     onDeleteAiModel: (String) -> Unit = {},
@@ -331,7 +332,7 @@ fun SettingsScreen(
                 EduPanel(modifier = Modifier.fillMaxWidth()) {
                     Text("كتالوج نماذج الذكاء الاصطناعي", style = MaterialTheme.typography.titleSmall, color = EduInk)
                     Text(
-                        "المعرّفات وأسماء العرض تُدار هنا وتُحفظ محلياً. ملف اتصال API يحتفظ بمفتاحه ومزوده، ويمكن ربطه بنموذج من الكتالوج.",
+                        "هذه قائمة النماذج المركزية التي يديرها مدير النظام. اختيار النموذج هنا لا يغيّر ملف اتصال API.",
                         style = MaterialTheme.typography.bodySmall,
                         color = EduMuted
                     )
@@ -350,10 +351,10 @@ fun SettingsScreen(
                                 )
                                 if (model.isDefault) Text("النموذج الافتراضي", color = EduGreenDark, style = MaterialTheme.typography.labelSmall)
                             }
-                            TextButton(onClick = { onSetDefaultAiModel(model.provider, model.modelId) }) {
+                            if (canManageAiModels) TextButton(onClick = { onSetDefaultAiModel(model.provider, model.modelId) }) {
                                 Text(if (model.isDefault) "افتراضي" else "تعيين")
                             }
-                            TextButton(onClick = {
+                            if (canManageAiModels) TextButton(onClick = {
                                 editingModelId = model.modelId
                                 modelIdInput = model.modelId
                                 modelNameInput = model.displayName
@@ -361,48 +362,51 @@ fun SettingsScreen(
                             TextButton(onClick = { onDeleteAiModel(model.modelId) }) { Text("حذف", color = EduRed) }
                         }
                     }
-                    Text(
-                        if (editingModelId == null) "إضافة نموذج لمزود الخدمة المحدد" else "تعديل النموذج المحدد",
-                        color = EduInk,
-                        style = MaterialTheme.typography.labelMedium
-                    )
-                    SettingsField(
-                        value = modelIdInput,
-                        onValueChange = { modelIdInput = it },
-                        testTag = "ai_model_id_input"
-                    )
-                    SettingsField(
-                        value = modelNameInput,
-                        onValueChange = { modelNameInput = it },
-                        testTag = "ai_model_name_input"
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(
-                            onClick = {
-                                val current = modelCatalog.firstOrNull { it.modelId == editingModelId }
-                                val entry = (current ?: AiModelDefinition(
-                                    modelId = modelIdInput.trim(),
-                                    displayName = modelNameInput.trim(),
-                                    provider = form.provider
-                                )).copy(
-                                    modelId = modelIdInput.trim(),
-                                    displayName = modelNameInput.trim()
-                                )
-                                if (editingModelId == null) onAddAiModel(entry)
-                                else onUpdateAiModel(editingModelId!!, entry)
+                    if (canManageAiModels) {
+                        Text(
+                            if (editingModelId == null) "إضافة نموذج لمزود الخدمة المحدد" else "تعديل النموذج المحدد",
+                            color = EduInk,
+                            style = MaterialTheme.typography.labelMedium
+                        )
+                        SettingsField(
+                            value = modelIdInput,
+                            onValueChange = { modelIdInput = it },
+                            testTag = "ai_model_id_input"
+                        )
+                        SettingsField(
+                            value = modelNameInput,
+                            onValueChange = { modelNameInput = it },
+                            testTag = "ai_model_name_input"
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(
+                                onClick = {
+                                    val current = modelCatalog.firstOrNull { it.modelId == editingModelId }
+                                    val entry = (current ?: AiModelDefinition(
+                                        modelId = modelIdInput.trim(),
+                                        displayName = modelNameInput.trim(),
+                                        provider = form.provider
+                                    )).copy(
+                                        modelId = modelIdInput.trim(),
+                                        displayName = modelNameInput.trim()
+                                    )
+                                    if (editingModelId == null) onAddAiModel(entry)
+                                    else onUpdateAiModel(editingModelId!!, entry)
+                                    modelIdInput = ""
+                                    modelNameInput = ""
+                                    editingModelId = null
+                                },
+                                enabled = modelIdInput.isNotBlank() && modelNameInput.isNotBlank()
+                            ) {
+                                Text(if (editingModelId == null) "إضافة النموذج" else "حفظ التعديل")
+                            }
+                            TextButton(onClick = {
                                 modelIdInput = ""
                                 modelNameInput = ""
                                 editingModelId = null
-                            },
-                            enabled = modelIdInput.isNotBlank() && modelNameInput.isNotBlank()
-                        ) {
-                            Text(if (editingModelId == null) "إضافة النموذج" else "حفظ التعديل")
+                            }) { Text("إلغاء") }
                         }
-                        TextButton(onClick = {
-                            modelIdInput = ""
-                            modelNameInput = ""
-                            editingModelId = null
-                        }) { Text("إلغاء") }
+    
                     }
                 }
             }
