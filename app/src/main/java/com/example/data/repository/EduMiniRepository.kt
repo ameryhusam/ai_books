@@ -793,7 +793,6 @@ class EduMiniRepository(
     }
 
     suspend fun approveDraft(draftId: String): Int {
-        dao.updateDraftStatus(draftId, DraftStatus.APPROVED.id)
         val draft = dao.getDraftById(draftId) ?: return 0
         val task = TaskType.fromId(draft.task)
         val lessonRef = dao.getLessonsForWorkspaceSnapshot(draft.workspaceId)
@@ -829,9 +828,13 @@ class EduMiniRepository(
                     responseSchemaJson = draft.responseSchemaJson
                 )
             }
+            dao.updateDraftStatus(draftId, DraftStatus.APPROVED.id)
             return 0
         }
-        if (task != TaskType.QUESTIONS && task != TaskType.INTERACTIVE) return 0
+        if (task != TaskType.QUESTIONS && task != TaskType.INTERACTIVE) {
+            dao.updateDraftStatus(draftId, DraftStatus.APPROVED.id)
+            return 0
+        }
         if (task == TaskType.INTERACTIVE) {
             val activity = InteractiveActivityParser.parse(draft.content, lessonRef.title) ?: return 0
             val synced = questionBankService.syncInteractiveCheckpointsToQuestionBank(
@@ -852,9 +855,11 @@ class EduMiniRepository(
                     publishForStudents = true
                 )
             }
+            dao.updateDraftStatus(draftId, DraftStatus.APPROVED.id)
             return synced.size
         }
-        return saveQuestionsFromDraftText(
+        val expectedBatch = QuestionResponseContract.expectedBatchFromPrompt(draft.promptUsed)
+        val savedQuestions = saveQuestionsFromDraftText(
             workspaceId = draft.workspaceId,
             lesson = lessonRef,
             rawText = draft.content,
@@ -862,8 +867,12 @@ class EduMiniRepository(
             templateId = draft.templateId,
             promptUsed = draft.promptUsed,
             responseSchemaJson = draft.responseSchemaJson,
-            sourceIndexSha256 = draft.sourceIndexSha256
-        ).size
+            sourceIndexSha256 = draft.sourceIndexSha256,
+            expectedQuestionCount = expectedBatch?.count,
+            expectedQuestionTypeIds = expectedBatch?.typeIds.orEmpty()
+        )
+        dao.updateDraftStatus(draftId, DraftStatus.APPROVED.id)
+        return savedQuestions.size
     }
 
     suspend fun buildAndPublishInteractiveBundle(
