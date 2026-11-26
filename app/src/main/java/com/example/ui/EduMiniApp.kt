@@ -697,6 +697,7 @@ private fun AuthenticatedEduMiniContent(
                                             lessonPackages = lessonPackages,
                                             teacherNote = currentTeacherNote,
                                             promptTemplates = promptTemplates,
+                                            activePromptTemplateId = state.activePromptTemplateId,
                                             isBusy = state.isBusy,
                                             onBackToLibrary = { viewModel.navigateTo(AppPage.LIBRARY) },
                                             onSelectLesson = viewModel::selectLessonInStudio,
