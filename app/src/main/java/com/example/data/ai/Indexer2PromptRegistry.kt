@@ -278,30 +278,17 @@ object Indexer2PromptRegistry {
         val safeCount = questionCount.coerceIn(1, 30)
         val blueprint = blueprintFor(task)
         val taskInstruction = task.labelAr
-        val requestedQuestionTypes = if (questionTypeIds.isEmpty()) {
-            listOf(QuestionType.MCQ, QuestionType.TRUE_FALSE, QuestionType.SHORT_ANSWER)
+        val requestedQuestionTypes = QuestionResponseContract.effectiveTypes(questionTypeIds)
+        val typeDistribution = if (task == TaskType.QUESTIONS) {
+            QuestionResponseContract.expectedDistribution(safeCount, questionTypeIds)
         } else {
-            QuestionType.entries.filter { it.id in questionTypeIds }
-        }
-        require(task != TaskType.QUESTIONS || requestedQuestionTypes.isNotEmpty()) {
-            "يجب اختيار نوع سؤال واحد على الأقل من الأنواع المدعومة."
-        }
-        require(task != TaskType.QUESTIONS || requestedQuestionTypes.size <= safeCount) {
-            "عدد أنواع الأسئلة المختارة أكبر من العدد الإجمالي للأسئلة. زد العدد أو قلّل الأنواع."
+            emptyMap()
         }
         val languageInstruction = when (questionLanguage.trim().lowercase()) {
             "en" -> "English"
             "ar_en" -> "Arabic and English (bilingual question and answer text)"
             else -> "Arabic"
         }
-        val typeDistribution = if (requestedQuestionTypes.isEmpty()) emptyList() else {
-            val baseCount = safeCount / requestedQuestionTypes.size
-            val remainder = safeCount % requestedQuestionTypes.size
-            requestedQuestionTypes.mapIndexed { index, type ->
-                type.id to (baseCount + if (index < remainder) 1 else 0)
-            }
-        }
-
         return buildString {
             append("أنت مساعد إعداد محتوى تعليمي. أنشئ ")
             append(taskInstruction)
