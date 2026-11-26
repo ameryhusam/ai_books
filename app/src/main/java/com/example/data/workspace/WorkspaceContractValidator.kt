@@ -99,22 +99,24 @@ object WorkspaceContractValidator {
             ) {
                 errors.add("[book_manifest.json → canonicalIndexSha256] بصمة الفهرس canonical غير صالحة أو لا تطابق ملف index.json الحالي.")
             }
-            val manifestPartKey = manifest?.string("partKey").orEmpty().uppercase(Locale.ROOT)
-            val indexPartKey = index.string("partKey").uppercase(Locale.ROOT)
-            if (sourceLayout.equals("SINGLE_PART_FILE", ignoreCase = true)) {
-                if (manifestPartKey !in setOf("P01", "P02") || indexPartKey != manifestPartKey) {
-                    errors.add("[book_manifest.json / index.json → partKey] مصدر مستقل يتطلب partKey متطابقًا P01 أو P02 في manifest والفهرس.")
-                }
-                val expectedPath = "$manifestPartKey/index.json"
-                if (canonicalIndexPath.isNotBlank() && !canonicalIndexPath.equals(expectedPath, ignoreCase = true)) {
-                    errors.add("[book_manifest.json → canonicalIndexPath] المسار '$canonicalIndexPath' لا يطابق الفهرس المستقل المتوقع '$expectedPath'.")
-                }
-            } else if (sourceLayout.equals("MERGED_PARTS_FILE", ignoreCase = true)) {
-                if (manifestPartKey != "BOTH" || indexPartKey != "BOTH") {
-                    errors.add("[book_manifest.json / index.json → partKey] المصدر المدمج يجب أن يحمل partKey=BOTH على مستوى المصدر.")
-                }
-                if (canonicalIndexPath.isNotBlank() && !canonicalIndexPath.equals("index.json", ignoreCase = true)) {
-                    errors.add("[book_manifest.json → canonicalIndexPath] الفهرس الأم للمصدر المدمج يجب أن يكون index.json في الجذر.")
+            if (canonicalIndexPath.isNotBlank() || canonicalIndexSha.isNotBlank()) {
+                val manifestPartKey = manifest?.string("partKey").orEmpty().uppercase(Locale.ROOT)
+                val indexPartKey = index.string("partKey").uppercase(Locale.ROOT)
+                if (sourceLayout.equals("SINGLE_PART_FILE", ignoreCase = true)) {
+                    if (manifestPartKey !in setOf("P01", "P02") || indexPartKey != manifestPartKey) {
+                        errors.add("[book_manifest.json / index.json → partKey] مصدر مستقل يتطلب partKey متطابقًا P01 أو P02 في manifest والفهرس.")
+                    }
+                    val expectedPath = "$manifestPartKey/index.json"
+                    if (canonicalIndexPath.isNotBlank() && !canonicalIndexPath.equals(expectedPath, ignoreCase = true)) {
+                        errors.add("[book_manifest.json → canonicalIndexPath] المسار '$canonicalIndexPath' لا يطابق الفهرس المستقل المتوقع '$expectedPath'.")
+                    }
+                } else if (sourceLayout.equals("MERGED_PARTS_FILE", ignoreCase = true)) {
+                    if (manifestPartKey != "BOTH" || indexPartKey != "BOTH") {
+                        errors.add("[book_manifest.json / index.json → partKey] المصدر المدمج يجب أن يحمل partKey=BOTH على مستوى المصدر.")
+                    }
+                    if (canonicalIndexPath.isNotBlank() && !canonicalIndexPath.equals("index.json", ignoreCase = true)) {
+                        errors.add("[book_manifest.json → canonicalIndexPath] الفهرس الأم للمصدر المدمج يجب أن يكون index.json في الجذر.")
+                    }
                 }
             }
 
