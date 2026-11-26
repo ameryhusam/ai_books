@@ -84,7 +84,8 @@ object QuestionBankEngine {
         workspaceId: String,
         lesson: LessonRef,
         expectedCount: Int,
-        selectedTypeIds: List<String>
+        selectedTypeIds: List<String>,
+        expectedDifficultyId: String? = null
     ): List<QuestionItem> {
         val cleaned = rawText.trim()
             .removePrefix("```json")
@@ -94,7 +95,7 @@ object QuestionBankEngine {
         val root = runCatching { json.parseToJsonElement(cleaned) }.getOrElse {
             throw IllegalArgumentException("استجابة الأسئلة ليست JSON صالحاً: ${it.message ?: "خطأ تحليل"}")
         } as? JsonObject ?: throw IllegalArgumentException("يجب أن يكون جذر استجابة الأسئلة كائن JSON.")
-        val schemaIssues = TemplateOutputValidator.validateOutput(cleaned, QuestionResponseContract.schemaFor(selectedTypeIds))
+        val schemaIssues = TemplateOutputValidator.validateOutput(cleaned, QuestionResponseContract.schemaFor(selectedTypeIds, expectedDifficultyId))
         require(schemaIssues.isEmpty()) {
             "استجابة الأسئلة لا تطابق عقد بنك الأسئلة: ${schemaIssues.take(5).joinToString("; ")}"
         }
@@ -122,6 +123,11 @@ object QuestionBankEngine {
             val difficultyId = firstStr(obj, "difficulty")
             if (QuestionDifficulty.entries.none { it.id == difficultyId }) {
                 throw IllegalArgumentException("مستوى صعوبة السؤال رقم ${index + 1} غير صالح: '$difficultyId'.")
+            }
+            if (!expectedDifficultyId.isNullOrBlank() && difficultyId != expectedDifficultyId) {
+                throw IllegalArgumentException(
+                    "مستوى صعوبة السؤال رقم ${index + 1} هو '$difficultyId' بينما المستوى المطلوب '$expectedDifficultyId'."
+                )
             }
             val prompt = firstStr(obj, "prompt")
             require(prompt.isNotBlank()) { "نص السؤال رقم ${index + 1} فارغ." }
