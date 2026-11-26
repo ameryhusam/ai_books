@@ -220,6 +220,8 @@ class AiGenerationService(
         extra: String,
         providers: List<ProviderConfig>,
         selectedProvider: ProviderType,
+        requestedModelId: String,
+        requestedProfileId: String,
         questionCount: Int = 5,
         pdfPageImagesBase64: List<String> = emptyList(),
         questionStyleHint: String = "",
@@ -236,7 +238,10 @@ class AiGenerationService(
         onProviderStateChanged: (suspend (providerId: String, status: String, retryAfterEpochMs: Long) -> Unit)? = null,
         onAttemptFinished: (suspend (providerLabel: String, model: String, success: Boolean, error: String?) -> Unit)? = null
     ): GeneratedResult = withContext(Dispatchers.IO) {
+        require(requestedModelId.isNotBlank()) { "يجب اختيار نموذج من كتالوج مدير النظام." }
+        require(requestedProfileId.isNotBlank()) { "يجب اختيار ملف اتصال API." }
         val active = ProviderRoutingPolicy.activeProfiles(providers, selectedProvider)
+            .filter { it.id == requestedProfileId }
 
         if (active.isEmpty()) {
             throw IllegalStateException("لا يوجد ملف ${selectedProvider.displayName} فعّال بمفتاح ونموذج صالحين. لا يتم التحويل تلقائياً إلى مزود آخر.")
@@ -257,12 +262,11 @@ class AiGenerationService(
         val errors = mutableListOf<String>()
 
         for (profile in active) {
-            val configuredModelCandidates = ProviderRoutingPolicy.modelCandidates(profile)
-            val modelCandidates = if (profile.provider == ProviderType.GEMINI) {
-                configuredModelCandidates.filterNot { geminiModelRouter.isCoolingDown(profile.id, it) }
-            } else {
-                configuredModelCandidates
-            }
+            // The selected model is exact: do not silently substitute a profile fallback.
+            val modelCandidates = if (
+                profile.provider == ProviderType.GEMINI &&
+                geminiModelRouter.isCoolingDown(profile.id, requestedModelId)
+            ) emptyList() else listOf(requestedModelId)
             if (modelCandidates.isEmpty()) {
                 val message = "${profile.label}: لا توجد نماذج متاحة لهذا المفتاح حالياً"
                 errors.add(message)
@@ -274,7 +278,7 @@ class AiGenerationService(
 
             var geminiRateLimitObserved = false
             modelLoop@ for (modelName in modelCandidates) {
-                val candidateProfile = profile.copy(model = modelName)
+                val candidateProfile = profile.copy(model = modelName, fallbackModels = emptyList(), strictModel = true)
                 val expectJson = responseFormat.equals("json", ignoreCase = true) || responseSchemaJson.isNotBlank()
                 var retry = 0
                 while (retry < 3) {
