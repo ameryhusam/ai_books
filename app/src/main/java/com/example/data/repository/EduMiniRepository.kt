@@ -1673,10 +1673,22 @@ class EduMiniRepository(
         templateId: String = "",
         promptUsed: String = "",
         responseSchemaJson: String = "",
-        sourceIndexSha256: String = ""
+        sourceIndexSha256: String = "",
+        expectedQuestionCount: Int? = null,
+        expectedQuestionTypeIds: List<String> = emptyList()
     ): List<QuestionItem> {
         val canonicalWs = workspaceId.ifBlank { lesson.workspaceId }.ifBlank { lesson.rootPath }
-        val parsed = QuestionBankEngine.parseQuestionsFromText(rawText, canonicalWs, lesson)
+        val parsed = if (expectedQuestionCount != null) {
+            QuestionBankEngine.parseGeneratedQuestions(
+                rawText = rawText,
+                workspaceId = canonicalWs,
+                lesson = lesson,
+                expectedCount = expectedQuestionCount,
+                selectedTypeIds = expectedQuestionTypeIds
+            )
+        } else {
+            QuestionBankEngine.parseQuestionsFromText(rawText, canonicalWs, lesson)
+        }
         if (parsed.isEmpty()) return emptyList()
         val effectiveIndexSha = sourceIndexSha256.ifBlank {
             dao.getWorkspaceIndexForBook(canonicalWs, lesson.bookKey)?.indexSha256.orEmpty()
@@ -1689,7 +1701,8 @@ class EduMiniRepository(
             templateId = templateId,
             promptUsed = promptUsed,
             responseSchemaJson = responseSchemaJson,
-            sourceIndexSha256 = effectiveIndexSha
+            sourceIndexSha256 = effectiveIndexSha,
+            requireAllNew = expectedQuestionCount != null
         )
     }
 
