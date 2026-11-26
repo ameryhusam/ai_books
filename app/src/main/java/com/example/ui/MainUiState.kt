@@ -58,6 +58,8 @@ data class MainUiState(
     val task: TaskType = TaskType.QUESTIONS,
     val activePromptTemplateId: String = "",
     val questionCount: Int = 5,
+    val selectedQuestionTypeIds: List<String> = QuestionType.entries.map { it.id },
+    val questionLanguage: String = "ar",
     val questionStyle: String = "متنوعة",
     val questionDifficulty: QuestionDifficulty = QuestionDifficulty.MEDIUM,
     val attachPdfPages: Boolean = true,
