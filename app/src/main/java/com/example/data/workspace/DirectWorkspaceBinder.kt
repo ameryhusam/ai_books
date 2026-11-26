@@ -681,10 +681,13 @@ class DirectWorkspaceBinder(private val context: Context) {
             val identityBookRel = if (isPartLocalIndex) bookRel.substringBeforeLast('/') else bookRel
             val partKeyFromPath = if (isPartLocalIndex) bookRel.substringAfterLast('/').uppercase() else null
             val segments = if (identityBookRel.isBlank()) emptyList() else identityBookRel.split('/').filter { it.isNotBlank() }
-            val manifestEntry = firstExisting(
+            val localManifestEntry = firstExisting(
                 entryMap,
                 joinRel(bookRel, "book_manifest.json"),
-                joinRel(bookRel, "manifest.json"),
+                joinRel(bookRel, "manifest.json")
+            )
+            val manifestEntry = localManifestEntry ?: firstExisting(
+                entryMap,
                 joinRel(identityBookRel, "book_manifest.json"),
                 joinRel(identityBookRel, "manifest.json")
             )
@@ -694,9 +697,9 @@ class DirectWorkspaceBinder(private val context: Context) {
                 }.getOrNull()
             }
             val parentIndexExists = isPartLocalIndex && firstExisting(entryMap, joinRel(identityBookRel, "index.json")) != null
-            if (isPartLocalIndex &&
-                manifestObj?.str("sourceLayout").equals("MERGED_PARTS_FILE", ignoreCase = true) &&
-                parentIndexExists
+            if (isPartLocalIndex && parentIndexExists &&
+                (localManifestEntry == null ||
+                    manifestObj?.str("sourceLayout").equals("MERGED_PARTS_FILE", ignoreCase = true))
             ) {
                 // A merged part index is a derived view. Bind the merged root index once.
                 continue
