@@ -439,6 +439,21 @@ class EduMiniRepository(
 
     suspend fun loadProviders(): List<ProviderConfig> = providerStorage.loadProviders()
 
+    suspend fun loadAiModelCatalog(): List<com.example.data.ai.AiModelDefinition> =
+        providerStorage.loadModelCatalog()
+
+    suspend fun addAiModel(model: com.example.data.ai.AiModelDefinition) =
+        providerStorage.addModelDefinition(model)
+
+    suspend fun updateAiModel(originalModelId: String, model: com.example.data.ai.AiModelDefinition) =
+        providerStorage.updateModelDefinition(originalModelId, model)
+
+    suspend fun deleteAiModel(modelId: String) =
+        providerStorage.deleteModelDefinition(modelId)
+
+    suspend fun setDefaultAiModel(provider: ProviderType, modelId: String) =
+        providerStorage.setDefaultModel(provider, modelId)
+
     suspend fun loadSelectedProviderType(): ProviderType = providerStorage.loadSelectedProviderType()
 
     suspend fun saveSelectedProviderType(type: ProviderType) = providerStorage.saveSelectedProviderType(type)
