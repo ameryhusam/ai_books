@@ -362,7 +362,8 @@ class MainViewModel(
                     }
                 }
             }
-        }        viewModelScope.launch {
+        }
+        viewModelScope.launch {
             runCatching { repository.ensureDefaultPromptTemplates() }
             runCatching { repository.loadProviders() }
                 .onSuccess { loaded ->
