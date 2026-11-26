@@ -5,7 +5,6 @@ import com.example.model.LessonRef
 import com.example.model.PromptBlueprintSpec
 import com.example.model.TaskType
 import com.example.model.QuestionType
-import com.example.data.ai.QuestionResponseContract
 
 object Indexer2PromptRegistry {
 
