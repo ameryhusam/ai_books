@@ -87,14 +87,17 @@ object BookMetadataMapper {
         return clean.takeIf { components.containsKey(it) }
     }
 
-    fun gradeDisplayName(gradeKey: String?): String? =
-        normalizeGradeKey(gradeKey)?.let(grades::get)
+    fun gradeDisplayName(gradeKey: String?, declaredGradeName: String? = null): String? =
+        declaredGradeName?.trim()?.takeIf { it.isNotEmpty() }
+            ?: normalizeGradeKey(gradeKey)?.let(grades::get)
 
-    fun subjectDisplayName(subjectKey: String?): String? =
-        normalizeSubjectKey(subjectKey)?.let(subjects::get)
+    fun subjectDisplayName(subjectKey: String?, declaredSubjectName: String? = null): String? =
+        declaredSubjectName?.trim()?.takeIf { it.isNotEmpty() }
+            ?: normalizeSubjectKey(subjectKey)?.let(subjects::get)
 
-    fun componentDisplayName(componentKey: String?): String? =
-        normalizeComponentKey(componentKey)?.let(components::get)
+    fun componentDisplayName(componentKey: String?, declaredComponentName: String? = null): String? =
+        declaredComponentName?.trim()?.takeIf { it.isNotEmpty() }
+            ?: normalizeComponentKey(componentKey)?.let(components::get)
 
     fun isValidBookIdentity(gradeKey: String?, subjectKey: String?, componentKey: String?): Boolean {
         val grade = normalizeGradeKey(gradeKey) ?: return false
@@ -113,7 +116,10 @@ object BookMetadataMapper {
     fun mapBookMetadata(
         gradeKey: String?,
         subjectKey: String?,
-        componentKey: String?
+        componentKey: String?,
+        declaredGradeName: String? = null,
+        declaredSubjectName: String? = null,
+        declaredComponentName: String? = null
     ): BookDisplayMetadata {
         val grade = normalizeGradeKey(gradeKey)
         val subject = normalizeSubjectKey(subjectKey)
@@ -123,11 +129,11 @@ object BookMetadataMapper {
         val valid = isValidBookIdentity(grade, subject, componentKey)
         return BookDisplayMetadata(
             gradeKey = grade,
-            gradeName = grade?.let(grades::get),
+            gradeName = gradeDisplayName(grade, declaredGradeName),
             subjectKey = subject,
-            subjectName = subject?.let(subjects::get),
+            subjectName = subjectDisplayName(subject, declaredSubjectName),
             componentKey = component,
-            componentName = component?.let(components::get),
+            componentName = componentDisplayName(component, declaredComponentName),
             isKnown = valid
         )
     }
