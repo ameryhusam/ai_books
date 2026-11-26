@@ -480,7 +480,7 @@ fun SettingsScreen(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        modelCatalog.filter { it.provider == form.provider && it.supportsGenerateContent }.forEach { model ->
+                        modelCatalog.filter { it.provider == form.provider && it.isEnabled && it.supportsGenerateContent && it.lifecycleStatus != AiModelDefinition.STATUS_DEPRECATED }.forEach { model ->
                             EduPill(
                                 text = model.displayName,
                                 active = form.model == model.modelId,
@@ -504,7 +504,7 @@ fun SettingsScreen(
                             .map { it.trim() }
                             .filter { it.isNotBlank() }
                             .toSet()
-                        modelCatalog.filter { it.provider == form.provider && it.supportsGenerateContent && it.modelId != form.model }
+                        modelCatalog.filter { it.provider == form.provider && it.isEnabled && it.supportsGenerateContent && it.lifecycleStatus != AiModelDefinition.STATUS_DEPRECATED && it.modelId != form.model }
                             .forEach { model ->
                                 EduPill(
                                     text = model.displayName,
