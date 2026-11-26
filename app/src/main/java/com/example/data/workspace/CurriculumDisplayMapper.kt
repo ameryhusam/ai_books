@@ -2,8 +2,8 @@ package com.example.data.workspace
 
 /**
  * Compatibility facade for existing UI call sites.
- * All canonical labels and validation now come from BookMetadataMapper.
- * Declared display strings in index/manifest are deliberately not authoritative.
+ * Canonical keys and identity validation remain controlled by BookMetadataMapper.
+ * Declared display names from the canonical Indexer2 index may override labels without changing keys.
  */
 @Deprecated("Use BookMetadataMapper; this facade will be removed after call-site migration.")
 object CurriculumDisplayMapper {
@@ -11,11 +11,11 @@ object CurriculumDisplayMapper {
         BookMetadataMapper.normalizeGradeKey(raw).orEmpty()
 
     fun gradeDisplayName(gradeKey: String?, declaredGradeName: String? = null): String =
-        BookMetadataMapper.gradeDisplayName(gradeKey).orEmpty()
+        BookMetadataMapper.gradeDisplayName(gradeKey, declaredGradeName).orEmpty()
 
     fun gradeBadgeLabel(gradeKey: String?, declaredGradeName: String? = null): String {
         val normalized = BookMetadataMapper.normalizeGradeKey(gradeKey) ?: return ""
-        val label = BookMetadataMapper.gradeDisplayName(normalized) ?: return normalized
+        val label = BookMetadataMapper.gradeDisplayName(normalized, declaredGradeName) ?: return normalized
         return "$normalized • $label"
     }
 
@@ -24,13 +24,13 @@ object CurriculumDisplayMapper {
         componentKey: String? = null,
         declaredSubjectName: String? = null
     ): String {
-        val subject = BookMetadataMapper.subjectDisplayName(subjectKey).orEmpty()
+        val subject = BookMetadataMapper.subjectDisplayName(subjectKey, declaredSubjectName).orEmpty()
         val component = BookMetadataMapper.componentDisplayName(componentKey)
         return if (component != null) "$subject • $component" else subject
     }
 
-    fun componentDisplayName(componentKey: String?): String? =
-        BookMetadataMapper.componentDisplayName(componentKey)
+    fun componentDisplayName(componentKey: String?, declaredComponentName: String? = null): String? =
+        BookMetadataMapper.componentDisplayName(componentKey, declaredComponentName)
 
     fun partDisplayName(partKey: String?): String? =
         when (partKey?.trim()?.uppercase()) {
