@@ -5,6 +5,8 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.firebase.AnalyticsTracker
+import com.example.data.ai.AiModelDefinition
+import com.example.data.ai.AiModelCatalogDefaults
 import com.example.data.firebase.FirestoreSyncRepository
 import com.example.data.repository.ConceptMasteryEngine
 import com.example.data.repository.EduMiniRepository
@@ -325,6 +327,15 @@ class MainViewModel(
 
     init {
         loadLearnerProfiles()
+        viewModelScope.launch {
+            runCatching { repository.loadAiModelCatalog() }
+                .onSuccess { catalog -> _uiState.update { it.copy(aiModelCatalog = catalog) } }
+                .onFailure { error ->
+                    _uiState.update {
+                        it.copy(alert = AlertMessage("تعذر تحميل فهرس النماذج", error.message ?: "تعذر قراءة إعدادات النماذج."))
+                    }
+                }
+        }
         viewModelScope.launch {
             runCatching { repository.ensureDefaultPromptTemplates() }
             runCatching { repository.loadProviders() }
@@ -1978,6 +1989,54 @@ class MainViewModel(
                     }
                 )
             }
+        }
+    }
+
+    fun addAiModel(model: AiModelDefinition) {
+        viewModelScope.launch {
+            runCatching { repository.addAiModel(model) }
+                .onSuccess {
+                    _uiState.update { it.copy(aiModelCatalog = repository.loadAiModelCatalog(), toastMessage = "تمت إضافة النموذج.") }
+                }
+                .onFailure { error -> _uiState.update { it.copy(alert = AlertMessage("تعذر إضافة النموذج", error.message ?: "تحقق من بيانات النموذج.")) } }
+        }
+    }
+
+    fun updateAiModel(originalModelId: String, model: AiModelDefinition) {
+        viewModelScope.launch {
+            runCatching { repository.updateAiModel(originalModelId, model) }
+                .onSuccess {
+                    _uiState.update {
+                        it.copy(
+                            aiModelCatalog = repository.loadAiModelCatalog(),
+                            providers = repository.loadProviders(),
+                            toastMessage = "تم تحديث بيانات النموذج."
+                        )
+                    }
+                }
+                .onFailure { error -> _uiState.update { it.copy(alert = AlertMessage("تعذر تعديل النموذج", error.message ?: "تحقق من بيانات النموذج.")) } }
+        }
+    }
+
+    fun deleteAiModel(modelId: String) {
+        viewModelScope.launch {
+            runCatching { repository.deleteAiModel(modelId) }
+                .onSuccess {
+                    _uiState.update { it.copy(aiModelCatalog = repository.loadAiModelCatalog(), toastMessage = "تم حذف النموذج.") }
+                }
+                .onFailure { error -> _uiState.update { it.copy(alert = AlertMessage("تعذر حذف النموذج", error.message ?: "قد يكون النموذج مستخدماً في ملف اتصال.")) } }
+        }
+    }
+
+    fun setDefaultAiModel(provider: ProviderType, modelId: String) {
+        viewModelScope.launch {
+            runCatching { repository.setDefaultAiModel(provider, modelId) }
+                .onSuccess {
+                    _uiState.update {
+                        it.copy(aiModelCatalog = repository.loadAiModelCatalog(), toastMessage = "تم تغيير النموذج الافتراضي.")
+                    }
+                }
+                .onFailure { error -> _uiState.update { it.copy(alert = AlertMessage("تعذر تغيير النموذج الافتراضي", error.message ?: "النموذج غير متاح.")) } }
         }
     }
 
