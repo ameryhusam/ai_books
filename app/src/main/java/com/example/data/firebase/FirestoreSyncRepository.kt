@@ -379,6 +379,25 @@ class FirestoreSyncRepository(
      * System-wide catalogue. All signed-in users can read; Firestore rules
      * restrict every mutation to accounts whose users/{uid}.role is admin.
      */
+    suspend fun fetchAiModelCatalog(): List<AiModelDefinition> {
+        requireUserId()
+        return requireFirestore().collection("ai_model_catalog").get().await().documents.mapNotNull { document ->
+            val modelId = document.getString("modelId") ?: document.id
+            val providerId = document.getString("provider") ?: return@mapNotNull null
+            AiModelDefinition(
+                modelId = modelId,
+                displayName = document.getString("displayName") ?: modelId,
+                provider = com.example.model.ProviderType.fromId(providerId),
+                lifecycleStatus = document.getString("lifecycleStatus") ?: AiModelDefinition.STATUS_AVAILABLE,
+                replacementModelId = document.getString("replacementModelId"),
+                isDefault = document.getBoolean("isDefault") ?: false,
+                isEnabled = document.getBoolean("isEnabled") ?: true,
+                supportsGenerateContent = document.getBoolean("supportsGenerateContent") ?: true,
+                source = document.getString("source") ?: AiModelDefinition.SOURCE_USER
+            )
+        }.sortedWith(compareBy<AiModelDefinition> { it.provider.id }.thenByDescending { it.isDefault }.thenBy { it.displayName })
+    }
+
     fun observeAiModelCatalog(): Flow<List<AiModelDefinition>> = flow {
         requireUserId()
         emitAll(
