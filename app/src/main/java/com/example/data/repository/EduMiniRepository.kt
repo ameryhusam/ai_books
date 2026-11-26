@@ -5,6 +5,7 @@ import android.net.Uri
 import com.example.data.ai.AiGenerationService
 import com.example.data.ai.Indexer2PromptRegistry
 import com.example.data.ai.TemplateResponseAdapter
+import com.example.data.ai.QuestionResponseContract
 import com.example.data.ai.TemplateOutputValidator
 import com.example.data.local.AssessmentAttemptEntity
 import com.example.data.local.AssessmentEntity
@@ -560,9 +561,18 @@ class EduMiniRepository(
         require(effectiveSource.isNotBlank() || pdfPayload != null || pageImages.isNotEmpty()) {
             "لم يتم تجهيز نص أو ملف PDF صالح؛ تحقق من مسار ملف الدرس ثم أعد المحاولة."
         }
-        val responseSchema = activeTemplate?.responseSchemaJson.orEmpty()
-        val responseFormat = activeTemplate?.responseFormat
-            ?: if (responseSchema.isNotBlank()) "json" else "text"
+        // Question JSON is derived from the canonical question-content contract, not a second editable template schema.
+        val responseSchema = if (task == TaskType.QUESTIONS) {
+            QuestionResponseContract.schemaJson
+        } else {
+            activeTemplate?.responseSchemaJson.orEmpty()
+        }
+        val responseMapping = if (task == TaskType.QUESTIONS) "" else activeTemplate?.responseMappingJson.orEmpty()
+        val responseFormat = if (task == TaskType.QUESTIONS) {
+            "json"
+        } else {
+            activeTemplate?.responseFormat ?: if (responseSchema.isNotBlank()) "json" else "text"
+        }
         if (responseFormat.equals("json", ignoreCase = true)) {
             val schemaIssues = TemplateOutputValidator.validateSchema(responseSchema)
             if (schemaIssues.isNotEmpty()) {
@@ -579,7 +589,7 @@ class EduMiniRepository(
             listOf(templateInstructions, extra.trim()).filter { it.isNotBlank() }.distinct().joinToString("\n\n")
         }
         val schemaHash = sha256Full(responseSchema)
-        val mappingHash = sha256Full(activeTemplate?.responseMappingJson.orEmpty())
+        val mappingHash = sha256Full(responseMapping)
         val pdfHash = pdfPayload?.sha256 ?: if (shouldAttachSource && !lesson.pdfPath.isNullOrBlank()) {
             aiGenerationService.sha256LessonPdf(lesson.pdfPath)
         } else ""
@@ -678,7 +688,16 @@ class EduMiniRepository(
                 )
             }
         }
-        val adaptedText = TemplateResponseAdapter.adapt(result.text, activeTemplate?.responseMappingJson.orEmpty())
+        if (task == TaskType.QUESTIONS) {
+            QuestionBankEngine.parseGeneratedQuestions(
+                rawText = result.text,
+                workspaceId = workspaceId.ifBlank { lesson.workspaceId }.ifBlank { lesson.rootPath },
+                lesson = lesson,
+                expectedCount = questionCount,
+                selectedTypeIds = questionTypeIds
+            )
+        }
+        val adaptedText = TemplateResponseAdapter.adapt(result.text, responseMapping)
         onProgress(96, "حساب بصمات المصدر والقالب والمحتوى")
         return if (adaptedText == result.text) result else result.copy(
             text = adaptedText,
