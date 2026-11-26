@@ -29,7 +29,8 @@ object WorkspaceContractValidator {
         expectedGrade: String,
         expectedSubject: String,
         bookRelativePath: String,
-        availableRelativePaths: Set<String>
+        availableRelativePaths: Set<String>,
+        availableIndexSha256: Map<String, String> = emptyMap()
     ): WorkspaceContractValidation {
         val errors = mutableListOf<String>()
         val warnings = mutableListOf<String>()
@@ -88,6 +89,68 @@ object WorkspaceContractValidator {
                 errors.add("[book_manifest.json → indexSha256] بصمة indexSha256 مفقودة أو غير صالحة.")
             } else if (!sha256(indexRaw).equals(expectedIndexSha, ignoreCase = true)) {
                 errors.add("[book_manifest.json → indexSha256] بصمة index.json الحالية لا تطابق indexSha256 المسجلة في book_manifest.json.")
+            }
+
+            val canonicalIndexPath = manifest?.string("canonicalIndexPath").orEmpty()
+            val canonicalIndexSha = manifest?.string("canonicalIndexSha256").orEmpty()
+            if (canonicalIndexSha.isNotBlank() &&
+                (!canonicalIndexSha.matches(Regex("^[a-fA-F0-9]{64}$")) ||
+                    !sha256(indexRaw).equals(canonicalIndexSha, ignoreCase = true))
+            ) {
+                errors.add("[book_manifest.json → canonicalIndexSha256] بصمة الفهرس canonical غير صالحة أو لا تطابق ملف index.json الحالي.")
+            }
+            val manifestPartKey = manifest?.string("partKey").orEmpty().uppercase(Locale.ROOT)
+            val indexPartKey = index.string("partKey").uppercase(Locale.ROOT)
+            if (sourceLayout.equals("SINGLE_PART_FILE", ignoreCase = true)) {
+                if (manifestPartKey !in setOf("P01", "P02") || indexPartKey != manifestPartKey) {
+                    errors.add("[book_manifest.json / index.json → partKey] مصدر مستقل يتطلب partKey متطابقًا P01 أو P02 في manifest والفهرس.")
+                }
+                val expectedPath = "$manifestPartKey/index.json"
+                if (canonicalIndexPath.isNotBlank() && !canonicalIndexPath.equals(expectedPath, ignoreCase = true)) {
+                    errors.add("[book_manifest.json → canonicalIndexPath] المسار '$canonicalIndexPath' لا يطابق الفهرس المستقل المتوقع '$expectedPath'.")
+                }
+            } else if (sourceLayout.equals("MERGED_PARTS_FILE", ignoreCase = true)) {
+                if (manifestPartKey != "BOTH" || indexPartKey != "BOTH") {
+                    errors.add("[book_manifest.json / index.json → partKey] المصدر المدمج يجب أن يحمل partKey=BOTH على مستوى المصدر.")
+                }
+                if (canonicalIndexPath.isNotBlank() && !canonicalIndexPath.equals("index.json", ignoreCase = true)) {
+                    errors.add("[book_manifest.json → canonicalIndexPath] الفهرس الأم للمصدر المدمج يجب أن يكون index.json في الجذر.")
+                }
+            }
+
+            val partIndexes = manifest?.get("partIndexes") as? JsonArray
+            if (!partIndexes.isNullOrEmpty()) {
+                val seenPartIndexPaths = HashSet<String>()
+                partIndexes.forEach { element ->
+                    val partIndex = element as? JsonObject
+                    val relative = partIndex?.string("path").orEmpty().replace('\\', '/').trim()
+                    val expectedHash = partIndex?.string("sha256").orEmpty()
+                    if (relative.isBlank() || relative.startsWith("/") ||
+                        relative.split('/').any { it.isBlank() || it == "." || it == ".." } ||
+                        !relative.matches(Regex("P0[12]/index\\.json", RegexOption.IGNORE_CASE)) ||
+                        !expectedHash.matches(Regex("^[a-fA-F0-9]{64}$"))
+                    ) {
+                        errors.add("[book_manifest.json → partIndexes] مسار أو بصمة فهرس جزء غير صالحة: '$relative'.")
+                        return@forEach
+                    }
+                    val normalizedPath = normalizePath(
+                        if (bookRelativePath.isBlank()) relative else "$bookRelativePath/$relative"
+                    )
+                    if (!seenPartIndexPaths.add(normalizedPath)) {
+                        errors.add("[book_manifest.json → partIndexes] مسار فهرس جزء مكرر: '$relative'.")
+                        return@forEach
+                    }
+                    if (normalizedPath !in availableRelativePaths.map { normalizePath(it) }.toSet()) {
+                        errors.add("[book_manifest.json → partIndexes] ملف الفهرس المشتق غير موجود: '$relative'.")
+                        return@forEach
+                    }
+                    val actualHash = availableIndexSha256[normalizedPath]
+                    if (actualHash.isNullOrBlank()) {
+                        errors.add("[book_manifest.json → partIndexes] تعذر قراءة بصمة الملف المشتق للتحقق: '$relative'.")
+                    } else if (!actualHash.equals(expectedHash, ignoreCase = true)) {
+                        errors.add("[book_manifest.json → partIndexes] بصمة '$relative' لا تطابق القيمة المسجلة في manifest.")
+                    }
+                }
             }
         } else {
             warnings.add("المجلد يستخدم صيغة توافق قديمة أو غير مقيدة؛ لم تتوفر جميع حقول هوية المصدر الحديثة.")
