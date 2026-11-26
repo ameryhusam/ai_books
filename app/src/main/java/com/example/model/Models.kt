@@ -641,6 +641,8 @@ enum class QuestionType(val id: String, val labelAr: String) {
     SHORT_ANSWER("short_answer", "إجابة قصيرة");
 
     companion object {
+        val DEFAULT_GENERATION_IDS: List<String> = listOf(MCQ.id, TRUE_FALSE.id, SHORT_ANSWER.id)
+
         fun fromId(id: String): QuestionType = entries.firstOrNull {
             it.id.equals(id.trim(), ignoreCase = true)
         } ?: MCQ
