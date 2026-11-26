@@ -4040,6 +4040,7 @@ class RobolectricAndroidKeyStoreSpi : java.security.KeyStoreSpi() {
         assertTrue(declaredDisplay.isKnown)
         assertNull(mapper.gradeDisplayName("G99"))
         assertNull(mapper.subjectDisplayName("PHY"))
+        assertNull(mapper.subjectDisplayName("PHY", "اسم عرض غير معتمد"))
         assertNull(mapper.componentDisplayName("STUDENT"))
         assertFalse(mapper.isValidBookIdentity("G07", "SCI", "WB"))
         assertFalse(mapper.isValidBookIdentity("G10", "SCI", null))
