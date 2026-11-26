@@ -12,7 +12,8 @@ enum class TaskType(val id: String, val labelAr: String) {
     LESSON_REVIEW("lesson_review", "مراجعة الدرس"),
     DIFFICULTY_ADAPTER("difficulty_adapter", "تكييف الصعوبة"),
     INTERACTIVE("interactive", "درس تفاعلي"),
-    QUESTIONS("questions", "بنك الأسئلة");
+    QUESTIONS("questions", "بنك الأسئلة"),
+    LESSON_TEXT("lesson_text", "حفظ نص الدرس");
 
     companion object {
         fun fromId(id: String): TaskType = entries.firstOrNull { it.id == id } ?: EXPLANATION
@@ -258,7 +259,9 @@ data class GeneratedResult(
     val responseSchemaHash: String = "",
     val requestFingerprint: String = "",
     val contentHash: String = "",
-    val sourcePdfHash: String = ""
+    val sourcePdfHash: String = "",
+    val promptUsed: String = "",
+    val responseSchemaJson: String = ""
 )
 
 data class DraftRecord(
@@ -283,7 +286,30 @@ data class DraftRecord(
     val responseSchemaHash: String = "",
     val requestFingerprint: String = "",
     val contentHash: String = "",
-    val sourcePdfHash: String = ""
+    val sourcePdfHash: String = "",
+    val promptUsed: String = "",
+    val responseSchemaJson: String = "",
+    val sourceIndexSha256: String = ""
+)
+
+data class LessonTextRecord(
+    val workspaceId: String,
+    val gradeKey: String,
+    val bookKey: String,
+    val unitKey: String,
+    val lessonKey: String,
+    val lessonTitle: String,
+    val content: String,
+    val extractionMethod: String = "manual",
+    val sourcePages: String? = null,
+    val sourcePdfHash: String = "",
+    val sourceIndexSha256: String = "",
+    val templateId: String = "",
+    val promptUsed: String = "",
+    val responseSchemaJson: String = "",
+    val contentHash: String = "",
+    val version: Int = 1,
+    val updatedAt: String = ""
 )
 
 data class GenerationRunRecord(
@@ -576,7 +602,12 @@ data class QuestionItem(
     val reviewed: Boolean = false,
     val createdAt: String = "",
     val isDuplicate: Boolean = false,
-    val conceptTag: String = ""
+    val conceptTag: String = "",
+    val draftId: String = "",
+    val templateId: String = "",
+    val promptUsed: String = "",
+    val responseSchemaJson: String = "",
+    val sourceIndexSha256: String = ""
 )
 
 enum class AssessmentKind(val id: String, val labelAr: String) {

@@ -28,6 +28,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -71,20 +72,34 @@ fun AuthMonitorDiagnosticCard(
     modifier: Modifier = Modifier
 ) {
     var expanded by remember { mutableStateOf(false) }
-    val auth = FirebaseAuth.getInstance()
-    var currentUserSummary by remember {
-        mutableStateOf(auth.currentUser?.let { "${it.email} (${it.uid.take(6)}...)" } ?: "غير مسجل دخول")
+    val context = LocalContext.current
+    val firebaseReady = remember(context) { isFirebaseReady(context) }
+    val auth = remember(context, firebaseReady) {
+        if (firebaseReady) safeFirebaseAuth(context) else null
+    }
+    var currentUserSummary by remember(auth, firebaseReady) {
+        mutableStateOf(
+            when {
+                !firebaseReady || auth == null -> "غير مهيأ (الوضع المحلي متاح)"
+                auth.currentUser != null -> auth.currentUser?.let { "${it.email} (${it.uid.take(6)}...)" } ?: "غير مسجل دخول"
+                else -> "غير مسجل دخول"
+            }
+        )
     }
 
     DisposableEffect(auth) {
-        val listener = FirebaseAuth.AuthStateListener { firebaseAuth ->
-            val user = firebaseAuth.currentUser
-            AuthDiagnosticLogger.logUserStatus(user)
-            currentUserSummary = user?.let { "${it.email} (${it.uid.take(6)}...)" } ?: "غير مسجل دخول"
-        }
-        auth.addAuthStateListener(listener)
-        onDispose {
-            auth.removeAuthStateListener(listener)
+        if (auth == null) {
+            onDispose { }
+        } else {
+            val listener = FirebaseAuth.AuthStateListener { firebaseAuth ->
+                val user = firebaseAuth.currentUser
+                AuthDiagnosticLogger.logUserStatus(user)
+                currentUserSummary = user?.let { "${it.email} (${it.uid.take(6)}...)" } ?: "غير مسجل دخول"
+            }
+            auth.addAuthStateListener(listener)
+            onDispose {
+                auth.removeAuthStateListener(listener)
+            }
         }
     }
 
@@ -162,8 +177,10 @@ fun AuthMonitorDiagnosticCard(
                         color = EduInk,
                         fontWeight = FontWeight.Bold
                     )
+                    val webClientStatus = if (resolveDefaultWebClientId(context).isNotBlank()) "موجود" else "مفقود"
+                    val firebaseStatus = if (firebaseReady) "مهيأ" else "غير مهيأ (google-services.json مفقود)"
                     Text(
-                        text = "• CredentialManager: مفعل\n• Google Web Client ID: ${if (com.google.firebase.FirebaseApp.getInstance().options.applicationId.isNotBlank()) "موجود" else "مفقود"}\n• Auth State Flow: مراقب بصورة مستمرة",
+                        text = "• Firebase App: $firebaseStatus\n• CredentialManager: مفعل\n• Google Web Client ID: $webClientStatus\n• Auth State Flow: ${if (auth != null) "مراقب بصورة مستمرة" else "متوقف في الوضع المحلي"}",
                         style = MaterialTheme.typography.bodySmall,
                         fontFamily = FontFamily.Monospace,
                         color = EduMuted

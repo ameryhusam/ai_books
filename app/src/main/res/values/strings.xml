@@ -44,6 +44,9 @@
     <string name="task_explanation">شرح الدرس</string>
     <string name="task_interactive">درس تفاعلي</string>
     <string name="task_questions">بنك الأسئلة</string>
+    <string name="task_lesson_text">حفظ نص الدرس</string>
+    <string name="studio_save_lesson_text_cta">حفظ كنص الدرس</string>
+    <string name="studio_use_stored_lesson_text_cta">استخدام النص المحفوظ</string>
     <string name="studio_source_label">محتوى المصدر</string>
     <string name="studio_source_placeholder">ألصق نص الدرس هنا (اختياري عند إرفاق PDF)...</string>
     <string name="studio_extra_label">توجيه إضافي</string>

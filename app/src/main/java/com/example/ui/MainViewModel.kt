@@ -4,6 +4,7 @@ import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.data.firebase.AnalyticsTracker
 import com.example.data.firebase.FirestoreSyncRepository
 import com.example.data.repository.ConceptMasteryEngine
 import com.example.data.repository.EduMiniRepository
@@ -176,7 +177,8 @@ class MainViewModel(
     val currentUserId: String,
     val currentUserEmail: String? = null,
     val currentUserDisplayName: String? = null,
-    private val isCloudAuthenticated: Boolean = false
+    private val isCloudAuthenticated: Boolean = false,
+    private val analyticsTracker: AnalyticsTracker? = null
 ) : ViewModel() {
 
     private var generationJob: Job? = null
@@ -187,41 +189,47 @@ class MainViewModel(
     private val _studentDashboardState = MutableStateFlow(StudentDashboardState())
     val studentDashboardState: StateFlow<StudentDashboardState> = _studentDashboardState.asStateFlow()
 
-    val cloudDraftsState: StateFlow<SyncUiState<List<CloudDraft>>> = firestoreSync
-        .observeDrafts(currentUserId)
-        .map<List<CloudDraft>, SyncUiState<List<CloudDraft>>> { SyncUiState.Success(it) }
-        .catch { error ->
-            val firestoreError = generateSequence(error) { it.cause }
-                .filterIsInstance<FirebaseFirestoreException>()
-                .firstOrNull()
-            if (firestoreError == null && error is CancellationException) throw error
-            val rootError = firestoreError ?: error
-            Log.w(TAG, "Error observing cloud drafts", rootError)
-            emit(SyncUiState.Error(rootError.message ?: "تعذر مزامنة المسودات السحابية"))
-        }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
-            initialValue = SyncUiState.Loading
-        )
+    val cloudDraftsState: StateFlow<SyncUiState<List<CloudDraft>>> = if (!isCloudAuthenticated) {
+        flowOf<SyncUiState<List<CloudDraft>>>(SyncUiState.Success(emptyList()))
+    } else {
+        firestoreSync
+            .observeDrafts(currentUserId)
+            .map<List<CloudDraft>, SyncUiState<List<CloudDraft>>> { SyncUiState.Success(it) }
+            .catch { error ->
+                val firestoreError = generateSequence(error) { it.cause }
+                    .filterIsInstance<FirebaseFirestoreException>()
+                    .firstOrNull()
+                if (firestoreError == null && error is CancellationException) throw error
+                val rootError = firestoreError ?: error
+                Log.w(TAG, "Error observing cloud drafts", rootError)
+                emit(SyncUiState.Error(rootError.message ?: "تعذر مزامنة المسودات السحابية"))
+            }
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+        initialValue = if (isCloudAuthenticated) SyncUiState.Loading else SyncUiState.Success(emptyList())
+    )
 
-    val cloudProgressState: StateFlow<SyncUiState<List<LessonProgress>>> = firestoreSync
-        .observeProgress(currentUserId)
-        .map<List<LessonProgress>, SyncUiState<List<LessonProgress>>> { SyncUiState.Success(it) }
-        .catch { error ->
-            val firestoreError = generateSequence(error) { it.cause }
-                .filterIsInstance<FirebaseFirestoreException>()
-                .firstOrNull()
-            if (firestoreError == null && error is CancellationException) throw error
-            val rootError = firestoreError ?: error
-            Log.w(TAG, "Error observing cloud progress", rootError)
-            emit(SyncUiState.Error(rootError.message ?: "تعذر مزامنة تقدم الدروس السحابي"))
-        }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
-            initialValue = SyncUiState.Loading
-        )
+    val cloudProgressState: StateFlow<SyncUiState<List<LessonProgress>>> = if (!isCloudAuthenticated) {
+        flowOf<SyncUiState<List<LessonProgress>>>(SyncUiState.Success(emptyList()))
+    } else {
+        firestoreSync
+            .observeProgress(currentUserId)
+            .map<List<LessonProgress>, SyncUiState<List<LessonProgress>>> { SyncUiState.Success(it) }
+            .catch { error ->
+                val firestoreError = generateSequence(error) { it.cause }
+                    .filterIsInstance<FirebaseFirestoreException>()
+                    .firstOrNull()
+                if (firestoreError == null && error is CancellationException) throw error
+                val rootError = firestoreError ?: error
+                Log.w(TAG, "Error observing cloud progress", rootError)
+                emit(SyncUiState.Error(rootError.message ?: "تعذر مزامنة تقدم الدروس السحابي"))
+            }
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+        initialValue = if (isCloudAuthenticated) SyncUiState.Loading else SyncUiState.Success(emptyList())
+    )
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val lessonDrafts: StateFlow<List<DraftRecord>> = _uiState
@@ -347,6 +355,32 @@ class MainViewModel(
         .distinctUntilChanged()
         .flatMapLatest { (wsId, lesson) ->
             if (lesson == null) flowOf(null) else repository.observeTeacherNote(wsId, lesson)
+        }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = null
+        )
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val currentLessonText: StateFlow<com.example.model.LessonTextRecord?> = _uiState
+        .map { (it.workspace?.workspaceId.orEmpty()) to it.selectedLesson }
+        .distinctUntilChanged()
+        .flatMapLatest { (wsId, lesson) ->
+            if (lesson == null) flowOf(null) else repository.observeLessonText(wsId, lesson)
+        }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = null
+        )
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val studentStudyLessonText: StateFlow<com.example.model.LessonTextRecord?> = _uiState
+        .map { (it.workspace?.workspaceId.orEmpty()) to it.studentStudyLesson }
+        .distinctUntilChanged()
+        .flatMapLatest { (wsId, lesson) ->
+            if (lesson == null) flowOf(null) else repository.observeLessonText(wsId, lesson)
         }
         .stateIn(
             scope = viewModelScope,
@@ -1098,6 +1132,12 @@ class MainViewModel(
                 return
             }
         }
+        analyticsTracker?.trackLessonOpened(
+            bookKey = lesson.bookKey,
+            unitKey = lesson.unitKey,
+            lessonKey = lesson.lessonKey,
+            lessonTitle = lesson.title
+        )
         _uiState.update {
             it.copy(
                 selectedLesson = lesson,
@@ -1130,6 +1170,11 @@ class MainViewModel(
                 selectedAnswers = answers,
                 userId = activeUserId
             )
+            analyticsTracker?.trackQuizAttemptSubmitted(
+                lessonKey = lesson.lessonKey,
+                score = result.scorePercent,
+                passed = result.passed
+            )
             val completedWholeUnitNow = result.passed &&
                 !unitAlreadyCompleted &&
                 unitBefore != null &&
@@ -1143,8 +1188,8 @@ class MainViewModel(
             }
 
             // The current Firestore progress document is account-scoped, not local-learner-scoped.
-            // Sync only the legacy default profile until a versioned per-learner cloud contract exists.
-            if (activeUserId == LearnerProfile.DEFAULT_USER_ID) {
+            // Sync only the legacy default profile when cloud auth is active until a per-learner cloud contract exists.
+            if (isCloudAuthenticated && activeUserId == LearnerProfile.DEFAULT_USER_ID) {
                 firestoreSync.upsertLessonProgress(
                     userId = currentUserId,
                     workspaceId = wsId,
@@ -1358,8 +1403,15 @@ class MainViewModel(
                     generation = output
                 )
                 _uiState.update { it.copy(generationProgressPercent = 98, generationStage = "حفظ مهمة التقوية والمسودة") }
-                firestoreSync.upsertDraft(currentUserId, draft)
-                _uiState.update { it.copy(providers = repository.loadProviders(), generationProgressPercent = 100, generationStage = "اكتملت مهمة التوليد") }
+                if (isCloudAuthenticated) {
+                    firestoreSync.upsertDraft(currentUserId, draft)
+                }
+                analyticsTracker?.trackAiExplanationGenerated(
+                    providerId = output.providerLabel,
+                    taskType = task.id,
+                    success = true
+                )
+                _uiState.update { it.copy(providers = repository.loadProviders(), generationProgressPercent = 100, generationStage = "اكتمل التوليد والحفظ") }
 
                 val generatedQuestions = if (task == TaskType.QUESTIONS) {
                     repository.saveQuestionsFromDraftText(workspace.workspaceId, lesson, output.text)
@@ -1404,6 +1456,11 @@ class MainViewModel(
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
+                analyticsTracker?.trackAiExplanationGenerated(
+                    providerId = snapshot.selectedProvider.id,
+                    taskType = task.id,
+                    success = false
+                )
                 _uiState.update {
                     it.copy(alert = AlertMessage(
                         "تعذر إنشاء العلاج التعليمي",
@@ -1739,7 +1796,11 @@ class MainViewModel(
                 )
             )
             _uiState.update { it.copy(activeDraftContentHash = savedDraft.contentHash) }
-            val cloudSyncResult = firestoreSync.upsertDraft(currentUserId, savedDraft)
+            val cloudSyncResult = if (isCloudAuthenticated) {
+                firestoreSync.upsertDraft(currentUserId, savedDraft)
+            } else {
+                Result.failure(IllegalStateException("local mode"))
+            }
             val syncedCount = when (snapshot.task) {
                 TaskType.QUESTIONS -> repository.saveQuestionsFromDraftText(wsId, lesson, content).size
                 TaskType.INTERACTIVE -> {
@@ -1825,7 +1886,9 @@ class MainViewModel(
     fun approveDraft(draftId: String) {
         viewModelScope.launch {
             val syncedQuestions = repository.approveDraft(draftId)
-            firestoreSync.updateDraftStatus(currentUserId, draftId, DraftStatus.APPROVED)
+            if (isCloudAuthenticated) {
+                firestoreSync.updateDraftStatus(currentUserId, draftId, DraftStatus.APPROVED)
+            }
             _uiState.update {
                 it.copy(
                     toastMessage = if (syncedQuestions > 0) {
@@ -1841,7 +1904,9 @@ class MainViewModel(
     fun deleteDraft(draftId: String) {
         viewModelScope.launch {
             repository.deleteDraft(draftId)
-            firestoreSync.deleteDraft(currentUserId, draftId)
+            if (isCloudAuthenticated) {
+                firestoreSync.deleteDraft(currentUserId, draftId)
+            }
         }
     }
 
@@ -1937,6 +2002,45 @@ class MainViewModel(
                 activeDraftSourcePdfHash = cloudDraft.sourcePdfHash,
                 page = AppPage.STUDIO,
                 toastMessage = "تم تحميل المسودة السحابية «${cloudDraft.title}»"
+            )
+        }
+    }
+
+    fun saveCurrentContentAsLessonText(fromGeneratedOutput: Boolean) {
+        val snapshot = _uiState.value
+        val lesson = snapshot.selectedLesson ?: return
+        val content = if (fromGeneratedOutput) snapshot.generatedResult else snapshot.sourceText
+        if (content.isBlank()) {
+            _uiState.update { it.copy(alert = AlertMessage("محتوى فارغ", "لا يوجد نص لحفظه كنص للدرس.")) }
+            return
+        }
+        viewModelScope.launch {
+            runCatching {
+                repository.saveLessonText(
+                    workspaceId = snapshot.workspace?.workspaceId.orEmpty(),
+                    lesson = lesson,
+                    content = repository.extractLessonTextFromOutput(content),
+                    extractionMethod = if (fromGeneratedOutput) "ai_generated" else "manual",
+                    sourcePdfHash = snapshot.activeDraftSourcePdfHash,
+                    templateId = snapshot.activeDraftTemplateId,
+                    promptUsed = snapshot.activeDraftRequestFingerprint,
+                    responseSchemaJson = ""
+                )
+            }.onSuccess { saved ->
+                _uiState.update { it.copy(toastMessage = "تم حفظ نص الدرس بنجاح (الإصدار ${saved.version}) ✓") }
+            }.onFailure { err ->
+                _uiState.update { it.copy(alert = AlertMessage("تعذر الحفظ", err.message ?: "خطأ في حفظ نص الدرس")) }
+            }
+        }
+    }
+
+    fun useStoredLessonTextAsSource() {
+        val stored = currentLessonText.value?.content ?: return
+        if (stored.isBlank()) return
+        _uiState.update {
+            it.copy(
+                sourceText = stored,
+                toastMessage = "تم إدراج النص المحفوظ في مصدر الاستوديو ✓"
             )
         }
     }
@@ -2259,8 +2363,15 @@ class MainViewModel(
 
     fun recordQuizCompleted(correct: Int, total: Int, earnedXp: Int) {
         val activeUserId = _uiState.value.activeLearner.userId
+        val selectedLessonKey = _uiState.value.selectedLesson?.lessonKey ?: "question_bank"
+        val scorePercent = if (total > 0) ((correct * 100f) / total).toInt().coerceIn(0, 100) else 0
         viewModelScope.launch {
             repository.recordStudyActivity(userId = activeUserId)
+            analyticsTracker?.trackQuizAttemptSubmitted(
+                lessonKey = selectedLessonKey,
+                score = scorePercent,
+                passed = scorePercent >= EduMiniRepository.LESSON_QUIZ_PASS_PERCENT
+            )
             _uiState.update {
                 it.copy(
                     alert = AlertMessage(
@@ -2731,7 +2842,20 @@ class MainViewModel(
                     generation = out
                 )
                 _uiState.update { it.copy(generationProgressPercent = 98, generationStage = "حفظ المسودة وبصمة المحتوى") }
-                firestoreSync.upsertDraft(currentUserId, persistedDraft)
+                if (isCloudAuthenticated) {
+                    firestoreSync.upsertDraft(currentUserId, persistedDraft)
+                }
+                analyticsTracker?.trackAiExplanationGenerated(
+                    providerId = out.providerLabel,
+                    taskType = snapshot.task.id,
+                    success = true
+                )
+                analyticsTracker?.trackLessonCreateCompleted(
+                    bookKey = lesson.bookKey,
+                    unitKey = lesson.unitKey,
+                    lessonKey = lesson.lessonKey,
+                    success = true
+                )
                 _uiState.update { it.copy(providers = repository.loadProviders(), generationProgressPercent = 100, generationStage = "اكتمل التوليد والحفظ") }
                 val syncedQuestionsCount = if (snapshot.task == TaskType.QUESTIONS) {
                     repository.saveQuestionsFromDraftText(
@@ -2742,6 +2866,21 @@ class MainViewModel(
                 } else {
                     0
                 }
+                val lessonTextSaved = if (snapshot.task == TaskType.LESSON_TEXT) {
+                    val extracted = repository.extractLessonTextFromOutput(out.text)
+                    runCatching {
+                        repository.saveLessonText(
+                            workspaceId = wsId,
+                            lesson = lesson,
+                            content = extracted,
+                            extractionMethod = "ai_generated",
+                            sourcePdfHash = out.sourcePdfHash,
+                            templateId = out.templateId,
+                            promptUsed = out.promptUsed,
+                            responseSchemaJson = snapshot.activeDraftResponseSchemaHash
+                        )
+                    }.getOrNull()
+                } else null
                 val interactiveParsed = if (snapshot.task == TaskType.INTERACTIVE) {
                     InteractiveActivityParser.parse(out.text, lesson.title)
                 } else {
@@ -2760,6 +2899,8 @@ class MainViewModel(
                 val resultMessage = when {
                     snapshot.task == TaskType.QUESTIONS && syncedQuestionsCount > 0 ->
                         "تم التوليد عبر ${out.providerLabel} (${out.model})، وحُفظت المسودة وأُضيفت $syncedQuestionsCount أسئلة تلقائياً لبنك الأسئلة واختبار الدرس."
+                    snapshot.task == TaskType.LESSON_TEXT && lessonTextSaved != null ->
+                        "تم استخراج وحفظ المحتوى النصي للدرس بنجاح في قاعدة البيانات وتحديث مصدر الاستوديو (v${lessonTextSaved.version})."
                     snapshot.task == TaskType.INTERACTIVE && publishedBundle != null ->
                         "تم التوليد عبر ${out.providerLabel} (${out.model}) وبناء حزمة HTML + JS + JSON (${interactiveParsed?.steps?.size ?: 0} محطة) ونشرها للطالب مع مزامنة المفاهيم."
                     snapshot.task == TaskType.INTERACTIVE && interactiveParsed != null ->
@@ -2770,6 +2911,7 @@ class MainViewModel(
                 _uiState.update {
                     it.copy(
                         generatedResult = out.text,
+                        sourceText = if (snapshot.task == TaskType.LESSON_TEXT && lessonTextSaved != null) lessonTextSaved.content else it.sourceText,
                         activeDraftProvider = out.providerLabel,
                         activeDraftModel = out.model,
                         activeDraftTemplateId = out.templateId,
@@ -2789,6 +2931,17 @@ class MainViewModel(
                     it.copy(toastMessage = "تم إلغاء عملية التوليد")
                 }
             } catch (e: Exception) {
+                analyticsTracker?.trackAiExplanationGenerated(
+                    providerId = snapshot.selectedProvider.id,
+                    taskType = snapshot.task.id,
+                    success = false
+                )
+                analyticsTracker?.trackLessonCreateCompleted(
+                    bookKey = lesson.bookKey,
+                    unitKey = lesson.unitKey,
+                    lessonKey = lesson.lessonKey,
+                    success = false
+                )
                 _uiState.update {
                     it.copy(
                         alert = AlertMessage(

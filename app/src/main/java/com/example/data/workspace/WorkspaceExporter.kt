@@ -4,6 +4,7 @@ import com.example.data.local.AssessmentAttemptEntity
 import com.example.data.local.AssessmentEntity
 import com.example.data.local.DraftEntity
 import com.example.data.local.LessonProgressEntity
+import com.example.data.local.LessonTextEntity
 import com.example.data.local.PromptTemplateEntity
 import com.example.data.local.QuestionEntity
 import com.example.data.local.StudyDayEntity
@@ -54,7 +55,10 @@ data class BackupDraftDto(
     val responseSchemaHash: String = "",
     val requestFingerprint: String = "",
     val contentHash: String = "",
-    val sourcePdfHash: String = ""
+    val sourcePdfHash: String = "",
+    val promptUsed: String = "",
+    val responseSchemaJson: String = "",
+    val sourceIndexSha256: String = ""
 )
 
 @Serializable
@@ -76,7 +80,33 @@ data class BackupQuestionDto(
     val fingerprint: String,
     val reviewed: Boolean,
     val createdAt: String,
-    val conceptTag: String = ""
+    val conceptTag: String = "",
+    val draftId: String = "",
+    val templateId: String = "",
+    val promptUsed: String = "",
+    val responseSchemaJson: String = "",
+    val sourceIndexSha256: String = ""
+)
+
+@Serializable
+data class BackupLessonTextDto(
+    val workspaceId: String,
+    val gradeKey: String,
+    val bookKey: String,
+    val unitKey: String,
+    val lessonKey: String,
+    val lessonTitle: String,
+    val content: String,
+    val extractionMethod: String = "manual",
+    val sourcePages: String? = null,
+    val sourcePdfHash: String = "",
+    val sourceIndexSha256: String = "",
+    val templateId: String = "",
+    val promptUsed: String = "",
+    val responseSchemaJson: String = "",
+    val contentHash: String = "",
+    val version: Int = 1,
+    val updatedAt: String
 )
 
 @Serializable
@@ -174,7 +204,7 @@ data class BackupLearnerProfileDto(
 
 @Serializable
 data class EduMiniBackupBundle(
-    val formatVersion: String = "edu-mini-backup-1.3",
+    val formatVersion: String = "edu-mini-backup-1.4",
     val exportedAt: String = "",
     val workspaceId: String = "",
     val learnerProfiles: List<BackupLearnerProfileDto> = emptyList(),
@@ -188,7 +218,8 @@ data class EduMiniBackupBundle(
     val teacherNotes: List<BackupNoteDto> = emptyList(),
     val studyDays: List<String> = emptyList(),
     val promptTemplates: List<BackupPromptTemplateDto> = emptyList(),
-    val studyDayRecords: List<BackupStudyDayDto> = emptyList()
+    val studyDayRecords: List<BackupStudyDayDto> = emptyList(),
+    val lessonTexts: List<BackupLessonTextDto> = emptyList()
 )
 
 object WorkspaceExporter {
@@ -211,7 +242,8 @@ object WorkspaceExporter {
         questions: List<QuestionItem>,
         assessments: List<AssessmentEntity> = emptyList(),
         fullBackupJson: String? = null,
-        context: android.content.Context? = null
+        context: android.content.Context? = null,
+        lessonTexts: List<LessonTextEntity> = emptyList()
     ): ExportReceipt {
         val recordedArtifacts = mutableListOf<RecordedArtifact>()
         val writtenPaths = HashSet<String>()
@@ -299,6 +331,11 @@ object WorkspaceExporter {
                         put("model", draft.model)
                         put("sourcePages", draft.sourcePages.orEmpty())
                         put("sourceHash", draft.sourceHash.orEmpty())
+                        put("templateId", draft.templateId)
+                        put("templateVersion", draft.templateVersion)
+                        put("sourceIndexSha256", draft.sourceIndexSha256)
+                        put("promptUsed", draft.promptUsed)
+                        put("responseSchemaJson", draft.responseSchemaJson)
                         put("createdAt", draft.createdAt)
                         put("content", draft.content)
                     }.toString().toByteArray(Charsets.UTF_8)
@@ -328,6 +365,11 @@ object WorkspaceExporter {
                         put("model", latest.model)
                         put("sourcePages", latest.sourcePages.orEmpty())
                         put("sourceHash", latest.sourceHash.orEmpty())
+                        put("templateId", latest.templateId)
+                        put("templateVersion", latest.templateVersion)
+                        put("sourceIndexSha256", latest.sourceIndexSha256)
+                        put("promptUsed", latest.promptUsed)
+                        put("responseSchemaJson", latest.responseSchemaJson)
                         put("createdAt", latest.createdAt)
                         put("content", latest.content)
                     }.toString().toByteArray(Charsets.UTF_8)
@@ -364,11 +406,41 @@ object WorkspaceExporter {
                                 put("sourcePages", q.sourcePages.orEmpty())
                                 put("fingerprint", q.fingerprint)
                                 put("reviewed", q.reviewed)
+                                put("draftId", q.draftId)
+                                put("templateId", q.templateId)
+                                put("sourceIndexSha256", q.sourceIndexSha256)
+                                put("promptUsed", q.promptUsed)
+                                put("responseSchemaJson", q.responseSchemaJson)
                             })
                         }
                     })
                 }.toString().toByteArray(Charsets.UTF_8)
                 writeBytesEntry("questions/$bookKey/$unitKey/$lessonKey/ai_generated.json", qPayload)
+            }
+
+            // 2b. Export stored lesson texts
+            lessonTexts.forEach { lt ->
+                val ltPayload = buildJsonObject {
+                    put("workspaceId", workspace.workspaceId)
+                    put("gradeKey", lt.gradeKey)
+                    put("bookKey", lt.bookKey)
+                    put("unitKey", lt.unitKey)
+                    put("lessonKey", lt.lessonKey)
+                    put("lessonTitle", lt.lessonTitle)
+                    put("extractionMethod", lt.extractionMethod)
+                    put("sourcePages", lt.sourcePages.orEmpty())
+                    put("sourcePdfHash", lt.sourcePdfHash)
+                    put("sourceIndexSha256", lt.sourceIndexSha256)
+                    put("templateId", lt.templateId)
+                    put("promptUsed", lt.promptUsed)
+                    put("responseSchemaJson", lt.responseSchemaJson)
+                    put("contentHash", lt.contentHash)
+                    put("version", lt.version)
+                    put("updatedAt", lt.updatedAt)
+                    put("content", lt.content)
+                }.toString().toByteArray(Charsets.UTF_8)
+                writeBytesEntry("lesson_texts/${lt.bookKey}/${lt.unitKey}/${lt.lessonKey}/lesson_text.json", ltPayload)
+                writeBytesEntry("lesson_texts/${lt.bookKey}/${lt.unitKey}/${lt.lessonKey}/lesson_text.txt", lt.content.toByteArray(Charsets.UTF_8))
             }
 
             // 3. Export assessments
@@ -404,6 +476,7 @@ object WorkspaceExporter {
                 put("lessonsCount", workspace.lessons.size)
                 put("draftsCount", drafts.size)
                 put("questionsCount", questions.size)
+                put("lessonTextsCount", lessonTexts.size)
                 put("assessmentsCount", assessments.size)
                 put("artifacts", buildJsonArray {
                     recordedArtifacts.forEach { item ->
@@ -472,7 +545,8 @@ object WorkspaceExporter {
         templates: List<PromptTemplateEntity>,
         questionAttempts: List<com.example.data.local.QuestionAttemptEntity> = emptyList(),
         learnerProfiles: List<LearnerProfile> = emptyList(),
-        activeLearnerId: String = LearnerProfile.DEFAULT_USER_ID
+        activeLearnerId: String = LearnerProfile.DEFAULT_USER_ID,
+        lessonTexts: List<LessonTextEntity> = emptyList()
     ): String {
         val bundle = EduMiniBackupBundle(
             exportedAt = Instant.now().toString(),
@@ -508,7 +582,10 @@ object WorkspaceExporter {
                     responseSchemaHash = it.responseSchemaHash,
                     requestFingerprint = it.requestFingerprint,
                     contentHash = it.contentHash,
-                    sourcePdfHash = it.sourcePdfHash
+                    sourcePdfHash = it.sourcePdfHash,
+                    promptUsed = it.promptUsed,
+                    responseSchemaJson = it.responseSchemaJson,
+                    sourceIndexSha256 = it.sourceIndexSha256
                 )
             },
             questions = questions.map {
@@ -530,7 +607,12 @@ object WorkspaceExporter {
                     fingerprint = it.fingerprint,
                     reviewed = it.reviewed,
                     createdAt = it.createdAt,
-                    conceptTag = it.conceptTag
+                    conceptTag = it.conceptTag,
+                    draftId = it.draftId,
+                    templateId = it.templateId,
+                    promptUsed = it.promptUsed,
+                    responseSchemaJson = it.responseSchemaJson,
+                    sourceIndexSha256 = it.sourceIndexSha256
                 )
             },
             questionAttempts = questionAttempts.map {
@@ -618,6 +700,27 @@ object WorkspaceExporter {
                     actionsCount = it.actionsCount,
                     lastUpdatedAt = it.lastUpdatedAt,
                     userId = it.userId
+                )
+            },
+            lessonTexts = lessonTexts.map {
+                BackupLessonTextDto(
+                    workspaceId = it.workspaceId,
+                    gradeKey = it.gradeKey,
+                    bookKey = it.bookKey,
+                    unitKey = it.unitKey,
+                    lessonKey = it.lessonKey,
+                    lessonTitle = it.lessonTitle,
+                    content = it.content,
+                    extractionMethod = it.extractionMethod,
+                    sourcePages = it.sourcePages,
+                    sourcePdfHash = it.sourcePdfHash,
+                    sourceIndexSha256 = it.sourceIndexSha256,
+                    templateId = it.templateId,
+                    promptUsed = it.promptUsed,
+                    responseSchemaJson = it.responseSchemaJson,
+                    contentHash = it.contentHash,
+                    version = it.version,
+                    updatedAt = it.updatedAt
                 )
             }
         )

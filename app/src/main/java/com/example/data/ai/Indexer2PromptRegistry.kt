@@ -137,6 +137,29 @@ object Indexer2PromptRegistry {
                 }
             """.trimIndent(),
             quickInstructions = "نوّع الأسئلة بين اختيار من متعدد، صح أم خطأ، إكمال الفراغ، وترتيب مع تحديد conceptTag لكل سؤال."
+        ),
+        PromptBlueprintSpec(
+            id = "prompt_lesson_text",
+            task = TaskType.LESSON_TEXT,
+            titleAr = "مخطط استخراج وحفظ المحتوى النصي للدرس",
+            subtitleAr = "استخراج أمين لنص الدرس من ملف PDF وحفظه في قاعدة البيانات مرتبطاً بالفهرس",
+            sourcePath = "prompts/indexer2/lesson_text.prompt.md",
+            roleInstruction = "استخراج المحتوى النصي الكامل للدرس من نسخة ملف PDF المرفقة بأمانة وتنظيمه في أقسام واضحة لحفظه كمرجع للدرس",
+            outputContract = "JSON يحتوي title, sourcePages, sections[](heading, body), plainText",
+            schemaSnippet = """
+                {
+                  "title": "عنوان الدرس",
+                  "sourcePages": "5–8",
+                  "sections": [
+                    {
+                      "heading": "عنوان القسم أو الفكرة",
+                      "body": "النص الكامل المستخرج من صفحات الدرس"
+                    }
+                  ],
+                  "plainText": "النص الكامل المتصل للدرس كما ورد في المصدر"
+                }
+            """.trimIndent(),
+            quickInstructions = "استخرج كامل نص الدرس من ملف PDF المرفق بدقة مع الحفاظ على العناوين والتعاريف والأمثلة والرموز، وأخرجه وفق المخطط المتوقع."
         )
     )
 
@@ -316,6 +339,9 @@ object Indexer2PromptRegistry {
             append(".\n")
             append("التزم بالمصدر ولا تخترع معلومات أو صفحات. اجعل المحتوى منظمًا وقابلاً للتحرير.\n")
             append("المخطط المرجعي (indexer2): ${blueprint.sourcePath}\n")
+            if (blueprint.outputContract.isNotBlank()) {
+                append("مخطط الخرج المتوقع: ${blueprint.outputContract}\n")
+            }
             if (task == TaskType.QUESTIONS || task == TaskType.INTERACTIVE) {
                 append("العدد المطلوب من العناصر: $safeCount.\n")
             }

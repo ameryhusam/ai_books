@@ -55,6 +55,7 @@ import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialCancellationException
+import com.example.EduMiniApplication
 import com.example.R
 import com.example.ui.theme.EduBg
 import com.example.ui.theme.EduGreen
@@ -83,6 +84,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 
+internal fun isFirebaseReady(context: Context): Boolean =
+    EduMiniApplication.ensureFirebaseInitialized(context)
+
+internal fun safeFirebaseAuth(context: Context): FirebaseAuth? =
+    if (isFirebaseReady(context)) runCatching { Firebase.auth }.getOrNull() else null
+
 internal fun FirebaseAuth.authStateFlow(): Flow<FirebaseUser?> = callbackFlow {
     val listener = FirebaseAuth.AuthStateListener { auth ->
         trySend(auth.currentUser)
@@ -92,7 +99,7 @@ internal fun FirebaseAuth.authStateFlow(): Flow<FirebaseUser?> = callbackFlow {
 }
 
 @SuppressLint("DiscouragedApi")
-private fun resolveDefaultWebClientId(context: Context): String {
+internal fun resolveDefaultWebClientId(context: Context): String {
     val resId = context.resources.getIdentifier("default_web_client_id", "string", context.packageName)
     if (resId == 0) return ""
     return runCatching { context.getString(resId).trim() }.getOrDefault("")
@@ -105,7 +112,12 @@ fun attemptAutoSignIn(
     onUnauthenticated: () -> Unit,
     scope: CoroutineScope
 ) {
-    if (Firebase.auth.currentUser != null) {
+    val auth = safeFirebaseAuth(context)
+    if (auth == null) {
+        onUnauthenticated()
+        return
+    }
+    if (auth.currentUser != null) {
         onAuthSuccess()
         return
     }
@@ -127,7 +139,7 @@ fun attemptAutoSignIn(
             val cred = credentialManager.getCredential(context, request).credential
             if (cred is CustomCredential && cred.type == TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
                 val token = GoogleIdTokenCredential.createFrom(cred.data).idToken
-                Firebase.auth.signInWithCredential(GoogleAuthProvider.getCredential(token, null)).await()
+                auth.signInWithCredential(GoogleAuthProvider.getCredential(token, null)).await()
                 onAuthSuccess()
             } else {
                 onUnauthenticated()
@@ -146,6 +158,11 @@ fun onGoogleSignInClicked(
     scope: CoroutineScope,
     onAuthCancelled: () -> Unit = {}
 ) {
+    val auth = safeFirebaseAuth(context)
+    if (auth == null) {
+        onAuthError("خدمات Firebase Auth غير مهيأة في هذا البناء (أضف google-services.json أو استخدم الوضع التجريبي المحلي).")
+        return
+    }
     val clientId = resolveDefaultWebClientId(context)
     if (clientId.isEmpty()) {
         onAuthError("إعدادات Google Sign-In غير مكتملة (default_web_client_id مفقود).")
@@ -162,7 +179,7 @@ fun onGoogleSignInClicked(
             val cred = credentialManager.getCredential(activity, request).credential
             if (cred is CustomCredential && cred.type == TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
                 val token = GoogleIdTokenCredential.createFrom(cred.data).idToken
-                Firebase.auth.signInWithCredential(GoogleAuthProvider.getCredential(token, null)).await()
+                auth.signInWithCredential(GoogleAuthProvider.getCredential(token, null)).await()
                 onAuthSuccess()
             } else {
                 onAuthError("نوع بيانات الاعتماد المستلم غير متوقع.")
@@ -180,6 +197,7 @@ fun onGoogleSignInClicked(
 fun signOutFromFirebase(
     credentialManager: CredentialManager,
     scope: CoroutineScope,
+    context: Context? = null,
     onSignOutComplete: () -> Unit = {}
 ) {
     scope.launch {
@@ -189,7 +207,10 @@ fun signOutFromFirebase(
             } catch (e: Exception) {
                 Log.w("Auth", "Failed to clear credential state: ${e.message}")
             } finally {
-                Firebase.auth.signOut()
+                if (context == null || isFirebaseReady(context)) {
+                    runCatching { Firebase.auth.signOut() }
+                        .onFailure { Log.w("Auth", "Skipped FirebaseAuth signOut: ${it.message}") }
+                }
                 onSignOutComplete()
             }
         }

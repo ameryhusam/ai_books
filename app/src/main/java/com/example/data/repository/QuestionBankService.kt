@@ -169,7 +169,12 @@ class QuestionBankService(
     suspend fun saveQuestionsWithConceptTags(
         workspaceId: String,
         lesson: LessonRef,
-        parsedQuestions: List<QuestionItem>
+        parsedQuestions: List<QuestionItem>,
+        draftId: String = "",
+        templateId: String = "",
+        promptUsed: String = "",
+        responseSchemaJson: String = "",
+        sourceIndexSha256: String = ""
     ): List<QuestionItem> {
         val canonicalWs = workspaceId.ifBlank { lesson.workspaceId }.ifBlank { lesson.rootPath }
         if (canonicalWs.isBlank() || parsedQuestions.isEmpty()) return emptyList()
@@ -183,6 +188,10 @@ class QuestionBankService(
             .map { q -> q.fingerprint.ifBlank { QuestionBankEngine.computeFingerprint(q.prompt) } }
             .toMutableSet()
 
+        val resolvedIndexSha = sourceIndexSha256.ifBlank {
+            dao.getWorkspaceIndexForBook(canonicalWs, lesson.bookKey)?.indexSha256.orEmpty()
+        }
+
         val newItems = parsedQuestions.mapNotNull { item ->
             val fp = item.fingerprint.ifBlank { QuestionBankEngine.computeFingerprint(item.prompt) }
             if (!existingFingerprints.add(fp)) return@mapNotNull null
@@ -195,7 +204,12 @@ class QuestionBankService(
             item.copy(
                 workspaceId = canonicalWs,
                 fingerprint = fp,
-                conceptTag = tagged
+                conceptTag = tagged,
+                draftId = item.draftId.ifBlank { draftId },
+                templateId = item.templateId.ifBlank { templateId },
+                promptUsed = item.promptUsed.ifBlank { promptUsed },
+                responseSchemaJson = item.responseSchemaJson.ifBlank { responseSchemaJson },
+                sourceIndexSha256 = item.sourceIndexSha256.ifBlank { resolvedIndexSha }
             )
         }
         if (newItems.isNotEmpty()) {
@@ -211,7 +225,12 @@ class QuestionBankService(
     suspend fun syncInteractiveCheckpointsToQuestionBank(
         workspaceId: String,
         lesson: LessonRef,
-        activity: InteractiveActivityModel
+        activity: InteractiveActivityModel,
+        draftId: String = "",
+        templateId: String = "",
+        promptUsed: String = "",
+        responseSchemaJson: String = "",
+        sourceIndexSha256: String = ""
     ): List<QuestionItem> {
         val canonicalWs = workspaceId.ifBlank { lesson.workspaceId }.ifBlank { lesson.rootPath }
         if (canonicalWs.isBlank()) return emptyList()
@@ -250,10 +269,24 @@ class QuestionBankService(
                 fingerprint = QuestionBankEngine.computeFingerprint(qPrompt),
                 reviewed = true,
                 createdAt = now,
-                conceptTag = concept
+                conceptTag = concept,
+                draftId = draftId,
+                templateId = templateId,
+                promptUsed = promptUsed,
+                responseSchemaJson = responseSchemaJson,
+                sourceIndexSha256 = sourceIndexSha256
             )
         }
-        return saveQuestionsWithConceptTags(canonicalWs, lesson, extracted)
+        return saveQuestionsWithConceptTags(
+            workspaceId = canonicalWs,
+            lesson = lesson,
+            parsedQuestions = extracted,
+            draftId = draftId,
+            templateId = templateId,
+            promptUsed = promptUsed,
+            responseSchemaJson = responseSchemaJson,
+            sourceIndexSha256 = sourceIndexSha256
+        )
     }
 
     suspend fun recordBatchAttemptsForUser(
@@ -390,7 +423,12 @@ class QuestionBankService(
             fingerprint = fingerprint,
             reviewed = reviewed,
             createdAt = createdAt,
-            conceptTag = conceptTag.ifBlank { lessonTitle }
+            conceptTag = conceptTag.ifBlank { lessonTitle },
+            draftId = draftId,
+            templateId = templateId,
+            promptUsed = promptUsed,
+            responseSchemaJson = responseSchemaJson,
+            sourceIndexSha256 = sourceIndexSha256
         )
     }
 
@@ -412,7 +450,12 @@ class QuestionBankService(
         fingerprint = fingerprint,
         reviewed = reviewed,
         createdAt = createdAt,
-        conceptTag = conceptTag.ifBlank { lessonTitle }
+        conceptTag = conceptTag.ifBlank { lessonTitle },
+        draftId = draftId,
+        templateId = templateId,
+        promptUsed = promptUsed,
+        responseSchemaJson = responseSchemaJson,
+        sourceIndexSha256 = sourceIndexSha256
     )
 
     private fun QuestionAttemptEntity.toModel() = QuestionAttemptRecord(

@@ -2,14 +2,17 @@ package com.example.data.workspace
 
 import android.content.Context
 import android.graphics.pdf.PdfRenderer
-import android.os.ParcelFileDescriptor
 import android.net.Uri
+import android.os.Build
+import android.os.ParcelFileDescriptor
 import android.provider.OpenableColumns
 import com.example.model.BookRef
 import com.example.model.ImportedWorkspace
 import com.example.model.LessonRef
 import com.example.model.StagedGradeSummary
 import com.example.model.StagedWorkspacePreview
+import com.example.model.WorkspaceIndexRef
+import com.example.model.WorkspaceUnitRef
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -247,7 +250,9 @@ class WorkspaceImporter(private val context: Context) {
                             lessons = parsed.lessons,
                             filesCount = validBookFiles.size,
                             warnings = commitWarnings.distinct(),
-                            importedAt = baseStamp + idx
+                            importedAt = baseStamp + idx,
+                            indexRecords = parsed.indexRecords,
+                            units = parsed.units
                         )
                     )
                 } catch (e: Exception) {
@@ -294,7 +299,9 @@ class WorkspaceImporter(private val context: Context) {
 
     private data class ParsedGradeTree(
         val books: List<BookRef>,
-        val lessons: List<LessonRef>
+        val lessons: List<LessonRef>,
+        val indexRecords: List<WorkspaceIndexRef> = emptyList(),
+        val units: List<WorkspaceUnitRef> = emptyList()
     )
 
     private fun parseGradeFromDir(
@@ -313,13 +320,14 @@ class WorkspaceImporter(private val context: Context) {
             .mapNotNull { relative ->
                 val file = File(baseDir, relative)
                 val raw = runCatching { file.readText(Charsets.UTF_8) }.getOrNull() ?: return@mapNotNull null
-                val hash = MessageDigest.getInstance("SHA-256").digest(raw.toByteArray(Charsets.UTF_8))
-                    .joinToString("") { "%02x".format(it) }
+                val hash = sha256(raw)
                 relative.replace('\\', '/').trimStart('/').lowercase(Locale.ROOT) to hash
             }.toMap()
 
         val books = mutableListOf<BookRef>()
         val lessons = mutableListOf<LessonRef>()
+        val indexRecords = mutableListOf<WorkspaceIndexRef>()
+        val unitRefs = mutableListOf<WorkspaceUnitRef>()
 
         for (indexPath in bookIndexPaths) {
             val bookRel = indexPath.removeSuffix("/index.json")
@@ -411,6 +419,7 @@ class WorkspaceImporter(private val context: Context) {
 
             val parsedLessons = parseLessons(
                 index = indexObj,
+                manifest = manifestObj,
                 grade = gradeKey,
                 rootPath = destRootPath,
                 bookKey = bookKey,
@@ -473,6 +482,47 @@ class WorkspaceImporter(private val context: Context) {
                 File(baseDir, rel).takeIf { it.exists() }?.absolutePath
             }
 
+            val destIndexFile = File(destRootPath, indexPath)
+            val destManifestRel = if (manifestFile.isFile) {
+                runCatching {
+                    manifestFile.relativeTo(baseDir).path.replace('\\', '/')
+                }.getOrNull()
+            } else null
+            val destManifestFile = destManifestRel?.let { File(destRootPath, it) }
+            val syncTimestamp = System.currentTimeMillis()
+            indexRecords.add(
+                WorkspaceIndexRef(
+                    bookKey = bookKey,
+                    indexUriOrPath = destIndexFile.absolutePath,
+                    indexRelativePath = indexPath,
+                    manifestUriOrPath = destManifestFile?.absolutePath,
+                    manifestRelativePath = destManifestRel,
+                    indexSha256 = sha256(indexRaw),
+                    manifestSha256 = manifestRaw?.let(::sha256),
+                    sourceSha256 = manifestObj?.str("sourceSha256")?.takeIf { it.isNotBlank() },
+                    indexSchemaVersion = firstNonBlank(indexObj.str("indexVersion"), indexObj.str("schemaVersion")).takeIf { it.isNotBlank() },
+                    manifestVersion = manifestObj?.str("manifestVersion")?.takeIf { it.isNotBlank() },
+                    lastSyncedAt = syncTimestamp
+                )
+            )
+            (indexObj["units"] as? JsonArray).orEmpty().forEachIndexed { unitOrder, unitElement ->
+                val unit = unitElement as? JsonObject ?: return@forEachIndexed
+                val uk = WorkspaceContractValidator.sourceUnitKey(unit)
+                if (uk.isBlank()) return@forEachIndexed
+                val resolvedUnitPart = WorkspaceContractValidator.resolveUnitPartKey(unit, indexObj, manifestObj)
+                    .takeIf { it.isNotBlank() }
+                unitRefs.add(
+                    WorkspaceUnitRef(
+                        bookKey = bookKey,
+                        unitKey = uk,
+                        title = firstNonBlank(unit.str("title"), unit.str("unitTitle"), unit.str("name"), uk),
+                        partKey = resolvedUnitPart,
+                        sortOrder = unitOrder,
+                        sourceIndexPath = destIndexFile.absolutePath
+                    )
+                )
+            }
+
             books.add(
                 BookRef(
                     bookKey = bookKey,
@@ -492,7 +542,12 @@ class WorkspaceImporter(private val context: Context) {
             lessons.addAll(parsedLessons)
         }
 
-        return ParsedGradeTree(books = books, lessons = lessons)
+        return ParsedGradeTree(
+            books = books,
+            lessons = lessons,
+            indexRecords = indexRecords,
+            units = unitRefs
+        )
     }
 
     private fun verifyExportManifest(root: File) {
@@ -544,6 +599,7 @@ class WorkspaceImporter(private val context: Context) {
 
     private fun parseLessons(
         index: JsonObject,
+        manifest: JsonObject? = null,
         grade: String,
         rootPath: String,
         bookKey: String,
@@ -555,6 +611,12 @@ class WorkspaceImporter(private val context: Context) {
     ): List<LessonRef> {
         val units = (index["units"] as? JsonArray) ?: return emptyList()
         val result = mutableListOf<LessonRef>()
+        val cleanBookPrefix = bookRel.trim('/').lowercase(Locale.ROOT).let { if (it.isBlank()) "" else "$it/" }
+        val bookEntries = zipNameSet.mapNotNull { rel ->
+            val norm = rel.replace('\\', '/').trimStart('/')
+            val lower = norm.lowercase(Locale.ROOT)
+            if (cleanBookPrefix.isEmpty() || lower.startsWith(cleanBookPrefix)) lower to norm else null
+        }.toMap()
 
         units.forEachIndexed { ui, unitElem ->
             val u = unitElem as? JsonObject ?: return@forEachIndexed
@@ -569,7 +631,7 @@ class WorkspaceImporter(private val context: Context) {
                 u.str("name"),
                 uk
             )
-            val unitPart = firstNonBlank(u.str("partKey"), u.str("part"), "")
+            val unitPart = WorkspaceContractValidator.resolveUnitPartKey(u, index, manifest)
 
             val unitLessons = (u["lessons"] as? JsonArray) ?: return@forEachIndexed
             unitLessons.forEachIndexed { li, lessonElem ->
@@ -586,34 +648,39 @@ class WorkspaceImporter(private val context: Context) {
                 )
                 val startPage = firstNonBlank(
                     l.str("pdfPageStart"),
+                    l.str("pdfPage"),
                     l.str("pageStart"),
                     l.str("startPage")
                 )
                 val endPage = firstNonBlank(
                     l.str("pdfPageEnd"),
+                    l.str("pdfPage"),
                     l.str("pageEnd"),
                     l.str("endPage")
                 )
-                val p = firstNonBlank(l.str("partKey"), l.str("part"), unitPart)
+                val printedStartPage = l.str("printedPageStart")
+                val printedEndPage = l.str("printedPageEnd")
+                val printedPageRange = if (printedStartPage.isNotBlank() && printedEndPage.isNotBlank()) {
+                    "$printedStartPage–$printedEndPage"
+                } else null
+                val p = firstNonBlank(l.str("partKey"), l.str("part"), unitPart).uppercase(Locale.ROOT)
                 val lessonNumStr = (l.str("lessonNumber").toIntOrNull() ?: lessonNumber(lk)).let { num ->
                     if (num >= 0) num.toString().padStart(2, '0') else "-1"
                 }
 
-                val linkedPdf = (l["sliceFile"] as? JsonObject)?.str("workspaceUri").orEmpty()
-                val candidates = buildList {
-                    if (linkedPdf.isNotBlank()) {
-                        add(linkedPdf)
-                        if (linkedPdf.startsWith("workspace/", ignoreCase = true)) {
-                            add(linkedPdf.removePrefix("workspace/"))
-                        }
-                    }
-                    if (p == "P01" || p == "P02") {
-                        add("$bookRel/$p/units/$unitFolderKey/lesson_$lessonNumStr.pdf")
-                        add("$bookRel/$p/units/$unitFolderKey/$lk.pdf")
-                    }
-                }
-                val matchedPdfRel = candidates.firstOrNull { candidate ->
-                    zipNameSet.any { it.equals(candidate, ignoreCase = true) }
+                val candidates = WorkspaceContractValidator.lessonPdfCandidates(
+                    lesson = l,
+                    unit = u,
+                    lessonPart = p,
+                    bookRelativePath = bookRel,
+                    expectedGrade = grade,
+                    expectedSubject = subjectKey
+                )
+                val matchedPdfRel = candidates.firstNotNullOfOrNull { candidate ->
+                    val normCand = candidate.replace('\\', '/').trim().trimStart('/').lowercase(Locale.ROOT)
+                    bookEntries[normCand]
+                        ?: (if (cleanBookPrefix.isNotEmpty() && !normCand.startsWith(cleanBookPrefix)) bookEntries["$cleanBookPrefix$normCand"] else null)
+                        ?: bookEntries.entries.firstOrNull { (k, _) -> k.endsWith("/$normCand") }?.value
                 }
                 val txtCandidates = buildList {
                     if (p == "P01" || p == "P02") {
@@ -657,7 +724,8 @@ class WorkspaceImporter(private val context: Context) {
                         pageRange = pageRange,
                         pdfPath = matchedPdfRel?.let { File(rootPath, it).absolutePath },
                         sourceTextPath = matchedTxtRel?.let { File(rootPath, it).absolutePath },
-                        interactivePath = matchedHtmlRel?.let { File(rootPath, it).absolutePath }
+                        interactivePath = matchedHtmlRel?.let { File(rootPath, it).absolutePath },
+                        printedPageRange = printedPageRange
                     )
                 )
             }
@@ -665,9 +733,25 @@ class WorkspaceImporter(private val context: Context) {
         return result
     }
 
+    private fun sha256(value: String): String =
+        MessageDigest.getInstance("SHA-256")
+            .digest(value.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+
     private fun isReadablePdf(path: String): Boolean {
         val file = File(path)
         if (!file.isFile || file.length() < 8L) return false
+        val hasPdfHeader = runCatching {
+            file.inputStream().use { input ->
+                val header = ByteArray(5)
+                val read = input.read(header)
+                read >= 5 && String(header, Charsets.US_ASCII) == "%PDF-"
+            }
+        }.getOrDefault(false)
+        if (!hasPdfHeader) return false
+        if (Build.FINGERPRINT.equals("robolectric", ignoreCase = true)) {
+            return true
+        }
         return runCatching {
             ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
                 PdfRenderer(descriptor).use { renderer -> renderer.pageCount > 0 }

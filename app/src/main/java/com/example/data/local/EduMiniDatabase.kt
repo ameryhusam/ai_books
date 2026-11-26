@@ -146,7 +146,10 @@ data class DraftEntity(
     @ColumnInfo(name = "response_schema_hash", defaultValue = "''") val responseSchemaHash: String = "",
     @ColumnInfo(name = "request_fingerprint", defaultValue = "''") val requestFingerprint: String = "",
     @ColumnInfo(name = "content_hash", defaultValue = "''") val contentHash: String = "",
-    @ColumnInfo(name = "source_pdf_hash", defaultValue = "''") val sourcePdfHash: String = ""
+    @ColumnInfo(name = "source_pdf_hash", defaultValue = "''") val sourcePdfHash: String = "",
+    @ColumnInfo(name = "prompt_used", defaultValue = "''") val promptUsed: String = "",
+    @ColumnInfo(name = "response_schema_json", defaultValue = "''") val responseSchemaJson: String = "",
+    @ColumnInfo(name = "source_index_sha256", defaultValue = "''") val sourceIndexSha256: String = ""
 )
 
 @Entity(
@@ -246,7 +249,37 @@ data class QuestionEntity(
     @ColumnInfo(name = "fingerprint") val fingerprint: String,
     @ColumnInfo(name = "reviewed") val reviewed: Boolean = false,
     @ColumnInfo(name = "created_at") val createdAt: String,
-    @ColumnInfo(name = "concept_tag") val conceptTag: String = ""
+    @ColumnInfo(name = "concept_tag") val conceptTag: String = "",
+    @ColumnInfo(name = "draft_id", defaultValue = "''") val draftId: String = "",
+    @ColumnInfo(name = "template_id", defaultValue = "''") val templateId: String = "",
+    @ColumnInfo(name = "prompt_used", defaultValue = "''") val promptUsed: String = "",
+    @ColumnInfo(name = "response_schema_json", defaultValue = "''") val responseSchemaJson: String = "",
+    @ColumnInfo(name = "source_index_sha256", defaultValue = "''") val sourceIndexSha256: String = ""
+)
+
+@Entity(
+    tableName = "lesson_texts",
+    primaryKeys = ["workspace_id", "book_key", "unit_key", "lesson_key"],
+    indices = [Index(name = "idx_lesson_texts_ws", value = ["workspace_id"])]
+)
+data class LessonTextEntity(
+    @ColumnInfo(name = "workspace_id") val workspaceId: String,
+    @ColumnInfo(name = "grade_key") val gradeKey: String,
+    @ColumnInfo(name = "book_key") val bookKey: String,
+    @ColumnInfo(name = "unit_key") val unitKey: String,
+    @ColumnInfo(name = "lesson_key") val lessonKey: String,
+    @ColumnInfo(name = "lesson_title") val lessonTitle: String,
+    @ColumnInfo(name = "content") val content: String,
+    @ColumnInfo(name = "extraction_method", defaultValue = "'manual'") val extractionMethod: String = "manual",
+    @ColumnInfo(name = "source_pages") val sourcePages: String? = null,
+    @ColumnInfo(name = "source_pdf_hash", defaultValue = "''") val sourcePdfHash: String = "",
+    @ColumnInfo(name = "source_index_sha256", defaultValue = "''") val sourceIndexSha256: String = "",
+    @ColumnInfo(name = "template_id", defaultValue = "''") val templateId: String = "",
+    @ColumnInfo(name = "prompt_used", defaultValue = "''") val promptUsed: String = "",
+    @ColumnInfo(name = "response_schema_json", defaultValue = "''") val responseSchemaJson: String = "",
+    @ColumnInfo(name = "content_hash", defaultValue = "''") val contentHash: String = "",
+    @ColumnInfo(name = "version", defaultValue = "1") val version: Int = 1,
+    @ColumnInfo(name = "updated_at") val updatedAt: String
 )
 
 @Entity(
@@ -455,8 +488,69 @@ interface EduMiniDao {
     @Query("SELECT * FROM workspace_indexes WHERE workspace_id = :workspaceId ORDER BY book_key")
     fun observeWorkspaceIndexes(workspaceId: String): Flow<List<WorkspaceIndexEntity>>
 
+    @Query("SELECT * FROM workspace_indexes WHERE workspace_id = :workspaceId AND book_key = :bookKey LIMIT 1")
+    suspend fun getWorkspaceIndexForBook(workspaceId: String, bookKey: String): WorkspaceIndexEntity?
+
     @Query("SELECT * FROM workspace_units WHERE workspace_id = :workspaceId ORDER BY book_key, sort_order")
     fun observeWorkspaceUnits(workspaceId: String): Flow<List<WorkspaceUnitEntity>>
+
+    @Query(
+        """
+        SELECT * FROM lesson_texts
+        WHERE (workspace_id = :workspaceId OR workspace_id = :legacyRootPath)
+          AND book_key = :bookKey
+          AND unit_key = :unitKey
+          AND lesson_key = :lessonKey
+        ORDER BY updated_at DESC
+        LIMIT 1
+        """
+    )
+    fun observeLessonText(
+        workspaceId: String,
+        legacyRootPath: String,
+        bookKey: String,
+        unitKey: String,
+        lessonKey: String
+    ): Flow<LessonTextEntity?>
+
+    @Query(
+        """
+        SELECT * FROM lesson_texts
+        WHERE (workspace_id = :workspaceId OR workspace_id = :legacyRootPath)
+          AND book_key = :bookKey
+          AND unit_key = :unitKey
+          AND lesson_key = :lessonKey
+        ORDER BY updated_at DESC
+        LIMIT 1
+        """
+    )
+    suspend fun getLessonTextSnapshot(
+        workspaceId: String,
+        legacyRootPath: String,
+        bookKey: String,
+        unitKey: String,
+        lessonKey: String
+    ): LessonTextEntity?
+
+    @Query("SELECT * FROM lesson_texts WHERE workspace_id = :workspaceId OR workspace_id = :legacyRootPath ORDER BY updated_at DESC")
+    fun observeLessonTextsForWorkspace(workspaceId: String, legacyRootPath: String = workspaceId): Flow<List<LessonTextEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertLessonText(lessonText: LessonTextEntity)
+
+    @Query(
+        """
+        DELETE FROM lesson_texts
+        WHERE workspace_id = :workspaceId
+          AND book_key = :bookKey
+          AND unit_key = :unitKey
+          AND lesson_key = :lessonKey
+        """
+    )
+    suspend fun deleteLessonText(workspaceId: String, bookKey: String, unitKey: String, lessonKey: String)
+
+    @Query("DELETE FROM lesson_texts WHERE workspace_id = :workspaceId")
+    suspend fun deleteLessonTextsByWorkspace(workspaceId: String)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertDraft(draft: DraftEntity)
@@ -787,6 +881,9 @@ interface EduMiniDao {
         deleteWorkspaceById(workspaceId)
         deleteBooksByWorkspace(workspaceId)
         deleteLessonsByWorkspace(workspaceId)
+        deleteWorkspaceIndexes(workspaceId)
+        deleteWorkspaceUnits(workspaceId)
+        deleteLessonTextsByWorkspace(workspaceId)
         deleteDraftsByWorkspace(workspaceId)
         deletePackagesByWorkspace(workspaceId)
         deleteProgressByWorkspace(workspaceId)
@@ -807,6 +904,7 @@ interface EduMiniDao {
         WorkspaceIndexEntity::class,
         WorkspaceUnitEntity::class,
         DraftEntity::class,
+        LessonTextEntity::class,
         InteractivePackageEntity::class,
         GenerationRunEntity::class,
         LessonProgressEntity::class,
@@ -818,7 +916,7 @@ interface EduMiniDao {
         TeacherNoteEntity::class,
         PromptTemplateEntity::class
     ],
-    version = 16,
+    version = 17,
     exportSchema = true
 )
 abstract class EduMiniDatabase : RoomDatabase() {
@@ -1247,6 +1345,51 @@ abstract class EduMiniDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_16_17 = object : Migration(16, 17) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE generation_drafts ADD COLUMN prompt_used TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE generation_drafts ADD COLUMN response_schema_json TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE generation_drafts ADD COLUMN source_index_sha256 TEXT NOT NULL DEFAULT ''")
+
+                db.execSQL("ALTER TABLE questions ADD COLUMN draft_id TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE questions ADD COLUMN template_id TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE questions ADD COLUMN prompt_used TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE questions ADD COLUMN response_schema_json TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE questions ADD COLUMN source_index_sha256 TEXT NOT NULL DEFAULT ''")
+
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS lesson_texts (
+                        workspace_id TEXT NOT NULL,
+                        grade_key TEXT NOT NULL,
+                        book_key TEXT NOT NULL,
+                        unit_key TEXT NOT NULL,
+                        lesson_key TEXT NOT NULL,
+                        lesson_title TEXT NOT NULL,
+                        content TEXT NOT NULL,
+                        extraction_method TEXT NOT NULL DEFAULT 'manual',
+                        source_pages TEXT,
+                        source_pdf_hash TEXT NOT NULL DEFAULT '',
+                        source_index_sha256 TEXT NOT NULL DEFAULT '',
+                        template_id TEXT NOT NULL DEFAULT '',
+                        prompt_used TEXT NOT NULL DEFAULT '',
+                        response_schema_json TEXT NOT NULL DEFAULT '',
+                        content_hash TEXT NOT NULL DEFAULT '',
+                        version INTEGER NOT NULL DEFAULT 1,
+                        updated_at TEXT NOT NULL,
+                        PRIMARY KEY(workspace_id, book_key, unit_key, lesson_key)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_lesson_texts_ws
+                    ON lesson_texts (workspace_id)
+                    """.trimIndent()
+                )
+            }
+        }
+
         fun getInstance(context: Context): EduMiniDatabase {
             return instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -1269,7 +1412,8 @@ abstract class EduMiniDatabase : RoomDatabase() {
                         MIGRATION_12_13,
                         MIGRATION_13_14,
                         MIGRATION_14_15,
-                        MIGRATION_15_16
+                        MIGRATION_15_16,
+                        MIGRATION_16_17
                     )
                     .build()
                     .also { instance = it }

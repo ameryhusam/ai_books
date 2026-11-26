@@ -308,7 +308,9 @@ class AiGenerationService(
                             responseSchemaHash = responseSchemaHash,
                             requestFingerprint = sha256("$requestFingerprint|${profile.provider.id}|$modelName|$prompt"),
                             contentHash = sha256(outputText),
-                            sourcePdfHash = sourcePdfHash
+                            sourcePdfHash = sourcePdfHash,
+                            promptUsed = prompt,
+                            responseSchemaJson = responseSchemaJson
                         )
                     } catch (e: CancellationException) {
                         throw e

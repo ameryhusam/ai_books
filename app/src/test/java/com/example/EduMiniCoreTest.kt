@@ -139,7 +139,8 @@ class EduMiniCoreTest {
                     "lessonNumber": 2,
                     "title": "الدرس الثاني",
                     "pdfPageStart": 11,
-                    "pdfPageEnd": 14
+                    "pdfPageEnd": 14,
+                    "sliceFile": {"workspaceUri":"workspace/G04/ARAB/P01/units/unit_01/lesson_02.pdf"}
                   }
                 ]
               }]
@@ -186,7 +187,8 @@ class EduMiniCoreTest {
                 "workspace/G04/ARAB/book_manifest.json" to manifestRaw,
                 "workspace/G04/ARAB/index.json" to indexRaw,
                 "workspace/G04/ARAB/P01/index.json" to partIndexRaw,
-                "workspace/G04/ARAB/P01/units/unit_01/lesson_01.pdf" to "%PDF-1.4 sample"
+                "workspace/G04/ARAB/P01/units/unit_01/lesson_01.pdf" to "%PDF-1.4 sample",
+                "workspace/G04/ARAB/P01/units/unit_01/lesson_02.pdf" to "%PDF-1.4 sample two"
             )
         )
 
@@ -197,7 +199,85 @@ class EduMiniCoreTest {
         assertEquals(2, imported.lessons.size)
         assertNotNull(imported.lessons[0].pdfPath)
         assertEquals("5–10", imported.lessons[0].pageRange)
-        assertNull(imported.lessons[1].pdfPath)
+        assertNotNull(imported.lessons[1].pdfPath)
+        assertEquals("11–14", imported.lessons[1].pageRange)
+        assertEquals(1, imported.indexRecords.size)
+        assertEquals(indexHash, imported.indexRecords.single().indexSha256)
+        assertEquals(1, imported.units.size)
+    }
+
+    @Test
+    fun importerRejectsCanonicalV2BookWithMissingLessonPdf() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val importer = WorkspaceImporter(context)
+        val indexRaw = """
+            {
+              "gradeKey": "G04",
+              "subjectKey": "ARAB",
+              "partKey": "BOTH",
+              "sourceLayout": "MERGED_PARTS_FILE",
+              "sourceReviewStatus": "VERIFIED",
+              "approvalStatus": "APPROVED",
+              "sourceMetadata": {"sourceRequiresReview": false, "partEvidence": "Both parts found in PDF."},
+              "units": [{
+                "unitKey": "unit_01",
+                "unitNumber": 1,
+                "title": "الوحدة الأولى",
+                "partKey": "P01",
+                "assignmentStatus": "assigned",
+                "assignmentSource": "INDEX_EVIDENCE",
+                "assignmentEvidence": "TOC evidence",
+                "lessons": [
+                  {
+                    "lessonKey": "lesson_01",
+                    "lessonNumber": 1,
+                    "title": "الدرس الأول",
+                    "pdfPageStart": 5,
+                    "pdfPageEnd": 10,
+                    "sliceFile": {"workspaceUri":"workspace/G04/ARAB/P01/units/unit_01/lesson_01.pdf"}
+                  },
+                  {
+                    "lessonKey": "lesson_02",
+                    "lessonNumber": 2,
+                    "title": "الدرس الثاني",
+                    "pdfPageStart": 11,
+                    "pdfPageEnd": 14,
+                    "sliceFile": {"workspaceUri":"workspace/G04/ARAB/P01/units/unit_01/lesson_02.pdf"}
+                  }
+                ]
+              }]
+            }
+        """.trimIndent()
+        val indexHash = MessageDigest.getInstance("SHA-256")
+            .digest(indexRaw.toByteArray()).joinToString("") { "%02x".format(it) }
+        val manifestRaw = """
+            {
+              "manifestVersion": "edu.book_manifest.v2",
+              "title": "لغتي العربية",
+              "gradeKey": "G04",
+              "subjectKey": "ARAB",
+              "partKey": "BOTH",
+              "sourceLayout": "MERGED_PARTS_FILE",
+              "sourceReviewStatus": "VERIFIED",
+              "sourceSha256": "${"c".repeat(64)}",
+              "canonicalIndexPath": "index.json",
+              "canonicalIndexSha256": "$indexHash",
+              "indexSha256": "$indexHash",
+              "partIndexes": []
+            }
+        """.trimIndent()
+        val zipBytes = createTestZip(
+            mapOf(
+                "workspace/G04/ARAB/book_manifest.json" to manifestRaw,
+                "workspace/G04/ARAB/index.json" to indexRaw,
+                "workspace/G04/ARAB/P01/units/unit_01/lesson_01.pdf" to "%PDF-1.4 sample"
+            )
+        )
+        val failure = runCatching {
+            importer.importFromStream(ByteArrayInputStream(zipBytes), zipBytes.size.toLong())
+        }.exceptionOrNull()
+        assertNotNull(failure)
+        assertTrue(failure?.message?.contains("lesson_02") == true || failure?.message?.contains("PDF") == true)
     }
 
     @Test
@@ -1512,7 +1592,8 @@ class EduMiniCoreTest {
             val inspection = binder.inspectDirectory(rootDir)
             assertEquals(2, inspection.grades.size)
             assertTrue(inspection.grades.any { it.gradeKey == "G04" && it.lessonsCount == 1 })
-            assertTrue(inspection.grades.any { it.gradeKey == "G07" && it.booksCount == 6 && it.lessonsCount == 6 })
+            assertTrue(inspection.grades.any { it.gradeKey == "G07" && it.booksCount == 5 && it.lessonsCount == 5 })
+            assertTrue(inspection.errors.any { it.contains("WORKBOOK") })
 
             val bound = binder.bindSingleGrade(rootDir.absolutePath, "G04")
             assertEquals("G04", bound.workspace.gradeKey)
@@ -1535,13 +1616,15 @@ class EduMiniCoreTest {
             assertEquals("مقارنة الكسور المتكافئة", bound.preloadedQuestions.first().conceptTag)
 
             val boundScience = binder.bindSingleGrade(rootDir.absolutePath, "G07")
-            assertEquals(6, boundScience.workspace.books.size)
-            assertEquals(6, boundScience.workspace.indexRecords.size)
+            assertEquals(5, boundScience.workspace.books.size)
+            assertEquals(5, boundScience.workspace.indexRecords.size)
+            assertTrue(boundScience.workspace.warnings.any { it.contains("WORKBOOK") })
             val scienceBook = boundScience.workspace.books.single { it.subjectKey == "SCI" }
-            assertEquals("العلوم والحياة", scienceBook.subjectName)
+            assertEquals("العلوم", scienceBook.subjectName)
+            assertEquals("العلوم والحياة", scienceBook.title)
             assertNull(scienceBook.componentKey)
             assertEquals(
-                setOf("COURSE", "WORKBOOK"),
+                setOf("COURSE"),
                 boundScience.workspace.books.filter { it.subjectKey == "ENG" }.mapNotNull { it.componentKey }.toSet()
             )
             assertEquals(
@@ -1549,17 +1632,21 @@ class EduMiniCoreTest {
                 boundScience.workspace.books.filter { it.subjectKey == "SOC" }.mapNotNull { it.componentKey }.toSet()
             )
             assertEquals(
-                setOf("SCI", "ENG/COURSE", "ENG/WORKBOOK", "SOC/GEO", "SOC/HIST", "SOC/TARBIA"),
+                setOf("SCI", "ENG/COURSE", "SOC/GEO", "SOC/HIST", "SOC/TARBIA"),
                 boundScience.workspace.books.map { it.bookKey }.toSet()
             )
             val englishCourse = boundScience.workspace.books.single { it.subjectKey == "ENG" && it.componentKey == "COURSE" }
-            val englishWorkbook = boundScience.workspace.books.single { it.subjectKey == "ENG" && it.componentKey == "WORKBOOK" }
             assertEquals("اللغة الإنجليزية", englishCourse.subjectName)
             assertEquals("English Course", englishCourse.title)
-            assertEquals("English Workbook", englishWorkbook.title)
-            assertEquals("الجغرافيا", boundScience.workspace.books.single { it.componentKey == "GEO" }.subjectName)
-            assertEquals("التاريخ", boundScience.workspace.books.single { it.componentKey == "HIST" }.subjectName)
-            assertEquals("التربية الوطنية", boundScience.workspace.books.single { it.componentKey == "TARBIA" }.subjectName)
+            val geoBook = boundScience.workspace.books.single { it.componentKey == "GEO" }
+            val histBook = boundScience.workspace.books.single { it.componentKey == "HIST" }
+            val tarbiaBook = boundScience.workspace.books.single { it.componentKey == "TARBIA" }
+            assertEquals("الدراسات الاجتماعية", geoBook.subjectName)
+            assertEquals("الجغرافيا", geoBook.title)
+            assertEquals("الدراسات الاجتماعية", histBook.subjectName)
+            assertEquals("التاريخ", histBook.title)
+            assertEquals("الدراسات الاجتماعية", tarbiaBook.subjectName)
+            assertEquals("التربية الوطنية", tarbiaBook.title)
 
             // Binding the selected component folder itself must retain its identity from index.json.
             val courseRoot = File(rootDir, "workspace/G07/ENG/COURSE")
@@ -2699,7 +2786,7 @@ class EduMiniCoreTest {
         )
         val restored = WorkspaceExporter.parseFullBackup(raw)
 
-        assertEquals("edu-mini-backup-1.3", restored.formatVersion)
+        assertEquals("edu-mini-backup-1.4", restored.formatVersion)
         assertEquals(setOf("learner_default", "learner_a", "learner_b"), restored.learnerProfiles.map { it.userId }.toSet())
         assertEquals("learner_b", restored.activeLearnerId)
         assertEquals(setOf("learner_a", "learner_b"), restored.attempts.map { it.userId }.toSet())
@@ -3598,6 +3685,7 @@ class EduMiniCoreTest {
                   "sourceLayout": "SINGLE_PART_FILE",
                   "sourceReviewStatus": "VERIFIED",
                   "approvalStatus": "APPROVED",
+                  "sourceMetadata": {"sourceRequiresReview": false, "partEvidence": "Standalone P01 coursebook verified."},
                   "units": [{
                     "unitNumber": 1,
                     "unitKey": "unit_01",
@@ -3967,6 +4055,227 @@ class EduMiniCoreTest {
         }
     }
 
+    @Test
+    fun localModeWithoutFirebaseAndAnalyticsWiringDoesNotCrash() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+
+        // Unconfigured build has no google-services.json -> default_web_client_id is empty
+        assertEquals("", com.example.ui.auth.resolveDefaultWebClientId(context))
+
+        // Null-backed FirestoreSyncRepository must fail gracefully instead of throwing IllegalStateException
+        val nullSync = com.example.data.firebase.FirestoreSyncRepository(db = null, auth = null)
+        val roleResult = nullSync.resolveUserRole("local_user", "متعلم محلي")
+        assertTrue(roleResult.isFailure)
+        val progressResult = nullSync.upsertLessonProgress(
+            userId = "local_user",
+            workspaceId = "ws_1",
+            lesson = LessonRef(
+                grade = "G04",
+                rootPath = "",
+                bookKey = "ARAB",
+                bookTitle = "اللغة العربية",
+                subjectKey = "ARAB",
+                unitKey = "unit_01",
+                unitTitle = "الوحدة 1",
+                lessonKey = "lesson_01",
+                title = "الدرس 1",
+                workspaceId = "ws_1"
+            ),
+            completed = true,
+            xpEarned = 30,
+            scorePercent = 100
+        )
+        assertTrue(progressResult.isFailure)
+
+        // AnalyticsTracker must tolerate missing FirebaseApp or Robolectric context cleanly and sanitize/clamp params
+        val tracker = com.example.data.firebase.AnalyticsTracker(context)
+        tracker.trackLessonOpened("ARAB", "unit_01", "lesson_01", "أ".repeat(140))
+        tracker.trackAiExplanationGenerated("gemini", TaskType.EXPLANATION.id, true)
+        tracker.trackLessonCreateCompleted("ARAB", "unit_01", "lesson_01", true)
+        tracker.trackQuizAttemptSubmitted("lesson_01", 150, true)
+
+        val database = Room.inMemoryDatabaseBuilder(context, EduMiniDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            val repository = EduMiniRepository(
+                dao = database.eduMiniDao(),
+                providerStorage = ProviderStorage(context),
+                workspaceImporter = WorkspaceImporter(context),
+                aiGenerationService = AiGenerationService(context),
+                interactivePackageImporter = InteractivePackageImporter(context),
+                directWorkspaceBinder = DirectWorkspaceBinder(context),
+                appContext = context
+            )
+            val offlineVm = com.example.ui.MainViewModel(
+                repository = repository,
+                firestoreSync = nullSync,
+                currentUserId = "local_offline_user",
+                isCloudAuthenticated = false,
+                analyticsTracker = tracker
+            )
+            val draftsState = offlineVm.cloudDraftsState.value
+            val progressState = offlineVm.cloudProgressState.value
+            assertTrue(draftsState is com.example.model.SyncUiState.Success)
+            assertTrue(progressState is com.example.model.SyncUiState.Success)
+
+            val lesson = LessonRef(
+                grade = "G04",
+                rootPath = "",
+                bookKey = "ARAB",
+                bookTitle = "اللغة العربية",
+                subjectKey = "ARAB",
+                unitKey = "unit_01",
+                unitTitle = "الوحدة 1",
+                lessonKey = "lesson_01",
+                title = "الدرس 1",
+                workspaceId = "ws_local"
+            )
+            offlineVm.openStudentStudy(lesson)
+            assertEquals(lesson, offlineVm.uiState.value.studentStudyLesson)
+            offlineVm.recordQuizCompleted(correct = 4, total = 5, earnedXp = 40)
+        } finally {
+            database.close()
+        }
+    }
+
+    @Test
+    fun bookMetadataMapperUsesOnlyCanonicalIndexer2Keys() {
+        val mapper = com.example.data.workspace.BookMetadataMapper
+        assertEquals("الصف السابع الأساسي", mapper.gradeDisplayName("G07"))
+        assertEquals("الرياضيات", mapper.subjectDisplayName("MATH"))
+        assertEquals("الجغرافيا", mapper.componentDisplayName("GEO"))
+        assertEquals("كتاب الطالب (Course)", mapper.componentDisplayName("COURSE"))
+        assertEquals("العلوم والحياة", mapper.subjectDisplayName("SCI", "العلوم والحياة"))
+        assertEquals("الصف التجريبي", mapper.gradeDisplayName("G07", "الصف التجريبي"))
+        val declaredDisplay = mapper.mapBookMetadata(
+            gradeKey = "G07",
+            subjectKey = "SCI",
+            componentKey = null,
+            declaredGradeName = "الصف التجريبي",
+            declaredSubjectName = "العلوم والحياة"
+        )
+        assertEquals("العلوم والحياة", declaredDisplay.subjectName)
+        assertEquals("الصف التجريبي", declaredDisplay.gradeName)
+        assertTrue(declaredDisplay.isKnown)
+        assertNull(mapper.gradeDisplayName("G99"))
+        assertNull(mapper.subjectDisplayName("PHY"))
+        assertNull(mapper.subjectDisplayName("PHY", "اسم عرض غير معتمد"))
+        assertNull(mapper.componentDisplayName("STUDENT"))
+        assertFalse(mapper.isValidBookIdentity("G07", "SCI", "WB"))
+        assertFalse(mapper.isValidBookIdentity("G10", "SCI", null))
+        assertFalse(mapper.isValidBookIdentity("G07", "BIO", null))
+        assertTrue(mapper.isValidBookIdentity("G07", "ENG", "COURSE"))
+        assertTrue(mapper.isValidBookIdentity("G07", "SOC", "TARBIA"))
+    }
+
+    @Test
+    fun bindWorkspacePersistsSubjectIndexesAndPreservesLinkedGeneratedContentOnRebind() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val database = Room.inMemoryDatabaseBuilder(context, EduMiniDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        val rootDir = File(context.cacheDir, "bind_relink_${System.currentTimeMillis()}").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        try {
+            val mathDir = File(rootDir, "workspace/G04/MATH").apply { mkdirs() }
+            File(mathDir, "P01/units/unit_01").mkdirs()
+            File(mathDir, "P01/units/unit_01/lesson_01.pdf").writeText("%PDF-1.4 lesson 1")
+            File(mathDir, "P01/units/unit_01/lesson_02.pdf").writeText("%PDF-1.4 lesson 2")
+            File(mathDir, "book_manifest.json").writeText("""{"title":"الرياضيات","gradeKey":"G04","subjectKey":"MATH"}""")
+            val indexV1 = """
+                {
+                  "gradeKey": "G04",
+                  "subjectKey": "MATH",
+                  "units": [{
+                    "unitKey": "unit_01",
+                    "title": "الأعداد والعمليات",
+                    "partKey": "P01",
+                    "lessons": [{"lessonKey": "lesson_01", "title": "الجمع", "pdfPageStart": 1, "pdfPageEnd": 4}]
+                  }]
+                }
+            """.trimIndent()
+            File(mathDir, "index.json").writeText(indexV1)
+
+            val dao = database.eduMiniDao()
+            val repository = EduMiniRepository(
+                dao = dao,
+                providerStorage = ProviderStorage(context),
+                workspaceImporter = WorkspaceImporter(context),
+                aiGenerationService = AiGenerationService(context),
+                interactivePackageImporter = InteractivePackageImporter(context),
+                directWorkspaceBinder = DirectWorkspaceBinder(context),
+                appContext = context
+            )
+
+            val boundV1 = repository.bindDirectWorkspace(rootDir.absolutePath, "G04")
+            assertEquals(1, boundV1.indexRecords.size)
+            assertEquals(1, boundV1.units.size)
+            val savedIndexesV1 = dao.observeWorkspaceIndexes(boundV1.workspaceId).first()
+            assertEquals(1, savedIndexesV1.size)
+            assertEquals("MATH", savedIndexesV1.single().bookKey)
+
+            val lesson1 = boundV1.lessons.single()
+            val savedDraft = repository.persistDraft(
+                workspaceId = boundV1.workspaceId,
+                lesson = lesson1,
+                task = TaskType.EXPLANATION,
+                providerLabel = "Gemini",
+                model = "gemini-2.5-flash",
+                text = "شرح درس الجمع",
+                title = "شرح الجمع",
+                sourceText = "نص الدرس"
+            )
+            repository.addManualQuestion(
+                workspaceId = boundV1.workspaceId,
+                lesson = lesson1,
+                type = QuestionType.MCQ,
+                prompt = "ما ناتج 2+3؟",
+                options = listOf("4", "5", "6"),
+                correctAnswer = "5",
+                rationale = "جمع مباشر",
+                difficulty = QuestionDifficulty.EASY
+            )
+
+            // Update subject index.json with an extra lesson and re-bind workspace.
+            val indexV2 = """
+                {
+                  "gradeKey": "G04",
+                  "subjectKey": "MATH",
+                  "units": [{
+                    "unitKey": "unit_01",
+                    "title": "الأعداد والعمليات",
+                    "partKey": "P01",
+                    "lessons": [
+                      {"lessonKey": "lesson_01", "title": "الجمع المحدّث", "pdfPageStart": 1, "pdfPageEnd": 4},
+                      {"lessonKey": "lesson_02", "title": "الطرح", "pdfPageStart": 5, "pdfPageEnd": 8}
+                    ]
+                  }]
+                }
+            """.trimIndent()
+            File(mathDir, "index.json").writeText(indexV2)
+
+            val boundV2 = repository.bindDirectWorkspace(rootDir.absolutePath, "G04")
+            assertEquals(boundV1.workspaceId, boundV2.workspaceId)
+            assertEquals(2, boundV2.lessons.size)
+            val updatedIndex = dao.observeWorkspaceIndexes(boundV2.workspaceId).first().single()
+            assertTrue(updatedIndex.indexSha256 != savedIndexesV1.single().indexSha256)
+
+            // Generated draft & question remain linked to the updated lesson via (workspaceId, bookKey, unitKey, lessonKey).
+            val updatedLesson1 = boundV2.lessons.first { it.lessonKey == "lesson_01" }
+            val linkedDrafts = repository.observeDraftsForLesson(boundV2.workspaceId, updatedLesson1).first()
+            val linkedQuestions = repository.observeQuestionsForWorkspace(boundV2.workspaceId).first()
+            assertEquals(1, linkedDrafts.size)
+            assertEquals(savedDraft.id, linkedDrafts.single().id)
+            assertEquals(1, linkedQuestions.size)
+        } finally {
+            rootDir.deleteRecursively()
+            database.close()
+        }
+    }
+
 }
 
 private val testKeyStoreMap = java.util.concurrent.ConcurrentHashMap<String, java.security.Key>()
@@ -4021,37 +4330,6 @@ class RobolectricAndroidKeyStoreSpi : java.security.KeyStoreSpi() {
     override fun engineGetCertificateAlias(cert: java.security.cert.Certificate?): String? = null
     override fun engineStore(stream: java.io.OutputStream?, password: CharArray?) = Unit
     override fun engineLoad(stream: java.io.InputStream?, password: CharArray?) = Unit
-
-    @Test
-    fun bookMetadataMapperUsesOnlyCanonicalIndexer2Keys() {
-        val mapper = com.example.data.workspace.BookMetadataMapper
-        assertEquals("الصف السابع الأساسي", mapper.gradeDisplayName("G07"))
-        assertEquals("الرياضيات", mapper.subjectDisplayName("MATH"))
-        assertEquals("الجغرافيا", mapper.componentDisplayName("GEO"))
-        assertEquals("كتاب الطالب (Course)", mapper.componentDisplayName("COURSE"))
-        assertEquals("العلوم والحياة", mapper.subjectDisplayName("SCI", "العلوم والحياة"))
-        assertEquals("الصف التجريبي", mapper.gradeDisplayName("G07", "الصف التجريبي"))
-        val declaredDisplay = mapper.mapBookMetadata(
-            gradeKey = "G07",
-            subjectKey = "SCI",
-            componentKey = null,
-            declaredGradeName = "الصف التجريبي",
-            declaredSubjectName = "العلوم والحياة"
-        )
-        assertEquals("العلوم والحياة", declaredDisplay.subjectName)
-        assertEquals("الصف التجريبي", declaredDisplay.gradeName)
-        assertTrue(declaredDisplay.isKnown)
-        assertNull(mapper.gradeDisplayName("G99"))
-        assertNull(mapper.subjectDisplayName("PHY"))
-        assertNull(mapper.subjectDisplayName("PHY", "اسم عرض غير معتمد"))
-        assertNull(mapper.componentDisplayName("STUDENT"))
-        assertFalse(mapper.isValidBookIdentity("G07", "SCI", "WB"))
-        assertFalse(mapper.isValidBookIdentity("G10", "SCI", null))
-        assertFalse(mapper.isValidBookIdentity("G07", "BIO", null))
-        assertTrue(mapper.isValidBookIdentity("G07", "ENG", "COURSE"))
-        assertTrue(mapper.isValidBookIdentity("G07", "SOC", "TARBIA"))
-    }
-
 }
 
 class RobolectricAndroidAesKeyGeneratorSpi : javax.crypto.KeyGeneratorSpi() {

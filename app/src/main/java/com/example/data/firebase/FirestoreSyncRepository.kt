@@ -31,14 +31,17 @@ import kotlinx.coroutines.tasks.await
 import java.security.MessageDigest
 
 class FirestoreSyncRepository(
-    private val db: FirebaseFirestore,
-    private val auth: FirebaseAuth = Firebase.auth
+    private val db: FirebaseFirestore?,
+    private val auth: FirebaseAuth? = runCatching { Firebase.auth }.getOrNull()
 ) {
     constructor(context: Context) : this(
-        FirebaseFirestore.getInstance(
-            context.applicationContext.getString(R.string.firestore_database_id)
-        )
+        db = safeFirestore(context),
+        auth = safeAuth(context)
     )
+
+    private fun requireFirestore(): FirebaseFirestore {
+        return db ?: throw IllegalStateException("خدمة Firebase Firestore غير مهيأة في هذا البناء.")
+    }
 
     private fun normalizeSha256(value: String, fieldName: String): String {
         val normalized = value.trim().lowercase()
@@ -49,7 +52,9 @@ class FirestoreSyncRepository(
     }
 
     private fun requireUserId(): String {
-        return auth.currentUser?.uid?.takeIf { it.isNotBlank() }
+        val firebaseAuth = auth
+            ?: throw IllegalStateException("خدمة Firebase Auth غير مهيأة في هذا البناء (أضف google-services.json).")
+        return firebaseAuth.currentUser?.uid?.takeIf { it.isNotBlank() }
             ?: throw IllegalStateException("يجب تسجيل الدخول بحساب Google قبل المزامنة مع السحابة.")
     }
 
@@ -62,7 +67,7 @@ class FirestoreSyncRepository(
         return try {
             val uid = requireUserId()
             check(uid == userId) { "تم تبديل الحساب؛ تم رفض قراءة صلاحية مستخدم آخر." }
-            val docRef = db.collection("users").document(uid)
+            val docRef = requireFirestore().collection("users").document(uid)
             docPath = docRef.path
             val snapshot = docRef.get().await()
             if (snapshot.exists()) {
@@ -104,9 +109,10 @@ class FirestoreSyncRepository(
     fun observeDrafts(userId: String): Flow<List<CloudDraft>> = flow {
         val uid = requireUserId()
         check(uid == userId) { "تم تبديل الحساب؛ تم رفض قراءة مسودات مستخدم آخر." }
+        val firestore = requireFirestore()
         val path = "users/$uid/drafts"
         emitAll(
-            db.collection("users")
+            firestore.collection("users")
                 .document(uid)
                 .collection("drafts")
                 .snapshots()
@@ -122,7 +128,7 @@ class FirestoreSyncRepository(
                         .firstOrNull()
                     if (firestoreError == null && error is CancellationException) throw error
                     val exceptionToLog = firestoreError ?: (error as? Exception)
-                    if (exceptionToLog != null && auth.currentUser?.uid == uid) {
+                    if (exceptionToLog != null && auth?.currentUser?.uid == uid) {
                         handleFirestoreError(exceptionToLog, OperationType.LIST, path)
                     }
                     throw error
@@ -133,9 +139,10 @@ class FirestoreSyncRepository(
     fun observeProgress(userId: String): Flow<List<LessonProgress>> = flow {
         val uid = requireUserId()
         check(uid == userId) { "تم تبديل الحساب؛ تم رفض قراءة تقدم مستخدم آخر." }
+        val firestore = requireFirestore()
         val path = "users/$uid/progress"
         emitAll(
-            db.collection("users")
+            firestore.collection("users")
                 .document(uid)
                 .collection("progress")
                 .snapshots()
@@ -151,7 +158,7 @@ class FirestoreSyncRepository(
                         .firstOrNull()
                     if (firestoreError == null && error is CancellationException) throw error
                     val exceptionToLog = firestoreError ?: (error as? Exception)
-                    if (exceptionToLog != null && auth.currentUser?.uid == uid) {
+                    if (exceptionToLog != null && auth?.currentUser?.uid == uid) {
                         handleFirestoreError(exceptionToLog, OperationType.LIST, path)
                     }
                     throw error
@@ -190,7 +197,7 @@ class FirestoreSyncRepository(
             val safeContentHash = normalizeSha256(draft.contentHash, "contentHash")
             val safeSourcePdfHash = normalizeSha256(draft.sourcePdfHash, "sourcePdfHash")
 
-            val docRef = db.collection("users")
+            val docRef = requireFirestore().collection("users")
                 .document(uid)
                 .collection("drafts")
                 .document(docId)
@@ -259,7 +266,7 @@ class FirestoreSyncRepository(
         return try {
             val uid = requireUserId()
             check(uid == userId) { "Signed-in user changed; refusing cross-user update." }
-            val docRef = db.collection("users")
+            val docRef = requireFirestore().collection("users")
                 .document(uid)
                 .collection("drafts")
                 .document(validId)
@@ -285,7 +292,7 @@ class FirestoreSyncRepository(
         return try {
             val uid = requireUserId()
             check(uid == userId) { "Signed-in user changed; refusing cross-user delete." }
-            val docRef = db.collection("users")
+            val docRef = requireFirestore().collection("users")
                 .document(uid)
                 .collection("drafts")
                 .document(validId)
@@ -323,7 +330,7 @@ class FirestoreSyncRepository(
             val safeScore = scorePercent.coerceIn(0, 100).toLong()
             val cleanNotes = notes?.trim()?.take(2000)?.takeIf { it.isNotEmpty() }
 
-            val docRef = db.collection("users")
+            val docRef = requireFirestore().collection("users")
                 .document(uid)
                 .collection("progress")
                 .document(docId)
@@ -427,6 +434,25 @@ class FirestoreSyncRepository(
         private fun sha1Short(input: String): String {
             val bytes = MessageDigest.getInstance("SHA-1").digest(input.toByteArray(Charsets.UTF_8))
             return bytes.take(6).joinToString("") { "%02x".format(it) }
+        }
+
+        private fun safeFirestore(context: Context): FirebaseFirestore? {
+            if (!com.example.EduMiniApplication.ensureFirebaseInitialized(context)) return null
+            return try {
+                val dbId = context.applicationContext.getString(R.string.firestore_database_id)
+                if (dbId.isNotBlank()) FirebaseFirestore.getInstance(dbId) else FirebaseFirestore.getInstance()
+            } catch (_: Exception) {
+                null
+            }
+        }
+
+        private fun safeAuth(context: Context): FirebaseAuth? {
+            if (!com.example.EduMiniApplication.ensureFirebaseInitialized(context)) return null
+            return try {
+                Firebase.auth
+            } catch (_: Exception) {
+                null
+            }
         }
     }
 }

@@ -32,7 +32,7 @@ gradlew.bat :app:testDebugUnitTest --tests "com.example.EduMiniCoreTest.directWo
 The focused tests exercise:
 - Delayed recall, recall-gap, recurring wrong answers, recurring concepts, weekly score aggregation, and post-reinforcement follow-up calculations.
 - Sequential lesson access, subject-specific 25/50/75/100% badges, and exclusion of unreviewed generated questions from learner practice.
-- Science indexes without a component, English COURSE/WORKBOOK components, and Social Studies GEO/HIST/TARBIA components.
+- Science indexes without a component, English COURSE component, and Social Studies GEO/HIST/TARBIA components.
 - Index/manifest component identity, nested component-root binding, grade discovery, and zero-copy binding.
 - Stable Room uniqueness and preservation of book/lesson row IDs during catalog refresh.
 - Isolation of lesson completion, study-day activity, and assessment results between local learner profiles.

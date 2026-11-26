@@ -33,6 +33,7 @@ import kotlinx.serialization.json.jsonObject
 import java.io.File
 import java.security.MessageDigest
 import java.time.Instant
+import java.util.Locale
 import java.util.UUID
 
 data class DirectBoundWorkspaceResult(
@@ -860,15 +861,16 @@ class DirectWorkspaceBinder(private val context: Context) {
         if (slot.pathSubjectKey != null && !slot.subjectKey.equals(slot.pathSubjectKey, ignoreCase = true)) {
             return "[subjectKey] لا يطابق مجلد المادة في المسار (${slot.subjectKey} مقابل ${slot.pathSubjectKey})."
         }
-        if (!BookMetadataMapper.isValidBookIdentity(slot.gradeKey, slot.subjectKey, slot.componentKey)) {
-            return "[book identity] gradeKey أو subjectKey أو componentKey غير معروف أو غير متوافق مع فهرس Indexer2."
-        }
         if (slot.componentMetadataMismatch) {
             return "[index.json vs book_manifest.json] componentKey غير متطابق بين الفهرس والبطاقة."
         }
         if (slot.componentPathIsAuthoritative && !slot.componentKey.equals(slot.pathComponentKey, ignoreCase = true)) {
             return "[index.json → componentKey] لا يطابق مجلد المكون في المسار " +
                 "(${slot.componentKey ?: "بدون مكون"} مقابل ${slot.pathComponentKey ?: "بدون مكون"})."
+        }
+        if (!BookMetadataMapper.isValidBookIdentity(slot.gradeKey, slot.subjectKey, slot.componentKey)) {
+            return "[book identity] هوية الكتاب غير معروفة أو غير متوافقة مع فهرس Indexer2 " +
+                "(gradeKey=${slot.gradeKey}, subjectKey=${slot.subjectKey}, componentKey=${slot.componentKey ?: "بدون مكون"})."
         }
         return null
     }

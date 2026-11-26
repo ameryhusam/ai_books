@@ -15,6 +15,7 @@ import com.example.data.local.GenerationRunEntity
 import com.example.data.local.InteractivePackageEntity
 import com.example.data.local.LessonEntity
 import com.example.data.local.LessonProgressEntity
+import com.example.data.local.LessonTextEntity
 import com.example.data.local.PromptTemplateEntity
 import com.example.data.local.QuestionAttemptEntity
 import com.example.data.local.QuestionEntity
@@ -55,6 +56,7 @@ import com.example.model.LearningUnitPath
 import com.example.model.LessonQuizCompletionResult
 import com.example.model.LessonRef
 import com.example.model.LessonSplitDraft
+import com.example.model.LessonTextRecord
 import com.example.model.MasteryStatus
 import com.example.model.PackageKind
 import com.example.model.PdfBookInfo
@@ -83,6 +85,10 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
@@ -495,6 +501,7 @@ class EduMiniRepository(
                     version = entity.version
                 )
             }
+            ?: DEFAULT_PROMPT_TEMPLATES.firstOrNull { it.task == task }
         onProgress(18, "تجهيز ملف PDF الأصلي")
         val attachmentMode = activeTemplate?.sourceAttachmentMode ?: "pdf_native"
         val shouldAttachSource = attachPdfPages && attachmentMode != "none"
@@ -660,6 +667,9 @@ class EduMiniRepository(
         val createdAt = Instant.now().toString()
         val provenanceSource = sourceText.trim()
         val sourceHash = sha256Short(provenanceSource)
+        val sourceIndexSha256 = dao.getWorkspaceIndexForBook(canonicalWorkspaceId, lesson.bookKey)
+            ?.indexSha256
+            .orEmpty()
         val record = DraftRecord(
             id = id,
             workspaceId = canonicalWorkspaceId,
@@ -682,7 +692,10 @@ class EduMiniRepository(
             responseSchemaHash = generation?.responseSchemaHash.orEmpty(),
             requestFingerprint = generation?.requestFingerprint.orEmpty(),
             contentHash = generation?.contentHash?.takeIf { it.isNotBlank() } ?: sha256Full(text),
-            sourcePdfHash = generation?.sourcePdfHash.orEmpty()
+            sourcePdfHash = generation?.sourcePdfHash.orEmpty(),
+            promptUsed = generation?.promptUsed.orEmpty(),
+            responseSchemaJson = generation?.responseSchemaJson.orEmpty(),
+            sourceIndexSha256 = sourceIndexSha256
         )
         dao.insertDraft(
             DraftEntity(
@@ -707,7 +720,10 @@ class EduMiniRepository(
                 responseSchemaHash = record.responseSchemaHash,
                 requestFingerprint = record.requestFingerprint,
                 contentHash = record.contentHash,
-                sourcePdfHash = record.sourcePdfHash
+                sourcePdfHash = record.sourcePdfHash,
+                promptUsed = record.promptUsed,
+                responseSchemaJson = record.responseSchemaJson,
+                sourceIndexSha256 = record.sourceIndexSha256
             )
         )
         return record
@@ -717,7 +733,6 @@ class EduMiniRepository(
         dao.updateDraftStatus(draftId, DraftStatus.APPROVED.id)
         val draft = dao.getDraftById(draftId) ?: return 0
         val task = TaskType.fromId(draft.task)
-        if (task != TaskType.QUESTIONS && task != TaskType.INTERACTIVE) return 0
         val lessonRef = dao.getLessonsForWorkspaceSnapshot(draft.workspaceId)
             .firstOrNull {
                 it.bookKey == draft.bookKey &&
@@ -737,12 +752,34 @@ class EduMiniRepository(
                 pageRange = draft.sourcePages,
                 workspaceId = draft.workspaceId
             )
+        if (task == TaskType.LESSON_TEXT) {
+            val extracted = extractLessonTextFromOutput(draft.content)
+            if (extracted.isNotBlank()) {
+                saveLessonText(
+                    workspaceId = draft.workspaceId,
+                    lesson = lessonRef,
+                    content = extracted,
+                    extractionMethod = "ai_approved",
+                    sourcePdfHash = draft.sourcePdfHash,
+                    templateId = draft.templateId,
+                    promptUsed = draft.promptUsed,
+                    responseSchemaJson = draft.responseSchemaJson
+                )
+            }
+            return 0
+        }
+        if (task != TaskType.QUESTIONS && task != TaskType.INTERACTIVE) return 0
         if (task == TaskType.INTERACTIVE) {
             val activity = InteractiveActivityParser.parse(draft.content, lessonRef.title) ?: return 0
             val synced = questionBankService.syncInteractiveCheckpointsToQuestionBank(
                 workspaceId = draft.workspaceId,
                 lesson = lessonRef,
-                activity = activity
+                activity = activity,
+                draftId = draft.id,
+                templateId = draft.templateId,
+                promptUsed = draft.promptUsed,
+                responseSchemaJson = draft.responseSchemaJson,
+                sourceIndexSha256 = draft.sourceIndexSha256
             )
             runCatching {
                 buildAndPublishInteractiveBundle(
@@ -757,7 +794,12 @@ class EduMiniRepository(
         return saveQuestionsFromDraftText(
             workspaceId = draft.workspaceId,
             lesson = lessonRef,
-            rawText = draft.content
+            rawText = draft.content,
+            draftId = draft.id,
+            templateId = draft.templateId,
+            promptUsed = draft.promptUsed,
+            responseSchemaJson = draft.responseSchemaJson,
+            sourceIndexSha256 = draft.sourceIndexSha256
         ).size
     }
 
@@ -864,6 +906,106 @@ class EduMiniRepository(
 
     suspend fun deleteDraft(draftId: String) {
         dao.deleteDraftById(draftId)
+    }
+
+    fun observeLessonText(workspaceId: String, lesson: LessonRef): Flow<LessonTextRecord?> {
+        val canonicalWs = workspaceId.ifBlank { lesson.workspaceId }.ifBlank { lesson.rootPath }
+        if (canonicalWs.isBlank()) return flowOf(null)
+        return dao.observeLessonText(
+            workspaceId = canonicalWs,
+            legacyRootPath = lesson.rootPath,
+            bookKey = lesson.bookKey,
+            unitKey = lesson.unitKey,
+            lessonKey = lesson.lessonKey
+        ).map { it?.toModel() }
+    }
+
+    fun observeLessonTextsForWorkspace(workspaceId: String, legacyRootPath: String = workspaceId): Flow<List<LessonTextRecord>> {
+        if (workspaceId.isBlank()) return flowOf(emptyList())
+        return dao.observeLessonTextsForWorkspace(workspaceId, legacyRootPath).map { list ->
+            list.map { it.toModel() }
+        }
+    }
+
+    suspend fun saveLessonText(
+        workspaceId: String,
+        lesson: LessonRef,
+        content: String,
+        extractionMethod: String = "manual",
+        sourcePdfHash: String = "",
+        templateId: String = "",
+        promptUsed: String = "",
+        responseSchemaJson: String = ""
+    ): LessonTextRecord {
+        val cleanContent = content.trim()
+        require(cleanContent.isNotBlank()) { "لا يوجد محتوى نصي صالح لحفظه للدرس." }
+        val canonicalWs = workspaceId.ifBlank { lesson.workspaceId }.ifBlank { lesson.rootPath }
+        require(canonicalWs.isNotBlank()) { "معرّف مساحة العمل غير محدد لحفظ نص الدرس." }
+        val existing = dao.getLessonTextSnapshot(
+            workspaceId = canonicalWs,
+            legacyRootPath = lesson.rootPath,
+            bookKey = lesson.bookKey,
+            unitKey = lesson.unitKey,
+            lessonKey = lesson.lessonKey
+        )
+        val indexSha = dao.getWorkspaceIndexForBook(canonicalWs, lesson.bookKey)?.indexSha256.orEmpty()
+        val nextVersion = (existing?.version ?: 0) + 1
+        val now = Instant.now().toString()
+        val entity = LessonTextEntity(
+            workspaceId = canonicalWs,
+            gradeKey = lesson.grade,
+            bookKey = lesson.bookKey,
+            unitKey = lesson.unitKey,
+            lessonKey = lesson.lessonKey,
+            lessonTitle = lesson.title,
+            content = cleanContent,
+            extractionMethod = extractionMethod.ifBlank { "manual" },
+            sourcePages = lesson.pageRange,
+            sourcePdfHash = sourcePdfHash,
+            sourceIndexSha256 = indexSha,
+            templateId = templateId,
+            promptUsed = promptUsed,
+            responseSchemaJson = responseSchemaJson,
+            contentHash = sha256Full(cleanContent),
+            version = nextVersion,
+            updatedAt = now
+        )
+        dao.upsertLessonText(entity)
+        return entity.toModel()
+    }
+
+    suspend fun deleteLessonText(workspaceId: String, lesson: LessonRef) {
+        val canonicalWs = workspaceId.ifBlank { lesson.workspaceId }.ifBlank { lesson.rootPath }
+        if (canonicalWs.isBlank()) return
+        dao.deleteLessonText(canonicalWs, lesson.bookKey, lesson.unitKey, lesson.lessonKey)
+    }
+
+    fun extractLessonTextFromOutput(rawText: String): String {
+        val cleaned = rawText.trim()
+            .removePrefix("```json")
+            .removePrefix("```")
+            .removeSuffix("```")
+            .trim()
+        val obj = runCatching { json.parseToJsonElement(cleaned) as? JsonObject }.getOrNull()
+            ?: return rawText.trim()
+        val title = (obj["title"] as? JsonPrimitive)?.contentOrNull?.trim().orEmpty()
+        val plainText = (obj["plainText"] as? JsonPrimitive)?.contentOrNull?.trim().orEmpty()
+        val sections = (obj["sections"] as? JsonArray)?.mapNotNull { el ->
+            val sec = el as? JsonObject ?: return@mapNotNull null
+            val heading = (sec["heading"] as? JsonPrimitive)?.contentOrNull?.trim().orEmpty()
+            val body = (sec["body"] as? JsonPrimitive)?.contentOrNull?.trim().orEmpty()
+            if (heading.isBlank() && body.isBlank()) null
+            else if (heading.isNotBlank() && body.isNotBlank()) "## $heading\n$body"
+            else heading.ifBlank { body }
+        }.orEmpty()
+        val combinedSections = sections.joinToString("\n\n").trim()
+        return when {
+            combinedSections.isNotBlank() && title.isNotBlank() && !combinedSections.startsWith("## $title") ->
+                "$title\n\n$combinedSections"
+            combinedSections.isNotBlank() -> combinedSections
+            plainText.isNotBlank() -> plainText
+            else -> rawText.trim()
+        }
     }
 
     suspend fun importInteractivePackage(
@@ -1463,13 +1605,29 @@ class EduMiniRepository(
     suspend fun saveQuestionsFromDraftText(
         workspaceId: String,
         lesson: LessonRef,
-        rawText: String
+        rawText: String,
+        draftId: String = "",
+        templateId: String = "",
+        promptUsed: String = "",
+        responseSchemaJson: String = "",
+        sourceIndexSha256: String = ""
     ): List<QuestionItem> {
         val canonicalWs = workspaceId.ifBlank { lesson.workspaceId }.ifBlank { lesson.rootPath }
         val parsed = QuestionBankEngine.parseQuestionsFromText(rawText, canonicalWs, lesson)
         if (parsed.isEmpty()) return emptyList()
-        val saved = questionBankService.saveQuestionsWithConceptTags(canonicalWs, lesson, parsed)
-        return saved
+        val effectiveIndexSha = sourceIndexSha256.ifBlank {
+            dao.getWorkspaceIndexForBook(canonicalWs, lesson.bookKey)?.indexSha256.orEmpty()
+        }
+        return questionBankService.saveQuestionsWithConceptTags(
+            workspaceId = canonicalWs,
+            lesson = lesson,
+            parsedQuestions = parsed,
+            draftId = draftId,
+            templateId = templateId,
+            promptUsed = promptUsed,
+            responseSchemaJson = responseSchemaJson,
+            sourceIndexSha256 = effectiveIndexSha
+        )
     }
 
     suspend fun addManualQuestion(
@@ -1484,6 +1642,7 @@ class EduMiniRepository(
         conceptTag: String = ""
     ): QuestionItem {
         val canonicalWs = workspaceId.ifBlank { lesson.workspaceId }.ifBlank { lesson.rootPath }
+        val indexSha = dao.getWorkspaceIndexForBook(canonicalWs, lesson.bookKey)?.indexSha256.orEmpty()
         val item = QuestionItem(
             id = "q-${System.currentTimeMillis()}-${UUID.randomUUID().toString().take(6)}",
             workspaceId = canonicalWs,
@@ -1502,7 +1661,8 @@ class EduMiniRepository(
             fingerprint = QuestionBankEngine.computeFingerprint(prompt),
             reviewed = true,
             createdAt = Instant.now().toString(),
-            conceptTag = conceptTag.trim().ifBlank { lesson.title }
+            conceptTag = conceptTag.trim().ifBlank { lesson.title },
+            sourceIndexSha256 = indexSha
         )
         dao.insertQuestions(listOf(item.toEntity()))
         return item
@@ -1557,6 +1717,7 @@ class EduMiniRepository(
         val notes = dao.observeTeacherNotesForWorkspace(workspace.workspaceId).first()
         val studyDays = dao.observeAllStudyDays().first()
         val templates = dao.observePromptTemplates().first()
+        val lessonTexts = dao.observeLessonTextsForWorkspace(workspace.workspaceId, workspace.rootPath).first()
         val fullBackup = WorkspaceExporter.serializeFullBackup(
             workspaceId = workspace.workspaceId,
             drafts = drafts,
@@ -1569,7 +1730,8 @@ class EduMiniRepository(
             templates = templates,
             questionAttempts = qAttempts,
             learnerProfiles = learnerProfiles,
-            activeLearnerId = activeLearnerId
+            activeLearnerId = activeLearnerId,
+            lessonTexts = lessonTexts
         )
         WorkspaceExporter.exportIndexer2CompatibleZip(
             outputStream = outputStream,
@@ -1578,7 +1740,8 @@ class EduMiniRepository(
             questions = questions,
             assessments = assessments,
             fullBackupJson = fullBackup,
-            context = appContext
+            context = appContext,
+            lessonTexts = lessonTexts
         )
     }
 
@@ -1597,6 +1760,7 @@ class EduMiniRepository(
         val notes = dao.observeTeacherNotesForWorkspace(workspace.workspaceId).first()
         val studyDays = dao.observeAllStudyDays().first()
         val templates = dao.observePromptTemplates().first()
+        val lessonTexts = dao.observeLessonTextsForWorkspace(workspace.workspaceId, workspace.rootPath).first()
         val payload = WorkspaceExporter.serializeFullBackup(
             workspaceId = workspace.workspaceId,
             drafts = drafts,
@@ -1609,12 +1773,13 @@ class EduMiniRepository(
             templates = templates,
             questionAttempts = qAttempts,
             learnerProfiles = learnerProfiles,
-            activeLearnerId = activeLearnerId
+            activeLearnerId = activeLearnerId,
+            lessonTexts = lessonTexts
         )
         outputStream.writer(Charsets.UTF_8).use { writer ->
             writer.write(payload)
         }
-        drafts.size + questions.size + assessments.size + notes.size + qAttempts.size
+        drafts.size + questions.size + assessments.size + notes.size + qAttempts.size + lessonTexts.size
     }
 
     suspend fun importFullBackupJson(
@@ -1652,7 +1817,10 @@ class EduMiniRepository(
                     responseSchemaHash = d.responseSchemaHash,
                     requestFingerprint = d.requestFingerprint,
                     contentHash = d.contentHash,
-                    sourcePdfHash = d.sourcePdfHash
+                    sourcePdfHash = d.sourcePdfHash,
+                    promptUsed = d.promptUsed,
+                    responseSchemaJson = d.responseSchemaJson,
+                    sourceIndexSha256 = d.sourceIndexSha256
                 )
             )
         }
@@ -1677,7 +1845,12 @@ class EduMiniRepository(
                         fingerprint = q.fingerprint,
                         reviewed = q.reviewed,
                         createdAt = q.createdAt,
-                        conceptTag = q.conceptTag
+                        conceptTag = q.conceptTag,
+                        draftId = draftIdMap[q.draftId] ?: q.draftId,
+                        templateId = q.templateId,
+                        promptUsed = q.promptUsed,
+                        responseSchemaJson = q.responseSchemaJson,
+                        sourceIndexSha256 = q.sourceIndexSha256
                     )
                 }
             )
@@ -1806,6 +1979,29 @@ class EduMiniRepository(
                 )
             )
         }
+        bundle.lessonTexts.forEach { lt ->
+            dao.upsertLessonText(
+                LessonTextEntity(
+                    workspaceId = wsId.ifBlank { lt.workspaceId },
+                    gradeKey = lt.gradeKey,
+                    bookKey = lt.bookKey,
+                    unitKey = lt.unitKey,
+                    lessonKey = lt.lessonKey,
+                    lessonTitle = lt.lessonTitle,
+                    content = lt.content,
+                    extractionMethod = lt.extractionMethod,
+                    sourcePages = lt.sourcePages,
+                    sourcePdfHash = lt.sourcePdfHash,
+                    sourceIndexSha256 = lt.sourceIndexSha256,
+                    templateId = lt.templateId,
+                    promptUsed = lt.promptUsed,
+                    responseSchemaJson = lt.responseSchemaJson,
+                    contentHash = lt.contentHash,
+                    version = lt.version,
+                    updatedAt = lt.updatedAt
+                )
+            )
+        }
         if (bundle.learnerProfiles.isNotEmpty()) {
             val restoredProfiles = bundle.learnerProfiles
                 .map {
@@ -1834,7 +2030,8 @@ class EduMiniRepository(
                 )
             }
         }
-        "تمت استعادة ${bundle.drafts.size} مسودة، ${bundle.questions.size} سؤال، ${bundle.assessments.size} تقييم، و${bundle.teacherNotes.size} ملاحظة بنجاح."
+        val lessonTextsSuffix = if (bundle.lessonTexts.isNotEmpty()) "، و${bundle.lessonTexts.size} نص درس" else ""
+        "تمت استعادة ${bundle.drafts.size} مسودة، ${bundle.questions.size} سؤال، ${bundle.assessments.size} تقييم، و${bundle.teacherNotes.size} ملاحظة$lessonTextsSuffix بنجاح."
     }
 
     fun observeAssessmentsForWorkspace(workspaceId: String): Flow<List<AssessmentRecord>> {
@@ -2052,6 +2249,25 @@ class EduMiniRepository(
                 )
             }
         )
+        val existingById = dao.observePromptTemplates().first().associateBy { it.id }
+        DEFAULT_PROMPT_TEMPLATES.forEach { defaultTpl ->
+            val current = existingById[defaultTpl.id] ?: return@forEach
+            if (current.version <= 1 &&
+                current.responseSchemaJson.isBlank() &&
+                defaultTpl.responseSchemaJson.isNotBlank()
+            ) {
+                dao.updatePromptTemplate(
+                    templateId = current.id,
+                    title = current.title,
+                    task = current.task,
+                    instructions = current.instructions,
+                    responseSchemaJson = defaultTpl.responseSchemaJson,
+                    responseMappingJson = current.responseMappingJson.ifBlank { defaultTpl.responseMappingJson },
+                    responseFormat = defaultTpl.responseFormat,
+                    sourceAttachmentMode = current.sourceAttachmentMode
+                )
+            }
+        }
     }
 
     suspend fun savePromptTemplate(
@@ -2124,7 +2340,30 @@ class EduMiniRepository(
         responseSchemaHash = responseSchemaHash,
         requestFingerprint = requestFingerprint,
         contentHash = contentHash,
-        sourcePdfHash = sourcePdfHash
+        sourcePdfHash = sourcePdfHash,
+        promptUsed = promptUsed,
+        responseSchemaJson = responseSchemaJson,
+        sourceIndexSha256 = sourceIndexSha256
+    )
+
+    private fun LessonTextEntity.toModel() = LessonTextRecord(
+        workspaceId = workspaceId,
+        gradeKey = gradeKey,
+        bookKey = bookKey,
+        unitKey = unitKey,
+        lessonKey = lessonKey,
+        lessonTitle = lessonTitle,
+        content = content,
+        extractionMethod = extractionMethod,
+        sourcePages = sourcePages,
+        sourcePdfHash = sourcePdfHash,
+        sourceIndexSha256 = sourceIndexSha256,
+        templateId = templateId,
+        promptUsed = promptUsed,
+        responseSchemaJson = responseSchemaJson,
+        contentHash = contentHash,
+        version = version,
+        updatedAt = updatedAt
     )
 
     private fun QuestionEntity.toModel(): QuestionItem {
@@ -2147,7 +2386,12 @@ class EduMiniRepository(
             fingerprint = fingerprint,
             reviewed = reviewed,
             createdAt = createdAt,
-            conceptTag = conceptTag.ifBlank { lessonTitle }
+            conceptTag = conceptTag.ifBlank { lessonTitle },
+            draftId = draftId,
+            templateId = templateId,
+            promptUsed = promptUsed,
+            responseSchemaJson = responseSchemaJson,
+            sourceIndexSha256 = sourceIndexSha256
         )
     }
 
@@ -2169,7 +2413,12 @@ class EduMiniRepository(
         fingerprint = fingerprint,
         reviewed = reviewed,
         createdAt = createdAt,
-        conceptTag = conceptTag.ifBlank { lessonTitle }
+        conceptTag = conceptTag.ifBlank { lessonTitle },
+        draftId = draftId,
+        templateId = templateId,
+        promptUsed = promptUsed,
+        responseSchemaJson = responseSchemaJson,
+        sourceIndexSha256 = sourceIndexSha256
     )
 
     private fun QuestionAttemptEntity.toModel() = QuestionAttemptRecord(
@@ -2304,12 +2553,52 @@ class EduMiniRepository(
                 responseSchemaJson = Indexer2PromptRegistry.blueprintFor(TaskType.EXPLANATION).schemaSnippet
             ),
             PromptTemplateRecord(
+                id = "builtin_summary",
+                title = "ملخص مركّز في نقاط سريعة",
+                task = TaskType.SUMMARY,
+                instructions = Indexer2PromptRegistry.blueprintFor(TaskType.SUMMARY).quickInstructions,
+                isBuiltIn = true,
+                responseSchemaJson = Indexer2PromptRegistry.blueprintFor(TaskType.SUMMARY).schemaSnippet
+            ),
+            PromptTemplateRecord(
+                id = "builtin_objectives",
+                title = "الأهداف السلوكية والمفردات المفتاحية",
+                task = TaskType.OBJECTIVES,
+                instructions = Indexer2PromptRegistry.blueprintFor(TaskType.OBJECTIVES).quickInstructions,
+                isBuiltIn = true,
+                responseSchemaJson = Indexer2PromptRegistry.blueprintFor(TaskType.OBJECTIVES).schemaSnippet
+            ),
+            PromptTemplateRecord(
                 id = "builtin_vocab_cards",
                 title = "مسرد مصطلحات سياقي",
                 task = TaskType.VOCABULARY,
                 instructions = "استخرج أهم المصطلحات في جدول منظم: المصطلح، المعنى المبسط، ومثال من سياق الدرس.",
                 isBuiltIn = true,
                 responseSchemaJson = Indexer2PromptRegistry.blueprintFor(TaskType.VOCABULARY).schemaSnippet
+            ),
+            PromptTemplateRecord(
+                id = "builtin_worked_examples",
+                title = "أمثلة محلولة خطوة بخطوة",
+                task = TaskType.WORKED_EXAMPLES,
+                instructions = Indexer2PromptRegistry.blueprintFor(TaskType.WORKED_EXAMPLES).quickInstructions,
+                isBuiltIn = true,
+                responseSchemaJson = Indexer2PromptRegistry.blueprintFor(TaskType.WORKED_EXAMPLES).schemaSnippet
+            ),
+            PromptTemplateRecord(
+                id = "builtin_lesson_review",
+                title = "مراجعة شاملة وتصحيح المفاهيم",
+                task = TaskType.LESSON_REVIEW,
+                instructions = Indexer2PromptRegistry.blueprintFor(TaskType.LESSON_REVIEW).quickInstructions,
+                isBuiltIn = true,
+                responseSchemaJson = Indexer2PromptRegistry.blueprintFor(TaskType.LESSON_REVIEW).schemaSnippet
+            ),
+            PromptTemplateRecord(
+                id = "builtin_difficulty_adapter",
+                title = "مواءمة المستويات (3 مسارات)",
+                task = TaskType.DIFFICULTY_ADAPTER,
+                instructions = Indexer2PromptRegistry.blueprintFor(TaskType.DIFFICULTY_ADAPTER).quickInstructions,
+                isBuiltIn = true,
+                responseSchemaJson = Indexer2PromptRegistry.blueprintFor(TaskType.DIFFICULTY_ADAPTER).schemaSnippet
             ),
             PromptTemplateRecord(
                 id = "builtin_bloom_questions",
@@ -2393,6 +2682,36 @@ class EduMiniRepository(
                         }
                       },
                       "required": ["title", "steps"]
+                    }
+                """.trimIndent(),
+                responseFormat = "json"
+            ),
+            PromptTemplateRecord(
+                id = "builtin_lesson_text",
+                title = "استخراج وحفظ المحتوى النصي للدرس",
+                task = TaskType.LESSON_TEXT,
+                instructions = Indexer2PromptRegistry.blueprintFor(TaskType.LESSON_TEXT).quickInstructions,
+                isBuiltIn = true,
+                responseSchemaJson = """
+                    {
+                      "type": "OBJECT",
+                      "properties": {
+                        "title": { "type": "STRING" },
+                        "sourcePages": { "type": "STRING" },
+                        "sections": {
+                          "type": "ARRAY",
+                          "items": {
+                            "type": "OBJECT",
+                            "properties": {
+                              "heading": { "type": "STRING" },
+                              "body": { "type": "STRING" }
+                            },
+                            "required": ["heading", "body"]
+                          }
+                        },
+                        "plainText": { "type": "STRING" }
+                      },
+                      "required": ["title", "sections", "plainText"]
                     }
                 """.trimIndent(),
                 responseFormat = "json"

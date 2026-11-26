@@ -98,8 +98,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import com.example.EduMiniApplication
 import com.example.R
 import com.example.data.ai.AiGenerationService
+import com.example.data.firebase.AnalyticsTracker
 import com.example.data.firebase.FirestoreSyncRepository
 import com.example.data.local.EduMiniDatabase
 import com.example.data.packageimport.InteractivePackageImporter
@@ -112,6 +114,7 @@ import com.example.model.AuthRoleCheckState
 import com.example.model.UserRole
 import com.example.ui.auth.AuthScreen
 import com.example.ui.auth.authStateFlow
+import com.example.ui.auth.safeFirebaseAuth
 import com.example.ui.auth.signOutFromFirebase
 import com.example.ui.components.BookCoverPreviewDialog
 import com.example.ui.components.GlobalSearchDialog
@@ -143,17 +146,21 @@ import com.example.ui.theme.EduMuted
 import com.example.ui.theme.EduPurple
 import com.example.ui.theme.EduRed
 import com.example.ui.theme.EduWhite
-import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.auth.auth
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.flowOf
 
 @Composable
 fun EduMiniApp(
-    auth: FirebaseAuth = Firebase.auth
+    auth: FirebaseAuth? = null
 ) {
-    val currentUser by auth.authStateFlow().collectAsStateWithLifecycle(initialValue = auth.currentUser)
+    val rootContext = LocalContext.current
+    val resolvedAuth = remember(auth, rootContext) { auth ?: safeFirebaseAuth(rootContext) }
+    val authFlow = remember(resolvedAuth) {
+        resolvedAuth?.authStateFlow() ?: flowOf(null)
+    }
+    val currentUser by authFlow.collectAsStateWithLifecycle(initialValue = resolvedAuth?.currentUser)
     var localDemoBypass by rememberSaveable { mutableStateOf(false) }
 
     EduMiniTheme {
@@ -185,8 +192,16 @@ fun EduMiniApp(
                         factory = viewModelFactory {
                             initializer {
                                 val app = checkNotNull(this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY])
-                                val dbId = app.getString(R.string.firestore_database_id)
-                                val firestoreDb = FirebaseFirestore.getInstance(dbId)
+                                val firebaseReady = EduMiniApplication.ensureFirebaseInitialized(app)
+                                val firestoreDb = if (firebaseReady) {
+                                    runCatching {
+                                        val dbId = app.getString(R.string.firestore_database_id)
+                                        if (dbId.isNotBlank()) FirebaseFirestore.getInstance(dbId) else FirebaseFirestore.getInstance()
+                                    }.getOrNull()
+                                } else {
+                                    null
+                                }
+                                val firebaseAuthForSync = resolvedAuth ?: safeFirebaseAuth(app)
                                 val repository = EduMiniRepository(
                                     dao = EduMiniDatabase.getInstance(app).eduMiniDao(),
                                     providerStorage = ProviderStorage(app),
@@ -196,14 +211,16 @@ fun EduMiniApp(
                                     directWorkspaceBinder = DirectWorkspaceBinder(app),
                                     appContext = app
                                 )
-                                val firestoreSync = FirestoreSyncRepository(firestoreDb, auth)
+                                val firestoreSync = FirestoreSyncRepository(firestoreDb, firebaseAuthForSync)
+                                val analyticsTracker = AnalyticsTracker(app)
                                 MainViewModel(
                                     repository = repository,
                                     firestoreSync = firestoreSync,
                                     currentUserId = userId,
                                     currentUserEmail = userEmail,
                                     currentUserDisplayName = userDisplayName,
-                                    isCloudAuthenticated = isCloudAuthenticated
+                                    isCloudAuthenticated = isCloudAuthenticated,
+                                    analyticsTracker = analyticsTracker
                                 )
                             }
                         }
@@ -228,7 +245,7 @@ fun EduMiniApp(
                     val performSignOut: () -> Unit = {
                         localDemoBypass = false
                         if (isCloudAuthenticated) {
-                            signOutFromFirebase(credentialManager, scope) {
+                            signOutFromFirebase(credentialManager, scope, context) {
                                 viewModel.switchToRoleEntry()
                             }
                         } else {
@@ -244,7 +261,7 @@ fun EduMiniApp(
                                 roleCheckState = state.authRoleCheckState,
                                 onRetry = { viewModel.resolveSignedInUserRole(force = true) },
                                 onContinueLocalMode = {
-                                    signOutFromFirebase(credentialManager, scope) {
+                                    signOutFromFirebase(credentialManager, scope, context) {
                                         localDemoBypass = true
                                     }
                                 },
@@ -297,6 +314,8 @@ private fun AuthenticatedEduMiniContent(
     val workspaceAttempts by viewModel.workspaceAttempts.collectAsStateWithLifecycle()
     val workspaceTeacherNotes by viewModel.workspaceTeacherNotes.collectAsStateWithLifecycle()
     val currentTeacherNote by viewModel.currentTeacherNote.collectAsStateWithLifecycle()
+    val currentLessonText by viewModel.currentLessonText.collectAsStateWithLifecycle()
+    val studentStudyLessonText by viewModel.studentStudyLessonText.collectAsStateWithLifecycle()
     val promptTemplates by viewModel.promptTemplates.collectAsStateWithLifecycle()
     val questionStats by viewModel.questionMasteryStats.collectAsStateWithLifecycle()
     val conceptSummaries by viewModel.conceptMasterySummaries.collectAsStateWithLifecycle()
@@ -884,6 +903,7 @@ private fun AuthenticatedEduMiniContent(
                         hasNextLesson = hasNextLesson,
                         lastQuizResult = state.lastLessonQuizResult,
                         showAdminShortcuts = state.userRole == UserRole.ADMIN,
+                        storedLessonText = studentStudyLessonText?.content,
                         onOpenGenerateQuestions = { viewModel.openLessonQuestionsInStudio(studyLesson) },
                         onSubmitLessonQuiz = { answers ->
                             viewModel.submitLessonQuiz(studyLesson, lessonQuestions, answers)

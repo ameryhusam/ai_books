@@ -91,6 +91,7 @@ fun StudentStudyDialog(
     hasNextLesson: Boolean = false,
     lastQuizResult: LessonQuizCompletionResult? = null,
     showAdminShortcuts: Boolean = false,
+    storedLessonText: String? = null,
     onOpenGenerateQuestions: (() -> Unit)? = null,
     onSubmitLessonQuiz: (Map<String, String>) -> Unit,
     onOpenNextLesson: () -> Unit = {},
@@ -111,10 +112,14 @@ fun StudentStudyDialog(
     var activeTab by remember(lesson.lessonKey, lesson.bookKey, lesson.unitKey) {
         mutableIntStateOf(0)
     }
-    var lessonTextContent by remember(lesson.sourceTextPath, lesson.pdfPath) {
-        mutableStateOf<String?>(null)
+    var lessonTextContent by remember(lesson.sourceTextPath, lesson.pdfPath, storedLessonText) {
+        mutableStateOf<String?>(storedLessonText?.takeIf { it.isNotBlank() })
     }
-    LaunchedEffect(lesson.sourceTextPath, lesson.pdfPath) {
+    LaunchedEffect(lesson.sourceTextPath, lesson.pdfPath, storedLessonText) {
+        if (!storedLessonText.isNullOrBlank()) {
+            lessonTextContent = storedLessonText
+            return@LaunchedEffect
+        }
         val loadedText = withContext(Dispatchers.IO) {
             val fromSource = lesson.sourceTextPath?.takeIf { it.isNotBlank() }?.let {
                 UriIO.readText(context, it)?.trim()?.takeIf { text -> text.isNotEmpty() }

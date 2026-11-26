@@ -1,0 +1,1682 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 17,
+    "identityHash": "da9a9a43a6166231d6886d17c19d2721",
+    "entities": [
+      {
+        "tableName": "workspaces",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`workspaceId` TEXT NOT NULL, `gradeKey` TEXT NOT NULL, `rootPath` TEXT NOT NULL, `title` TEXT NOT NULL, `filesCount` INTEGER NOT NULL, `warningsJson` TEXT NOT NULL, `importedAt` INTEGER NOT NULL, PRIMARY KEY(`workspaceId`))",
+        "fields": [
+          {
+            "fieldPath": "workspaceId",
+            "columnName": "workspaceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "gradeKey",
+            "columnName": "gradeKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rootPath",
+            "columnName": "rootPath",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "filesCount",
+            "columnName": "filesCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "warningsJson",
+            "columnName": "warningsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "importedAt",
+            "columnName": "importedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "workspaceId"
+          ]
+        }
+      },
+      {
+        "tableName": "books",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`rowId` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `workspaceId` TEXT NOT NULL, `bookKey` TEXT NOT NULL, `title` TEXT NOT NULL, `subjectKey` TEXT NOT NULL, `componentKey` TEXT, `relativePath` TEXT NOT NULL, `lessonsCount` INTEGER NOT NULL, `coverPath` TEXT, `sourcePdfPath` TEXT, `subjectName` TEXT)",
+        "fields": [
+          {
+            "fieldPath": "rowId",
+            "columnName": "rowId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "workspaceId",
+            "columnName": "workspaceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "bookKey",
+            "columnName": "bookKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "subjectKey",
+            "columnName": "subjectKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "componentKey",
+            "columnName": "componentKey",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "relativePath",
+            "columnName": "relativePath",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lessonsCount",
+            "columnName": "lessonsCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "coverPath",
+            "columnName": "coverPath",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sourcePdfPath",
+            "columnName": "sourcePdfPath",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "subjectName",
+            "columnName": "subjectName",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "rowId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_books_workspaceId",
+            "unique": false,
+            "columnNames": [
+              "workspaceId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_books_workspaceId` ON `${TABLE_NAME}` (`workspaceId`)"
+          },
+          {
+            "name": "index_books_workspaceId_bookKey",
+            "unique": true,
+            "columnNames": [
+              "workspaceId",
+              "bookKey"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_books_workspaceId_bookKey` ON `${TABLE_NAME}` (`workspaceId`, `bookKey`)"
+          }
+        ]
+      },
+      {
+        "tableName": "lessons",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`rowId` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `workspaceId` TEXT NOT NULL, `grade` TEXT NOT NULL, `rootPath` TEXT NOT NULL, `bookKey` TEXT NOT NULL, `bookTitle` TEXT NOT NULL, `subjectKey` TEXT NOT NULL, `componentKey` TEXT, `unitKey` TEXT NOT NULL, `unitTitle` TEXT NOT NULL, `lessonKey` TEXT NOT NULL, `title` TEXT NOT NULL, `partKey` TEXT, `pageRange` TEXT, `pdfPath` TEXT, `source_text_path` TEXT, `interactive_path` TEXT, `printed_page_range` TEXT)",
+        "fields": [
+          {
+            "fieldPath": "rowId",
+            "columnName": "rowId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "workspaceId",
+            "columnName": "workspaceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "grade",
+            "columnName": "grade",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rootPath",
+            "columnName": "rootPath",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "bookKey",
+            "columnName": "bookKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "bookTitle",
+            "columnName": "bookTitle",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "subjectKey",
+            "columnName": "subjectKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "componentKey",
+            "columnName": "componentKey",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "unitKey",
+            "columnName": "unitKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "unitTitle",
+            "columnName": "unitTitle",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lessonKey",
+            "columnName": "lessonKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "partKey",
+            "columnName": "partKey",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "pageRange",
+            "columnName": "pageRange",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "pdfPath",
+            "columnName": "pdfPath",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sourceTextPath",
+            "columnName": "source_text_path",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "interactivePath",
+            "columnName": "interactive_path",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "printedPageRange",
+            "columnName": "printed_page_range",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "rowId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_lessons_workspaceId_bookKey",
+            "unique": false,
+            "columnNames": [
+              "workspaceId",
+              "bookKey"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_lessons_workspaceId_bookKey` ON `${TABLE_NAME}` (`workspaceId`, `bookKey`)"
+          },
+          {
+            "name": "index_lessons_workspaceId_bookKey_unitKey_lessonKey",
+            "unique": true,
+            "columnNames": [
+              "workspaceId",
+              "bookKey",
+              "unitKey",
+              "lessonKey"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_lessons_workspaceId_bookKey_unitKey_lessonKey` ON `${TABLE_NAME}` (`workspaceId`, `bookKey`, `unitKey`, `lessonKey`)"
+          }
+        ]
+      },
+      {
+        "tableName": "workspace_indexes",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`workspace_id` TEXT NOT NULL, `book_key` TEXT NOT NULL, `index_uri` TEXT NOT NULL, `index_relative_path` TEXT NOT NULL, `manifest_uri` TEXT, `manifest_relative_path` TEXT, `index_sha256` TEXT NOT NULL, `manifest_sha256` TEXT, `source_sha256` TEXT, `index_schema_version` TEXT, `manifest_version` TEXT, `last_synced_at` INTEGER NOT NULL, PRIMARY KEY(`workspace_id`, `book_key`))",
+        "fields": [
+          {
+            "fieldPath": "workspaceId",
+            "columnName": "workspace_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "bookKey",
+            "columnName": "book_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "indexUri",
+            "columnName": "index_uri",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "indexRelativePath",
+            "columnName": "index_relative_path",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "manifestUri",
+            "columnName": "manifest_uri",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "manifestRelativePath",
+            "columnName": "manifest_relative_path",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "indexSha256",
+            "columnName": "index_sha256",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "manifestSha256",
+            "columnName": "manifest_sha256",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sourceSha256",
+            "columnName": "source_sha256",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "indexSchemaVersion",
+            "columnName": "index_schema_version",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "manifestVersion",
+            "columnName": "manifest_version",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "lastSyncedAt",
+            "columnName": "last_synced_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "workspace_id",
+            "book_key"
+          ]
+        }
+      },
+      {
+        "tableName": "workspace_units",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`workspace_id` TEXT NOT NULL, `book_key` TEXT NOT NULL, `unit_key` TEXT NOT NULL, `title` TEXT NOT NULL, `part_key` TEXT, `sort_order` INTEGER NOT NULL, `source_index_path` TEXT NOT NULL, PRIMARY KEY(`workspace_id`, `book_key`, `unit_key`))",
+        "fields": [
+          {
+            "fieldPath": "workspaceId",
+            "columnName": "workspace_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "bookKey",
+            "columnName": "book_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "unitKey",
+            "columnName": "unit_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "partKey",
+            "columnName": "part_key",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sortOrder",
+            "columnName": "sort_order",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceIndexPath",
+            "columnName": "source_index_path",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "workspace_id",
+            "book_key",
+            "unit_key"
+          ]
+        },
+        "indices": [
+          {
+            "name": "idx_workspace_units_part",
+            "unique": false,
+            "columnNames": [
+              "workspace_id",
+              "book_key",
+              "part_key"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_workspace_units_part` ON `${TABLE_NAME}` (`workspace_id`, `book_key`, `part_key`)"
+          }
+        ]
+      },
+      {
+        "tableName": "generation_drafts",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `workspace_id` TEXT NOT NULL, `grade_key` TEXT NOT NULL, `book_key` TEXT NOT NULL, `unit_key` TEXT NOT NULL, `lesson_key` TEXT NOT NULL, `task` TEXT NOT NULL, `title` TEXT NOT NULL, `provider` TEXT NOT NULL, `model` TEXT NOT NULL, `created_at` TEXT NOT NULL, `content` TEXT NOT NULL, `status` TEXT NOT NULL, `version` INTEGER NOT NULL, `source_pages` TEXT, `source_hash` TEXT, `template_id` TEXT NOT NULL DEFAULT '', `template_version` INTEGER NOT NULL DEFAULT 1, `response_schema_hash` TEXT NOT NULL DEFAULT '', `request_fingerprint` TEXT NOT NULL DEFAULT '', `content_hash` TEXT NOT NULL DEFAULT '', `source_pdf_hash` TEXT NOT NULL DEFAULT '', `prompt_used` TEXT NOT NULL DEFAULT '', `response_schema_json` TEXT NOT NULL DEFAULT '', `source_index_sha256` TEXT NOT NULL DEFAULT '', PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "workspaceId",
+            "columnName": "workspace_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "gradeKey",
+            "columnName": "grade_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "bookKey",
+            "columnName": "book_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "unitKey",
+            "columnName": "unit_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lessonKey",
+            "columnName": "lesson_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "task",
+            "columnName": "task",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "provider",
+            "columnName": "provider",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "model",
+            "columnName": "model",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "content",
+            "columnName": "content",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "version",
+            "columnName": "version",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourcePages",
+            "columnName": "source_pages",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sourceHash",
+            "columnName": "source_hash",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "templateId",
+            "columnName": "template_id",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "templateVersion",
+            "columnName": "template_version",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "1"
+          },
+          {
+            "fieldPath": "responseSchemaHash",
+            "columnName": "response_schema_hash",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "requestFingerprint",
+            "columnName": "request_fingerprint",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "contentHash",
+            "columnName": "content_hash",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "sourcePdfHash",
+            "columnName": "source_pdf_hash",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "promptUsed",
+            "columnName": "prompt_used",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "responseSchemaJson",
+            "columnName": "response_schema_json",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "sourceIndexSha256",
+            "columnName": "source_index_sha256",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "idx_drafts_lesson",
+            "unique": false,
+            "columnNames": [
+              "workspace_id",
+              "book_key",
+              "unit_key",
+              "lesson_key",
+              "created_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_drafts_lesson` ON `${TABLE_NAME}` (`workspace_id`, `book_key`, `unit_key`, `lesson_key`, `created_at`)"
+          }
+        ]
+      },
+      {
+        "tableName": "lesson_texts",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`workspace_id` TEXT NOT NULL, `grade_key` TEXT NOT NULL, `book_key` TEXT NOT NULL, `unit_key` TEXT NOT NULL, `lesson_key` TEXT NOT NULL, `lesson_title` TEXT NOT NULL, `content` TEXT NOT NULL, `extraction_method` TEXT NOT NULL DEFAULT 'manual', `source_pages` TEXT, `source_pdf_hash` TEXT NOT NULL DEFAULT '', `source_index_sha256` TEXT NOT NULL DEFAULT '', `template_id` TEXT NOT NULL DEFAULT '', `prompt_used` TEXT NOT NULL DEFAULT '', `response_schema_json` TEXT NOT NULL DEFAULT '', `content_hash` TEXT NOT NULL DEFAULT '', `version` INTEGER NOT NULL DEFAULT 1, `updated_at` TEXT NOT NULL, PRIMARY KEY(`workspace_id`, `book_key`, `unit_key`, `lesson_key`))",
+        "fields": [
+          {
+            "fieldPath": "workspaceId",
+            "columnName": "workspace_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "gradeKey",
+            "columnName": "grade_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "bookKey",
+            "columnName": "book_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "unitKey",
+            "columnName": "unit_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lessonKey",
+            "columnName": "lesson_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lessonTitle",
+            "columnName": "lesson_title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "content",
+            "columnName": "content",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "extractionMethod",
+            "columnName": "extraction_method",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'manual'"
+          },
+          {
+            "fieldPath": "sourcePages",
+            "columnName": "source_pages",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sourcePdfHash",
+            "columnName": "source_pdf_hash",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "sourceIndexSha256",
+            "columnName": "source_index_sha256",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "templateId",
+            "columnName": "template_id",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "promptUsed",
+            "columnName": "prompt_used",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "responseSchemaJson",
+            "columnName": "response_schema_json",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "contentHash",
+            "columnName": "content_hash",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "version",
+            "columnName": "version",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "1"
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "workspace_id",
+            "book_key",
+            "unit_key",
+            "lesson_key"
+          ]
+        },
+        "indices": [
+          {
+            "name": "idx_lesson_texts_ws",
+            "unique": false,
+            "columnNames": [
+              "workspace_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_lesson_texts_ws` ON `${TABLE_NAME}` (`workspace_id`)"
+          }
+        ]
+      },
+      {
+        "tableName": "interactive_packages",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `workspace_id` TEXT NOT NULL, `grade_key` TEXT NOT NULL, `book_key` TEXT NOT NULL, `unit_key` TEXT NOT NULL, `lesson_key` TEXT NOT NULL, `kind` TEXT NOT NULL, `title` TEXT NOT NULL, `root_dir` TEXT NOT NULL, `entry_file` TEXT NOT NULL, `source_pages` TEXT, `version` INTEGER NOT NULL, `status` TEXT NOT NULL, `published_for_students` INTEGER NOT NULL, `report_json` TEXT NOT NULL, `created_at` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "workspaceId",
+            "columnName": "workspace_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "gradeKey",
+            "columnName": "grade_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "bookKey",
+            "columnName": "book_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "unitKey",
+            "columnName": "unit_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lessonKey",
+            "columnName": "lesson_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "kind",
+            "columnName": "kind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rootDir",
+            "columnName": "root_dir",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entryFile",
+            "columnName": "entry_file",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourcePages",
+            "columnName": "source_pages",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "version",
+            "columnName": "version",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "publishedForStudents",
+            "columnName": "published_for_students",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "reportJson",
+            "columnName": "report_json",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "idx_packages_lesson",
+            "unique": false,
+            "columnNames": [
+              "workspace_id",
+              "book_key",
+              "unit_key",
+              "lesson_key",
+              "version"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_packages_lesson` ON `${TABLE_NAME}` (`workspace_id`, `book_key`, `unit_key`, `lesson_key`, `version`)"
+          }
+        ]
+      },
+      {
+        "tableName": "generation_runs",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `workspace_id` TEXT NOT NULL, `lesson_key` TEXT NOT NULL, `task` TEXT NOT NULL, `provider_label` TEXT NOT NULL, `model` TEXT NOT NULL, `status` TEXT NOT NULL, `error_summary` TEXT, `created_at` TEXT NOT NULL, `duration_ms` INTEGER NOT NULL, `tokens_used` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "workspaceId",
+            "columnName": "workspace_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lessonKey",
+            "columnName": "lesson_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "task",
+            "columnName": "task",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "providerLabel",
+            "columnName": "provider_label",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "model",
+            "columnName": "model",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "errorSummary",
+            "columnName": "error_summary",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "durationMs",
+            "columnName": "duration_ms",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "tokensUsed",
+            "columnName": "tokens_used",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "idx_runs_created",
+            "unique": false,
+            "columnNames": [
+              "created_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_runs_created` ON `${TABLE_NAME}` (`created_at`)"
+          }
+        ]
+      },
+      {
+        "tableName": "lesson_progress",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`workspace_id` TEXT NOT NULL, `book_key` TEXT NOT NULL, `unit_key` TEXT NOT NULL, `lesson_key` TEXT NOT NULL, `completed` INTEGER NOT NULL, `points_earned` INTEGER NOT NULL, `completed_at` TEXT, `user_id` TEXT NOT NULL DEFAULT 'learner_default', PRIMARY KEY(`workspace_id`, `book_key`, `unit_key`, `lesson_key`, `user_id`))",
+        "fields": [
+          {
+            "fieldPath": "workspaceId",
+            "columnName": "workspace_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "bookKey",
+            "columnName": "book_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "unitKey",
+            "columnName": "unit_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lessonKey",
+            "columnName": "lesson_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "completed",
+            "columnName": "completed",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pointsEarned",
+            "columnName": "points_earned",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "completedAt",
+            "columnName": "completed_at",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "userId",
+            "columnName": "user_id",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'learner_default'"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "workspace_id",
+            "book_key",
+            "unit_key",
+            "lesson_key",
+            "user_id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "idx_lesson_progress_ws_user",
+            "unique": false,
+            "columnNames": [
+              "workspace_id",
+              "user_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_lesson_progress_ws_user` ON `${TABLE_NAME}` (`workspace_id`, `user_id`)"
+          }
+        ]
+      },
+      {
+        "tableName": "study_days",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`activity_date` TEXT NOT NULL, `actions_count` INTEGER NOT NULL, `last_updated_at` TEXT NOT NULL, `user_id` TEXT NOT NULL DEFAULT 'learner_default', PRIMARY KEY(`activity_date`, `user_id`))",
+        "fields": [
+          {
+            "fieldPath": "activityDate",
+            "columnName": "activity_date",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "actionsCount",
+            "columnName": "actions_count",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastUpdatedAt",
+            "columnName": "last_updated_at",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "userId",
+            "columnName": "user_id",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'learner_default'"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "activity_date",
+            "user_id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "idx_study_days_user_date",
+            "unique": false,
+            "columnNames": [
+              "user_id",
+              "activity_date"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_study_days_user_date` ON `${TABLE_NAME}` (`user_id`, `activity_date`)"
+          }
+        ]
+      },
+      {
+        "tableName": "questions",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `workspace_id` TEXT NOT NULL, `grade_key` TEXT NOT NULL, `book_key` TEXT NOT NULL, `unit_key` TEXT NOT NULL, `lesson_key` TEXT NOT NULL, `lesson_title` TEXT NOT NULL, `type` TEXT NOT NULL, `prompt` TEXT NOT NULL, `options_json` TEXT NOT NULL, `correct_answer` TEXT NOT NULL, `rationale` TEXT NOT NULL, `difficulty` TEXT NOT NULL, `source_pages` TEXT, `fingerprint` TEXT NOT NULL, `reviewed` INTEGER NOT NULL, `created_at` TEXT NOT NULL, `concept_tag` TEXT NOT NULL, `draft_id` TEXT NOT NULL DEFAULT '', `template_id` TEXT NOT NULL DEFAULT '', `prompt_used` TEXT NOT NULL DEFAULT '', `response_schema_json` TEXT NOT NULL DEFAULT '', `source_index_sha256` TEXT NOT NULL DEFAULT '', PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "workspaceId",
+            "columnName": "workspace_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "gradeKey",
+            "columnName": "grade_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "bookKey",
+            "columnName": "book_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "unitKey",
+            "columnName": "unit_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lessonKey",
+            "columnName": "lesson_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lessonTitle",
+            "columnName": "lesson_title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "type",
+            "columnName": "type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "prompt",
+            "columnName": "prompt",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "optionsJson",
+            "columnName": "options_json",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "correctAnswer",
+            "columnName": "correct_answer",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rationale",
+            "columnName": "rationale",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "difficulty",
+            "columnName": "difficulty",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourcePages",
+            "columnName": "source_pages",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "fingerprint",
+            "columnName": "fingerprint",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "reviewed",
+            "columnName": "reviewed",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "conceptTag",
+            "columnName": "concept_tag",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "draftId",
+            "columnName": "draft_id",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "templateId",
+            "columnName": "template_id",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "promptUsed",
+            "columnName": "prompt_used",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "responseSchemaJson",
+            "columnName": "response_schema_json",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "sourceIndexSha256",
+            "columnName": "source_index_sha256",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "idx_questions_workspace_lesson",
+            "unique": false,
+            "columnNames": [
+              "workspace_id",
+              "book_key",
+              "unit_key",
+              "lesson_key"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_questions_workspace_lesson` ON `${TABLE_NAME}` (`workspace_id`, `book_key`, `unit_key`, `lesson_key`)"
+          }
+        ]
+      },
+      {
+        "tableName": "question_attempts",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `workspace_id` TEXT NOT NULL, `user_id` TEXT NOT NULL, `question_id` TEXT NOT NULL, `concept_tag` TEXT NOT NULL, `selected_answer` TEXT NOT NULL, `is_correct` INTEGER NOT NULL, `source_mode` TEXT NOT NULL, `answered_at` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "workspaceId",
+            "columnName": "workspace_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "userId",
+            "columnName": "user_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "questionId",
+            "columnName": "question_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "conceptTag",
+            "columnName": "concept_tag",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "selectedAnswer",
+            "columnName": "selected_answer",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isCorrect",
+            "columnName": "is_correct",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceMode",
+            "columnName": "source_mode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "answeredAt",
+            "columnName": "answered_at",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "idx_q_attempts_ws_question",
+            "unique": false,
+            "columnNames": [
+              "workspace_id",
+              "question_id",
+              "answered_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_q_attempts_ws_question` ON `${TABLE_NAME}` (`workspace_id`, `question_id`, `answered_at`)"
+          },
+          {
+            "name": "idx_q_attempts_ws_concept",
+            "unique": false,
+            "columnNames": [
+              "workspace_id",
+              "concept_tag"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_q_attempts_ws_concept` ON `${TABLE_NAME}` (`workspace_id`, `concept_tag`)"
+          },
+          {
+            "name": "idx_q_attempts_ws_user",
+            "unique": false,
+            "columnNames": [
+              "workspace_id",
+              "user_id",
+              "answered_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_q_attempts_ws_user` ON `${TABLE_NAME}` (`workspace_id`, `user_id`, `answered_at`)"
+          }
+        ]
+      },
+      {
+        "tableName": "assessments",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `workspace_id` TEXT NOT NULL, `title` TEXT NOT NULL, `kind` TEXT NOT NULL, `question_ids_json` TEXT NOT NULL, `time_limit_minutes` INTEGER NOT NULL, `pass_score_percent` INTEGER NOT NULL, `created_at` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "workspaceId",
+            "columnName": "workspace_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "kind",
+            "columnName": "kind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "questionIdsJson",
+            "columnName": "question_ids_json",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "timeLimitMinutes",
+            "columnName": "time_limit_minutes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "passScorePercent",
+            "columnName": "pass_score_percent",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "idx_assessments_ws",
+            "unique": false,
+            "columnNames": [
+              "workspace_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_assessments_ws` ON `${TABLE_NAME}` (`workspace_id`)"
+          }
+        ]
+      },
+      {
+        "tableName": "assessment_attempts",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `assessment_id` TEXT NOT NULL, `assessment_title` TEXT NOT NULL, `workspace_id` TEXT NOT NULL, `correct_count` INTEGER NOT NULL, `total_questions` INTEGER NOT NULL, `score_percent` INTEGER NOT NULL, `passed` INTEGER NOT NULL, `duration_seconds` INTEGER NOT NULL, `earned_xp` INTEGER NOT NULL, `completed_at` TEXT NOT NULL, `user_id` TEXT NOT NULL DEFAULT 'learner_default', PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "assessmentId",
+            "columnName": "assessment_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "assessmentTitle",
+            "columnName": "assessment_title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "workspaceId",
+            "columnName": "workspace_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "correctCount",
+            "columnName": "correct_count",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "totalQuestions",
+            "columnName": "total_questions",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "scorePercent",
+            "columnName": "score_percent",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "passed",
+            "columnName": "passed",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "durationSeconds",
+            "columnName": "duration_seconds",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "earnedXp",
+            "columnName": "earned_xp",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "completedAt",
+            "columnName": "completed_at",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "userId",
+            "columnName": "user_id",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'learner_default'"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "idx_attempts_ws",
+            "unique": false,
+            "columnNames": [
+              "workspace_id",
+              "completed_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_attempts_ws` ON `${TABLE_NAME}` (`workspace_id`, `completed_at`)"
+          },
+          {
+            "name": "idx_attempts_ws_user",
+            "unique": false,
+            "columnNames": [
+              "workspace_id",
+              "user_id",
+              "completed_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `idx_attempts_ws_user` ON `${TABLE_NAME}` (`workspace_id`, `user_id`, `completed_at`)"
+          }
+        ]
+      },
+      {
+        "tableName": "teacher_notes",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`workspace_id` TEXT NOT NULL, `book_key` TEXT NOT NULL, `unit_key` TEXT NOT NULL, `lesson_key` TEXT NOT NULL, `note_text` TEXT NOT NULL, `bookmarked` INTEGER NOT NULL, `updated_at` TEXT NOT NULL, PRIMARY KEY(`workspace_id`, `book_key`, `unit_key`, `lesson_key`))",
+        "fields": [
+          {
+            "fieldPath": "workspaceId",
+            "columnName": "workspace_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "bookKey",
+            "columnName": "book_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "unitKey",
+            "columnName": "unit_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lessonKey",
+            "columnName": "lesson_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "noteText",
+            "columnName": "note_text",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "bookmarked",
+            "columnName": "bookmarked",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "workspace_id",
+            "book_key",
+            "unit_key",
+            "lesson_key"
+          ]
+        }
+      },
+      {
+        "tableName": "prompt_templates",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `title` TEXT NOT NULL, `task` TEXT NOT NULL, `instructions` TEXT NOT NULL, `created_at` TEXT NOT NULL, `response_schema_json` TEXT NOT NULL DEFAULT '', `response_mapping_json` TEXT NOT NULL DEFAULT '', `response_format` TEXT NOT NULL DEFAULT 'text', `source_attachment_mode` TEXT NOT NULL DEFAULT 'pdf_native', `version` INTEGER NOT NULL DEFAULT 1, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "task",
+            "columnName": "task",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "instructions",
+            "columnName": "instructions",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "responseSchemaJson",
+            "columnName": "response_schema_json",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "responseMappingJson",
+            "columnName": "response_mapping_json",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "responseFormat",
+            "columnName": "response_format",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'text'"
+          },
+          {
+            "fieldPath": "sourceAttachmentMode",
+            "columnName": "source_attachment_mode",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'pdf_native'"
+          },
+          {
+            "fieldPath": "version",
+            "columnName": "version",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "1"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'da9a9a43a6166231d6886d17c19d2721')"
+    ]
+  }
+}
