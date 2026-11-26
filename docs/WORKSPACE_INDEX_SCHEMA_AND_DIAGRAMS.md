@@ -82,20 +82,21 @@ A merged source remains merged even when the TOC does not identify unit parts. D
 
 ## 5. Book-level index fields
 
-The Indexer2 `IndexTemplate` currently declares:
-- `templateId`, `templateName`, `title`, `displayName`;
-- `gradeKey`, `subjectKey`, optional `componentKey`;
-- `partKey`, `offset`, `coverPdfPage`, `expectedPdfPages`;
-- `sourceMetadata`, `units`;
-- `sourceLayout`, `sourceReviewStatus`, `approvalStatus`, `requiresReview`, `reviewReason`.
+The current TypeScript `IndexTemplate` declares:
+- identity/display: `templateId`, `templateName`, `title`, `displayName`, optional `gradeName`, `subjectName`, `componentName`;
+- canonical keys: `gradeKey`, `subjectKey`, optional `componentKey`;
+- source: `partKey`, `sourceLayout`, `sourceReviewStatus`, `sourceMetadata`;
+- review/approval: `approvalStatus`, `requiresReview`, `reviewReason`;
+- unit collection: `units[]`.
 
-The unit assignment contract must be extended in Indexer2's shared type and serializer to include, where applicable:
+The current `Unit` type includes:
 - `partKey`: confirmed value or `unknown`;
-- `assignmentStatus`: `ASSIGNED` or `NEEDS_REVIEW`;
-- `proposedPartKey`: optional suggested part, not authoritative;
-- `assignmentEvidence`: provenance for automatic evidence or reviewer confirmation.
+- `assignmentStatus`: `assigned` or `need_review`;
+- `proposedPartKey`: optional suggestion, not authoritative;
+- `assignmentSource`: `INDEX_EVIDENCE`, `REVIEWER`, `DEFAULT_PROPOSAL`, or `LEGACY_UNVERIFIED`;
+- `assignmentEvidence`: provenance/evidence description.
 
-Do not claim these fields exist in all current exports until the Indexer2 implementation and fixtures have been updated.
+The extraction schema accepts these fields. The intake UI creates a P01 proposal for unresolved units in a merged source but keeps `partKey=unknown` and `assignmentStatus=need_review` until a reviewer confirms P01 or selects P02.
 
 ## 6. Lesson fields and file references
 
