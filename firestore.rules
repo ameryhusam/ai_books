@@ -132,7 +132,7 @@ service cloud.firestore {
     match /ai_model_catalog/{modelId} {
       // All authenticated app users can read the centrally managed catalogue.
       allow get, list: if isSignedIn();
-      // Only an account pre-provisioned with role=admin can manage model entries.
+      // Only an app admin with an explicit system-admin permission grant can manage models.
       allow create: if isSystemAdmin() && isValidAiModel(incoming(), modelId);
       allow update: if isSystemAdmin() &&
                        isValidAiModel(incoming(), modelId) &&
