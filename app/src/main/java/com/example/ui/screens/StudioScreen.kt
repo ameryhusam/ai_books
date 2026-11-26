@@ -1,5 +1,7 @@
 package com.example.ui.screens
 
+import com.example.ui.components.QuestionGenerationOptions
+
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -138,6 +140,8 @@ fun StudioScreen(
     workspaceLessons: List<LessonRef> = emptyList(),
     task: TaskType,
     questionCount: Int,
+    selectedQuestionTypeIds: List<String>,
+    questionLanguage: String,
     questionStyle: String,
     questionDifficulty: QuestionDifficulty,
     attachPdfPages: Boolean,
@@ -158,6 +162,8 @@ fun StudioScreen(
     onShowFeedback: (String) -> Unit = {},
     onSelectTask: (TaskType) -> Unit,
     onQuestionCountChange: (Int) -> Unit,
+    onQuestionTypesChange: (List<String>) -> Unit,
+    onQuestionLanguageChange: (String) -> Unit,
     onQuestionStyleChange: (String) -> Unit,
     onQuestionDifficultyChange: (QuestionDifficulty) -> Unit,
     onToggleAttachPdfPages: () -> Unit,
@@ -243,6 +249,8 @@ fun StudioScreen(
                     showBackLink = false,
                     task = task,
                     questionCount = questionCount,
+                    selectedQuestionTypeIds = selectedQuestionTypeIds,
+                    questionLanguage = questionLanguage,
                     questionStyle = questionStyle,
                     questionDifficulty = questionDifficulty,
                     attachPdfPages = attachPdfPages,
@@ -263,6 +271,8 @@ fun StudioScreen(
                     onShowFeedback = onShowFeedback,
                     onSelectTask = onSelectTask,
                     onQuestionCountChange = onQuestionCountChange,
+                    onQuestionTypesChange = onQuestionTypesChange,
+                    onQuestionLanguageChange = onQuestionLanguageChange,
                     onQuestionStyleChange = onQuestionStyleChange,
                     onQuestionDifficultyChange = onQuestionDifficultyChange,
                     onToggleAttachPdfPages = onToggleAttachPdfPages,
@@ -305,6 +315,8 @@ fun StudioScreen(
                     showBackLink = true,
                     task = task,
                     questionCount = questionCount,
+                    selectedQuestionTypeIds = selectedQuestionTypeIds,
+                    questionLanguage = questionLanguage,
                     questionStyle = questionStyle,
                     questionDifficulty = questionDifficulty,
                     attachPdfPages = attachPdfPages,
@@ -325,6 +337,8 @@ fun StudioScreen(
                     onShowFeedback = onShowFeedback,
                     onSelectTask = onSelectTask,
                     onQuestionCountChange = onQuestionCountChange,
+                    onQuestionTypesChange = onQuestionTypesChange,
+                    onQuestionLanguageChange = onQuestionLanguageChange,
                     onQuestionStyleChange = onQuestionStyleChange,
                     onQuestionDifficultyChange = onQuestionDifficultyChange,
                     onToggleAttachPdfPages = onToggleAttachPdfPages,
@@ -382,6 +396,8 @@ private fun StudioWorkbench(
     showBackLink: Boolean,
     task: TaskType,
     questionCount: Int,
+    selectedQuestionTypeIds: List<String>,
+    questionLanguage: String,
     questionStyle: String,
     questionDifficulty: QuestionDifficulty,
     attachPdfPages: Boolean,
@@ -402,6 +418,8 @@ private fun StudioWorkbench(
     onShowFeedback: (String) -> Unit,
     onSelectTask: (TaskType) -> Unit,
     onQuestionCountChange: (Int) -> Unit,
+    onQuestionTypesChange: (List<String>) -> Unit,
+    onQuestionLanguageChange: (String) -> Unit,
     onQuestionStyleChange: (String) -> Unit,
     onQuestionDifficultyChange: (QuestionDifficulty) -> Unit,
     onToggleAttachPdfPages: () -> Unit,
@@ -451,6 +469,8 @@ private fun StudioWorkbench(
         sourceText,
         extraInstructions,
         questionCount,
+        selectedQuestionTypeIds,
+        questionLanguage,
         attachPdfPages,
         questionStyle,
         questionDifficulty
@@ -462,6 +482,8 @@ private fun StudioWorkbench(
                 source = sourceText,
                 extra = extraInstructions,
                 questionCount = questionCount,
+                questionTypeIds = selectedQuestionTypeIds,
+                questionLanguage = questionLanguage,
                 attachedPdfPagesCount = if (attachPdfPages && !selectedLesson.pdfPath.isNullOrBlank()) 1 else 0,
                 questionStyleHint = questionStyle.takeIf { task == TaskType.QUESTIONS && it != "متنوعة" }.orEmpty(),
                 difficultyHint = if (task == TaskType.QUESTIONS) questionDifficulty.labelAr else ""
@@ -752,35 +774,22 @@ private fun StudioWorkbench(
 
                             if (task == TaskType.QUESTIONS) {
                                 Text(
-                                    text = "نمط الأسئلة والمستوى",
+                                    text = "إعدادات توليد الأسئلة",
                                     style = MaterialTheme.typography.labelMedium,
                                     color = EduInk,
                                     modifier = Modifier.padding(top = 4.dp)
                                 )
-                                FlowRow(
-                                    horizontalArrangement = Arrangement.spacedBy(7.dp),
-                                    verticalArrangement = Arrangement.spacedBy(7.dp)
-                                ) {
-                                    listOf("متنوعة", "اختيار من متعدد", "صح أم خطأ", "إجابة قصيرة").forEach { style ->
-                                        EduPill(
-                                            text = style,
-                                            active = questionStyle == style,
-                                            onClick = { onQuestionStyleChange(style) }
-                                        )
-                                    }
-                                }
-                                FlowRow(
-                                    horizontalArrangement = Arrangement.spacedBy(7.dp),
-                                    verticalArrangement = Arrangement.spacedBy(7.dp)
-                                ) {
-                                    QuestionDifficulty.entries.forEach { diff ->
-                                        EduPill(
-                                            text = diff.labelAr,
-                                            active = questionDifficulty == diff,
-                                            onClick = { onQuestionDifficultyChange(diff) }
-                                        )
-                                    }
-                                }
+                                QuestionGenerationOptions(
+                                    questionCount = questionCount,
+                                    selectedQuestionTypeIds = selectedQuestionTypeIds,
+                                    questionLanguage = questionLanguage,
+                                    questionDifficulty = questionDifficulty,
+                                    onQuestionCountChange = onQuestionCountChange,
+                                    onQuestionTypesChange = onQuestionTypesChange,
+                                    onQuestionLanguageChange = onQuestionLanguageChange,
+                                    onQuestionDifficultyChange = onQuestionDifficultyChange,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
                             }
                         }
 
