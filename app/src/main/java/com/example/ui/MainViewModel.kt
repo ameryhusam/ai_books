@@ -1044,6 +1044,7 @@ class MainViewModel(
                 generatedResult = sample,
                 generatedQuestionExpectedCount = null,
                 generatedQuestionExpectedTypeIds = emptyList(),
+                generatedQuestionExpectedDifficultyId = "",
                 activeDraftProvider = "indexer2 Schema",
                 activeDraftModel = "template",
                 promptSourcesOpen = false,
@@ -2309,6 +2310,7 @@ class MainViewModel(
         val canonicalWs = snapshot.workspace?.workspaceId.orEmpty().ifBlank { lesson.workspaceId }.ifBlank { lesson.rootPath }
         val expectedQuestionCount = snapshot.generatedQuestionExpectedCount ?: snapshot.questionCount
         val expectedQuestionTypeIds = snapshot.generatedQuestionExpectedTypeIds.ifEmpty { snapshot.selectedQuestionTypeIds }
+        val expectedQuestionDifficultyId = snapshot.generatedQuestionExpectedDifficultyId.ifBlank { snapshot.questionDifficulty.id }
         val parsedResult = runCatching {
             QuestionBankEngine.parseGeneratedQuestions(
                 rawText = text,
@@ -2316,7 +2318,7 @@ class MainViewModel(
                 lesson = lesson,
                 expectedCount = expectedQuestionCount,
                 selectedTypeIds = expectedQuestionTypeIds,
-                expectedDifficultyId = snapshot.questionDifficulty.id
+                expectedDifficultyId = expectedQuestionDifficultyId
             )
         }
         if (parsedResult.isFailure) {
@@ -2337,7 +2339,7 @@ class MainViewModel(
                     rawText = text,
                     expectedQuestionCount = expectedQuestionCount,
                     expectedQuestionTypeIds = expectedQuestionTypeIds,
-                    expectedQuestionDifficultyId = snapshot.questionDifficulty.id
+                    expectedQuestionDifficultyId = expectedQuestionDifficultyId
                 )
             }
             val saved = savedResult.getOrElse { error ->
@@ -3084,6 +3086,7 @@ class MainViewModel(
                         generatedResult = out.text,
                         generatedQuestionExpectedCount = if (snapshot.task == TaskType.QUESTIONS) snapshot.questionCount else null,
                         generatedQuestionExpectedTypeIds = if (snapshot.task == TaskType.QUESTIONS) snapshot.selectedQuestionTypeIds else emptyList(),
+                        generatedQuestionExpectedDifficultyId = if (snapshot.task == TaskType.QUESTIONS) snapshot.questionDifficulty.id else "",
                         sourceText = if (snapshot.task == TaskType.LESSON_TEXT && lessonTextSaved != null) lessonTextSaved.content else it.sourceText,
                         activeDraftProvider = out.providerLabel,
                         activeDraftModel = out.model,
