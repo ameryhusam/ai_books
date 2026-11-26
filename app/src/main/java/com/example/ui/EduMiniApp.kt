@@ -777,7 +777,7 @@ private fun AuthenticatedEduMiniContent(
                                             providers = state.providers,
                                             selectedProvider = state.selectedProvider,
                                             modelCatalog = state.aiModelCatalog,
-                                            canManageAiModels = state.isSystemAdmin,
+                                            canManageAiModels = state.isCloudAuthenticated && state.authenticatedUserRole == UserRole.ADMIN && state.isSystemAdmin,
                                             onAddAiModel = viewModel::addAiModel,
                                             onUpdateAiModel = viewModel::updateAiModel,
                                             onDeleteAiModel = viewModel::deleteAiModel,
