@@ -323,7 +323,7 @@ object Indexer2PromptRegistry {
         val blueprint = blueprintFor(task)
         val taskInstruction = task.labelAr
         val requestedQuestionTypes = if (questionTypeIds.isEmpty()) {
-            QuestionType.entries
+            listOf(QuestionType.MCQ, QuestionType.TRUE_FALSE, QuestionType.SHORT_ANSWER)
         } else {
             QuestionType.entries.filter { it.id in questionTypeIds }
         }
@@ -369,16 +369,16 @@ object Indexer2PromptRegistry {
                 append("مخطط الخرج المتوقع: ${blueprint.outputContract}\n")
             }
             if (task == TaskType.QUESTIONS) {
-                append("العدد الإجمالي المطلوب من الأسئلة: $safeCount، وليس العدد لكل نوع.\\n")
+                append("العدد الإجمالي المطلوب من الأسئلة: $safeCount، وليس العدد لكل نوع.\n")
             } else if (task == TaskType.INTERACTIVE) {
-                append("العدد المطلوب من العناصر التفاعلية: $safeCount.\\n")
+                append("العدد المطلوب من العناصر التفاعلية: $safeCount.\n")
             }
             if (task == TaskType.QUESTIONS) {
-                append("لغة نص السؤال والخيارات والإجابة والتفسير: $languageInstruction.\\n")
-                append("أنواع الأسئلة المسموح بها حصراً: ${requestedQuestionTypes.joinToString(", ") { "${it.id} (${it.labelAr})" }}. لا تنتج أي نوع خارج هذه القائمة.\\n")
-                append("التوزيع المطلوب للعدد الإجمالي حسب النوع: ${typeDistribution.joinToString(", ") { "${it.first}=${it.second}" }}. التزم بالأعداد المحددة لكل نوع.\\n")
+                append("لغة نص السؤال والخيارات والإجابة والتفسير: $languageInstruction.\n")
+                append("أنواع الأسئلة المسموح بها حصراً: ${requestedQuestionTypes.joinToString(", ") { "${it.id} (${it.labelAr})" }}. لا تنتج أي نوع خارج هذه القائمة.\n")
+                append("التوزيع المطلوب للعدد الإجمالي حسب النوع: ${typeDistribution.joinToString(", ") { "${it.first}=${it.second}" }}. التزم بالأعداد المحددة لكل نوع.\n")
             }
-            if (questionStyleHint.isNotBlank()) append("تنسيق/تنويع العناصر المطلوب: $questionStyleHint.\\n")
+            if (questionStyleHint.isNotBlank()) append("تنسيق/تنويع العناصر المطلوب: $questionStyleHint.\n")
             if (difficultyHint.isNotBlank()) append("مستوى الصعوبة المطلوب: $difficultyHint.\n")
             if (promptTemplate.isNotBlank()) {
                 append("\nتعليمات المهمة المرجعية من ملف ${blueprint.sourcePath}:\n")
