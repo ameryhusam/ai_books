@@ -488,6 +488,8 @@ class EduMiniRepository(
         extra: String,
         providers: List<ProviderConfig>,
         selectedProvider: ProviderType,
+        selectedModelId: String,
+        selectedProfileId: String,
         questionCount: Int,
         attachPdfPages: Boolean,
         questionStyleHint: String = "",
@@ -495,6 +497,10 @@ class EduMiniRepository(
         template: PromptTemplateRecord? = null,
         onProgress: (percent: Int, stage: String) -> Unit = { _, _ -> }
     ): GeneratedResult {
+        require(selectedModelId.isNotBlank()) { "يجب اختيار نموذج من قائمة مدير النظام." }
+        require(providers.any {
+            it.id == selectedProfileId && it.provider == selectedProvider && it.enabled && it.apiKey.isNotBlank()
+        }) { "ملف اتصال API المحدد غير متاح أو لا ينتمي إلى المزود المختار." }
         if (providers.none { it.provider == selectedProvider && it.enabled && it.apiKey.isNotBlank() && it.model.isNotBlank() }) {
             throw IllegalStateException("لا يوجد ملف ${selectedProvider.displayName} مفعّل بمفتاح ونموذج صالحين. اختر مزوداً آخر أو أضف إعداداته.")
         }
@@ -590,6 +596,8 @@ class EduMiniRepository(
             extra = effectiveExtra,
             providers = providers,
             selectedProvider = selectedProvider,
+            requestedModelId = selectedModelId,
+            requestedProfileId = selectedProfileId,
             questionCount = questionCount,
             pdfPageImagesBase64 = pageImages,
             pdfDocumentBase64 = pdfPayload?.base64,
