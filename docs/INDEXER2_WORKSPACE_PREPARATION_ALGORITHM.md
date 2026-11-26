@@ -36,7 +36,7 @@ A proposal must never be silently converted into a confirmed assignment. The app
 
 ### 3.1 `sourceLayout`
 
-- `SINGLE_PART_FILE`: the uploaded PDF is one independent part.
+- `SINGLE_PART_FILE`: the uploaded PDF is confirmed to contain one part only; a P01/P02 cover label by itself is not sufficient evidence.
 - `MERGED_PARTS_FILE`: the uploaded PDF is one source containing both parts.
 - Unknown or conflicting evidence remains under review; it must not be converted to a single-part source merely because the TOC is unclear.
 
@@ -46,11 +46,12 @@ For each unit, preserve:
 - confirmed `partKey` or `unknown`;
 - `assignmentStatus`;
 - optional `proposedPartKey`;
-- `assignmentEvidence`.
+- `assignmentEvidence`;
+- `assignmentSource`: `INDEX_EVIDENCE`, `REVIEWER`, `DEFAULT_PROPOSAL`, or `LEGACY_UNVERIFIED`.
 
 Automatic assignment requires explicit source evidence such as a TOC section, unit title/heading evidence or a verified standalone-source part. Unit number alone is never evidence.
 
-For an unresolved unit in a confirmed merged source, Indexer2 may propose P01 as a default review suggestion. The UI must display the proposal and require an explicit reviewer action to confirm P01 or choose P02. Until that action, keep `partKey=unknown`, `assignmentStatus=NEEDS_REVIEW`, and keep the source `sourceLayout=MERGED_PARTS_FILE`.
+For an unresolved unit in a confirmed merged source, Indexer2 may propose P01 as a default review suggestion. The UI must display the proposal and require an explicit reviewer action to confirm P01 or choose P02. Until that action, keep `partKey=unknown`, `assignmentStatus=need_review`, and keep the source `sourceLayout=MERGED_PARTS_FILE`.
 
 A manual decision must be recorded as reviewer provenance. A confirmed proposal must not be recorded as automatic evidence.
 
