@@ -2991,15 +2991,24 @@ class MainViewModel(
                     success = true
                 )
                 _uiState.update { it.copy(providers = repository.loadProviders(), generationProgressPercent = 100, generationStage = "اكتمل التوليد والحفظ") }
-                val syncedQuestionsCount = if (snapshot.task == TaskType.QUESTIONS) {
-                    repository.saveQuestionsFromDraftText(
-                        workspaceId = wsId,
-                        lesson = lesson,
-                        rawText = out.text
-                    ).size
-                } else {
-                    0
-                }
+                val questionSaveResult = if (snapshot.task == TaskType.QUESTIONS) {
+                    runCatching {
+                        repository.saveQuestionsFromDraftText(
+                            workspaceId = wsId,
+                            lesson = lesson,
+                            rawText = out.text,
+                            draftId = persistedDraft.id,
+                            templateId = out.templateId,
+                            promptUsed = out.promptUsed,
+                            responseSchemaJson = out.responseSchemaJson,
+                            sourceIndexSha256 = persistedDraft.sourceIndexSha256,
+                            expectedQuestionCount = snapshot.questionCount,
+                            expectedQuestionTypeIds = snapshot.selectedQuestionTypeIds
+                        )
+                    }
+                } else null
+                val syncedQuestionsCount = questionSaveResult?.getOrNull()?.size ?: 0
+                val questionSaveError = questionSaveResult?.exceptionOrNull()?.message
                 val lessonTextSaved = if (snapshot.task == TaskType.LESSON_TEXT) {
                     val extracted = repository.extractLessonTextFromOutput(out.text)
                     runCatching {
@@ -3031,8 +3040,10 @@ class MainViewModel(
                     }.getOrNull()
                 } else null
                 val resultMessage = when {
+                    snapshot.task == TaskType.QUESTIONS && questionSaveError != null ->
+                        "تم حفظ المسودة، لكن لم تُضف الأسئلة إلى بنك الأسئلة لأن التحقق من الدفعة أو منع التكرار لم ينجح: $questionSaveError"
                     snapshot.task == TaskType.QUESTIONS && syncedQuestionsCount > 0 ->
-                        "تم التوليد عبر ${out.providerLabel} (${out.model})، وحُفظت المسودة وأُضيفت $syncedQuestionsCount أسئلة تلقائياً لبنك الأسئلة واختبار الدرس."
+                        "تم التوليد عبر ${out.providerLabel} (${out.model})، وحُفظت المسودة وتم التحقق من العدد والأنواع قبل إضافة $syncedQuestionsCount سؤالاً إلى بنك الأسئلة واختبار الدرس."
                     snapshot.task == TaskType.LESSON_TEXT && lessonTextSaved != null ->
                         "تم استخراج وحفظ المحتوى النصي للدرس بنجاح في قاعدة البيانات وتحديث مصدر الاستوديو (v${lessonTextSaved.version})."
                     snapshot.task == TaskType.INTERACTIVE && publishedBundle != null ->
