@@ -39,7 +39,10 @@ object QuestionResponseContract {
         return ExpectedBatch(count, pairs.map { it.first })
     }
 
-    val schemaJson: String by lazy { buildSchema().toString() }
+    val schemaJson: String by lazy { buildSchema(QuestionType.entries.map { it.id }).toString() }
+
+    fun schemaFor(selectedTypeIds: List<String>): String =
+        buildSchema(effectiveTypes(selectedTypeIds).map { it.id }).toString()
 
     val defaultTypeIds: List<String> = listOf(
         QuestionType.MCQ.id,
@@ -66,7 +69,7 @@ object QuestionResponseContract {
         }.toMap()
     }
 
-    private fun buildSchema(): JsonObject = buildJsonObject {
+    private fun buildSchema(allowedTypeIds: List<String>): JsonObject = buildJsonObject {
         put("type", "object")
         putJsonObject("properties") {
             putJsonObject("questions") {
@@ -77,7 +80,7 @@ object QuestionResponseContract {
                         putJsonObject("type") {
                             put("type", "string")
                             putJsonArray("enum") {
-                                QuestionType.entries.forEach { add(JsonPrimitive(it.id)) }
+                                allowedTypeIds.forEach { add(JsonPrimitive(it)) }
                             }
                         }
                         putJsonObject("conceptTag") { put("type", "string") }
