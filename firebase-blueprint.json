@@ -318,6 +318,31 @@
         "source",
         "updatedAt"
       ]
+    },
+    "SystemAdminAccess": {
+      "title": "SystemAdminAccess",
+      "description": "Out-of-band allowlist grant for privileged system-wide management actions.",
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether the grant is active."
+        },
+        "permissions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "manage_ai_models"
+            ]
+          },
+          "description": "Explicit system-level capabilities granted to the UID."
+        }
+      },
+      "required": [
+        "enabled",
+        "permissions"
+      ]
     }
   },
   "firestore": {
@@ -344,6 +369,12 @@
         "$ref": "#/entities/AiModelDefinition"
       },
       "description": "Global model catalogue. Authenticated users can read; only users whose pre-provisioned users/{uid}.role is admin can create, update, or delete."
+    },
+    "/system_admins/{userId}": {
+      "schema": {
+        "$ref": "#/entities/SystemAdminAccess"
+      },
+      "description": "Out-of-band system administrator allowlist. A user can read only their own grant; client writes are denied. Model catalogue writes require role=admin and manage_ai_models grant."
     }
   }
 }
