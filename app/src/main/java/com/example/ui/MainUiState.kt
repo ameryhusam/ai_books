@@ -90,6 +90,7 @@ data class MainUiState(
     val pendingExportAssessment: AssessmentRecord? = null,
     val providers: List<ProviderConfig> = emptyList(),
     val aiModelCatalog: List<AiModelDefinition> = emptyList(),
+    val isSystemAdmin: Boolean = false,
     val isGenerationModelPickerOpen: Boolean = false,
     val selectedGenerationModelId: String = "",
     val selectedGenerationProfileId: String = "",
