@@ -116,17 +116,16 @@ For a standalone source, the canonical index is `P01/index.json` or `P02/index.j
 
 ## 8. Current implementation status (verified snapshot)
 
-The current Indexer2 code has these behaviors:
-- `sliceBookLessons` requires each unit to have P01/P02 and writes lesson files under the unit's part folder.
-- The workspace exporter always writes root `index.json`.
-- It writes `P01/index.json` and/or `P02/index.json` only for merged sources, as filtered views.
-- The manifest currently has one root `indexSha256`; it does not yet declare the canonical path and a hash for every part index.
-- The shared `Unit` TypeScript interface currently has `partKey`, but does not declare the assignment-status/proposal/evidence fields described in the target contract.
-- The intake UI already has a per-unit P01/P02 selector for merged books, but the current handler records only `partKey`; it does not preserve assignment provenance or distinguish an explicit human confirmation from automatic assignment.
-- The current review gate blocks units with unknown part keys, but there is no separately persisted P01 proposal requiring confirmation.
+The following changes are now present in the TypeScript main path:
+- shared types define `assignmentStatus`, `proposedPartKey`, `assignmentSource`, and `assignmentEvidence`;
+- the extraction schema accepts assignment provenance, and the extraction prompt requires explicit evidence for `assigned`; the model must not invent a P01 proposal;
+- the intake UI adds a P01 proposal only for unresolved units in a source already classified as merged, displays it as unconfirmed, and records reviewer confirmation when P01/P02 is selected;
+- approval and slicing reject an unresolved `sourceLayout`, a source-level `partKey` that conflicts with the layout, or any unit with `need_review`;
+- the exporter writes an independent source's canonical index and manifest inside P01/P02; a merged source retains one root canonical index and may write filtered part views;
+- manifest v2 records the canonical index path/hash and an independent hash for each derived part index;
+- lesson records retain `sliceFile.workspaceUri`, which is the consumer-facing path.
 
-Therefore the target contract is not yet fully implemented in Indexer2. These gaps must be fixed in the type, intake UI, slicing/exporter, manifest, API/schema where the index is persisted, and tests before claiming full compatibility.
-
+The repository has no successful CI status attached to the latest commits in this session, and no TypeScript build or automated test suite was run here. The legacy Python paths referenced by older algorithm notes were not found in the current `main` tree; those notes are now marked historical. The TypeScript path is the current implementation under review, but full runtime compatibility remains unverified until the project's build/tests and workspace upload/download flow are executed.
 ## 9. Consumer requirements for Edu Mini
 
 Edu Mini must:
