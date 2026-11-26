@@ -1,213 +1,150 @@
 # Indexer2 Workspace Preparation Algorithm
 
-## 1. Scope and source of truth
+## 1. Responsibility boundary
 
-This document describes the implemented Indexer2 PDF intake, identity detection, template selection, lesson slicing, and ZIP workspace export flow. It is based on the Indexer2 implementation, not on an assumed or reconstructed workflow.
+This document describes the producer contract that Edu Mini consumes. Indexer2 owns PDF discovery, curriculum identity, source-layout classification, unit-part assignment, index review, page calibration, lesson slicing, file paths, manifests and hashes.
 
-Primary implementation references:
+Edu Mini must consume the prepared workspace. It must not duplicate the PDF classifier, infer part assignments, rebuild lesson paths when `sliceFile.workspaceUri` exists, or slice the source PDF again.
 
-- `indexer2/src/shared/services/pdfService.ts`
-- `indexer2/src/shared/data/templateRegistry.ts`
-- `indexer2/src/shared/types/index.ts`
-- `indexer2/config/prompts/workspace_builder.md`
+The Indexer2 implementation is the authority for actual behavior. Where this document describes the target layout not yet implemented, the status is explicitly marked below.
 
-The prepared workspace is a content package. The Android application consumes it; it does not repeat PDF indexing or lesson slicing.
-
-## 2. End-to-end sequence
+## 2. End-to-end preparation sequence
 
 ```mermaid
 flowchart TD
-    A[Select source PDF] --> B[Read bytes and calculate SHA-256]
-    B --> C[Open PDF and count physical pages]
-    C --> D[Render cover and extract first-page text]
-    D --> E[Inspect first ten physical pages]
-    E --> F[Identify index / contents pages]
-    F --> G[Detect grade from curriculum wording]
-    G --> H[Detect subject and optional component]
-    H --> I[Detect source part/layout]
-    I --> J[Match registered template]
-    J --> K[Review index and page calibration]
-    K --> L[Approve index for slicing]
-    L --> M[Slice each lesson PDF]
-    M --> N[Write root index and book manifest]
-    N --> O[Write derived part indexes when merged]
-    O --> P[Build workspace ZIP]
+  A[Select PDF] --> B[Read bytes and calculate source SHA-256]
+  B --> C[Inspect PDF and extract text/OCR]
+  C --> D[Detect grade, subject and component]
+  D --> E[Classify sourceLayout independently of unit assignment]
+  E --> F[Extract units and lessons with page evidence]
+  F --> G[Assign unit part from explicit evidence]
+  G --> H{Any unresolved unit assignment?}
+  H -- Yes --> I[Suggest P01 as a review proposal only]
+  I --> J[Reviewer confirms P01 or changes to P02]
+  H -- No --> K[Review index and page calibration]
+  J --> K
+  K --> L[Approve source and assignments]
+  L --> M[Slice lesson PDFs]
+  M --> N[Write layout-specific canonical index and manifest]
+  N --> O[Write merged derived part views when applicable]
+  O --> P[Export workspace]
 ```
 
-The order is significant: detection and template matching provide candidates; the intake review precedes the slicing action. The slicer enforces unit part assignment and page bounds, then marks the returned template as approved and the source as verified after successful slicing. A key or page range that is not established by evidence must remain unresolved rather than be filled by a default.
+A proposal must never be silently converted into a confirmed assignment. The approval gate must reject unresolved units.
 
-## 3. PDF intake and evidence extraction
+## 3. Source layout and unit assignment are separate
 
-### 3.1 Source file and physical pages
+### 3.1 `sourceLayout`
 
-`discoverBook(file, registeredTemplates, options)` reads the uploaded PDF bytes, starts SHA-256 calculation, opens the document through PDF.js, and obtains the physical page count.
+- `SINGLE_PART_FILE`: the uploaded PDF is one independent part.
+- `MERGED_PARTS_FILE`: the uploaded PDF is one source containing both parts.
+- Unknown or conflicting evidence remains under review; it must not be converted to a single-part source merely because the TOC is unclear.
 
-Default discovery settings in `DiscoveryOptions`:
+### 3.2 Unit assignment
 
-- Cover page: physical PDF page 1.
-- Index scan range: physical PDF pages 3–10.
-- Initial page inspection: up to the first 10 physical PDF pages.
-- OCR pages already recognized by intake may be supplied through `precomputedOcrPages`.
-- `onPageProgress` reports each extracted page and its OCR metadata.
+For each unit, preserve:
+- confirmed `partKey` or `unknown`;
+- `assignmentStatus`;
+- optional `proposedPartKey`;
+- `assignmentEvidence`.
 
-Physical PDF page numbers and printed page numbers are separate coordinate systems. The index stores printed ranges; slicing converts those ranges to physical PDF pages using the reviewed offset.
+Automatic assignment requires explicit source evidence such as a TOC section, unit title/heading evidence or a verified standalone-source part. Unit number alone is never evidence.
 
-### 3.2 Text extraction and OCR
+For an unresolved unit in a confirmed merged source, Indexer2 may propose P01 as a default review suggestion. The UI must display the proposal and require an explicit reviewer action to confirm P01 or choose P02. Until that action, keep `partKey=unknown`, `assignmentStatus=NEEDS_REVIEW`, and keep the source `sourceLayout=MERGED_PARTS_FILE`.
 
-The discovery process extracts searchable text from PDF.js page text content. It can reuse OCR text supplied through `precomputedOcrPages`. The result records whether OCR was used and its confidence when available.
+A manual decision must be recorded as reviewer provenance. A confirmed proposal must not be recorded as automatic evidence.
 
-The cover is rendered as an image for review and identity evidence. The discovery result retains page-level text snippets, character counts, detected index pages, and evidence logs.
+## 4. Workspace layout
 
-### 3.3 Identity text normalization
+### 4.1 Independent single-part PDF — target layout
 
-Identity matching normalizes Unicode text, Arabic diacritics and tatweel, common Arabic letter variants, Arabic-Indic digits, directional marks, and whitespace. This normalization is applied to evidence matching; it does not authorize inventing internal keys from arbitrary metadata strings.
+For a P01 source:
 
-## 4. Grade, subject, and component detection
-
-### 4.1 Grade
-
-`detectGrade(text)` matches curriculum wording against the configured grade rules and returns:
-
-- `value`: canonical Arabic grade label;
-- `key`: canonical grade key G01–G12;
-- `evidence`: the matching phrase.
-
-The detector intentionally does not treat internal registry/file keys as positive evidence in the PDF. Short ordinal forms for grades 7–9 are accepted only in the explicit book-title patterns implemented in the function.
-
-### 4.2 Subject
-
-`detectSubject(text, gradeKey)` first checks the explicit subject rules. If those do not match, it checks generic-science wording:
-
-- Generic science maps to `SCI` for basic grades G01–G09.
-- Generic science does not map to `SCI` for secondary grades G10–G12.
-- Secondary science subjects are identified through their explicit subject wording.
-
-The function returns an empty key when evidence is insufficient. A caller must not replace an empty result with a guessed subject.
-
-### 4.3 Social-studies component
-
-When the detected subject is `SOC`, `detectSocialComponent` recognizes the explicit component evidence:
-
-- `GEO`: geography;
-- `HIST`: history;
-- `TARBIA`: national education.
-
-A component is optional when the book is a general social-studies book. The component does not replace `subjectKey=SOC`.
-
-## 5. Part and source-layout detection
-
-The algorithm separates the physical source-file layout from the part assignment of individual units.
-
-- `SINGLE_PART_FILE`: one source PDF represents one book part.
-- `MERGED_PARTS_FILE`: one source PDF contains units assigned to both P01 and P02.
-- `UNKNOWN_REVIEW`: the evidence is insufficient or conflicting and requires review.
-
-The template-level `partKey` may be `P01`, `P02`, or `BOTH`. For a merged book, each unit retains its own `partKey` of P01 or P02. A unit whose part cannot be established must not be sliced until reviewed.
-
-The source-layout decision and unit-level part assignment are distinct decisions. A global mention of both semesters is not a substitute for unit-level evidence.
-
-## 6. Template registry and matching
-
-`templateRegistry.ts` discovers modules dynamically from:
-
-`src/shared/data/templates/G*/*.ts`
-
-A template is accepted only when its exported object and file path agree on:
-
-- grade folder and `gradeKey`;
-- subject segment and `subjectKey`;
-- optional component segment and `componentKey`;
-- part suffix and `partKey`;
-- `templateName` matching the canonical filename.
-
-The canonical filename pattern is:
-
-`<SUBJECT_KEY>[_<COMPONENT_KEY>]_<GRADE_KEY>_<P01|P02|BOTH>.ts`
-
-The registry does not define a hardcoded matrix of every possible grade/subject combination. The available combinations are the templates discovered in the repository at runtime.
-
-`matchTemplateDirectly` and the discovery result expose matched, suggested, and candidate templates. A suggested template is not the same as an approved index.
-
-## 7. Index review and page calibration
-
-The selected template contains unit and lesson titles and printed-page boundaries. Review must verify the identity, part assignment, and page mapping against the actual source PDF.
-
-In `IndexTemplate`, a lesson has:
-
-- `printedPageStart`, `printedPageEnd`;
-- optional `pdfPageStart`, `pdfPageEnd`;
-- `contentType` and optional descriptive fields;
-- optional `sliceFile` after slicing.
-
-The slicing implementation currently computes the physical PDF range from the printed range and template offset:
-
-```ts
-pdfStart = lesson.printedPageStart + offset;
-pdfEnd   = lesson.printedPageEnd + offset;
+```text
+workspace/<gradeKey>/<subjectKey>[/<componentKey>]/
+  P01/
+    index.json
+    book_manifest.json
+    cover.png
+    units/<unit-folder>/lesson_<nn>.pdf
 ```
 
-It validates integer bounds and ensures the end page does not exceed the source PDF page count. The current slicing code does not use the optional `lesson.pdfPageStart` / `lesson.pdfPageEnd` values for this calculation. Therefore those fields must not be documented as the active slicing inputs.
+For P02, use the P02 directory. No root `index.json` is written for an independent source. The part-local manifest carries that source's `sourceSha256` and canonical index path/hash.
 
-## 8. Lesson slicing
+### 4.2 One merged PDF — target layout
 
-`sliceBookLessons(file, template, onProgress)`:
+```text
+workspace/<gradeKey>/<subjectKey>[/<componentKey>]/
+  index.json
+  book_manifest.json
+  cover.png
+  P01/
+    index.json
+    cover.png
+    units/...
+  P02/
+    index.json
+    cover.png
+    units/...
+```
 
-1. Reads the source PDF and calculates its SHA-256.
-2. Loads the source PDF and counts pages.
-3. Extracts the cover image from the source PDF.
-4. Iterates through every lesson in every unit.
-5. Requires each unit to be assigned to P01 or P02.
-6. Converts printed page ranges to physical PDF page ranges using the template offset.
-7. Rejects invalid or out-of-bounds page ranges.
-8. Creates one PDF per lesson and records its filename, workspace-relative path, byte size, page count, and physical page boundaries.
+The root index is the one canonical complete index. Part indexes are derived filtered views. They retain the merged source identity and must never be treated as independent books.
 
-The unit number is padded for the unit folder and lesson number for the lesson filename. A merged book uses the unit's own part assignment to place the lesson under the appropriate part directory.
+### 4.3 Merged source requiring assignment review
 
-## 9. Workspace ZIP generation
+The root index and root manifest remain the review package. Unresolved units remain in the root index with a separate proposal and provenance. Do not write final derived part indexes or lesson slices until all required assignments are explicitly confirmed.
 
-`downloadPythonWorkspaceZip(template, slices, coverImageDataUrl, sourceFile)` writes the canonical workspace root:
+## 5. Canonical identity and display values
 
-`workspace/<gradeKey>/<subjectKey>[/<componentKey>]/`
+Use `gradeKey`, `subjectKey`, and optional `componentKey` as stable identity. The Arabic display names in the prepared index (`displayName`, `subjectName`, and `componentName`, when provided) are the preferred labels for UI presentation. Consumers may use a local catalog only as a fallback. Never derive a canonical key from a display name.
 
-It writes:
+## 6. Lesson file references
 
-- `index.json`: serialized root template; canonical index.
-- `book_manifest.json`: companion source and index metadata.
-- `cover.png`: optional cover image.
-- `validation_report.json`: slicing/export validation summary.
-- `manual_review/slice_approval_index.json`: approval record associated with source and index hashes.
-- Lesson PDFs at their `workspaceRelPath` locations.
+Each sliced lesson must carry a workspace-relative `sliceFile.workspaceUri` that resolves to the exact generated PDF. This path is authoritative for consumers. Paths must be normalized and constrained to the workspace root.
 
-For a merged book, the exporter may write `P01/index.json` and/or `P02/index.json` when that part has units. These are filtered views derived from the root index. They are not independent canonical indexes.
+Consumers should use that explicit reference directly. Reconstructing `P01/units/unit_01/lesson_01.pdf` from numbers is only a legacy fallback for old packages with no explicit path.
 
-### 9.1 Manifest fields written by the exporter
+## 7. Manifest and hashes
 
-The current exporter writes:
+The current exporter writes one `indexSha256` for the root index. The target exporter must declare:
+- `canonicalIndexPath`;
+- `canonicalIndexSha256`;
+- `partIndexes` containing each derived path and its hash, where applicable;
+- `sourceSha256`, source layout, source review status, identity keys and export counts.
 
-| Field | Meaning |
-|---|---|
-| `manifestVersion` | Manifest contract version (`edu.book_manifest.v1`) |
-| `bookTitle` | Template title |
-| `gradeKey`, `subjectKey`, `componentKey` | Canonical curriculum identity |
-| `partKey`, `sourceLayout` | Template part and source layout |
-| `sourceReviewStatus` | Review status |
-| `sourceFileName` | Original PDF filename |
-| `sourceSha256` | SHA-256 of original PDF bytes |
-| `indexSha256` | SHA-256 of serialized root `index.json` |
-| `totalLessons`, `unitsCount` | Export counts |
-| `offset` | Printed-to-physical page offset used by slicing |
-| `coverImagePaths`, `partIndexPaths` | Relative paths of cover and derived part indexes |
-| `createdAt` | Export timestamp |
+For a standalone source, the canonical index is `P01/index.json` or `P02/index.json`. For a merged source, it is root `index.json`. Hashes are calculated from the exact serialized bytes written to each file.
 
-## 10. Required invariants
+## 8. Current implementation status (verified snapshot)
 
-- A grade key must be one of G01–G12 and must be supported by explicit source evidence or the canonical workspace path.
-- A subject key must be one of the canonical Indexer2 subject keys and must be established by source evidence or the canonical workspace path.
-- An unknown subject or grade is unresolved; it is not replaced by a default.
-- `SOC` remains the subject key when a social component is present.
-- A component key must be established by the detector or a canonical template.
-- Unit part assignment must be P01 or P02 before slicing.
-- Printed page numbers and physical PDF page numbers must not be conflated.
-- The root `index.json` is the canonical index; part indexes are derived.
-- `sourceSha256` identifies source PDF bytes; `indexSha256` identifies the serialized canonical index.
-- The Android binder validates and consumes the prepared workspace. It does not rerun Indexer2 discovery or slicing.
+The current Indexer2 code has these behaviors:
+- `sliceBookLessons` requires each unit to have P01/P02 and writes lesson files under the unit's part folder.
+- The workspace exporter always writes root `index.json`.
+- It writes `P01/index.json` and/or `P02/index.json` only for merged sources, as filtered views.
+- The manifest currently has one root `indexSha256`; it does not yet declare the canonical path and a hash for every part index.
+- The shared `Unit` TypeScript interface currently has `partKey`, but does not declare the assignment-status/proposal/evidence fields described in the target contract.
+- The intake UI already has a per-unit P01/P02 selector for merged books, but the current handler records only `partKey`; it does not preserve assignment provenance or distinguish an explicit human confirmation from automatic assignment.
+- The current review gate blocks units with unknown part keys, but there is no separately persisted P01 proposal requiring confirmation.
+
+Therefore the target contract is not yet fully implemented in Indexer2. These gaps must be fixed in the type, intake UI, slicing/exporter, manifest, API/schema where the index is persisted, and tests before claiming full compatibility.
+
+## 9. Consumer requirements for Edu Mini
+
+Edu Mini must:
+1. discover root and part-local index files;
+2. pair each canonical index with the manifest beside it;
+3. classify a part-local standalone index separately from a merged derived view;
+4. bind a merged root index exactly once and not create duplicate books from its derived indexes;
+5. verify every declared hash against its own file;
+6. use index-provided display labels when present, with local catalog fallback;
+7. resolve lessons from `sliceFile.workspaceUri` first;
+8. preserve legacy workspace import support without letting legacy fallbacks override valid explicit references.
+
+## 10. Non-negotiable invariants
+
+- Unclear TOC evidence never changes a merged source into a standalone source.
+- P01 proposal is not confirmed assignment.
+- A standalone source has a part-local canonical index.
+- A merged source has one root canonical index; part indexes are derived.
+- Each source PDF has its own source SHA-256.
+- Each index hash belongs to the exact index file it describes.
+- The application consumes Indexer2's workspace; it does not reimplement its indexing logic.
