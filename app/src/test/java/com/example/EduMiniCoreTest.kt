@@ -70,6 +70,7 @@ import com.example.model.ProviderType
 import com.example.model.UnitCompletionStatus
 import com.example.ui.components.LearningProgressCalculator
 import kotlinx.coroutines.flow.first
+import kotlinx.serialization.decodeFromString
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
