@@ -36,8 +36,10 @@ object QuestionResponseContract {
         if (pairs.isEmpty() || pairs.sumOf { it.second } != count) return null
         if (pairs.any { it.second <= 0 } || pairs.map { it.first }.distinct().size != pairs.size) return null
         if (pairs.any { pair -> QuestionType.entries.none { it.id == pair.first } }) return null
-        val difficultyId = Regex("""مستوى الصعوبة المطلوب \(قيمة difficulty في JSON\):\s*(easy|medium|hard)""")
-            .find(prompt)?.groupValues?.getOrNull(1)
+        val difficultyValues = QuestionDifficulty.entries.joinToString("|") { Regex.escape(it.id) }
+        val difficultyId = Regex(
+            """مستوى الصعوبة المطلوب \(قيمة difficulty في JSON\):\s*($difficultyValues)"""
+        ).find(prompt)?.groupValues?.getOrNull(1)
         return ExpectedBatch(count, pairs.map { it.first }, difficultyId)
     }
 
