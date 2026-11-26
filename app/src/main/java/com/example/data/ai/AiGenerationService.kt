@@ -244,7 +244,7 @@ class AiGenerationService(
             .filter { it.id == requestedProfileId }
 
         if (active.isEmpty()) {
-            throw IllegalStateException("لا يوجد ملف ${selectedProvider.displayName} فعّال بمفتاح ونموذج صالحين. لا يتم التحويل تلقائياً إلى مزود آخر.")
+            throw IllegalStateException("ملف اتصال API المحدد غير متاح أو لا يطابق المزود ${selectedProvider.displayName}. لا يتم اختيار ملف آخر تلقائياً.")
         }
 
         val prompt = buildPrompt(
