@@ -512,7 +512,7 @@ private fun StudioWorkbench(
                 questionStyleHint = questionStyle.takeIf { task == TaskType.QUESTIONS && it != "متنوعة" }.orEmpty(),
                 difficultyHint = if (task == TaskType.QUESTIONS) questionDifficulty.id else "",
                 promptTemplate = promptTemplateContent,
-                responseSchemaJson = if (task == TaskType.QUESTIONS) QuestionResponseContract.schemaFor(selectedQuestionTypeIds) else activePromptTemplate?.responseSchemaJson.orEmpty(),
+                responseSchemaJson = if (task == TaskType.QUESTIONS) QuestionResponseContract.schemaFor(selectedQuestionTypeIds, questionDifficulty.id) else activePromptTemplate?.responseSchemaJson.orEmpty(),
                 responseFormat = if (task == TaskType.QUESTIONS) "json" else activePromptTemplate?.responseFormat
                     ?: if (activePromptTemplate?.responseSchemaJson.isNullOrBlank()) "text" else "json"
             )
