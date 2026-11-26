@@ -6,7 +6,7 @@ import kotlinx.serialization.Serializable
 /**
  * Single source of truth for model identifiers exposed by the application.
  * API profiles still own credentials and may keep a model override, but model
- * metadata and user-managed model definitions live in this catalog.
+ * metadata and system-admin-managed model definitions live in this catalog.
  */
 @Serializable
 data class AiModelDefinition(
@@ -27,6 +27,7 @@ data class AiModelDefinition(
         const val STATUS_DEPRECATED = "DEPRECATED"
         const val SOURCE_GOOGLE = "GOOGLE_CATALOG"
         const val SOURCE_USER = "USER_DEFINED"
+        const val SOURCE_SYSTEM_ADMIN = "SYSTEM_ADMIN"
     }
 }
 
