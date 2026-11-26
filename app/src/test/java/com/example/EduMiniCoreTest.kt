@@ -248,6 +248,65 @@ class EduMiniCoreTest {
     }
 
     @Test
+    fun workspaceContractValidatorRequiresUnitAssignmentProvenanceForManifestV2() {
+        val index = """
+            {
+              "gradeKey": "G04",
+              "subjectKey": "SCI",
+              "partKey": "P01",
+              "sourceLayout": "SINGLE_PART_FILE",
+              "sourceReviewStatus": "VERIFIED",
+              "approvalStatus": "APPROVED",
+              "units": [{
+                "unitNumber": 1,
+                "title": "الوحدة الأولى",
+                "partKey": "P01",
+                "assignmentStatus": "assigned",
+                "lessons": [{
+                  "lessonNumber": 1,
+                  "title": "الدرس الأول",
+                  "pdfPageStart": 1,
+                  "pdfPageEnd": 2,
+                  "sliceFile": {"workspaceUri":"workspace/G04/SCI/P01/units/unit_01/lesson_01.pdf"}
+                }]
+              }]
+            }
+        """.trimIndent()
+        val indexHash = MessageDigest.getInstance("SHA-256").digest(index.toByteArray())
+            .joinToString("") { "%02x".format(it) }
+        val manifest = """
+            {
+              "manifestVersion": "edu.book_manifest.v2",
+              "gradeKey": "G04",
+              "subjectKey": "SCI",
+              "partKey": "P01",
+              "sourceLayout": "SINGLE_PART_FILE",
+              "sourceReviewStatus": "VERIFIED",
+              "sourceSha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "canonicalIndexPath": "P01/index.json",
+              "canonicalIndexSha256": "$indexHash",
+              "indexSha256": "$indexHash",
+              "partIndexes": []
+            }
+        """.trimIndent()
+
+        val result = com.example.data.workspace.WorkspaceContractValidator.validate(
+            indexRaw = index,
+            manifestRaw = manifest,
+            expectedGrade = "G04",
+            expectedSubject = "SCI",
+            bookRelativePath = "workspace/G04/SCI/P01",
+            availableRelativePaths = setOf(
+                "workspace/G04/SCI/P01/units/unit_01/lesson_01.pdf"
+            )
+        )
+
+        assertFalse(result.isValid)
+        assertTrue(result.errors.any { it.contains("assignmentSource") })
+        assertTrue(result.errors.any { it.contains("assignmentEvidence") })
+    }
+
+    @Test
     fun workspaceContractValidatorUsesSourceNumbersInsteadOfArrayPosition() {
         val unit = Json.parseToJsonElement("""{"unitNumber":7,"title":"الوحدة"}""").jsonObject
         val lesson = Json.parseToJsonElement("""{"lessonNumber":12,"title":"درس"}""").jsonObject
