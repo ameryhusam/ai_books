@@ -66,6 +66,8 @@ data class MainUiState(
     val sourceText: String = "",
     val extraInstructions: String = "",
     val generatedResult: String = "",
+    val generatedQuestionExpectedCount: Int? = null,
+    val generatedQuestionExpectedTypeIds: List<String> = emptyList(),
     val activeDraftProvider: String = "تحرير يدوي",
     val activeDraftModel: String = "local",
     val activeDraftTemplateId: String = "",
