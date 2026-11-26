@@ -653,6 +653,13 @@ class EduMiniCoreTest {
             QuestionType.entries.map { it.id }.toSet(),
             itemProperties["type"]!!.jsonObject["enum"]!!.jsonArray.map { it.jsonPrimitive.content }.toSet()
         )
+        val selectedSchema = Json.parseToJsonElement(
+            QuestionResponseContract.schemaFor(listOf("mcq", "short_answer"))
+        ).jsonObject
+        val selectedTypeIds = selectedSchema["properties"]!!.jsonObject["questions"]!!
+            .jsonObject["items"]!!.jsonObject["properties"]!!.jsonObject["type"]!!
+            .jsonObject["enum"]!!.jsonArray.map { it.jsonPrimitive.content }.toSet()
+        assertEquals(setOf("mcq", "short_answer"), selectedTypeIds)
     }
 
     @Test
