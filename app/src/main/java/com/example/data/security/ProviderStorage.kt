@@ -96,6 +96,9 @@ class ProviderStorage(context: Context) {
                 modelId = updatedModel.modelId.trim(),
                 displayName = updatedModel.displayName.trim()
             )
+            require(normalized.provider == original.provider) {
+                "لا يمكن تغيير مزود النموذج أثناء تعديله؛ أضف نموذجاً جديداً للمزود الآخر."
+            }
             require(normalized.modelId.isNotBlank() && normalized.displayName.isNotBlank()) {
                 "معرّف النموذج واسمه مطلوبان."
             }
