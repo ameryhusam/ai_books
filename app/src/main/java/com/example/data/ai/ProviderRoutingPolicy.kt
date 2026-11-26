@@ -16,8 +16,7 @@ internal object ProviderRoutingPolicy {
         .filter {
             it.provider == selectedProvider &&
                 it.enabled &&
-                it.apiKey.isNotBlank() &&
-                it.model.isNotBlank()
+                it.apiKey.isNotBlank()
         }
         .sortedWith(
             compareBy<ProviderConfig> { it.lastUsedAtEpochMs }
