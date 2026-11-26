@@ -358,6 +358,13 @@ object WorkspaceContractValidator {
             if (cleanBookRel.isNotBlank() && normalizedUri.startsWith("$cleanBookRel/", ignoreCase = true)) {
                 candidates.add(normalizedUri.removePrefix("$cleanBookRel/"))
             }
+            val partMarker = Regex("(?:^|/)(P0[12])/(.+)$", RegexOption.IGNORE_CASE).find(normalizedUri)
+            if (partMarker != null) {
+                val partFolder = partMarker.groupValues[1]
+                val afterPartFolder = partMarker.groupValues[2]
+                candidates.add("$partFolder/$afterPartFolder")
+                candidates.add(afterPartFolder)
+            }
             val partLocalBookRel = cleanBookRel.substringBeforeLast('/')
             if (partLocalBookRel != cleanBookRel && partLocalBookRel.isNotBlank() &&
                 cleanBookRel.substringAfterLast('/').uppercase(Locale.ROOT) in setOf("P01", "P02") &&
