@@ -209,11 +209,10 @@ class DirectWorkspaceBinder(private val context: Context) {
                 indexBook?.str("subjectName"),
                 manifestObj?.str("subjectName")
             )
-            val subjectName = CurriculumDisplayMapper.subjectDisplayName(
+            val subjectName = BookMetadataMapper.subjectDisplayName(
                 subjectKey = slot.subjectKey,
-                componentKey = slot.componentKey,
                 declaredSubjectName = declaredSubjectName
-            )
+            ).orEmpty()
             val componentSuffix = CurriculumDisplayMapper.componentDisplayName(slot.componentKey)
             val fallbackTitle = if (componentSuffix != null && !subjectName.contains(componentSuffix)) {
                 "$subjectName • $componentSuffix"
