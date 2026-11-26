@@ -2305,24 +2305,41 @@ class MainViewModel(
             return
         }
         val canonicalWs = snapshot.workspace?.workspaceId.orEmpty().ifBlank { lesson.workspaceId }.ifBlank { lesson.rootPath }
-        val parsed = QuestionBankEngine.parseQuestionsFromText(text, canonicalWs, lesson)
-        if (parsed.isEmpty()) {
+        val parsedResult = runCatching {
+            QuestionBankEngine.parseGeneratedQuestions(
+                rawText = text,
+                workspaceId = canonicalWs,
+                lesson = lesson,
+                expectedCount = snapshot.questionCount,
+                selectedTypeIds = snapshot.selectedQuestionTypeIds
+            )
+        }
+        if (parsedResult.isFailure) {
             _uiState.update {
-                it.copy(
-                    alert = AlertMessage(
-                        "تعذر استخراج الأسئلة",
-                        "تأكد من ترقيم الأسئلة (1. ... أو JSON) مع كتابة «الإجابة: ...» ثم أعد المحاولة."
-                    )
-                )
+                it.copy(alert = AlertMessage(
+                    "لم تُحفظ الأسئلة",
+                    parsedResult.exceptionOrNull()?.message ?: "استجابة الأسئلة لا تطابق عقد بنك الأسئلة."
+                ))
             }
             return
         }
+        val parsed = parsedResult.getOrThrow()
         viewModelScope.launch {
-            val saved = repository.saveQuestionsFromDraftText(
-                workspaceId = canonicalWs,
-                lesson = lesson,
-                rawText = text
-            )
+            val savedResult = runCatching {
+                repository.saveQuestionsFromDraftText(
+                    workspaceId = canonicalWs,
+                    lesson = lesson,
+                    rawText = text,
+                    expectedQuestionCount = snapshot.questionCount,
+                    expectedQuestionTypeIds = snapshot.selectedQuestionTypeIds
+                )
+            }
+            val saved = savedResult.getOrElse { error ->
+                _uiState.update {
+                    it.copy(alert = AlertMessage("لم تُحفظ الأسئلة", error.message ?: "تعذر إدراج دفعة الأسئلة."))
+                }
+                return@launch
+            }
             if (saved.isEmpty()) {
                 _uiState.update {
                     it.copy(
