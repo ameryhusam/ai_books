@@ -4059,8 +4059,10 @@ class EduMiniCoreTest {
     fun localModeWithoutFirebaseAndAnalyticsWiringDoesNotCrash() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
 
-        // Unconfigured build has no google-services.json -> default_web_client_id is empty
-        assertEquals("", com.example.ui.auth.resolveDefaultWebClientId(context))
+        // CI may inject google-services.json and generate default_web_client_id.
+        // Its presence is build configuration, not evidence that Firebase services are wired
+        // into this local-mode test. Exercise the resolver without assuming the resource is absent.
+        com.example.ui.auth.resolveDefaultWebClientId(context)
 
         // Null-backed FirestoreSyncRepository must fail gracefully instead of throwing IllegalStateException
         val nullSync = com.example.data.firebase.FirestoreSyncRepository(db = null, auth = null)
