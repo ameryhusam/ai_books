@@ -249,6 +249,75 @@
         "createdAt",
         "updatedAt"
       ]
+    },
+    "AiModelDefinition": {
+      "title": "AiModelDefinition",
+      "description": "System-wide AI model entry managed only by a pre-provisioned system administrator.",
+      "type": "object",
+      "properties": {
+        "modelId": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "Provider-facing model identifier and version; also used as the Firestore document ID."
+        },
+        "displayName": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "Human-readable model name shown in model selection."
+        },
+        "provider": {
+          "type": "string",
+          "enum": [
+            "gemini",
+            "openai-compatible"
+          ]
+        },
+        "lifecycleStatus": {
+          "type": "string",
+          "enum": [
+            "AVAILABLE",
+            "PREVIEW",
+            "ROUTED",
+            "DEPRECATED"
+          ]
+        },
+        "replacementModelId": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "Optional replacement model identifier."
+        },
+        "isDefault": {
+          "type": "boolean",
+          "description": "Whether this is the default model for its provider."
+        },
+        "isEnabled": {
+          "type": "boolean",
+          "description": "Whether users may select this model."
+        },
+        "supportsGenerateContent": {
+          "type": "boolean"
+        },
+        "source": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp."
+        }
+      },
+      "required": [
+        "modelId",
+        "displayName",
+        "provider",
+        "lifecycleStatus",
+        "isDefault",
+        "isEnabled",
+        "supportsGenerateContent",
+        "source",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
@@ -269,6 +338,12 @@
         "$ref": "#/entities/LessonProgress"
       },
       "description": "Per-user cloud-synced lesson completion and quiz mastery progress."
+    },
+    "/ai_model_catalog/{modelId}": {
+      "schema": {
+        "$ref": "#/entities/AiModelDefinition"
+      },
+      "description": "Global model catalogue. Authenticated users can read; only users whose pre-provisioned users/{uid}.role is admin can create, update, or delete."
     }
   }
 }
