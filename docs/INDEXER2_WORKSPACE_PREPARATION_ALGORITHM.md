@@ -34,7 +34,7 @@ flowchart TD
     O --> P[Build workspace ZIP]
 ```
 
-The order is significant: template matching and detection provide candidates; review and approval are gates before slicing. A key or page range that is not established by evidence must remain unresolved rather than be filled by a default.
+The order is significant: detection and template matching provide candidates; the intake review precedes the slicing action. The slicer enforces unit part assignment and page bounds, then marks the returned template as approved and the source as verified after successful slicing. A key or page range that is not established by evidence must remain unresolved rather than be filled by a default.
 
 ## 3. PDF intake and evidence extraction
 
