@@ -291,6 +291,13 @@ object WorkspaceContractValidator {
             if (cleanBookRel.isNotBlank() && normalizedUri.startsWith("$cleanBookRel/", ignoreCase = true)) {
                 candidates.add(normalizedUri.removePrefix("$cleanBookRel/"))
             }
+            val partLocalBookRel = cleanBookRel.substringBeforeLast('/')
+            if (partLocalBookRel != cleanBookRel && partLocalBookRel.isNotBlank() &&
+                cleanBookRel.substringAfterLast('/').uppercase(Locale.ROOT) in setOf("P01", "P02") &&
+                normalizedUri.startsWith("$partLocalBookRel/", ignoreCase = true)
+            ) {
+                candidates.add(normalizedUri.removePrefix("$partLocalBookRel/"))
+            }
             return candidates.toList()
         }
 
