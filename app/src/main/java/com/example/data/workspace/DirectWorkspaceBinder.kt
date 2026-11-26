@@ -221,9 +221,11 @@ class DirectWorkspaceBinder(private val context: Context) {
                 subjectName
             }
             val bookTitle = firstNonBlank(
-                indexObj.str("title"),
                 indexObj.str("displayName"),
+                indexObj.str("title"),
+                indexBook?.str("displayName"),
                 indexBook?.str("title"),
+                manifestObj?.str("displayName"),
                 manifestObj?.str("bookTitle"),
                 manifestObj?.str("title"),
                 manifestObj?.str("displayTitle"),
