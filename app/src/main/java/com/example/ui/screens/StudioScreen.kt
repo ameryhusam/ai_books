@@ -85,6 +85,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -467,9 +468,21 @@ private fun StudioWorkbench(
     }
 
     val activeBlueprint = remember(task) { Indexer2PromptRegistry.blueprintFor(task) }
+    val context = LocalContext.current
+    val promptTemplateContent = remember(context, activeBlueprint.sourcePath) {
+        runCatching {
+            context.assets.open(activeBlueprint.sourcePath).bufferedReader(Charsets.UTF_8).use { it.readText() }
+        }.getOrDefault("")
+    }
     val activePromptTemplate = remember(promptTemplates, activePromptTemplateId, task) {
         promptTemplates.firstOrNull { it.id == activePromptTemplateId }
             ?: promptTemplates.firstOrNull { it.task == task }
+    }
+    val templateInstructions = activePromptTemplate?.instructions.orEmpty().trim()
+    val effectivePreviewExtra = if (templateInstructions.isNotBlank() && extraInstructions.contains(templateInstructions)) {
+        extraInstructions.trim()
+    } else {
+        listOf(templateInstructions, extraInstructions.trim()).filter { it.isNotBlank() }.distinct().joinToString("\n\n")
     }
     val livePromptPreview = remember(
         selectedLesson,
@@ -490,15 +503,14 @@ private fun StudioWorkbench(
                 lesson = selectedLesson,
                 task = task,
                 source = sourceText,
-                extra = listOf(activePromptTemplate?.instructions.orEmpty().trim(), extraInstructions.trim())
-                    .filter { it.isNotBlank() }.distinct().joinToString("\n\n"),
+                extra = effectivePreviewExtra,
                 questionCount = questionCount,
                 questionTypeIds = selectedQuestionTypeIds,
                 questionLanguage = questionLanguage,
                 attachedPdfPagesCount = if (attachPdfPages && !selectedLesson.pdfPath.isNullOrBlank()) 1 else 0,
                 questionStyleHint = questionStyle.takeIf { task == TaskType.QUESTIONS && it != "متنوعة" }.orEmpty(),
                 difficultyHint = if (task == TaskType.QUESTIONS) questionDifficulty.id else "",
-                promptTemplate = activePromptTemplate?.instructions.orEmpty(),
+                promptTemplate = promptTemplateContent,
                 responseSchemaJson = activePromptTemplate?.responseSchemaJson.orEmpty(),
                 responseFormat = activePromptTemplate?.responseFormat
                     ?: if (activePromptTemplate?.responseSchemaJson.isNullOrBlank()) "text" else "json"
