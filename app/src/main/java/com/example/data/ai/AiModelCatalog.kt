@@ -16,6 +16,7 @@ data class AiModelDefinition(
     val lifecycleStatus: String = STATUS_AVAILABLE,
     val replacementModelId: String? = null,
     val isDefault: Boolean = false,
+    val isEnabled: Boolean = true,
     val supportsGenerateContent: Boolean = true,
     val source: String = SOURCE_USER
 ) {
