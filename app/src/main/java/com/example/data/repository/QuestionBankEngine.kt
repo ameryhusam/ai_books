@@ -2,6 +2,7 @@ package com.example.data.repository
 
 import com.example.model.AssessmentRecord
 import com.example.model.LessonRef
+import com.example.model.QuestionContentPayload
 import com.example.model.QuestionDifficulty
 import com.example.model.QuestionItem
 import com.example.model.QuestionType
@@ -13,6 +14,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.intOrNull
 import java.security.MessageDigest
 import java.time.Instant
@@ -109,43 +111,40 @@ object QuestionBankEngine {
             "العدد الناتج غير مطابق: المطلوب $expectedCount سؤالاً، والناتج ${array.size}."
         }
 
-        array.forEachIndexed { index, element ->
+        val payloads = array.mapIndexed { index, element ->
             val obj = element as? JsonObject
                 ?: throw IllegalArgumentException("السؤال رقم ${index + 1} ليس كائن JSON.")
-            val allowedFields = setOf("type", "conceptTag", "prompt", "options", "correctAnswer", "rationale", "difficulty", "sourcePages")
+            val payloadDescriptor = QuestionContentPayload.serializer().descriptor
+            val allowedFields = (0 until payloadDescriptor.elementsCount)
+                .map { payloadDescriptor.getElementName(it) }.toSet()
             val unexpectedFields = obj.keys - allowedFields
             require(unexpectedFields.isEmpty()) {
                 "حقول غير معروفة في السؤال رقم ${index + 1}: ${unexpectedFields.joinToString()}."
             }
-            val typeId = firstStr(obj, "type")
-            val type = QuestionType.entries.firstOrNull { it.id == typeId }
-                ?: throw IllegalArgumentException("نوع السؤال رقم ${index + 1} غير مدعوم: '$typeId'.")
-            val difficultyId = firstStr(obj, "difficulty")
-            if (QuestionDifficulty.entries.none { it.id == difficultyId }) {
-                throw IllegalArgumentException("مستوى صعوبة السؤال رقم ${index + 1} غير صالح: '$difficultyId'.")
+            val payload = runCatching { json.decodeFromJsonElement<QuestionContentPayload>(obj) }.getOrElse {
+                throw IllegalArgumentException("تعذر تحويل السؤال رقم ${index + 1} إلى عقد بيانات بنك الأسئلة: ${it.message ?: "خطأ في الحقول"}.")
             }
-            if (!expectedDifficultyId.isNullOrBlank() && difficultyId != expectedDifficultyId) {
+            val type = QuestionType.entries.firstOrNull { it.id == payload.type }
+                ?: throw IllegalArgumentException("نوع السؤال رقم ${index + 1} غير مدعوم: '${payload.type}'.")
+            val difficulty = QuestionDifficulty.entries.firstOrNull { it.id == payload.difficulty }
+                ?: throw IllegalArgumentException("مستوى صعوبة السؤال رقم ${index + 1} غير صالح: '${payload.difficulty}'.")
+            if (!expectedDifficultyId.isNullOrBlank() && difficulty.id != expectedDifficultyId) {
                 throw IllegalArgumentException(
-                    "مستوى صعوبة السؤال رقم ${index + 1} هو '$difficultyId' بينما المستوى المطلوب '$expectedDifficultyId'."
+                    "مستوى صعوبة السؤال رقم ${index + 1} هو '${difficulty.id}' بينما المستوى المطلوب '$expectedDifficultyId'."
                 )
             }
-            val prompt = firstStr(obj, "prompt")
-            require(prompt.isNotBlank()) { "نص السؤال رقم ${index + 1} فارغ." }
-            val answer = firstStr(obj, "correctAnswer")
-            require(answer.isNotBlank()) { "الإجابة الصحيحة للسؤال رقم ${index + 1} فارغة." }
-            val optionsElement = obj["options"] as? JsonArray
-                ?: throw IllegalArgumentException("حقل options للسؤال رقم ${index + 1} يجب أن يكون مصفوفة.")
-            val options = optionsElement.mapIndexed { optionIndex, option ->
-                (option as? JsonPrimitive)?.takeIf { it.isString }?.content?.trim()
-                    ?.takeIf { it.isNotBlank() }
-                    ?: throw IllegalArgumentException("الخيار ${optionIndex + 1} في السؤال رقم ${index + 1} فارغ أو ليس نصاً.")
+            require(payload.prompt.isNotBlank()) { "نص السؤال رقم ${index + 1} فارغ." }
+            require(payload.correctAnswer.isNotBlank()) { "الإجابة الصحيحة للسؤال رقم ${index + 1} فارغة." }
+            val options = payload.options.mapIndexed { optionIndex, option ->
+                option.trim().takeIf { it.isNotBlank() }
+                    ?: throw IllegalArgumentException("الخيار ${optionIndex + 1} في السؤال رقم ${index + 1} فارغ.")
             }
             when (type) {
                 QuestionType.MCQ, QuestionType.TRUE_FALSE -> {
                     require(options.size >= 2) {
                         "السؤال رقم ${index + 1} من نوع ${type.labelAr} يحتاج خيارين على الأقل."
                     }
-                    require(options.any { it.equals(answer, ignoreCase = true) }) {
+                    require(options.any { it.equals(payload.correctAnswer.trim(), ignoreCase = true) }) {
                         "إجابة السؤال رقم ${index + 1} لا تطابق أياً من خياراته حرفياً."
                     }
                 }
@@ -156,11 +155,38 @@ object QuestionBankEngine {
                 }
                 QuestionType.FILL_BLANK, QuestionType.SHORT_ANSWER -> Unit
             }
+            payload.copy(
+                prompt = payload.prompt.trim(),
+                options = options,
+                correctAnswer = payload.correctAnswer.trim(),
+                conceptTag = payload.conceptTag.trim(),
+                rationale = payload.rationale.trim(),
+                sourcePages = payload.sourcePages.trim()
+            )
         }
 
-        val parsed = tryParseJsonQuestions(cleaned, workspaceId, lesson)
-        require(parsed.size == array.size) {
-            "تعذر تحويل جميع عناصر JSON إلى أسئلة صالحة: ${parsed.size} من ${array.size}."
+        val createdAt = Instant.now().toString()
+        val parsed = payloads.map { payload ->
+            QuestionItem(
+                id = "q-${System.currentTimeMillis()}-${UUID.randomUUID().toString().take(6)}",
+                workspaceId = workspaceId,
+                gradeKey = lesson.grade,
+                bookKey = lesson.bookKey,
+                unitKey = lesson.unitKey,
+                lessonKey = lesson.lessonKey,
+                lessonTitle = lesson.title,
+                type = QuestionType.fromId(payload.type),
+                prompt = payload.prompt,
+                options = payload.options,
+                correctAnswer = payload.correctAnswer,
+                rationale = payload.rationale,
+                difficulty = QuestionDifficulty.fromId(payload.difficulty),
+                sourcePages = payload.sourcePages.ifBlank { lesson.pageRange.orEmpty() },
+                fingerprint = computeFingerprint(payload.prompt),
+                reviewed = false,
+                createdAt = createdAt,
+                conceptTag = payload.conceptTag.ifBlank { lesson.title }
+            )
         }
         val expectedDistribution = QuestionResponseContract.expectedDistribution(expectedCount, selectedTypeIds)
         val actualDistribution = parsed.groupingBy { it.type.id }.eachCount()
