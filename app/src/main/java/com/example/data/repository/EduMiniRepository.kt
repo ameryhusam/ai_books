@@ -2684,7 +2684,6 @@ class EduMiniRepository(
                 isBuiltIn = true,
                 responseSchemaJson = QuestionResponseContract.schemaJson,
                 responseFormat = "json"
-                responseFormat = "json"
             ),
             PromptTemplateRecord(
                 id = "builtin_interactive_steps",
