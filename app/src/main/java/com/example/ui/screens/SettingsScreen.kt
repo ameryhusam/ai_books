@@ -337,6 +337,9 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = EduMuted
                     )
+                    if (modelCatalog.isEmpty()) {
+                        Text("لا توجد نماذج منشورة حالياً. يضيف مدير النظام النماذج إلى القائمة المركزية.", color = EduMuted, style = MaterialTheme.typography.bodySmall)
+                    }
                     modelCatalog.forEach { model ->
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
@@ -351,8 +354,12 @@ fun SettingsScreen(
                                     style = MaterialTheme.typography.bodySmall
                                 )
                                 if (model.isDefault) Text("النموذج الافتراضي", color = EduGreenDark, style = MaterialTheme.typography.labelSmall)
+                                if (!model.isEnabled) Text("معطّل", color = EduRed, style = MaterialTheme.typography.labelSmall)
                             }
-                            if (canManageAiModels) TextButton(onClick = { onSetDefaultAiModel(model.provider, model.modelId) }) {
+                            if (canManageAiModels) TextButton(
+                                enabled = model.isEnabled && model.supportsGenerateContent && model.lifecycleStatus != AiModelDefinition.STATUS_DEPRECATED,
+                                onClick = { onSetDefaultAiModel(model.provider, model.modelId) }
+                            ) {
                                 Text(if (model.isDefault) "افتراضي" else "تعيين")
                             }
                             if (canManageAiModels) TextButton(onClick = {
@@ -361,10 +368,13 @@ fun SettingsScreen(
                                 modelNameInput = model.displayName
                                 modelLifecycleStatus = model.lifecycleStatus
                             }) { Text("تعديل") }
-                            if (canManageAiModels) TextButton(onClick = { onUpdateAiModel(model.modelId, model.copy(isEnabled = !model.isEnabled)) }) {
+                            if (canManageAiModels) TextButton(
+                                enabled = !model.isDefault,
+                                onClick = { onUpdateAiModel(model.modelId, model.copy(isEnabled = !model.isEnabled)) }
+                            ) {
                                 Text(if (model.isEnabled) "تعطيل" else "تفعيل")
                             }
-                            if (canManageAiModels) TextButton(onClick = { onDeleteAiModel(model.modelId) }) { Text("حذف", color = EduRed) }
+                            if (canManageAiModels) TextButton(enabled = !model.isDefault, onClick = { onDeleteAiModel(model.modelId) }) { Text("حذف", color = EduRed) }
                         }
                     }
                     if (canManageAiModels) {
