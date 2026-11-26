@@ -501,7 +501,7 @@ class EduMiniRepository(
         require(providers.any {
             it.id == selectedProfileId && it.provider == selectedProvider && it.enabled && it.apiKey.isNotBlank()
         }) { "ملف اتصال API المحدد غير متاح أو لا ينتمي إلى المزود المختار." }
-        if (providers.none { it.provider == selectedProvider && it.enabled && it.apiKey.isNotBlank() && it.model.isNotBlank() }) {
+        if (providers.none { it.provider == selectedProvider && it.enabled && it.apiKey.isNotBlank() }) {
             throw IllegalStateException("لا يوجد ملف ${selectedProvider.displayName} مفعّل بمفتاح ونموذج صالحين. اختر مزوداً آخر أو أضف إعداداته.")
         }
         onProgress(8, "قراءة بيانات الدرس وتجهيز المصدر")
