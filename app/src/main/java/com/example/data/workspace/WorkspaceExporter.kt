@@ -168,7 +168,8 @@ data class BackupPromptTemplateDto(
 @Serializable
 data class BackupLearnerProfileDto(
     val userId: String,
-    val displayName: String
+    val displayName: String,
+    val enrolledGradeKey: String? = null
 )
 
 @Serializable
@@ -477,7 +478,11 @@ object WorkspaceExporter {
             exportedAt = Instant.now().toString(),
             workspaceId = workspaceId,
             learnerProfiles = learnerProfiles.distinctBy { it.userId }.map {
-                BackupLearnerProfileDto(userId = it.userId, displayName = it.displayName)
+                BackupLearnerProfileDto(
+                    userId = it.userId,
+                    displayName = it.displayName,
+                    enrolledGradeKey = it.enrolledGradeKey
+                )
             },
             activeLearnerId = activeLearnerId,
             drafts = drafts.map {

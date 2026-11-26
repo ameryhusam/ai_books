@@ -211,10 +211,39 @@ class EduMiniRepository(
         return binder.inspectTreeUri(treeUri)
     }
 
+    suspend fun createClassroom(gradeKey: String, title: String): ImportedWorkspace {
+        val cleanGrade = gradeKey.trim().uppercase()
+        require(cleanGrade.isNotBlank()) { "يرجى إدخال رمز الصف الدراسي (مثل G05)." }
+        val existing = dao.observeAllWorkspaces().first()
+            .firstOrNull { it.gradeKey.equals(cleanGrade, ignoreCase = true) }
+        require(existing == null) { "الصف $cleanGrade موجود مسبقاً." }
+        val cleanTitle = title.trim().ifBlank { "الصف $cleanGrade" }
+        val sanitizedKey = cleanGrade.lowercase().replace(Regex("[^a-z0-9_-]"), "_").ifBlank { "class" }
+        val workspace = ImportedWorkspace(
+            workspaceId = "class_${sanitizedKey}_${java.util.UUID.randomUUID().toString().take(6)}",
+            gradeKey = cleanGrade,
+            rootPath = "",
+            title = cleanTitle,
+            books = emptyList(),
+            lessons = emptyList(),
+            filesCount = 0,
+            warnings = emptyList(),
+            importedAt = System.currentTimeMillis()
+        )
+        saveImportedWorkspace(workspace)
+        return workspace
+    }
+
     suspend fun bindDirectWorkspace(rootUriOrPath: String, gradeKey: String): ImportedWorkspace {
         val binder = directWorkspaceBinder
             ?: throw IllegalStateException("أداة ربط مساحة العمل المباشرة غير مهيأة")
         val bound = binder.bindSingleGrade(rootUriOrPath, gradeKey)
+        val emptyPlaceholders = dao.observeAllWorkspaces().first().filter {
+            it.gradeKey.equals(bound.workspace.gradeKey, ignoreCase = true) &&
+                it.rootPath.isBlank() &&
+                it.workspaceId != bound.workspace.workspaceId
+        }
+        emptyPlaceholders.forEach { dao.deleteWorkspaceGraph(it.workspaceId) }
         saveImportedWorkspace(bound.workspace)
         if (bound.preloadedQuestions.isNotEmpty()) {
             val existingFingerprints = dao.observeQuestionsForWorkspace(bound.workspace.workspaceId)
@@ -240,6 +269,31 @@ class EduMiniRepository(
             }
         }
         return bound.workspace
+    }
+
+    suspend fun bindDirectWorkspaces(rootUriOrPath: String, gradeKeys: List<String>): List<ImportedWorkspace> {
+        val cleanGrades = gradeKeys.map { it.trim().uppercase() }.filter { it.isNotBlank() }.distinct()
+        if (cleanGrades.isEmpty()) return emptyList()
+        val bound = mutableListOf<ImportedWorkspace>()
+        val failures = mutableListOf<String>()
+        for (gradeKey in cleanGrades) {
+            runCatching { bindDirectWorkspace(rootUriOrPath, gradeKey) }
+                .onSuccess { bound.add(it) }
+                .onFailure { err ->
+                    failures.add("$gradeKey: ${err.message ?: "خطأ غير متوقع"}")
+                }
+        }
+        if (bound.isEmpty()) {
+            throw IllegalStateException(failures.joinToString("\n\n").ifBlank { "تعذر ربط أي صف دراسي." })
+        }
+        if (failures.isNotEmpty()) {
+            val existingFirst = bound.first()
+            val mergedWarnings = (failures.map { "تعذر ربط صف إضافي • $it" } + existingFirst.warnings).distinct()
+            val updatedFirst = existingFirst.copy(warnings = mergedWarnings)
+            saveImportedWorkspace(updatedFirst)
+            bound[0] = updatedFirst
+        }
+        return bound
     }
 
     suspend fun deleteWorkspace(workspaceId: String, rootPath: String) = withContext(Dispatchers.IO) {
@@ -1754,7 +1808,13 @@ class EduMiniRepository(
         }
         if (bundle.learnerProfiles.isNotEmpty()) {
             val restoredProfiles = bundle.learnerProfiles
-                .map { LearnerProfile(userId = it.userId, displayName = it.displayName) }
+                .map {
+                    LearnerProfile(
+                        userId = it.userId,
+                        displayName = it.displayName,
+                        enrolledGradeKey = it.enrolledGradeKey?.trim()?.takeIf { g -> g.isNotBlank() }?.uppercase()
+                    )
+                }
                 .filter { it.userId.isNotBlank() && it.displayName.isNotBlank() }
                 .distinctBy { it.userId }
                 .let { profiles ->

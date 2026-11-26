@@ -143,11 +143,12 @@ fun DashboardScreen(
     onExportLearningReport: () -> Unit = {},
     activeLearner: LearnerProfile = LearnerProfile.DEFAULT,
     availableLearners: List<LearnerProfile> = listOf(LearnerProfile.DEFAULT),
+    availableGrades: List<String> = emptyList(),
     selectedBookFilterKey: String = "",
     bookmarkedLessons: List<LessonRef> = emptyList(),
     bookCoversByKey: Map<String, String?> = emptyMap(),
     onSelectLearner: (String) -> Unit = {},
-    onAddLearner: (String) -> Unit = {},
+    onAddLearner: (String, String?) -> Unit = { _, _ -> },
     onSelectBookFilter: (String) -> Unit = {},
     onSelectLessonFilter: (DashboardLessonFilter) -> Unit = {},
     onToggleUnitExpanded: (String) -> Unit = {},
@@ -162,6 +163,9 @@ fun DashboardScreen(
     onBindDirectFolder: () -> Unit = {},
     onPickZip: () -> Unit = {},
     onOpenLibrary: () -> Unit = {},
+    isCloudAuthenticated: Boolean = false,
+    onSignOut: () -> Unit = {},
+    onSwitchToRoleEntry: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var selectedBadge by remember { mutableStateOf<AchievementBadge?>(null) }
@@ -279,9 +283,15 @@ fun DashboardScreen(
             if (!summary.hasWorkspace) {
                 item(key = "dashboard_empty") {
                     DashboardEmptyOnboarding(
+                        isLearner = isLearner,
+                        activeLearner = activeLearner,
+                        availableGradesCount = availableGrades.size,
                         showAdminLibraryButton = !isLearner,
+                        isCloudAuthenticated = isCloudAuthenticated,
+                        onSignOut = onSignOut,
                         onBindDirectFolder = onBindDirectFolder,
-                        onOpenLibrary = onOpenLibrary
+                        onOpenLibrary = onOpenLibrary,
+                        onSwitchToRoleEntry = onSwitchToRoleEntry
                     )
                 }
 
@@ -350,6 +360,7 @@ fun DashboardScreen(
                         overallCompletionPercent = summary.overallCompletionPercent,
                         activeLearner = activeLearner,
                         availableLearners = availableLearners,
+                        availableGrades = availableGrades,
                         onSelectLearner = onSelectLearner,
                         onAddLearner = onAddLearner,
                         onSelectConceptForReinforcement = onLaunchConceptReinforcement
@@ -2184,42 +2195,90 @@ private fun LessonMetaChip(
 
 @Composable
 private fun DashboardEmptyOnboarding(
+    isLearner: Boolean,
+    activeLearner: LearnerProfile,
+    availableGradesCount: Int,
     showAdminLibraryButton: Boolean,
+    isCloudAuthenticated: Boolean,
+    onSignOut: () -> Unit,
     onBindDirectFolder: () -> Unit,
-    onOpenLibrary: () -> Unit
+    onOpenLibrary: () -> Unit,
+    onSwitchToRoleEntry: () -> Unit
 ) {
     EduPanel(modifier = Modifier.fillMaxWidth()) {
-        Text(
-            text = stringResource(R.string.dashboard_empty_title),
-            style = MaterialTheme.typography.titleMedium,
-            color = EduInk
-        )
-        Text(
-            text = stringResource(R.string.dashboard_empty_sub),
-            style = MaterialTheme.typography.bodyMedium,
-            color = EduMuted
-        )
-        Spacer(modifier = Modifier.height(4.dp))
-        EduYellowButton(
-            text = stringResource(R.string.bind_direct_folder_cta),
-            onClick = onBindDirectFolder,
-            icon = Icons.Rounded.FolderOpen,
-            testTag = "dashboard_bind_folder_button"
-        )
-        if (showAdminLibraryButton) {
+        if (isLearner) {
+            val enrolledGrade = activeLearner.enrolledGradeKey?.trim()?.uppercase()?.takeIf { it.isNotBlank() }
+            Text(
+                text = when {
+                    enrolledGrade != null -> "الصف المسجّل ($enrolledGrade) غير متاح بعد"
+                    availableGradesCount > 1 -> "لم يُحدَّد الصف الدراسي لهذا الطالب بعد"
+                    else -> "لم يتم ربط الصف الدراسي بعد"
+                },
+                style = MaterialTheme.typography.titleMedium,
+                color = EduInk
+            )
+            Text(
+                text = when {
+                    enrolledGrade != null ->
+                        "الطالب «${activeLearner.displayName}» مسجّل في الصف $enrolledGrade فقط. اطلب من مدير النظام ربط مجلد الصف $enrolledGrade من لوحة الإدارة."
+                    availableGradesCount > 1 ->
+                        "توجد عدة صفوف دراسية في النظام، ولم يسجّل مدير النظام صفّاً للطالب «${activeLearner.displayName}» حتى الآن."
+                    else ->
+                        "اطلب من مدير النظام ربط مجلد مساحة العمل وتعيين الصف الدراسي للبدء."
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = EduMuted
+            )
+            Spacer(modifier = Modifier.height(4.dp))
             OutlinedButton(
-                onClick = onOpenLibrary,
+                onClick = if (isCloudAuthenticated) onSignOut else onSwitchToRoleEntry,
                 shape = RoundedCornerShape(12.dp),
-                border = BorderStroke(1.dp, EduLine),
+                border = BorderStroke(1.dp, EduGreen),
                 modifier = Modifier
                     .fillMaxWidth()
                     .minimumInteractiveComponentSize()
+                    .testTag("learner_empty_switch_role_button")
             ) {
                 Text(
-                    text = stringResource(R.string.nav_library),
-                    color = EduInk,
-                    style = MaterialTheme.typography.labelMedium
+                    text = if (isCloudAuthenticated) "تسجيل الخروج" else "العودة لاختيار الحساب أو الدخول كمدير",
+                    color = EduGreenDark,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold
                 )
+            }
+        } else {
+            Text(
+                text = stringResource(R.string.dashboard_empty_title),
+                style = MaterialTheme.typography.titleMedium,
+                color = EduInk
+            )
+            Text(
+                text = stringResource(R.string.dashboard_empty_sub),
+                style = MaterialTheme.typography.bodyMedium,
+                color = EduMuted
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            EduYellowButton(
+                text = stringResource(R.string.bind_direct_folder_cta),
+                onClick = onBindDirectFolder,
+                icon = Icons.Rounded.FolderOpen,
+                testTag = "dashboard_bind_folder_button"
+            )
+            if (showAdminLibraryButton) {
+                OutlinedButton(
+                    onClick = onOpenLibrary,
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, EduLine),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .minimumInteractiveComponentSize()
+                ) {
+                    Text(
+                        text = stringResource(R.string.nav_library),
+                        color = EduInk,
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                }
             }
         }
     }

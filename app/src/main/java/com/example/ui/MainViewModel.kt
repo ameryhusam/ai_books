@@ -15,6 +15,8 @@ import com.example.model.AppPage
 import com.example.model.AssessmentAttemptRecord
 import com.example.model.AssessmentKind
 import com.example.model.AssessmentRecord
+import com.example.model.AuthRoleCheckState
+import com.example.model.AuthRoleDestination
 import com.example.model.BookRef
 import com.example.model.CloudDraft
 import com.example.model.ConceptMasterySummary
@@ -51,6 +53,7 @@ import com.example.model.TaskType
 import com.example.model.TeacherNoteRecord
 import com.example.model.UnitCompletionStatus
 import com.example.model.UserRole
+import com.example.model.UserRoleResolution
 import com.example.model.WorkspaceSummary
 import com.google.firebase.firestore.FirebaseFirestoreException
 import kotlinx.coroutines.CancellationException
@@ -108,6 +111,9 @@ data class PdfSplitterUiState(
 
 data class MainUiState(
     val userRole: UserRole = UserRole.ENTRY,
+    val isCloudAuthenticated: Boolean = false,
+    val authenticatedUserRole: UserRole? = null,
+    val authRoleCheckState: AuthRoleCheckState = AuthRoleCheckState.Idle,
     val availableLearners: List<LearnerProfile> = listOf(LearnerProfile.DEFAULT),
     val activeLearner: LearnerProfile = LearnerProfile.DEFAULT,
     val page: AppPage = AppPage.DASHBOARD,
@@ -159,19 +165,23 @@ data class MainUiState(
     val generationStage: String? = null,
     val toastMessage: String? = null,
     val alert: AlertMessage? = null
-)
+) {
+    val availableBoundGrades: List<String>
+        get() = workspaces.map { it.gradeKey.uppercase() }.distinct().sorted()
+}
 
 class MainViewModel(
     private val repository: EduMiniRepository,
     private val firestoreSync: FirestoreSyncRepository,
     val currentUserId: String,
     val currentUserEmail: String? = null,
-    val currentUserDisplayName: String? = null
+    val currentUserDisplayName: String? = null,
+    private val isCloudAuthenticated: Boolean = false
 ) : ViewModel() {
 
     private var generationJob: Job? = null
 
-    private val _uiState = MutableStateFlow(MainUiState())
+    private val _uiState = MutableStateFlow(MainUiState(isCloudAuthenticated = isCloudAuthenticated))
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
 
     private val _studentDashboardState = MutableStateFlow(StudentDashboardState())
@@ -409,9 +419,22 @@ class MainViewModel(
         @OptIn(ExperimentalCoroutinesApi::class)
         viewModelScope.launch {
             _uiState
-                .map { it.selectedWorkspaceId }
+                .map { state ->
+                    resolveEffectiveWorkspaceId(
+                        userRole = state.userRole,
+                        activeLearner = state.activeLearner,
+                        workspaces = state.workspaces,
+                        adminSelectedWorkspaceId = state.selectedWorkspaceId
+                    )
+                }
                 .distinctUntilChanged()
-                .flatMapLatest { wsId -> repository.observeWorkspace(wsId) }
+                .flatMapLatest { wsId ->
+                    if (wsId == BLOCKED_UNASSIGNED_WORKSPACE_ID) {
+                        flowOf(null)
+                    } else {
+                        repository.observeWorkspace(wsId)
+                    }
+                }
                 .collect { ws ->
                     val diskBytes = repository.computeWorkspaceDiskBytes(ws?.rootPath.orEmpty())
                     _uiState.update { state ->
@@ -421,27 +444,136 @@ class MainViewModel(
                             ws.books.any { it.bookKey == currentSelectedBook } -> currentSelectedBook
                             else -> ws.books.firstOrNull()?.bookKey.orEmpty()
                         }
+                        val validSelectedLesson = state.selectedLesson?.takeIf { sel ->
+                            ws != null && ws.lessons.any {
+                                it.bookKey == sel.bookKey &&
+                                    it.unitKey == sel.unitKey &&
+                                    it.lessonKey == sel.lessonKey
+                            }
+                        }
                         state.copy(
                             workspace = ws,
                             activeWorkspaceDiskBytes = diskBytes,
-                            selectedBookKey = validSelectedBook
+                            selectedBookKey = validSelectedBook,
+                            selectedLesson = validSelectedLesson
                         )
                     }
                 }
         }
     }
 
+    fun resolveSignedInUserRole(force: Boolean = false) {
+        if (!isCloudAuthenticated) return
+        val currentCheck = _uiState.value.authRoleCheckState
+        if (!force && (currentCheck is AuthRoleCheckState.Checking || currentCheck is AuthRoleCheckState.Resolved)) {
+            return
+        }
+        _uiState.update { it.copy(authRoleCheckState = AuthRoleCheckState.Checking) }
+        viewModelScope.launch {
+            firestoreSync.resolveUserRole(currentUserId, currentUserDisplayName)
+                .onSuccess { resolution ->
+                    applyResolvedUserRole(resolution)
+                }
+                .onFailure { error ->
+                    _uiState.update {
+                        it.copy(
+                            authRoleCheckState = AuthRoleCheckState.Error(
+                                error.localizedMessage ?: "تعذر التحقق من صلاحية الحساب في Firestore"
+                            )
+                        )
+                    }
+                }
+        }
+    }
+
+    internal fun applyResolvedUserRole(resolution: UserRoleResolution) {
+        val nextRole = when (resolution.destination) {
+            AuthRoleDestination.ADMIN_DASHBOARD -> UserRole.ADMIN
+            AuthRoleDestination.STUDENT_VIEW -> UserRole.LEARNER
+        }
+        val targetPage = when (resolution.destination) {
+            AuthRoleDestination.ADMIN_DASHBOARD -> AppPage.ADMIN_DASHBOARD
+            AuthRoleDestination.STUDENT_VIEW -> AppPage.DASHBOARD
+        }
+        if (nextRole == UserRole.LEARNER) {
+            syncAuthenticatedLearnerProfile(
+                displayName = resolution.displayName ?: currentUserDisplayName ?: "الطالب",
+                enrolledGradeKey = resolution.enrolledGradeKey
+            )
+        }
+        _studentDashboardState.value = StudentDashboardState()
+        _uiState.update { state ->
+            state.copy(
+                userRole = nextRole,
+                authenticatedUserRole = nextRole,
+                authRoleCheckState = AuthRoleCheckState.Resolved(resolution),
+                page = targetPage,
+                studentStudyLesson = null,
+                lastLessonQuizResult = null,
+                globalSearchOpen = false,
+                promptSourcesOpen = false,
+                toastMessage = if (nextRole == UserRole.ADMIN) {
+                    "تم التحقق من الحساب: لوحة المدير"
+                } else {
+                    "تم التحقق من الحساب: واجهة الطالب"
+                }
+            )
+        }
+    }
+
+    private fun syncAuthenticatedLearnerProfile(
+        displayName: String,
+        enrolledGradeKey: String?
+    ) {
+        val cleanName = displayName.trim().ifBlank { "الطالب" }
+        val cleanGrade = enrolledGradeKey?.trim()?.uppercase()?.takeIf { it.isNotBlank() }
+        val existing = _uiState.value.availableLearners
+        val existingMatch = existing.firstOrNull { it.userId == currentUserId }
+        val targetProfile = if (existingMatch != null) {
+            existingMatch.copy(
+                displayName = cleanName,
+                enrolledGradeKey = cleanGrade ?: existingMatch.enrolledGradeKey
+            )
+        } else {
+            LearnerProfile(
+                userId = currentUserId,
+                displayName = cleanName,
+                enrolledGradeKey = cleanGrade
+            )
+        }
+        val updatedList = if (existingMatch != null) {
+            existing.map { if (it.userId == currentUserId) targetProfile else it }
+        } else {
+            existing + targetProfile
+        }
+        saveLearnerProfiles(updatedList, targetProfile.userId)
+        _uiState.update {
+            it.copy(
+                availableLearners = updatedList,
+                activeLearner = targetProfile
+            )
+        }
+    }
+
     fun selectRole(role: UserRole) {
+        if (_uiState.value.authenticatedUserRole == UserRole.LEARNER && role == UserRole.ADMIN) {
+            _uiState.update {
+                it.copy(toastMessage = "حسابك مسجّل كطالب ولا يملك صلاحية الدخول كمدير.")
+            }
+            return
+        }
+        _studentDashboardState.value = StudentDashboardState()
         _uiState.update { state ->
             val targetPage = when (role) {
                 UserRole.LEARNER -> AppPage.DASHBOARD
-                UserRole.ADMIN -> AppPage.LIBRARY
+                UserRole.ADMIN -> AppPage.ADMIN_DASHBOARD
                 UserRole.ENTRY -> state.page
             }
             state.copy(
                 userRole = role,
                 page = targetPage,
                 studentStudyLesson = null,
+                lastLessonQuizResult = null,
                 globalSearchOpen = false,
                 promptSourcesOpen = false
             )
@@ -449,6 +581,12 @@ class MainViewModel(
     }
 
     fun switchToRoleEntry() {
+        if (_uiState.value.authenticatedUserRole == UserRole.LEARNER) {
+            _uiState.update {
+                it.copy(toastMessage = "استخدم تسجيل الخروج للتبديل إلى حساب آخر.")
+            }
+            return
+        }
         _uiState.update {
             it.copy(
                 userRole = UserRole.ENTRY,
@@ -465,6 +603,7 @@ class MainViewModel(
         val current = _uiState.value.availableLearners
         val match = current.firstOrNull { it.userId == userId } ?: return
         repository.writeLearnerPrefs(LEARNER_PREFS_NAME, mapOf(KEY_ACTIVE_LEARNER_ID to match.userId))
+        _studentDashboardState.value = StudentDashboardState()
         _uiState.update {
             it.copy(
                 activeLearner = match,
@@ -473,26 +612,86 @@ class MainViewModel(
         }
     }
 
-    fun addLearnerProfile(displayName: String) {
+    fun addLearnerProfile(displayName: String, enrolledGradeKey: String? = null) {
         val cleanName = displayName.trim()
         if (cleanName.isBlank()) return
+        val cleanGrade = enrolledGradeKey?.trim()?.uppercase()?.takeIf { it.isNotBlank() }
         val existing = _uiState.value.availableLearners
         val duplicate = existing.firstOrNull { it.displayName.equals(cleanName, ignoreCase = true) }
         if (duplicate != null) {
+            if (cleanGrade != null && !duplicate.enrolledGradeKey.equals(cleanGrade, ignoreCase = true)) {
+                updateLearnerGrade(duplicate.userId, cleanGrade)
+            }
             selectLearnerProfile(duplicate.userId)
             return
         }
         val newProfile = LearnerProfile(
             userId = "learner_${System.currentTimeMillis()}_${UUID.randomUUID().toString().take(4)}",
-            displayName = cleanName
+            displayName = cleanName,
+            enrolledGradeKey = cleanGrade
         )
         val updatedList = existing + newProfile
         saveLearnerProfiles(updatedList, newProfile.userId)
+        _studentDashboardState.value = StudentDashboardState()
         _uiState.update {
             it.copy(
                 availableLearners = updatedList,
                 activeLearner = newProfile,
-                toastMessage = "تم إنشاء وتفعيل ملف المتعلّم «${newProfile.displayName}»"
+                toastMessage = if (cleanGrade != null) {
+                    "تم إنشاء ملف المتعلّم «${newProfile.displayName}» وتعيينه للصف $cleanGrade"
+                } else {
+                    "تم إنشاء وتفعيل ملف المتعلّم «${newProfile.displayName}»"
+                }
+            )
+        }
+    }
+
+    fun updateLearnerGrade(userId: String, enrolledGradeKey: String?) {
+        val cleanGrade = enrolledGradeKey?.trim()?.uppercase()?.takeIf { it.isNotBlank() }
+        val existing = _uiState.value.availableLearners
+        var updatedProfile: LearnerProfile? = null
+        val updatedList = existing.map { profile ->
+            if (profile.userId == userId) {
+                profile.copy(enrolledGradeKey = cleanGrade).also { updatedProfile = it }
+            } else {
+                profile
+            }
+        }
+        val target = updatedProfile ?: return
+        val currentActive = _uiState.value.activeLearner
+        val nextActive = if (currentActive.userId == userId) target else currentActive
+        saveLearnerProfiles(updatedList, nextActive.userId)
+        _studentDashboardState.value = StudentDashboardState()
+        _uiState.update {
+            it.copy(
+                availableLearners = updatedList,
+                activeLearner = nextActive,
+                toastMessage = if (cleanGrade != null) {
+                    "تم تسجيل الطالب «${target.displayName}» في الصف $cleanGrade"
+                } else {
+                    "تم إلغاء تحديد الصف للطالب «${target.displayName}»"
+                }
+            )
+        }
+    }
+
+    fun deleteLearnerProfile(userId: String) {
+        if (userId == LearnerProfile.DEFAULT_USER_ID) return
+        val existing = _uiState.value.availableLearners
+        val updatedList = existing.filterNot { it.userId == userId }
+        if (updatedList.size == existing.size) return
+        val nextActive = if (_uiState.value.activeLearner.userId == userId) {
+            updatedList.firstOrNull() ?: LearnerProfile.DEFAULT
+        } else {
+            _uiState.value.activeLearner
+        }
+        saveLearnerProfiles(updatedList, nextActive.userId)
+        _studentDashboardState.value = StudentDashboardState()
+        _uiState.update {
+            it.copy(
+                availableLearners = updatedList,
+                activeLearner = nextActive,
+                toastMessage = "تم حذف ملف المتعلّم"
             )
         }
     }
@@ -534,10 +733,46 @@ class MainViewModel(
         _uiState.update { state ->
             val allowed = when (state.userRole) {
                 UserRole.LEARNER -> if (page == AppPage.DASHBOARD || page == AppPage.LEARNER_MASTERY) page else AppPage.DASHBOARD
-                UserRole.ADMIN -> if (page == AppPage.LIBRARY || page == AppPage.STUDIO || page == AppPage.QUIZ_BANK || page == AppPage.SETTINGS) page else AppPage.LIBRARY
+                UserRole.ADMIN -> if (
+                    page == AppPage.ADMIN_DASHBOARD ||
+                    page == AppPage.LIBRARY ||
+                    page == AppPage.STUDIO ||
+                    page == AppPage.QUIZ_BANK ||
+                    page == AppPage.SETTINGS
+                ) page else AppPage.ADMIN_DASHBOARD
                 UserRole.ENTRY -> page
             }
             state.copy(page = allowed)
+        }
+    }
+
+    fun createManualClassroom(gradeKey: String, title: String) {
+        val cleanGrade = gradeKey.trim().uppercase()
+        if (cleanGrade.isBlank()) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isBusy = true) }
+            try {
+                val created = repository.createClassroom(cleanGrade, title)
+                _uiState.update { state ->
+                    state.copy(
+                        selectedWorkspaceId = created.workspaceId,
+                        selectedBookKey = "",
+                        selectedLesson = null,
+                        toastMessage = "تمت إضافة الصف «${created.title}» (${created.gradeKey})"
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        alert = AlertMessage(
+                            "تعذر إضافة الصف",
+                            e.message ?: "حدث خطأ أثناء إنشاء الصف الدراسي"
+                        )
+                    )
+                }
+            } finally {
+                _uiState.update { it.copy(isBusy = false) }
+            }
         }
     }
 
@@ -548,11 +783,7 @@ class MainViewModel(
                 val inspection = repository.inspectDirectTreeUri(treeUri)
                 _uiState.update { state ->
                     state.copy(
-                        directInspection = inspection,
-                        alert = AlertMessage(
-                            "اكتمل فحص مساحة العمل",
-                            "تم اكتشاف ${inspection.grades.size} صف. اختر الصف وراجع نتيجة الفحص قبل تنفيذ الربط."
-                        )
+                        directInspection = inspection
                     )
                 }
             } catch (e: Exception) {
@@ -569,28 +800,45 @@ class MainViewModel(
     }
 
     fun confirmDirectGradeBinding(gradeKey: String) {
+        confirmDirectGradesBinding(listOf(gradeKey))
+    }
+
+    fun confirmDirectGradesBinding(gradeKeys: List<String>) {
         val inspection = _uiState.value.directInspection ?: return
+        val targets = gradeKeys.map { it.trim().uppercase() }.filter { it.isNotBlank() }.distinct()
+        if (targets.isEmpty()) return
         viewModelScope.launch {
             _uiState.update { it.copy(isBusy = true) }
             try {
-                val bound = repository.bindDirectWorkspace(inspection.rootUriOrPath, gradeKey)
+                val boundList = repository.bindDirectWorkspaces(inspection.rootUriOrPath, targets)
+                val primary = boundList.first()
                 _studentDashboardState.value = StudentDashboardState()
                 _uiState.update { state ->
                     val nextPage = when (state.userRole) {
                         UserRole.LEARNER -> AppPage.DASHBOARD
-                        UserRole.ADMIN -> AppPage.LIBRARY
+                        UserRole.ADMIN -> if (state.page == AppPage.ADMIN_DASHBOARD) AppPage.ADMIN_DASHBOARD else AppPage.LIBRARY
                         UserRole.ENTRY -> state.page
+                    }
+                    val totalBooks = boundList.sumOf { it.books.size }
+                    val totalLessons = boundList.sumOf { it.lessons.size }
+                    val gradesSummary = boundList.joinToString("، ") { "${it.gradeKey} (${it.books.size} كتاب)" }
+                    val warningPreview = boundList.flatMap { it.warnings }.distinct().take(3)
+                    val summaryMessage = buildString {
+                        append("تم ربط ${boundList.size} صف دراسي بنجاح ($gradesSummary) • $totalBooks كتاب • $totalLessons درس. ملفات PDF بقيت في موقعها الأصلي بدون نسخ.")
+                        if (warningPreview.isNotEmpty()) {
+                            append("\n\nتنبيهات:\n")
+                            append(warningPreview.joinToString("\n"))
+                        }
                     }
                     state.copy(
                         directInspection = null,
-                        selectedWorkspaceId = bound.workspaceId,
-                        workspace = bound,
-                        selectedBookKey = bound.books.firstOrNull()?.bookKey.orEmpty(),
+                        selectedWorkspaceId = primary.workspaceId,
+                        selectedBookKey = primary.books.firstOrNull()?.bookKey.orEmpty(),
                         selectedLesson = null,
                         page = nextPage,
                         alert = AlertMessage(
-                            "تمت مزامنة فهرس الصف $gradeKey",
-                            "${bound.indexRecords.size} فهرس • ${bound.books.size} مادة/كتاب • ${bound.units.size} وحدة • ${bound.lessons.size} درس. ملفات PDF بقيت في مساحة التخزين الأصلية وتم حفظ مراجعها فقط."
+                            title = if (boundList.size == 1) "تمت مزامنة الصف ${primary.gradeKey}" else "تمت مزامنة ${boundList.size} صفوف دراسية",
+                            message = summaryMessage
                         )
                     )
                 }
@@ -2784,5 +3032,30 @@ class MainViewModel(
         private const val LEARNER_PREFS_NAME = "edumini_learner_profiles"
         private const val KEY_LEARNER_PROFILES_JSON = "profiles_json"
         private const val KEY_ACTIVE_LEARNER_ID = "active_learner_id"
+        internal const val BLOCKED_UNASSIGNED_WORKSPACE_ID = "__blocked_unassigned_grade__"
+
+        internal fun resolveEffectiveWorkspaceId(
+            userRole: UserRole,
+            activeLearner: LearnerProfile,
+            workspaces: List<WorkspaceSummary>,
+            adminSelectedWorkspaceId: String?
+        ): String? {
+            if (workspaces.isEmpty()) return null
+            if (userRole == UserRole.LEARNER) {
+                val enrolled = activeLearner.enrolledGradeKey?.trim()?.uppercase()?.takeIf { it.isNotBlank() }
+                if (enrolled != null) {
+                    return workspaces.firstOrNull { it.gradeKey.equals(enrolled, ignoreCase = true) }?.workspaceId
+                        ?: BLOCKED_UNASSIGNED_WORKSPACE_ID
+                }
+                return if (workspaces.size == 1) {
+                    workspaces.first().workspaceId
+                } else {
+                    BLOCKED_UNASSIGNED_WORKSPACE_ID
+                }
+            }
+            return adminSelectedWorkspaceId?.takeIf { selected ->
+                workspaces.any { it.workspaceId == selected }
+            } ?: workspaces.firstOrNull()?.workspaceId
+        }
     }
 }

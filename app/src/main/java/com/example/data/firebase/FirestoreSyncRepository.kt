@@ -2,12 +2,16 @@ package com.example.data.firebase
 
 import android.content.Context
 import com.example.R
+import com.example.model.AuthRoleDestination
 import com.example.model.CloudDraft
+import com.example.model.CloudUserAccount
 import com.example.model.DraftRecord
 import com.example.model.DraftStatus
 import com.example.model.LessonProgress
 import com.example.model.LessonRef
 import com.example.model.TaskType
+import com.example.model.UserRole
+import com.example.model.UserRoleResolution
 import com.google.firebase.Firebase
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
@@ -47,6 +51,54 @@ class FirestoreSyncRepository(
     private fun requireUserId(): String {
         return auth.currentUser?.uid?.takeIf { it.isNotBlank() }
             ?: throw IllegalStateException("يجب تسجيل الدخول بحساب Google قبل المزامنة مع السحابة.")
+    }
+
+    suspend fun resolveUserRole(
+        userId: String,
+        defaultDisplayName: String? = null
+    ): Result<UserRoleResolution> {
+        var docPath = "users/$userId"
+        var currentOp = OperationType.GET
+        return try {
+            val uid = requireUserId()
+            check(uid == userId) { "تم تبديل الحساب؛ تم رفض قراءة صلاحية مستخدم آخر." }
+            val docRef = db.collection("users").document(uid)
+            docPath = docRef.path
+            val snapshot = docRef.get().await()
+            if (snapshot.exists()) {
+                val resolution = resolveUserRoleFromDocument(
+                    roleValue = snapshot.getString("role"),
+                    enrolledGradeKey = snapshot.getString("enrolledGradeKey"),
+                    displayName = snapshot.getString("displayName") ?: defaultDisplayName,
+                    documentExists = true
+                )
+                Result.success(resolution)
+            } else {
+                currentOp = OperationType.CREATE
+                val cleanDisplayName = defaultDisplayName?.trim()?.take(120)?.takeIf { it.isNotEmpty() }
+                val createPayload = mapOf(
+                    "userId" to uid,
+                    "role" to CloudUserAccount.ROLE_STUDENT,
+                    "displayName" to cleanDisplayName,
+                    "createdAt" to FieldValue.serverTimestamp(),
+                    "updatedAt" to FieldValue.serverTimestamp()
+                ).filterValues { it != null }
+                docRef.set(createPayload).await()
+                Result.success(
+                    resolveUserRoleFromDocument(
+                        roleValue = CloudUserAccount.ROLE_STUDENT,
+                        enrolledGradeKey = null,
+                        displayName = cleanDisplayName,
+                        documentExists = false
+                    )
+                )
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, currentOp, docPath)
+            Result.failure(e)
+        }
     }
 
     fun observeDrafts(userId: String): Flow<List<CloudDraft>> = flow {
@@ -317,6 +369,35 @@ class FirestoreSyncRepository(
 
     companion object {
         private val VALID_ID_REGEX = Regex("^[a-zA-Z0-9_\\-]{1,128}$")
+
+        fun resolveUserRoleFromDocument(
+            roleValue: String?,
+            enrolledGradeKey: String? = null,
+            displayName: String? = null,
+            documentExists: Boolean = true
+        ): UserRoleResolution {
+            val normalizedRole = roleValue?.trim()?.lowercase().orEmpty()
+            val cleanDisplayName = displayName?.trim()?.takeIf { it.isNotBlank() }
+            return if (normalizedRole == CloudUserAccount.ROLE_ADMIN) {
+                UserRoleResolution(
+                    rawRole = CloudUserAccount.ROLE_ADMIN,
+                    resolvedRole = UserRole.ADMIN,
+                    destination = AuthRoleDestination.ADMIN_DASHBOARD,
+                    enrolledGradeKey = null,
+                    displayName = cleanDisplayName,
+                    documentExists = documentExists
+                )
+            } else {
+                UserRoleResolution(
+                    rawRole = CloudUserAccount.ROLE_STUDENT,
+                    resolvedRole = UserRole.LEARNER,
+                    destination = AuthRoleDestination.STUDENT_VIEW,
+                    enrolledGradeKey = enrolledGradeKey?.trim()?.uppercase()?.takeIf { it.isNotBlank() },
+                    displayName = cleanDisplayName,
+                    documentExists = documentExists
+                )
+            }
+        }
 
         fun draftDocId(rawDraftId: String): String {
             val trimmed = rawDraftId.trim()

@@ -36,6 +36,7 @@ import androidx.compose.material.icons.rounded.CloudDone
 import androidx.compose.material.icons.rounded.CloudSync
 import androidx.compose.material.icons.rounded.FileDownload
 import androidx.compose.material.icons.rounded.FolderOpen
+import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PictureAsPdf
 import androidx.compose.material.icons.rounded.Restore
 import androidx.compose.material.icons.rounded.Refresh
@@ -80,6 +81,7 @@ import com.example.model.BookProgressSummary
 import com.example.model.BookRef
 import com.example.model.CloudDraft
 import com.example.model.ImportedWorkspace
+import com.example.model.LearnerProfile
 import com.example.model.LessonProgress
 import com.example.model.LessonRef
 import com.example.model.LibraryPartFilter
@@ -117,6 +119,11 @@ fun LibraryScreen(
     bookProgress: List<BookProgressSummary> = emptyList(),
     cloudDraftsState: SyncUiState<List<CloudDraft>> = SyncUiState.Loading,
     cloudProgressState: SyncUiState<List<LessonProgress>> = SyncUiState.Loading,
+    availableLearners: List<LearnerProfile> = listOf(LearnerProfile.DEFAULT),
+    activeLearner: LearnerProfile = LearnerProfile.DEFAULT,
+    onAddLearner: (String, String?) -> Unit = { _, _ -> },
+    onUpdateLearnerGrade: (String, String?) -> Unit = { _, _ -> },
+    onDeleteLearner: (String) -> Unit = {},
     onSyncWorkspaceToCloud: () -> Unit = {},
     onBindDirectFolder: () -> Unit = {},
     onRefreshIndex: () -> Unit = {},
@@ -139,6 +146,10 @@ fun LibraryScreen(
     var searchQuery by remember { mutableStateOf("") }
     var partFilter by remember { mutableStateOf(LibraryPartFilter.ALL) }
     var confirmDeleteWorkspace by remember { mutableStateOf(false) }
+    var showAddStudentDialog by remember { mutableStateOf(false) }
+    val availableBoundGrades = remember(workspaces) {
+        workspaces.map { it.gradeKey.uppercase() }.distinct().sorted()
+    }
 
     val filteredLessons = remember(workspace, selectedBookKey, searchQuery, partFilter) {
         val q = searchQuery.trim()
@@ -267,14 +278,35 @@ fun LibraryScreen(
                 }
             }
 
-            if (workspaces.size > 1) {
+            if (workspaces.isNotEmpty()) {
                 item(key = "workspace_switcher") {
                     EduPanel(modifier = Modifier.fillMaxWidth()) {
-                        Text(
-                            text = stringResource(R.string.workspaces_switcher_heading),
-                            style = MaterialTheme.typography.titleSmall,
-                            color = EduInk
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "الصفوف الدراسية المرتبطة (${workspaces.size})",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = EduInk
+                            )
+                            TextButton(
+                                onClick = onBindDirectFolder,
+                                modifier = Modifier
+                                    .minimumInteractiveComponentSize()
+                                    .testTag("add_more_grades_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Add,
+                                    contentDescription = null,
+                                    tint = EduGreenDark,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("إضافة صف", color = EduGreenDark, fontWeight = FontWeight.Bold)
+                            }
+                        }
                         FlowRow(
                             horizontalArrangement = Arrangement.spacedBy(7.dp),
                             verticalArrangement = Arrangement.spacedBy(7.dp)
@@ -290,6 +322,17 @@ fun LibraryScreen(
                         }
                     }
                 }
+            }
+
+            item(key = "students_enrollment_panel") {
+                StudentsAndGradesPanel(
+                    learners = availableLearners,
+                    activeLearnerId = activeLearner.userId,
+                    availableGrades = availableBoundGrades,
+                    onOpenAddStudent = { showAddStudentDialog = true },
+                    onAssignGrade = onUpdateLearnerGrade,
+                    onDeleteLearner = onDeleteLearner
+                )
             }
 
             if (workspace != null) {
@@ -622,6 +665,102 @@ fun LibraryScreen(
         }
     }
 
+    if (showAddStudentDialog) {
+        var studentName by remember { mutableStateOf("") }
+        var selectedGrade by remember(availableBoundGrades) {
+            mutableStateOf(availableBoundGrades.firstOrNull().orEmpty())
+        }
+        AlertDialog(
+            onDismissRequest = { showAddStudentDialog = false },
+            containerColor = EduWhite,
+            title = {
+                Text("تسجيل طالب وتحديد صفّه", style = MaterialTheme.typography.titleMedium, color = EduInk)
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "سيظهر للطالب فقط الصف الدراسي المسجّل فيه عند دخوله للتطبيق.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = EduMuted
+                    )
+                    OutlinedTextField(
+                        value = studentName,
+                        onValueChange = { studentName = it },
+                        label = { Text("اسم الطالب") },
+                        placeholder = { Text("مثال: محمد سالم") },
+                        singleLine = true,
+                        shape = RoundedCornerShape(10.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = EduFieldBg,
+                            unfocusedContainerColor = EduFieldBg,
+                            focusedBorderColor = EduPurple,
+                            unfocusedBorderColor = EduLine
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("admin_add_student_name_input")
+                    )
+                    Text(
+                        text = "الصف الدراسي:",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = EduInk,
+                        fontWeight = FontWeight.Bold
+                    )
+                    if (availableBoundGrades.isNotEmpty()) {
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            availableBoundGrades.forEach { grade ->
+                                EduPill(
+                                    text = grade,
+                                    active = selectedGrade.equals(grade, ignoreCase = true),
+                                    onClick = { selectedGrade = grade },
+                                    testTag = "admin_add_student_grade_$grade"
+                                )
+                            }
+                        }
+                    } else {
+                        OutlinedTextField(
+                            value = selectedGrade,
+                            onValueChange = { selectedGrade = it.uppercase() },
+                            label = { Text("رمز الصف (مثال: G04 أو G07)") },
+                            singleLine = true,
+                            shape = RoundedCornerShape(10.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedContainerColor = EduFieldBg,
+                                unfocusedContainerColor = EduFieldBg,
+                                focusedBorderColor = EduPurple,
+                                unfocusedBorderColor = EduLine
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    enabled = studentName.trim().isNotEmpty(),
+                    onClick = {
+                        onAddLearner(studentName.trim(), selectedGrade.trim().takeIf { it.isNotBlank() })
+                        showAddStudentDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = EduPurple, contentColor = EduWhite),
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .testTag("admin_confirm_add_student_button")
+                ) {
+                    Text("حفظ الطالب")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAddStudentDialog = false }) {
+                    Text("إلغاء", color = EduMuted)
+                }
+            }
+        )
+    }
+
     if (confirmDeleteWorkspace && workspace != null) {
         AlertDialog(
             onDismissRequest = { confirmDeleteWorkspace = false },
@@ -652,6 +791,175 @@ fun LibraryScreen(
                 }
             }
         )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun StudentsAndGradesPanel(
+    learners: List<LearnerProfile>,
+    activeLearnerId: String,
+    availableGrades: List<String>,
+    onOpenAddStudent: () -> Unit,
+    onAssignGrade: (String, String?) -> Unit,
+    onDeleteLearner: (String) -> Unit
+) {
+    EduPanel(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("admin_students_grades_panel"),
+        borderColor = EduPurple.copy(alpha = 0.25f)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.School,
+                    contentDescription = null,
+                    tint = EduPurple,
+                    modifier = Modifier.size(20.dp)
+                )
+                Column {
+                    Text(
+                        text = "الطلاب والصفوف المسجّلة (${learners.size})",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = EduInk
+                    )
+                    Text(
+                        text = "حدّد الصف الدراسي لكل طالب ليرى صفّه فقط عند الدخول.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = EduMuted
+                    )
+                }
+            }
+            OutlinedButton(
+                onClick = onOpenAddStudent,
+                shape = RoundedCornerShape(10.dp),
+                border = BorderStroke(1.dp, EduPurple.copy(alpha = 0.55f)),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                modifier = Modifier
+                    .minimumInteractiveComponentSize()
+                    .testTag("admin_open_add_student_button")
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Add,
+                    contentDescription = null,
+                    tint = EduPurple,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("إضافة طالب", color = EduPurple, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+            }
+        }
+
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            learners.forEach { student ->
+                val gradeOptions = (availableGrades + listOfNotNull(student.enrolledGradeKey?.uppercase()))
+                    .filter { it.isNotBlank() }
+                    .distinct()
+                    .sorted()
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = EduFieldBg,
+                    border = BorderStroke(1.dp, EduLine),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("admin_student_row_${student.userId}")
+                ) {
+                    Column(
+                        modifier = Modifier.padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Person,
+                                    contentDescription = null,
+                                    tint = EduPurple,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = student.displayName,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = EduInk,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                if (student.userId == activeLearnerId) {
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = EduMint
+                                    ) {
+                                        Text(
+                                            text = "النشط",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = EduGreenDark,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
+                                        )
+                                    }
+                                }
+                            }
+                            if (student.userId != LearnerProfile.DEFAULT_USER_ID) {
+                                IconButton(
+                                    onClick = { onDeleteLearner(student.userId) },
+                                    modifier = Modifier
+                                        .minimumInteractiveComponentSize()
+                                        .testTag("admin_delete_student_${student.userId}")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.DeleteOutline,
+                                        contentDescription = "حذف الطالب",
+                                        tint = EduRed,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        if (gradeOptions.isNotEmpty()) {
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                gradeOptions.forEach { grade ->
+                                    val assigned = student.enrolledGradeKey.equals(grade, ignoreCase = true)
+                                    EduPill(
+                                        text = "الصف $grade",
+                                        active = assigned,
+                                        onClick = {
+                                            onAssignGrade(student.userId, if (assigned) null else grade)
+                                        },
+                                        testTag = "assign_grade_${student.userId}_$grade"
+                                    )
+                                }
+                            }
+                        } else {
+                            Text(
+                                text = "اربط صفّاً دراسياً لتتمكن من تعيين الطالب إليه.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = EduMuted
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

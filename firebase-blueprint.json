@@ -206,9 +206,58 @@
         "createdAt",
         "updatedAt"
       ]
+    },
+    "UserAccount": {
+      "title": "UserAccount",
+      "description": "Authenticated user role and optional class enrollment record used during post-sign-in routing.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Authenticated Firebase UID matching the document ID."
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "admin",
+            "student"
+          ],
+          "description": "Application access role determining Admin Dashboard or Student View redirect."
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Optional user display name."
+        },
+        "enrolledGradeKey": {
+          "type": "string",
+          "description": "Optional classroom grade key assigned to a student (e.g. G04)."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Creation server timestamp (clients must write FieldValue.serverTimestamp())."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last update server timestamp (clients must write FieldValue.serverTimestamp())."
+        }
+      },
+      "required": [
+        "userId",
+        "role",
+        "createdAt",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/UserAccount"
+      },
+      "description": "Per-user role document queried after sign-in to route to Admin Dashboard or Student View."
+    },
     "/users/{userId}/drafts/{draftId}": {
       "schema": {
         "$ref": "#/entities/CloudDraft"

@@ -127,6 +127,7 @@ class DirectWorkspaceBinder(private val context: Context) {
 
         val entryMap = entries.associateBy { it.relativePath.lowercase() }
         val warnings = mutableListOf<String>()
+        val rejectionErrors = mutableListOf<String>()
         val discoveredIndexes = findBookIndexes(entries, folderName, entryMap)
             .filter { it.gradeKey.equals(gradeKey, ignoreCase = true) }
 
@@ -144,21 +145,21 @@ class DirectWorkspaceBinder(private val context: Context) {
         val preloadedPackages = mutableListOf<InteractivePackageEntity>()
 
         for (slot in discoveredIndexes) {
-            val bookRel = slot.bookRelPath
+            val bookRel = slot.bookRelPath.ifBlank { slot.bookKey }
             val componentError = componentIdentityError(slot)
             if (componentError != null) {
-                warnings.add("$bookRel: $componentError")
+                rejectionErrors.add("$bookRel: $componentError")
                 continue
             }
             val manifestEntry = firstExisting(
                 entryMap,
-                joinRel(bookRel, "book_manifest.json"),
-                joinRel(bookRel, "manifest.json")
+                joinRel(slot.bookRelPath, "book_manifest.json"),
+                joinRel(slot.bookRelPath, "manifest.json")
             )
             val manifestRaw = manifestEntry?.let { entry ->
                 val raw = UriIO.readText(context, entry.uriOrPath)
                 if (raw.isNullOrBlank()) {
-                    warnings.add("تعذر قراءة book_manifest.json: $bookRel")
+                    rejectionErrors.add("$bookRel: تعذر قراءة book_manifest.json")
                     continue
                 }
                 raw
@@ -167,7 +168,7 @@ class DirectWorkspaceBinder(private val context: Context) {
                 runCatching {
                     json.parseToJsonElement(raw).jsonObject
                 }.onFailure {
-                    warnings.add("تعذر قراءة manifest في $bookRel")
+                    warnings.add("$bookRel: تعذر قراءة manifest")
                 }.getOrNull()
             }
 
@@ -175,7 +176,7 @@ class DirectWorkspaceBinder(private val context: Context) {
             val indexObj: JsonObject = runCatching {
                 json.parseToJsonElement(indexRaw).jsonObject
             }.getOrElse {
-                warnings.add("index.json غير صالح: $bookRel")
+                rejectionErrors.add("$bookRel: index.json غير صالح")
                 continue
             }
 
@@ -184,26 +185,44 @@ class DirectWorkspaceBinder(private val context: Context) {
                 manifestRaw = manifestRaw,
                 expectedGrade = gradeKey,
                 expectedSubject = slot.subjectKey,
-                bookRelativePath = bookRel,
+                bookRelativePath = slot.bookRelPath,
                 availableRelativePaths = entries.map { it.relativePath }.toSet()
             )
-            warnings.addAll(validation.warnings)
+            warnings.addAll(validation.warnings.map { "$bookRel: $it" })
             if (!validation.isValid) {
-                warnings.addAll(validation.errors.map { "$bookRel: $it" })
+                rejectionErrors.addAll(validation.errors.map { "$bookRel: $it" })
                 continue
             }
 
             val indexMetadata = indexObj["metadata"] as? JsonObject
-            val subjectName = firstNonBlank(
-                indexMetadata?.str("subjectName"),
-                manifestObj?.str("subjectName"),
-                indexObj.str("subjectName"),
-                subjectDisplayName(slot.subjectKey, slot.componentKey)
+            val indexBook = indexObj["book"] as? JsonObject
+            val declaredGradeName = firstNonBlank(
+                indexObj.str("gradeName"),
+                indexMetadata?.str("gradeName"),
+                indexBook?.str("gradeName"),
+                manifestObj?.str("gradeName")
             )
-            val fallbackTitle = subjectName + (if (slot.componentKey != null) " / ${slot.componentKey}" else "")
+            val declaredSubjectName = firstNonBlank(
+                indexMetadata?.str("subjectName"),
+                indexBook?.str("subjectName"),
+                manifestObj?.str("subjectName"),
+                indexObj.str("subjectName")
+            )
+            val subjectName = CurriculumDisplayMapper.subjectDisplayName(
+                subjectKey = slot.subjectKey,
+                componentKey = slot.componentKey,
+                declaredSubjectName = declaredSubjectName
+            )
+            val componentSuffix = CurriculumDisplayMapper.componentDisplayName(slot.componentKey)
+            val fallbackTitle = if (componentSuffix != null && !subjectName.contains(componentSuffix)) {
+                "$subjectName • $componentSuffix"
+            } else {
+                subjectName
+            }
             val bookTitle = firstNonBlank(
                 indexObj.str("title"),
                 indexObj.str("displayName"),
+                indexBook?.str("title"),
                 manifestObj?.str("bookTitle"),
                 manifestObj?.str("title"),
                 manifestObj?.str("displayTitle"),
@@ -242,26 +261,35 @@ class DirectWorkspaceBinder(private val context: Context) {
                     !relLower.contains("/units/")
             }
 
-            val parsedLessons = parseLessonsForBook(
-                index = indexObj,
-                grade = gradeKey,
-                workspaceId = workspaceId,
-                rootUriOrPath = rootUriOrPath,
-                bookKey = slot.bookKey,
-                bookTitle = bookTitle,
-                subjectKey = slot.subjectKey,
-                componentKey = slot.componentKey,
-                bookRel = bookRel,
-                entries = entries,
-                entryMap = entryMap
-            )
+            val parsedLessons = runCatching {
+                parseLessonsForBook(
+                    index = indexObj,
+                    manifest = manifestObj,
+                    grade = gradeKey,
+                    workspaceId = workspaceId,
+                    rootUriOrPath = rootUriOrPath,
+                    bookKey = slot.bookKey,
+                    bookTitle = bookTitle,
+                    subjectKey = slot.subjectKey,
+                    componentKey = slot.componentKey,
+                    bookRel = slot.bookRelPath,
+                    entries = entries,
+                    entryMap = entryMap
+                )
+            }.getOrElse {
+                rejectionErrors.add("$bookRel: تعذر ربط الدروس (${slot.indexEntry.relativePath}): ${it.message}")
+                continue
+            }
 
             val missingLessonPdfs = parsedLessons.filter { it.pdfPath.isNullOrBlank() }
             val unreadableLessonPdfs = parsedLessons.filter { lesson ->
-                !lesson.pdfPath.isNullOrBlank() && !isReadablePdf(lesson.pdfPath)
+                !lesson.pdfPath.isNullOrBlank() && !hasPdfHeaderOrExists(lesson.pdfPath)
             }
             if (validation.canonicalContract && (missingLessonPdfs.isNotEmpty() || unreadableLessonPdfs.isNotEmpty())) {
-                warnings.add("$bookRel: تعذر فتح أو مطابقة ملفات PDF لبعض الدروس؛ تم إيقاف ربط هذا الكتاب.")
+                val sampleBad = (missingLessonPdfs + unreadableLessonPdfs).take(2).joinToString("، ") {
+                    "${it.unitKey}/${it.lessonKey} (${it.title})"
+                }
+                rejectionErrors.add("$bookRel: تعذر فتح أو مطابقة ملفات PDF لبعض الدروس [$sampleBad]؛ تحقق من مسار P01/P02 أو sliceFile.workspaceUri.")
                 continue
             }
             unreadableLessonPdfs.forEach { lesson ->
@@ -288,12 +316,14 @@ class DirectWorkspaceBinder(private val context: Context) {
                 val unit = unitElement as? JsonObject ?: return@forEachIndexed
                 val unitKey = WorkspaceContractValidator.sourceUnitKey(unit)
                 if (unitKey.isBlank()) return@forEachIndexed
+                val resolvedUnitPart = WorkspaceContractValidator.resolveUnitPartKey(unit, indexObj, manifestObj)
+                    .takeIf { it.isNotBlank() }
                 unitRefs.add(
                     WorkspaceUnitRef(
                         bookKey = slot.bookKey,
                         unitKey = unitKey,
                         title = firstNonBlank(unit.str("title"), unit.str("unitTitle"), unit.str("name"), unitKey),
-                        partKey = firstNonBlank(unit.str("partKey"), unit.str("part")).takeIf { it.isNotBlank() },
+                        partKey = resolvedUnitPart,
                         sortOrder = unitOrder,
                         sourceIndexPath = slot.indexEntry.uriOrPath
                     )
@@ -316,12 +346,21 @@ class DirectWorkspaceBinder(private val context: Context) {
             lessons.addAll(parsedLessons)
         }
 
-        require(books.isNotEmpty() && books.size == discoveredIndexes.size) {
-            val rejected = (discoveredIndexes.size - books.size).coerceAtLeast(0)
-            "لم تكتمل مزامنة فهارس الصف $gradeKey: تم قبول ${books.size} من ${discoveredIndexes.size} كتاباً، ورُفض $rejected. " +
-                "لم يتم اعتماد تحديث جزئي حتى لا تُحذف سجلات كتب صالحة من قاعدة البيانات. " +
-                warnings.distinct().take(6).joinToString("\n")
+        if (books.isEmpty()) {
+            val details = rejectionErrors.distinct().take(6).ifEmpty { warnings.distinct().take(6) }
+            throw IllegalArgumentException(
+                "تعذر ربط أي كتاب صالح للصف $gradeKey (${discoveredIndexes.size} فهرس مكتشف):\n" +
+                    details.joinToString("\n")
+            )
         }
+        val skippedBooksCount = (discoveredIndexes.size - books.size).coerceAtLeast(0)
+        val finalWarnings = buildList {
+            if (skippedBooksCount > 0) {
+                add("تم ربط ${books.size} من ${discoveredIndexes.size} كتاباً؛ تعذر ربط $skippedBooksCount كتاباً:")
+                addAll(rejectionErrors.distinct().take(6))
+            }
+            addAll(warnings.distinct())
+        }.distinct()
 
         // Load pre-generated Question Bank JSON and Interactive HTML packages directly in-place
         val now = Instant.now().toString()
@@ -410,15 +449,16 @@ class DirectWorkspaceBinder(private val context: Context) {
             } || relLower.contains("/${gradeKey.lowercase()}/") || relLower.startsWith("${gradeKey.lowercase()}/")
         }.coerceAtLeast(lessons.size)
 
+        val gradeBadge = CurriculumDisplayMapper.gradeBadgeLabel(gradeKey)
         val workspace = ImportedWorkspace(
             workspaceId = workspaceId,
             gradeKey = gradeKey,
             rootPath = rootUriOrPath,
-            title = "$gradeKey • ${books.size} كتاب (مباشر بدون نسخ)",
+            title = "$gradeBadge • ${books.size} كتاب (مباشر بدون نسخ)",
             books = books,
             lessons = lessons,
             filesCount = relevantFilesCount,
-            warnings = warnings.distinct(),
+            warnings = finalWarnings,
             importedAt = System.currentTimeMillis(),
             indexRecords = indexRecords,
             units = unitRefs
@@ -450,6 +490,7 @@ class DirectWorkspaceBinder(private val context: Context) {
         }
 
         val warnings = mutableListOf<String>()
+        val rejectionErrors = mutableListOf<String>()
         val validSlots = mutableListOf<BookIndexSlot>()
         val titleByBook = mutableMapOf<String, String>()
         val lessonCountByBook = mutableMapOf<String, Int>()
@@ -458,7 +499,7 @@ class DirectWorkspaceBinder(private val context: Context) {
             val bookLabel = slot.bookRelPath.ifBlank { slot.bookKey }
             val componentError = componentIdentityError(slot)
             if (componentError != null) {
-                warnings.add("$bookLabel: $componentError")
+                rejectionErrors.add("$bookLabel: $componentError")
                 return@forEach
             }
             val manifestEntry = firstExisting(
@@ -468,24 +509,24 @@ class DirectWorkspaceBinder(private val context: Context) {
             )
             val manifestRaw = manifestEntry?.let { UriIO.readText(context, it.uriOrPath) }
             if (manifestEntry != null && manifestRaw.isNullOrBlank()) {
-                warnings.add("$bookLabel: تعذر قراءة book_manifest.json.")
+                rejectionErrors.add("$bookLabel: تعذر قراءة book_manifest.json.")
                 return@forEach
             }
             val manifestObj = manifestRaw?.let { raw ->
                 runCatching { json.parseToJsonElement(raw).jsonObject }.getOrElse {
-                    warnings.add("$bookLabel: book_manifest.json غير صالح.")
+                    rejectionErrors.add("$bookLabel: book_manifest.json غير صالح.")
                     return@forEach
                 }
             }
             val indexRaw = UriIO.readText(context, slot.indexEntry.uriOrPath)
             if (indexRaw.isNullOrBlank()) {
-                warnings.add("$bookLabel: تعذر قراءة index.json.")
+                rejectionErrors.add("$bookLabel: تعذر قراءة index.json.")
                 return@forEach
             }
             val indexObj = runCatching {
                 json.parseToJsonElement(indexRaw).jsonObject
             }.getOrElse {
-                warnings.add("$bookLabel: index.json غير صالح.")
+                rejectionErrors.add("$bookLabel: index.json غير صالح.")
                 return@forEach
             }
 
@@ -499,21 +540,36 @@ class DirectWorkspaceBinder(private val context: Context) {
             )
             warnings.addAll(validation.warnings.map { "$bookLabel: $it" })
             if (!validation.isValid) {
-                warnings.addAll(validation.errors.map { "$bookLabel: $it" })
+                rejectionErrors.addAll(validation.errors.map { "$bookLabel: $it" })
                 return@forEach
             }
 
+            val indexMetadata = indexObj["metadata"] as? JsonObject
+            val indexBook = indexObj["book"] as? JsonObject
+            val declaredSubjectName = firstNonBlank(
+                indexMetadata?.str("subjectName"),
+                indexBook?.str("subjectName"),
+                manifestObj?.str("subjectName"),
+                indexObj.str("subjectName")
+            )
+            val fallbackSubjectName = CurriculumDisplayMapper.subjectDisplayName(
+                subjectKey = slot.subjectKey,
+                componentKey = slot.componentKey,
+                declaredSubjectName = declaredSubjectName
+            )
             val bookTitle = firstNonBlank(
                 manifestObj?.str("title"),
                 manifestObj?.str("bookTitle"),
                 manifestObj?.str("displayTitle"),
                 indexObj.str("displayName"),
                 indexObj.str("title"),
-                slot.subjectKey
+                indexBook?.str("title"),
+                fallbackSubjectName
             )
             val parsedLessons = runCatching {
                 parseLessonsForBook(
                     index = indexObj,
+                    manifest = manifestObj,
                     grade = slot.gradeKey,
                     workspaceId = "inspection",
                     rootUriOrPath = rootUriOrPath,
@@ -526,7 +582,7 @@ class DirectWorkspaceBinder(private val context: Context) {
                     entryMap = entryMap
                 )
             }.getOrElse {
-                warnings.add("$bookLabel: تعذر ربط الدروس بمفاتيحها المرجعية: ${it.message}")
+                rejectionErrors.add("$bookLabel: تعذر ربط الدروس بمفاتيحها المرجعية (${slot.indexEntry.relativePath}): ${it.message}")
                 return@forEach
             }
 
@@ -534,11 +590,12 @@ class DirectWorkspaceBinder(private val context: Context) {
                 lesson.pdfPath.isNullOrBlank() || !hasPdfHeaderOrExists(lesson.pdfPath)
             }
             if (validation.canonicalContract && invalidPdfs.isNotEmpty()) {
-                warnings.add("$bookLabel: لم تجتز ملفات PDF الخاصة بجميع الدروس فحص القراءة؛ تم استبعاد الكتاب من خيارات الربط.")
+                val sampleBad = invalidPdfs.take(2).joinToString("، ") { "${it.unitKey}/${it.lessonKey}" }
+                rejectionErrors.add("$bookLabel: لم تجتز ملفات PDF فحص القراءة ($sampleBad)؛ تم استبعاد الكتاب من خيارات الربط.")
                 return@forEach
             }
             if (invalidPdfs.isNotEmpty()) {
-                warnings.add("$bookLabel: توجد دروس قديمة بلا PDF صالح؛ راجع التحذيرات قبل اعتماد الربط.")
+                warnings.add("$bookLabel: توجد ${invalidPdfs.size} دروس بلا PDF صالح؛ راجع التحذيرات قبل اعتماد الربط.")
             }
 
             validSlots.add(slot)
@@ -548,7 +605,8 @@ class DirectWorkspaceBinder(private val context: Context) {
         }
 
         if (validSlots.isEmpty()) {
-            val details = warnings.distinct().take(8).joinToString("\n")
+            val details = rejectionErrors.distinct().take(8).ifEmpty { warnings.distinct().take(8) }
+                .joinToString("\n")
             throw IllegalArgumentException(
                 "لم يجتز أي كتاب التحقق الأولي؛ لم يتم تنفيذ الربط." +
                     if (details.isBlank()) "" else "\n$details"
@@ -569,7 +627,8 @@ class DirectWorkspaceBinder(private val context: Context) {
                     gradeKey = grade,
                     booksCount = gradeSlots.size,
                     lessonsCount = lessonSum,
-                    bookTitles = titles
+                    bookTitles = titles,
+                    gradeDisplayName = CurriculumDisplayMapper.gradeDisplayName(grade)
                 )
             }
 
@@ -579,7 +638,8 @@ class DirectWorkspaceBinder(private val context: Context) {
             isSafUri = isSafUri,
             grades = gradeChoices,
             totalFilesIndexed = entries.size,
-            warnings = warnings.distinct()
+            warnings = warnings.distinct(),
+            errors = rejectionErrors.distinct()
         )
     }
 
@@ -606,13 +666,18 @@ class DirectWorkspaceBinder(private val context: Context) {
             rel.equals("index.json", ignoreCase = true) ||
                 rel.endsWith("/index.json", ignoreCase = true)
         }.filterNot { entry ->
-            PART_INDEX_SUFFIX_REGEX.containsMatchIn(entry.relativePath)
+            PART_INDEX_SUFFIX_REGEX.containsMatchIn(entry.relativePath) ||
+                AUX_INDEX_DIR_REGEX.containsMatchIn(entry.relativePath)
         }
 
         val result = mutableListOf<BookIndexSlot>()
         for (entry in rawIndexFiles) {
             val rel = entry.relativePath
-            val bookRel = if (rel.equals("index.json", ignoreCase = true)) "" else rel.removeSuffix("/index.json").removeSuffix("/INDEX.JSON")
+            val bookRel = if (rel.equals("index.json", ignoreCase = true)) {
+                ""
+            } else {
+                rel.removeSuffix("/index.json").removeSuffix("/INDEX.JSON")
+            }
             val segments = if (bookRel.isBlank()) emptyList() else bookRel.split('/').filter { it.isNotBlank() }
             val manifestEntry = firstExisting(
                 entryMap,
@@ -627,30 +692,26 @@ class DirectWorkspaceBinder(private val context: Context) {
             val indexObj = runCatching {
                 json.parseToJsonElement(UriIO.readText(context, entry.uriOrPath).orEmpty()).jsonObject
             }.getOrNull()
-            val indexComponentDeclared = indexObj?.containsKey("componentKey") == true
-            val manifestComponentDeclared = manifestObj?.containsKey("componentKey") == true
+            val indexMetadata = indexObj?.get("metadata") as? JsonObject
+            val indexBook = indexObj?.get("book") as? JsonObject
+
             fun componentValue(source: JsonObject?): String? =
-                (source?.get("componentKey") as? JsonPrimitive)?.contentOrNull
-                    ?.trim()
-                    ?.takeIf { it.isNotBlank() }
-            val indexComponentValue = componentValue(indexObj)
+                firstNonBlank(source?.str("componentKey"), source?.str("component"))
+                    .takeIf { it.isNotBlank() && !it.equals("none", ignoreCase = true) }
+
+            val indexComponentValue = componentValue(indexObj) ?: componentValue(indexMetadata) ?: componentValue(indexBook)
             val manifestComponentValue = componentValue(manifestObj)
             val componentMetadataMismatch =
-                indexComponentDeclared && manifestComponentDeclared &&
+                indexComponentValue != null && manifestComponentValue != null &&
                     !indexComponentValue.equals(manifestComponentValue, ignoreCase = true)
 
-            fun componentFromMetadata(pathFallback: String?): String? {
-                val declared = when {
-                    indexComponentDeclared -> indexObj?.get("componentKey")
-                    manifestComponentDeclared -> manifestObj?.get("componentKey")
-                    else -> null
-                }
-                if (indexComponentDeclared || manifestComponentDeclared) {
-                    return (declared as? JsonPrimitive)?.contentOrNull
-                        ?.trim()
-                        ?.takeIf { it.isNotBlank() }
-                }
-                return pathFallback?.trim()?.takeIf { it.isNotBlank() }
+            fun resolveComponent(pathFallback: String?, allowPathFallback: Boolean): Pair<String?, String?> {
+                val declared = firstNonBlank(indexComponentValue, manifestComponentValue).takeIf { it.isNotBlank() }
+                val cleanPathComp = pathFallback?.trim()?.takeIf { it.isNotBlank() }
+                val isSourceDirMarker = cleanPathComp != null && cleanPathComp.startsWith("source-", ignoreCase = true)
+                val effectivePathComp = if (isSourceDirMarker && declared == null) null else cleanPathComp
+                val resolved = declared ?: if (allowPathFallback) effectivePathComp else null
+                return resolved to effectivePathComp
             }
 
             when {
@@ -658,57 +719,88 @@ class DirectWorkspaceBinder(private val context: Context) {
                 segments.size >= 3 &&
                     segments[0].equals("workspace", ignoreCase = true) &&
                     GRADE_SEGMENT_REGEX.matches(segments[1]) -> {
-                    val grade = segments[1].uppercase()
-                    val subject = firstNonBlank(indexObj?.str("subjectKey"), manifestObj?.str("subjectKey"), segments[2])
-                    val pathComponent = segments.getOrNull(3)?.takeIf { it.isNotBlank() }
-                    val component = componentFromMetadata(pathComponent)
+                    val grade = CurriculumDisplayMapper.normalizeGradeKey(segments[1])
+                    val subject = firstNonBlank(
+                        indexObj?.str("subjectKey"),
+                        indexMetadata?.str("subjectKey"),
+                        manifestObj?.str("subjectKey"),
+                        segments[2]
+                    ).uppercase()
+                    val rawPathComponent = segments.getOrNull(3)?.takeIf { it.isNotBlank() }
+                    val (component, effectivePathComponent) = resolveComponent(rawPathComponent, allowPathFallback = true)
                     val bookKey = segments.drop(2).joinToString("/")
                     result.add(
                         BookIndexSlot(
-                            grade, "workspace/$grade", subject, component, pathComponent, true, componentMetadataMismatch,
-                            bookKey, bookRel, entry
+                            gradeKey = grade,
+                            gradePrefixRel = "workspace/$grade",
+                            subjectKey = subject,
+                            componentKey = component,
+                            pathComponentKey = effectivePathComponent,
+                            componentPathIsAuthoritative = effectivePathComponent != null || rawPathComponent == null,
+                            componentMetadataMismatch = componentMetadataMismatch,
+                            bookKey = bookKey,
+                            bookRelPath = bookRel,
+                            indexEntry = entry
                         )
                     )
                 }
                 // Grade-root layout: <grade>/<subject>/[component]/index.json.
                 segments.size >= 2 && GRADE_SEGMENT_REGEX.matches(segments[0]) -> {
-                    val grade = segments[0].uppercase()
-                    val subject = firstNonBlank(indexObj?.str("subjectKey"), manifestObj?.str("subjectKey"), segments[1])
-                    val pathComponent = segments.getOrNull(2)?.takeIf { it.isNotBlank() }
-                    val component = componentFromMetadata(pathComponent)
+                    val grade = CurriculumDisplayMapper.normalizeGradeKey(segments[0])
+                    val subject = firstNonBlank(
+                        indexObj?.str("subjectKey"),
+                        indexMetadata?.str("subjectKey"),
+                        manifestObj?.str("subjectKey"),
+                        segments[1]
+                    ).uppercase()
+                    val rawPathComponent = segments.getOrNull(2)?.takeIf { it.isNotBlank() }
+                    val (component, effectivePathComponent) = resolveComponent(rawPathComponent, allowPathFallback = true)
                     val bookKey = segments.drop(1).joinToString("/")
                     result.add(
                         BookIndexSlot(
-                            grade, grade, subject, component, pathComponent, true, componentMetadataMismatch,
-                            bookKey, bookRel, entry
+                            gradeKey = grade,
+                            gradePrefixRel = grade,
+                            subjectKey = subject,
+                            componentKey = component,
+                            pathComponentKey = effectivePathComponent,
+                            componentPathIsAuthoritative = effectivePathComponent != null || rawPathComponent == null,
+                            componentMetadataMismatch = componentMetadataMismatch,
+                            bookKey = bookKey,
+                            bookRelPath = bookRel,
+                            indexEntry = entry
                         )
                     )
                 }
-                // Grade selected directly or a single book root: read identity from index/manifest,
-                // then use the remaining relative path only as a compatibility fallback.
+                // Grade folder selected directly or a single book/component root: extract identity dynamically from index.json / book_manifest.json.
                 else -> {
-                    val detectedGrade = firstNonBlank(
-                        indexObj?.str("gradeKey"),
-                        manifestObj?.str("gradeKey"),
-                        indexObj?.str("grade"),
-                        manifestObj?.str("grade"),
-                        GRADE_EMBEDDED_REGEX.find(folderDisplayName)?.value?.uppercase(),
-                        "G07"
-                    ).uppercase()
+                    val detectedGrade = CurriculumDisplayMapper.normalizeGradeKey(
+                        firstNonBlank(
+                            indexObj?.str("gradeKey"),
+                            indexMetadata?.str("gradeKey"),
+                            indexBook?.str("gradeKey"),
+                            manifestObj?.str("gradeKey"),
+                            indexObj?.str("grade"),
+                            manifestObj?.str("grade"),
+                            GRADE_EMBEDDED_REGEX.find(folderDisplayName)?.value,
+                            "G07"
+                        )
+                    )
                     val subject = firstNonBlank(
                         indexObj?.str("subjectKey"),
+                        indexMetadata?.str("subjectKey"),
+                        indexBook?.str("subjectKey"),
                         manifestObj?.str("subjectKey"),
                         segments.getOrNull(0),
                         folderDisplayName.takeIf { it.isNotBlank() },
                         "BOOK"
-                    )
+                    ).uppercase()
                     val relativeBookSegments = if (segments.firstOrNull()?.equals(subject, ignoreCase = true) == true) {
                         segments.drop(1)
                     } else {
                         segments
                     }
-                    val pathComponent = relativeBookSegments.firstOrNull()?.takeIf { it.isNotBlank() }
-                    val component = componentFromMetadata(pathComponent)
+                    val rawPathComponent = relativeBookSegments.firstOrNull()?.takeIf { it.isNotBlank() }
+                    val (component, effectivePathComponent) = resolveComponent(rawPathComponent, allowPathFallback = true)
                     val bookKeyParts = if (relativeBookSegments.isEmpty() && component != null) {
                         listOf(subject, component)
                     } else {
@@ -717,8 +809,16 @@ class DirectWorkspaceBinder(private val context: Context) {
                     val bookKey = bookKeyParts.distinct().joinToString("/")
                     result.add(
                         BookIndexSlot(
-                            detectedGrade, "", subject, component, pathComponent, relativeBookSegments.isNotEmpty(), componentMetadataMismatch,
-                            bookKey, bookRel, entry
+                            gradeKey = detectedGrade,
+                            gradePrefixRel = "",
+                            subjectKey = subject,
+                            componentKey = component,
+                            pathComponentKey = effectivePathComponent,
+                            componentPathIsAuthoritative = effectivePathComponent != null && relativeBookSegments.isNotEmpty(),
+                            componentMetadataMismatch = componentMetadataMismatch,
+                            bookKey = bookKey,
+                            bookRelPath = bookRel,
+                            indexEntry = entry
                         )
                     )
                 }
@@ -729,10 +829,10 @@ class DirectWorkspaceBinder(private val context: Context) {
 
     private fun componentIdentityError(slot: BookIndexSlot): String? {
         if (slot.componentMetadataMismatch) {
-            return "componentKey غير متطابق بين index.json وbook_manifest.json."
+            return "[index.json vs book_manifest.json] componentKey غير متطابق بين الفهرس والبطاقة."
         }
         if (slot.componentPathIsAuthoritative && !slot.componentKey.equals(slot.pathComponentKey, ignoreCase = true)) {
-            return "componentKey في الفهرس لا يطابق مجلد المكون في المسار " +
+            return "[index.json → componentKey] لا يطابق مجلد المكون في المسار " +
                 "(${slot.componentKey ?: "بدون مكون"} مقابل ${slot.pathComponentKey ?: "بدون مكون"})."
         }
         return null
@@ -760,6 +860,7 @@ class DirectWorkspaceBinder(private val context: Context) {
 
     private fun parseLessonsForBook(
         index: JsonObject,
+        manifest: JsonObject? = null,
         grade: String,
         workspaceId: String,
         rootUriOrPath: String,
@@ -787,7 +888,7 @@ class DirectWorkspaceBinder(private val context: Context) {
                 u.str("name"),
                 uk
             )
-            val unitPart = firstNonBlank(u.str("partKey"), u.str("part"), "")
+            val unitPart = WorkspaceContractValidator.resolveUnitPartKey(u, index, manifest)
             val unitLessons = (u["lessons"] as? JsonArray) ?: return@forEachIndexed
 
             unitLessons.forEachIndexed { li, lessonElem ->
@@ -802,14 +903,14 @@ class DirectWorkspaceBinder(private val context: Context) {
                     l.str("name"),
                     lk
                 )
-                val startPage = firstNonBlank(l.str("pdfPageStart"), l.str("pageStart"), l.str("startPage"))
-                val endPage = firstNonBlank(l.str("pdfPageEnd"), l.str("pageEnd"), l.str("endPage"))
+                val startPage = firstNonBlank(l.str("pdfPageStart"), l.str("pdfPage"), l.str("pageStart"), l.str("startPage"))
+                val endPage = firstNonBlank(l.str("pdfPageEnd"), l.str("pdfPage"), l.str("pageEnd"), l.str("endPage"))
                 val printedStartPage = l.str("printedPageStart")
                 val printedEndPage = l.str("printedPageEnd")
                 val printedPageRange = if (printedStartPage.isNotBlank() && printedEndPage.isNotBlank()) {
                     "$printedStartPage–$printedEndPage"
                 } else null
-                val p = firstNonBlank(l.str("partKey"), l.str("part"), unitPart)
+                val p = firstNonBlank(l.str("partKey"), l.str("part"), unitPart).uppercase()
                 val lessonNumStr = (l.str("lessonNumber").toIntOrNull() ?: lessonNumber(lk)).let { num ->
                     if (num >= 0) num.toString().padStart(2, '0') else "-1"
                 }
@@ -821,29 +922,38 @@ class DirectWorkspaceBinder(private val context: Context) {
                     entries.filter { it.relativePath.lowercase().startsWith(bookPrefix) }
                 }
 
-                val linkedPdf = (l["sliceFile"] as? JsonObject)?.str("workspaceUri").orEmpty()
-                    .trim()
+                val linkedPdf = firstNonBlank(
+                    (l["sliceFile"] as? JsonObject)?.str("workspaceUri"),
+                    (l["sliceFile"] as? JsonObject)?.str("relativePath"),
+                    l.str("pdfPath"),
+                    l.str("path"),
+                    l.str("filePath")
+                ).trim()
                     .replace('\\', '/')
+                    .removePrefix("./")
+                    .trimStart('/')
                     .takeIf { it.isNotBlank() && !it.split('/').contains("..") }
                     .orEmpty()
-                val pdfCandidates = buildList {
-                    if (linkedPdf.isNotBlank()) {
-                        add(linkedPdf)
-                        if (linkedPdf.startsWith("workspace/", ignoreCase = true)) {
-                            add(linkedPdf.removePrefix("workspace/"))
-                        }
-                        if (bookRel.isNotBlank()) {
-                            add(joinRel(bookRel, linkedPdf))
-                        }
-                    }
-                    if (p == "P01" || p == "P02") {
-                        add(joinRel(bookRel, "$p/units/$unitFolderKey/lesson_$lessonNumStr.pdf"))
-                        add(joinRel(bookRel, "$p/units/$unitFolderKey/$lk.pdf"))
-                    }
-                }
+                val pdfCandidates = WorkspaceContractValidator.lessonPdfCandidates(
+                    lesson = l,
+                    unit = u,
+                    lessonPart = p,
+                    bookRelativePath = bookRel,
+                    expectedGrade = grade,
+                    expectedSubject = subjectKey
+                )
                 val matchedPdf = firstExisting(entryMap, *pdfCandidates.toTypedArray())
+                    ?: if (linkedPdf.isNotBlank()) {
+                        val normLinked = linkedPdf.lowercase()
+                        bookEntries.firstOrNull { entry ->
+                            val eRel = entry.relativePath.lowercase()
+                            eRel == normLinked || eRel.endsWith("/$normLinked")
+                        }
+                    } else null
 
                 val explicitTextRel = l.str("sourceTextPath").trim().replace('\\', '/')
+                    .removePrefix("./")
+                    .trimStart('/')
                     .takeIf { it.isNotBlank() && !it.split('/').contains("..") }
                 val txtCandidates = buildList {
                     if (explicitTextRel != null) {
@@ -1040,21 +1150,7 @@ class DirectWorkspaceBinder(private val context: Context) {
     }
 
     private fun subjectDisplayName(subjectKey: String, componentKey: String?): String =
-        when (subjectKey.uppercase()) {
-            "ARAB" -> "لغتي العربية"
-            "SCI" -> "العلوم والحياة"
-            "MATH" -> "الرياضيات"
-            "ISL" -> "التربية الإسلامية"
-            "QUR" -> "القرآن الكريم وتلاوته"
-            "SOC" -> when (componentKey?.uppercase()) {
-                "GEO" -> "الجغرافيا"
-                "HIST" -> "التاريخ"
-                "TARBIA" -> "التربية الوطنية"
-                else -> "الدراسات الاجتماعية"
-            }
-            "ENG" -> "اللغة الإنجليزية"
-            else -> subjectKey
-        }
+        CurriculumDisplayMapper.subjectDisplayName(subjectKey, componentKey)
 
     private fun sha256(value: String): String =
         MessageDigest.getInstance("SHA-256")
@@ -1091,7 +1187,8 @@ class DirectWorkspaceBinder(private val context: Context) {
         private val GRADE_SEGMENT_REGEX = Regex("^G\\d{2}$", RegexOption.IGNORE_CASE)
         private val GRADE_EMBEDDED_REGEX = Regex("\\bG\\d{2}\\b", RegexOption.IGNORE_CASE)
         private val TRAILING_NUMBER_REGEX = Regex("(\\d+)$")
-        private val PART_INDEX_SUFFIX_REGEX = Regex("/(?:P01|P02|BOTH)/index\\.json$", RegexOption.IGNORE_CASE)
+        private val PART_INDEX_SUFFIX_REGEX = Regex("(?:^|/)(?:P01|P02|BOTH)/index\\.json$", RegexOption.IGNORE_CASE)
+        private val AUX_INDEX_DIR_REGEX = Regex("(?:^|/)(?:units|questions|ai_content|manual_review|interactive|edu_mini_generated)/", RegexOption.IGNORE_CASE)
 
         /**
          * Resolves a relative path inside a virtual SAF package root (`safroot::<treeUri>::<encodedBaseRel>`)

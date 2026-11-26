@@ -29,6 +29,8 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.Logout
+import androidx.compose.material.icons.outlined.AdminPanelSettings
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Dashboard
 import androidx.compose.material.icons.outlined.LibraryBooks
@@ -39,13 +41,17 @@ import androidx.compose.material.icons.rounded.AdminPanelSettings
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Dashboard
+import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.LibraryBooks
 import androidx.compose.material.icons.rounded.Psychology
 import androidx.compose.material.icons.rounded.Quiz
 import androidx.compose.material.icons.rounded.School
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.VerifiedUser
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
@@ -58,6 +64,7 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.NavigationRailItemDefaults
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -71,6 +78,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -100,6 +108,7 @@ import com.example.data.security.ProviderStorage
 import com.example.data.workspace.DirectWorkspaceBinder
 import com.example.data.workspace.WorkspaceImporter
 import com.example.model.AppPage
+import com.example.model.AuthRoleCheckState
 import com.example.model.UserRole
 import com.example.ui.auth.AuthScreen
 import com.example.ui.auth.authStateFlow
@@ -113,6 +122,7 @@ import com.example.ui.components.PreImportPreviewDialog
 import com.example.ui.components.PromptSourcesAndSchemasDialog
 import com.example.ui.components.SingleGradePickerDialog
 import com.example.ui.components.StudentStudyDialog
+import com.example.ui.screens.AdminDashboardScreen
 import com.example.ui.screens.ConceptReinforcementQuizDialog
 import com.example.ui.screens.DashboardScreen
 import com.example.ui.screens.LearnerMasteryScreen
@@ -131,6 +141,7 @@ import com.example.ui.theme.EduMiniTheme
 import com.example.ui.theme.EduMint
 import com.example.ui.theme.EduMuted
 import com.example.ui.theme.EduPurple
+import com.example.ui.theme.EduRed
 import com.example.ui.theme.EduWhite
 import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseAuth
@@ -143,74 +154,125 @@ fun EduMiniApp(
     auth: FirebaseAuth = Firebase.auth
 ) {
     val currentUser by auth.authStateFlow().collectAsStateWithLifecycle(initialValue = auth.currentUser)
+    var localDemoBypass by rememberSaveable { mutableStateOf(false) }
 
     EduMiniTheme {
         CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
             val user = currentUser
-            val userId = user?.uid ?: "local_offline_user"
-            val userEmail = user?.email
-            val userDisplayName = user?.displayName
-
-            key(userId) {
-                val context = LocalContext.current
-                val credentialManager = remember(context) { CredentialManager.create(context) }
-                val scope = rememberCoroutineScope()
-                val viewModel: MainViewModel = viewModel(
-                    key = userId,
-                    factory = viewModelFactory {
-                        initializer {
-                            val app = checkNotNull(this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY])
-                            val dbId = app.getString(R.string.firestore_database_id)
-                            val firestoreDb = FirebaseFirestore.getInstance(dbId)
-                            val repository = EduMiniRepository(
-                                dao = EduMiniDatabase.getInstance(app).eduMiniDao(),
-                                providerStorage = ProviderStorage(app),
-                                workspaceImporter = WorkspaceImporter(app),
-                                aiGenerationService = AiGenerationService(app),
-                                interactivePackageImporter = InteractivePackageImporter(app),
-                                directWorkspaceBinder = DirectWorkspaceBinder(app),
-                                appContext = app
-                            )
-                            val firestoreSync = FirestoreSyncRepository(firestoreDb, auth)
-                            MainViewModel(
-                                repository = repository,
-                                firestoreSync = firestoreSync,
-                                currentUserId = userId,
-                                currentUserEmail = userEmail,
-                                currentUserDisplayName = userDisplayName
-                            )
-                        }
-                    }
-                )
-
-                val state by viewModel.uiState.collectAsStateWithLifecycle()
-
-                val folderPickerLauncher = rememberLauncherForActivityResult(
-                    contract = ActivityResultContracts.OpenDocumentTree()
-                ) { uri: Uri? ->
-                    if (uri != null) {
-                        viewModel.inspectDirectFolderUri(uri)
-                    }
+            LaunchedEffect(user?.uid) {
+                if (user != null) {
+                    localDemoBypass = false
                 }
+            }
 
-                if (state.userRole == UserRole.ENTRY) {
-                    RoleEntryScreen(
-                        workspace = state.workspace,
-                        isBusy = state.isBusy,
-                        onSelectRole = viewModel::selectRole,
-                        onBindDirectFolder = { folderPickerLauncher.launch(null) }
-                    )
-                } else {
-                    AuthenticatedEduMiniContent(
-                        viewModel = viewModel,
-                        userEmail = userEmail,
-                        userDisplayName = userDisplayName,
-                        onSignOut = {
-                            signOutFromFirebase(credentialManager, scope) {
-                                viewModel.switchToRoleEntry()
+            if (user == null && !localDemoBypass) {
+                AuthScreen(
+                    onAuthSuccess = { /* authStateFlow updates currentUser automatically */ },
+                    onBypassForDemo = { localDemoBypass = true }
+                )
+            } else {
+                val userId = user?.uid ?: "local_offline_user"
+                val userEmail = user?.email
+                val userDisplayName = user?.displayName
+                val isCloudAuthenticated = user != null
+
+                key(userId) {
+                    val context = LocalContext.current
+                    val credentialManager = remember(context) { CredentialManager.create(context) }
+                    val scope = rememberCoroutineScope()
+                    val viewModel: MainViewModel = viewModel(
+                        key = userId,
+                        factory = viewModelFactory {
+                            initializer {
+                                val app = checkNotNull(this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY])
+                                val dbId = app.getString(R.string.firestore_database_id)
+                                val firestoreDb = FirebaseFirestore.getInstance(dbId)
+                                val repository = EduMiniRepository(
+                                    dao = EduMiniDatabase.getInstance(app).eduMiniDao(),
+                                    providerStorage = ProviderStorage(app),
+                                    workspaceImporter = WorkspaceImporter(app),
+                                    aiGenerationService = AiGenerationService(app),
+                                    interactivePackageImporter = InteractivePackageImporter(app),
+                                    directWorkspaceBinder = DirectWorkspaceBinder(app),
+                                    appContext = app
+                                )
+                                val firestoreSync = FirestoreSyncRepository(firestoreDb, auth)
+                                MainViewModel(
+                                    repository = repository,
+                                    firestoreSync = firestoreSync,
+                                    currentUserId = userId,
+                                    currentUserEmail = userEmail,
+                                    currentUserDisplayName = userDisplayName,
+                                    isCloudAuthenticated = isCloudAuthenticated
+                                )
                             }
                         }
                     )
+
+                    val state by viewModel.uiState.collectAsStateWithLifecycle()
+
+                    LaunchedEffect(userId, isCloudAuthenticated) {
+                        if (isCloudAuthenticated) {
+                            viewModel.resolveSignedInUserRole()
+                        }
+                    }
+
+                    val folderPickerLauncher = rememberLauncherForActivityResult(
+                        contract = ActivityResultContracts.OpenDocumentTree()
+                    ) { uri: Uri? ->
+                        if (uri != null) {
+                            viewModel.inspectDirectFolderUri(uri)
+                        }
+                    }
+
+                    val performSignOut: () -> Unit = {
+                        localDemoBypass = false
+                        if (isCloudAuthenticated) {
+                            signOutFromFirebase(credentialManager, scope) {
+                                viewModel.switchToRoleEntry()
+                            }
+                        } else {
+                            viewModel.switchToRoleEntry()
+                        }
+                    }
+
+                    when {
+                        isCloudAuthenticated && state.userRole == UserRole.ENTRY -> {
+                            AuthRoleVerificationScreen(
+                                userEmail = userEmail,
+                                userDisplayName = userDisplayName,
+                                roleCheckState = state.authRoleCheckState,
+                                onRetry = { viewModel.resolveSignedInUserRole(force = true) },
+                                onContinueLocalMode = {
+                                    signOutFromFirebase(credentialManager, scope) {
+                                        localDemoBypass = true
+                                    }
+                                },
+                                onSignOut = performSignOut
+                            )
+                        }
+                        state.userRole == UserRole.ENTRY -> {
+                            RoleEntryScreen(
+                                workspace = state.workspace,
+                                workspaces = state.workspaces,
+                                availableLearners = state.availableLearners,
+                                activeLearner = state.activeLearner,
+                                isBusy = state.isBusy,
+                                onSelectLearner = viewModel::selectLearnerProfile,
+                                onSelectRole = viewModel::selectRole,
+                                onBindDirectFolder = { folderPickerLauncher.launch(null) },
+                                onOpenGoogleAuth = { localDemoBypass = false }
+                            )
+                        }
+                        else -> {
+                            AuthenticatedEduMiniContent(
+                                viewModel = viewModel,
+                                userEmail = userEmail,
+                                userDisplayName = userDisplayName,
+                                onSignOut = performSignOut
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -342,20 +404,22 @@ private fun AuthenticatedEduMiniContent(
                 if (state.userRole == UserRole.ENTRY) {
                     RoleEntryScreen(
                         workspace = state.workspace,
+                        workspaces = state.workspaces,
+                        availableLearners = state.availableLearners,
+                        activeLearner = state.activeLearner,
                         isBusy = state.isBusy,
+                        onSelectLearner = viewModel::selectLearnerProfile,
                         onSelectRole = viewModel::selectRole,
                         onBindDirectFolder = { folderPickerLauncher.launch(null) }
                     )
                 } else {
                     val isSecondaryTab = when (state.userRole) {
                         UserRole.LEARNER -> state.page == AppPage.LEARNER_MASTERY
-                        UserRole.ADMIN -> state.page == AppPage.STUDIO ||
-                            state.page == AppPage.QUIZ_BANK ||
-                            state.page == AppPage.SETTINGS
+                        UserRole.ADMIN -> state.page != AppPage.ADMIN_DASHBOARD
                         UserRole.ENTRY -> false
                     }
                     BackHandler(enabled = isSecondaryTab) {
-                        val fallback = if (state.userRole == UserRole.LEARNER) AppPage.DASHBOARD else AppPage.LIBRARY
+                        val fallback = if (state.userRole == UserRole.LEARNER) AppPage.DASHBOARD else AppPage.ADMIN_DASHBOARD
                         viewModel.navigateTo(fallback)
                     }
 
@@ -365,10 +429,22 @@ private fun AuthenticatedEduMiniContent(
                         topBar = {
                             EduTopBar(
                                 userRole = state.userRole,
+                                learnerLabel = if (state.userRole == UserRole.LEARNER) {
+                                    val gradeTag = state.workspace?.gradeKey
+                                        ?: state.activeLearner.enrolledGradeKey
+                                    if (!gradeTag.isNullOrBlank()) {
+                                        "${state.activeLearner.displayName} • $gradeTag"
+                                    } else {
+                                        state.activeLearner.displayName
+                                    }
+                                } else null,
                                 hasWorkspace = state.workspace != null,
+                                isCloudAuthenticated = state.isCloudAuthenticated,
+                                canSwitchRole = state.authenticatedUserRole != UserRole.LEARNER,
                                 onOpenSearch = viewModel::openGlobalSearch,
                                 onOpenSettings = { viewModel.navigateTo(AppPage.SETTINGS) },
-                                onSwitchRole = viewModel::switchToRoleEntry
+                                onSwitchRole = viewModel::switchToRoleEntry,
+                                onSignOut = onSignOut
                             )
                         },
                         bottomBar = {
@@ -469,6 +545,7 @@ private fun AuthenticatedEduMiniContent(
                                             onExportLearningReport = { exportLearningReportLauncher.launch("تقرير_متابعة_التعلم.md") },
                                             activeLearner = state.activeLearner,
                                             availableLearners = state.availableLearners,
+                                            availableGrades = state.availableBoundGrades,
                                             selectedBookFilterKey = dashboardState.selectedBookKey,
                                             bookmarkedLessons = bookmarkedLessons,
                                             bookCoversByKey = bookCoversByKey,
@@ -494,7 +571,10 @@ private fun AuthenticatedEduMiniContent(
                                             onGenerateConceptRemediation = viewModel::generateConceptRemediation,
                                             onOpenGlobalSearch = viewModel::openGlobalSearch,
                                             onBindDirectFolder = { folderPickerLauncher.launch(null) },
-                                            onOpenLibrary = { viewModel.navigateTo(AppPage.LIBRARY) }
+                                            onOpenLibrary = { viewModel.navigateTo(AppPage.LIBRARY) },
+                                            isCloudAuthenticated = state.isCloudAuthenticated,
+                                            onSignOut = onSignOut,
+                                            onSwitchToRoleEntry = viewModel::switchToRoleEntry
                                         )
 
                                         AppPage.LEARNER_MASTERY -> LearnerMasteryScreen(
@@ -507,6 +587,25 @@ private fun AuthenticatedEduMiniContent(
                                             learningProgressReport = learningProgressReport
                                         )
 
+                                        AppPage.ADMIN_DASHBOARD -> AdminDashboardScreen(
+                                            workspaces = state.workspaces,
+                                            activeWorkspaceId = state.workspace?.workspaceId ?: state.selectedWorkspaceId,
+                                            availableLearners = state.availableLearners,
+                                            activeLearner = state.activeLearner,
+                                            onCreateClassroom = viewModel::createManualClassroom,
+                                            onBindDirectFolder = { folderPickerLauncher.launch(null) },
+                                            onOpenClassInLibrary = { workspaceId ->
+                                                viewModel.selectWorkspace(workspaceId)
+                                                viewModel.navigateTo(AppPage.LIBRARY)
+                                            },
+                                            onDeleteClassroom = { workspaceId ->
+                                                viewModel.deleteWorkspace(workspaceId, "")
+                                            },
+                                            onAddLearner = viewModel::addLearnerProfile,
+                                            onUpdateLearnerGrade = viewModel::updateLearnerGrade,
+                                            onDeleteLearner = viewModel::deleteLearnerProfile
+                                        )
+
                                         AppPage.LIBRARY -> LibraryScreen(
                                             workspace = state.workspace,
                                             workspaces = state.workspaces,
@@ -517,6 +616,11 @@ private fun AuthenticatedEduMiniContent(
                                             bookProgress = dashboardSummary.bookProgress,
                                             cloudDraftsState = cloudDraftsState,
                                             cloudProgressState = cloudProgressState,
+                                            availableLearners = state.availableLearners,
+                                            activeLearner = state.activeLearner,
+                                            onAddLearner = viewModel::addLearnerProfile,
+                                            onUpdateLearnerGrade = viewModel::updateLearnerGrade,
+                                            onDeleteLearner = viewModel::deleteLearnerProfile,
                                             onSyncWorkspaceToCloud = viewModel::syncWorkspaceToCloud,
                                             onBindDirectFolder = { folderPickerLauncher.launch(null) },
                                             onRefreshIndex = viewModel::refreshDirectWorkspaceCatalog,
@@ -696,7 +800,8 @@ private fun AuthenticatedEduMiniContent(
                     SingleGradePickerDialog(
                         inspection = inspection,
                         isBusy = state.isBusy,
-                        onConfirmGrade = viewModel::confirmDirectGradeBinding,
+                        alreadyBoundGrades = state.availableBoundGrades.toSet(),
+                        onConfirmGrades = viewModel::confirmDirectGradesBinding,
                         onDismiss = viewModel::dismissDirectInspection
                     )
                 }
@@ -931,12 +1036,142 @@ private fun AuthenticatedEduMiniContent(
 }
 
 @Composable
+private fun AuthRoleVerificationScreen(
+    userEmail: String?,
+    userDisplayName: String?,
+    roleCheckState: AuthRoleCheckState,
+    onRetry: () -> Unit,
+    onContinueLocalMode: () -> Unit,
+    onSignOut: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(EduBg)
+            .statusBarsPadding()
+            .padding(20.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp),
+            shape = RoundedCornerShape(24.dp),
+            color = EduWhite,
+            border = BorderStroke(1.dp, EduLine),
+            shadowElevation = 4.dp
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                if (roleCheckState is AuthRoleCheckState.Error) {
+                    Icon(
+                        imageVector = Icons.Rounded.ErrorOutline,
+                        contentDescription = null,
+                        tint = EduRed,
+                        modifier = Modifier.size(44.dp)
+                    )
+                    Text(
+                        text = "تعذر التحقق من دور الحساب",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = EduInk,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = roleCheckState.message,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = EduMuted
+                    )
+                    Button(
+                        onClick = onRetry,
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = EduGreen,
+                            contentColor = EduWhite
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .minimumInteractiveComponentSize()
+                            .testTag("auth_role_retry_button")
+                    ) {
+                        Text("إعادة المحاولة", fontWeight = FontWeight.Bold)
+                    }
+                    OutlinedButton(
+                        onClick = onContinueLocalMode,
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, EduGreen),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .minimumInteractiveComponentSize()
+                            .testTag("auth_role_local_fallback_button")
+                    ) {
+                        Text(
+                            text = "المتابعة بالوضع المحلي (بدون سحابة)",
+                            color = EduGreenDark,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    TextButton(
+                        onClick = onSignOut,
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("auth_role_sign_out_button")
+                    ) {
+                        Text("تسجيل الخروج", color = EduRed)
+                    }
+                } else {
+                    Icon(
+                        imageVector = Icons.Rounded.VerifiedUser,
+                        contentDescription = null,
+                        tint = EduGreen,
+                        modifier = Modifier.size(42.dp)
+                    )
+                    CircularProgressIndicator(
+                        color = EduGreen,
+                        strokeWidth = 3.dp,
+                        modifier = Modifier.size(34.dp)
+                    )
+                    Text(
+                        text = "جارٍ التحقق من صلاحية الحساب...",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = EduInk,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = listOfNotNull(
+                            userDisplayName?.takeIf { it.isNotBlank() },
+                            userEmail?.takeIf { it.isNotBlank() }
+                        ).joinToString(" • ").ifBlank { "فحص مجموعة users في Firestore" },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = EduMuted
+                    )
+                    TextButton(
+                        onClick = onSignOut,
+                        modifier = Modifier.minimumInteractiveComponentSize()
+                    ) {
+                        Text("إلغاء وتسجيل الخروج", color = EduMuted)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun EduTopBar(
     userRole: UserRole,
+    learnerLabel: String? = null,
     hasWorkspace: Boolean,
+    isCloudAuthenticated: Boolean = false,
+    canSwitchRole: Boolean = true,
     onOpenSearch: () -> Unit,
     onOpenSettings: () -> Unit,
-    onSwitchRole: () -> Unit
+    onSwitchRole: () -> Unit,
+    onSignOut: () -> Unit = {}
 ) {
     val isAdmin = userRole == UserRole.ADMIN
     Column(
@@ -984,7 +1219,9 @@ private fun EduTopBar(
                 modifier = Modifier
                     .clip(RoundedCornerShape(12.dp))
                     .minimumInteractiveComponentSize()
-                    .clickable(onClick = onSwitchRole)
+                    .then(
+                        if (canSwitchRole) Modifier.clickable(onClick = onSwitchRole) else Modifier
+                    )
                     .testTag("top_role_switch_chip")
             ) {
                 Row(
@@ -994,12 +1231,12 @@ private fun EduTopBar(
                 ) {
                     Icon(
                         imageVector = if (isAdmin) Icons.Rounded.AdminPanelSettings else Icons.Rounded.School,
-                        contentDescription = "تبديل المسار",
+                        contentDescription = if (canSwitchRole) "تبديل المسار" else userRole.labelAr,
                         tint = if (isAdmin) EduPurple else EduGreenDark,
                         modifier = Modifier.size(16.dp)
                     )
                     Text(
-                        text = userRole.labelAr,
+                        text = learnerLabel ?: userRole.labelAr,
                         style = MaterialTheme.typography.labelMedium,
                         color = if (isAdmin) EduPurple else EduGreenDark,
                         fontWeight = FontWeight.Bold
@@ -1042,6 +1279,26 @@ private fun EduTopBar(
                             imageVector = Icons.Outlined.Settings,
                             contentDescription = stringResource(R.string.cd_settings_button),
                             tint = EduInk
+                        )
+                    }
+                }
+            }
+            if (isCloudAuthenticated) {
+                Spacer(modifier = Modifier.width(6.dp))
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = EduWhite
+                ) {
+                    IconButton(
+                        onClick = onSignOut,
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("top_sign_out_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Rounded.Logout,
+                            contentDescription = stringResource(R.string.auth_sign_out_cta),
+                            tint = EduRed
                         )
                     }
                 }
@@ -1117,6 +1374,28 @@ private fun EduBottomNavigationBar(
                     modifier = Modifier.testTag("nav_mastery")
                 )
             } else {
+                NavigationBarItem(
+                    selected = currentPage == AppPage.ADMIN_DASHBOARD,
+                    onClick = { onSelectPage(AppPage.ADMIN_DASHBOARD) },
+                    icon = {
+                        Icon(
+                            imageVector = if (currentPage == AppPage.ADMIN_DASHBOARD) {
+                                Icons.Rounded.AdminPanelSettings
+                            } else {
+                                Icons.Outlined.AdminPanelSettings
+                            },
+                            contentDescription = stringResource(R.string.nav_admin_dashboard)
+                        )
+                    },
+                    label = {
+                        Text(
+                            text = stringResource(R.string.nav_admin_dashboard),
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    },
+                    colors = navColors,
+                    modifier = Modifier.testTag("nav_admin_dashboard")
+                )
                 NavigationBarItem(
                     selected = currentPage == AppPage.LIBRARY,
                     onClick = { onSelectPage(AppPage.LIBRARY) },
@@ -1263,6 +1542,22 @@ private fun EduNavigationRail(
                 colors = railColors
             )
         } else {
+            NavigationRailItem(
+                selected = currentPage == AppPage.ADMIN_DASHBOARD,
+                onClick = { onSelectPage(AppPage.ADMIN_DASHBOARD) },
+                icon = {
+                    Icon(
+                        imageVector = if (currentPage == AppPage.ADMIN_DASHBOARD) {
+                            Icons.Rounded.AdminPanelSettings
+                        } else {
+                            Icons.Outlined.AdminPanelSettings
+                        },
+                        contentDescription = stringResource(R.string.nav_admin_dashboard)
+                    )
+                },
+                label = { Text(stringResource(R.string.nav_admin_dashboard)) },
+                colors = railColors
+            )
             NavigationRailItem(
                 selected = currentPage == AppPage.LIBRARY,
                 onClick = { onSelectPage(AppPage.LIBRARY) },

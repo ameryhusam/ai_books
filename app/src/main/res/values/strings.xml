@@ -4,6 +4,7 @@
     <string name="brand_subtitle">محتوى تعليمي ذكي</string>
     <string name="nav_dashboard">مسار التعلّم</string>
     <string name="nav_mastery">المفاهيم والتقييم</string>
+    <string name="nav_admin_dashboard">لوحة الإدارة</string>
     <string name="nav_library">المكتبة</string>
     <string name="nav_studio">Studio</string>
     <string name="nav_quiz_bank">بنك الأسئلة</string>

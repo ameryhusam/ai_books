@@ -82,13 +82,15 @@ enum class MasteryStatus(val labelAr: String) {
 @Serializable
 data class LearnerProfile(
     val userId: String,
-    val displayName: String
+    val displayName: String,
+    val enrolledGradeKey: String? = null
 ) {
     companion object {
         const val DEFAULT_USER_ID = "learner_default"
         val DEFAULT = LearnerProfile(
             userId = DEFAULT_USER_ID,
-            displayName = "المتعلّم الأساسي"
+            displayName = "المتعلّم الأساسي",
+            enrolledGradeKey = null
         )
     }
 }
@@ -185,7 +187,8 @@ data class DirectGradeChoice(
     val gradeKey: String,
     val booksCount: Int,
     val lessonsCount: Int,
-    val bookTitles: List<String>
+    val bookTitles: List<String>,
+    val gradeDisplayName: String = ""
 )
 
 data class DirectWorkspaceInspection(
@@ -194,7 +197,8 @@ data class DirectWorkspaceInspection(
     val isSafUri: Boolean,
     val grades: List<DirectGradeChoice>,
     val totalFilesIndexed: Int,
-    val warnings: List<String> = emptyList()
+    val warnings: List<String> = emptyList(),
+    val errors: List<String> = emptyList()
 )
 
 data class WorkspaceIndexRef(
@@ -364,6 +368,28 @@ data class PdfBookInfo(
     val sha256: String
 )
 
+enum class PdfSplitTemplate(
+    val id: String,
+    val labelAr: String,
+    val descriptionAr: String
+) {
+    FIXED_CHUNK(
+        id = "fixed_chunk",
+        labelAr = "تقسيم متساوٍ بالصفحات",
+        descriptionAr = "تقسيم الكتاب إلى دروس متساوية الطول بعدد صفحات ثابت"
+    ),
+    UNIT_GROUPED(
+        id = "unit_grouped",
+        labelAr = "قالب وحدات ودروس قياسي",
+        descriptionAr = "تجميع الدروس في وحدات منظمة (4 دروس/وحدة) متوافقة مع indexer2"
+    ),
+    AI_TOC_SCHEMA(
+        id = "ai_toc_schema",
+        labelAr = "تجزئة ذكية بالبرومبت ومخطط الفهرس",
+        descriptionAr = "تحليل فهرس الكتاب بالذكاء الاصطناعي وفق مخطط index.json المعتمد"
+    )
+}
+
 data class LessonSplitDraft(
     val id: String,
     val unitKey: String,
@@ -371,7 +397,8 @@ data class LessonSplitDraft(
     val lessonKey: String,
     val title: String,
     val startPage: Int,
-    val endPage: Int
+    val endPage: Int,
+    val partKey: String = "P01"
 )
 
 enum class LearningNodeStatus(val labelAr: String) {
@@ -748,6 +775,7 @@ data class Indexer2SchemaSpec(
 enum class AppPage {
     DASHBOARD,
     LEARNER_MASTERY,
+    ADMIN_DASHBOARD,
     LIBRARY,
     STUDIO,
     QUIZ_BANK,

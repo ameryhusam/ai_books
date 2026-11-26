@@ -3288,6 +3288,377 @@ class EduMiniCoreTest {
         }
     }
 
+    @Test
+    fun directWorkspaceBinderAggregatesAssignmentWarningsSeparatesErrorsAndBindsValidBooks() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val rootDir = File(context.cacheDir, "direct_ws_partial_${System.currentTimeMillis()}").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        try {
+            val arabDir = File(rootDir, "workspace/G04/ARAB").apply { mkdirs() }
+            // Six units all missing assignmentStatus: should emit ONE aggregated warning, not 6.
+            val unitsJson = (1..6).joinToString(",") { u ->
+                val unitFolder = "unit_${u.toString().padStart(2, '0')}"
+                File(arabDir, "P01/units/$unitFolder").apply { mkdirs() }
+                File(arabDir, "P01/units/$unitFolder/lesson_01.pdf").writeText("%PDF-1.4 unit $u")
+                """{"unitNumber":$u,"title":"الوحدة $u","partKey":"P01","lessons":[{"lessonNumber":1,"title":"درس $u","pdfPageStart":1,"pdfPageEnd":2}]}"""
+            }
+            val arabIndexRaw = """{"gradeKey":"G04","subjectKey":"ARAB","approvalStatus":"APPROVED","sourceLayout":"MERGED_PARTS_FILE","units":[$unitsJson]}"""
+            val arabIndexSha = MessageDigest.getInstance("SHA-256")
+                .digest(arabIndexRaw.toByteArray())
+                .joinToString("") { "%02x".format(it) }
+            File(arabDir, "index.json").writeText(arabIndexRaw)
+            File(arabDir, "book_manifest.json").writeText(
+                """{"manifestVersion":"edu.book_manifest.v1","title":"لغتي العربية","gradeKey":"G04","subjectKey":"ARAB","sourceLayout":"MERGED_PARTS_FILE","sourceReviewStatus":"VERIFIED","sourceSha256":"${"c".repeat(64)}","indexSha256":"$arabIndexSha"}"""
+            )
+
+            // A broken sibling book in the same grade (unapproved sourceReviewStatus)
+            val brokenSciDir = File(rootDir, "workspace/G04/SCI").apply { mkdirs() }
+            File(brokenSciDir, "book_manifest.json").writeText(
+                """{"manifestVersion":"edu.book_manifest.v1","gradeKey":"G04","subjectKey":"SCI","sourceLayout":"MERGED_PARTS_FILE","sourceReviewStatus":"NEEDS_REVIEW","sourceSha256":"${"a".repeat(64)}","indexSha256":"${"b".repeat(64)}"}"""
+            )
+            File(brokenSciDir, "index.json").writeText(
+                """{"gradeKey":"G04","subjectKey":"SCI","approvalStatus":"APPROVED","sourceLayout":"MERGED_PARTS_FILE","units":[{"unitNumber":1,"title":"و1","partKey":"P01","assignmentStatus":"assigned","lessons":[{"lessonNumber":1,"title":"درس 1","pdfPageStart":1,"pdfPageEnd":2}]}]}"""
+            )
+
+            val binder = DirectWorkspaceBinder(context)
+            val inspection = binder.inspectDirectory(rootDir)
+
+            assertEquals(1, inspection.grades.size)
+            assertEquals("G04", inspection.grades.single().gradeKey)
+            // Fatal errors separated into inspection.errors
+            assertTrue(inspection.errors.isNotEmpty())
+            assertTrue(inspection.errors.any { it.contains("G04/SCI") })
+            // assignmentStatus notices aggregated into 1 concise summary line
+            val assignmentWarnings = inspection.warnings.filter { it.contains("assignmentStatus") }
+            assertEquals(1, assignmentWarnings.size)
+            assertTrue(assignmentWarnings.single().contains("6"))
+
+            // Binding G04 accepts ARAB cleanly and reports SCI rejection in workspace.warnings
+            val bound = binder.bindSingleGrade(rootDir.absolutePath, "G04")
+            assertEquals(1, bound.workspace.books.size)
+            assertEquals("ARAB", bound.workspace.books.single().bookKey)
+            assertEquals(6, bound.workspace.lessons.size)
+            assertTrue(bound.workspace.warnings.any { it.contains("G04/SCI") })
+        } finally {
+            rootDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun multiGradeAdminBindingIsolatesLearnersToEnrolledGradeAndPreservesBackup() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val database = Room.inMemoryDatabaseBuilder(context, EduMiniDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        val rootDir = File(context.cacheDir, "multi_grade_isolation_${System.currentTimeMillis()}").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        try {
+            fun createValidBook(grade: String, subject: String, title: String) {
+                val bookDir = File(rootDir, "workspace/$grade/$subject").apply { mkdirs() }
+                File(bookDir, "book_manifest.json").writeText(
+                    """{"title":"$title","gradeKey":"$grade","subjectKey":"$subject"}"""
+                )
+                File(bookDir, "index.json").writeText(
+                    """{"gradeKey":"$grade","subjectKey":"$subject","units":[{"unitKey":"unit_01","title":"الوحدة 1","partKey":"P01","assignmentStatus":"assigned","lessons":[{"lessonKey":"lesson_01","title":"الدرس 1"}]}]}"""
+                )
+            }
+            createValidBook("G04", "ARAB", "العربية 4")
+            createValidBook("G07", "ENG", "الإنجليزية 7")
+
+            val dao = database.eduMiniDao()
+            val repository = EduMiniRepository(
+                dao = dao,
+                providerStorage = ProviderStorage(context),
+                workspaceImporter = WorkspaceImporter(context),
+                aiGenerationService = AiGenerationService(context),
+                interactivePackageImporter = InteractivePackageImporter(context),
+                directWorkspaceBinder = DirectWorkspaceBinder(context),
+                appContext = context
+            )
+
+            // Admin binds multiple grades in one step
+            val boundWorkspaces = repository.bindDirectWorkspaces(rootDir.absolutePath, listOf("G04", "G07"))
+            assertEquals(setOf("G04", "G07"), boundWorkspaces.map { it.gradeKey }.toSet())
+
+            val summaries = repository.allWorkspaces.first()
+            val wsG04 = summaries.single { it.gradeKey == "G04" }.workspaceId
+            val wsG07 = summaries.single { it.gradeKey == "G07" }.workspaceId
+
+            // Admin can freely switch between G04 and G07
+            assertEquals(
+                wsG04,
+                com.example.ui.MainViewModel.resolveEffectiveWorkspaceId(
+                    userRole = com.example.model.UserRole.ADMIN,
+                    activeLearner = LearnerProfile.DEFAULT,
+                    workspaces = summaries,
+                    adminSelectedWorkspaceId = wsG04
+                )
+            )
+            assertEquals(
+                wsG07,
+                com.example.ui.MainViewModel.resolveEffectiveWorkspaceId(
+                    userRole = com.example.model.UserRole.ADMIN,
+                    activeLearner = LearnerProfile.DEFAULT,
+                    workspaces = summaries,
+                    adminSelectedWorkspaceId = wsG07
+                )
+            )
+
+            // Learner A enrolled in G04 sees ONLY G04 even if Admin last viewed G07
+            val studentG04 = LearnerProfile(userId = "s_g04", displayName = "أحمد", enrolledGradeKey = "G04")
+            assertEquals(
+                wsG04,
+                com.example.ui.MainViewModel.resolveEffectiveWorkspaceId(
+                    userRole = com.example.model.UserRole.LEARNER,
+                    activeLearner = studentG04,
+                    workspaces = summaries,
+                    adminSelectedWorkspaceId = wsG07
+                )
+            )
+
+            // Learner B enrolled in G07 sees ONLY G07
+            val studentG07 = LearnerProfile(userId = "s_g07", displayName = "سارة", enrolledGradeKey = "G07")
+            assertEquals(
+                wsG07,
+                com.example.ui.MainViewModel.resolveEffectiveWorkspaceId(
+                    userRole = com.example.model.UserRole.LEARNER,
+                    activeLearner = studentG07,
+                    workspaces = summaries,
+                    adminSelectedWorkspaceId = wsG04
+                )
+            )
+
+            // Unassigned learner when 2+ grades exist is blocked from leaking another grade
+            val unassigned = LearnerProfile(userId = "s_none", displayName = "غير معيّن", enrolledGradeKey = null)
+            assertEquals(
+                com.example.ui.MainViewModel.BLOCKED_UNASSIGNED_WORKSPACE_ID,
+                com.example.ui.MainViewModel.resolveEffectiveWorkspaceId(
+                    userRole = com.example.model.UserRole.LEARNER,
+                    activeLearner = unassigned,
+                    workspaces = summaries,
+                    adminSelectedWorkspaceId = wsG04
+                )
+            )
+
+            // Learner assigned to an unbound grade (G09) is also blocked
+            val unboundGradeStudent = LearnerProfile(userId = "s_g09", displayName = "عمر", enrolledGradeKey = "G09")
+            assertEquals(
+                com.example.ui.MainViewModel.BLOCKED_UNASSIGNED_WORKSPACE_ID,
+                com.example.ui.MainViewModel.resolveEffectiveWorkspaceId(
+                    userRole = com.example.model.UserRole.LEARNER,
+                    activeLearner = unboundGradeStudent,
+                    workspaces = summaries,
+                    adminSelectedWorkspaceId = wsG04
+                )
+            )
+
+            // Full backup round-trip preserves enrolledGradeKey
+            val backupJson = WorkspaceExporter.serializeFullBackup(
+                workspaceId = wsG04,
+                drafts = emptyList(),
+                questions = emptyList(),
+                assessments = emptyList(),
+                attempts = emptyList(),
+                progress = emptyList(),
+                notes = emptyList(),
+                studyDays = emptyList(),
+                templates = emptyList(),
+                learnerProfiles = listOf(LearnerProfile.DEFAULT, studentG04, studentG07),
+                activeLearnerId = studentG04.userId
+            )
+            repository.importFullBackupJson(backupJson, wsG04)
+            val restoredProfiles = Json { ignoreUnknownKeys = true }.decodeFromString<List<LearnerProfile>>(
+                repository.readLearnerPref("edumini_learner_profiles", "profiles_json").orEmpty()
+            )
+            assertEquals("G04", restoredProfiles.single { it.userId == "s_g04" }.enrolledGradeKey)
+            assertEquals("G07", restoredProfiles.single { it.userId == "s_g07" }.enrolledGradeKey)
+        } finally {
+            rootDir.deleteRecursively()
+            database.close()
+        }
+    }
+
+    @Test
+    fun adminClassroomCreationAndStudentAssignmentLifecycle() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val database = Room.inMemoryDatabaseBuilder(context, EduMiniDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        val rootDir = File(context.cacheDir, "admin_class_lifecycle_${System.currentTimeMillis()}").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        try {
+            val dao = database.eduMiniDao()
+            val repository = EduMiniRepository(
+                dao = dao,
+                providerStorage = ProviderStorage(context),
+                workspaceImporter = WorkspaceImporter(context),
+                aiGenerationService = AiGenerationService(context),
+                interactivePackageImporter = InteractivePackageImporter(context),
+                directWorkspaceBinder = DirectWorkspaceBinder(context),
+                appContext = context
+            )
+
+            // 1. Admin creates two new classrooms manually
+            val class5 = repository.createClassroom("G05", "الصف الخامس - أ")
+            val class6 = repository.createClassroom("g06", "الصف السادس - ب")
+            assertEquals("G05", class5.gradeKey)
+            assertEquals("G06", class6.gradeKey)
+
+            val allClasses = repository.allWorkspaces.first()
+            assertEquals(setOf("G05", "G06"), allClasses.map { it.gradeKey }.toSet())
+
+            // Duplicate grade key is rejected cleanly
+            var duplicateRejected = false
+            try {
+                repository.createClassroom("G05", "مكرر")
+            } catch (e: IllegalArgumentException) {
+                duplicateRejected = true
+            }
+            assertTrue(duplicateRejected)
+
+            // 2. Assign student to G05 and verify Learner isolation resolves to class5
+            val studentA = LearnerProfile(userId = "stu_5", displayName = "خالد", enrolledGradeKey = "G05")
+            assertEquals(
+                class5.workspaceId,
+                com.example.ui.MainViewModel.resolveEffectiveWorkspaceId(
+                    userRole = com.example.model.UserRole.LEARNER,
+                    activeLearner = studentA,
+                    workspaces = allClasses,
+                    adminSelectedWorkspaceId = class6.workspaceId
+                )
+            )
+
+            // 3. Binding a direct folder for G05 upgrades/replaces the empty placeholder without duplicates
+            val bookDir = File(rootDir, "workspace/G05/SCI").apply { mkdirs() }
+            File(bookDir, "book_manifest.json").writeText(
+                """{"title":"العلوم 5","gradeKey":"G05","subjectKey":"SCI"}"""
+            )
+            File(bookDir, "index.json").writeText(
+                """{"gradeKey":"G05","subjectKey":"SCI","units":[{"unitKey":"unit_01","title":"و1","partKey":"P01","assignmentStatus":"assigned","lessons":[{"lessonKey":"lesson_01","title":"درس 1"}]}]}"""
+            )
+            val boundClass5 = repository.bindDirectWorkspace(rootDir.absolutePath, "G05")
+            val classesAfterBind = repository.allWorkspaces.first()
+            assertEquals(2, classesAfterBind.size)
+            assertEquals(boundClass5.workspaceId, classesAfterBind.single { it.gradeKey == "G05" }.workspaceId)
+            assertEquals(
+                boundClass5.workspaceId,
+                com.example.ui.MainViewModel.resolveEffectiveWorkspaceId(
+                    userRole = com.example.model.UserRole.LEARNER,
+                    activeLearner = studentA,
+                    workspaces = classesAfterBind,
+                    adminSelectedWorkspaceId = class6.workspaceId
+                )
+            )
+        } finally {
+            rootDir.deleteRecursively()
+            database.close()
+        }
+    }
+
+    @Test
+    fun authUserRoleResolutionRoutesAdminToDashboardStudentToStudentViewAndBlocksEscalation() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        if (com.google.firebase.FirebaseApp.getApps(context).isEmpty()) {
+            com.google.firebase.FirebaseApp.initializeApp(
+                context,
+                com.google.firebase.FirebaseOptions.Builder()
+                    .setApplicationId("1:1234567890:android:abcdef123456")
+                    .setApiKey("test-api-key-only")
+                    .setProjectId("demo-edumini-test")
+                    .build()
+            )
+        }
+
+        // 1. Role string resolution mapping ('admin' -> Admin Dashboard, 'student'/unknown -> Student View)
+        val adminRes = com.example.data.firebase.FirestoreSyncRepository.resolveUserRoleFromDocument(
+            roleValue = " ADMIN ",
+            displayName = "مدير المدرسة"
+        )
+        assertEquals(com.example.model.UserRole.ADMIN, adminRes.resolvedRole)
+        assertEquals(com.example.model.AuthRoleDestination.ADMIN_DASHBOARD, adminRes.destination)
+        assertEquals("admin", adminRes.rawRole)
+
+        val studentRes = com.example.data.firebase.FirestoreSyncRepository.resolveUserRoleFromDocument(
+            roleValue = "student",
+            enrolledGradeKey = "g04",
+            displayName = "سارة"
+        )
+        assertEquals(com.example.model.UserRole.LEARNER, studentRes.resolvedRole)
+        assertEquals(com.example.model.AuthRoleDestination.STUDENT_VIEW, studentRes.destination)
+        assertEquals("G04", studentRes.enrolledGradeKey)
+
+        val unknownRes = com.example.data.firebase.FirestoreSyncRepository.resolveUserRoleFromDocument(
+            roleValue = "moderator",
+            enrolledGradeKey = null
+        )
+        assertEquals(com.example.model.UserRole.LEARNER, unknownRes.resolvedRole)
+        assertEquals(com.example.model.AuthRoleDestination.STUDENT_VIEW, unknownRes.destination)
+        assertEquals("student", unknownRes.rawRole)
+
+        // 2. MainViewModel routing + student privilege-escalation lock
+        val database = Room.inMemoryDatabaseBuilder(context, EduMiniDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            val repository = EduMiniRepository(
+                dao = database.eduMiniDao(),
+                providerStorage = ProviderStorage(context),
+                workspaceImporter = WorkspaceImporter(context),
+                aiGenerationService = AiGenerationService(context),
+                interactivePackageImporter = InteractivePackageImporter(context),
+                directWorkspaceBinder = DirectWorkspaceBinder(context),
+                appContext = context
+            )
+            val firestoreDb = com.google.firebase.firestore.FirebaseFirestore.getInstance(
+                context.getString(R.string.firestore_database_id)
+            )
+            val firebaseAuth = com.google.firebase.auth.FirebaseAuth.getInstance()
+            val firestoreSync = com.example.data.firebase.FirestoreSyncRepository(firestoreDb, firebaseAuth)
+
+            val adminVm = com.example.ui.MainViewModel(
+                repository = repository,
+                firestoreSync = firestoreSync,
+                currentUserId = "uid_admin_1",
+                currentUserEmail = "admin@school.edu",
+                currentUserDisplayName = "المدير",
+                isCloudAuthenticated = true
+            )
+            adminVm.applyResolvedUserRole(adminRes)
+            assertEquals(com.example.model.UserRole.ADMIN, adminVm.uiState.value.userRole)
+            assertEquals(com.example.model.AppPage.ADMIN_DASHBOARD, adminVm.uiState.value.page)
+            assertEquals(com.example.model.UserRole.ADMIN, adminVm.uiState.value.authenticatedUserRole)
+
+            val studentVm = com.example.ui.MainViewModel(
+                repository = repository,
+                firestoreSync = firestoreSync,
+                currentUserId = "uid_student_1",
+                currentUserEmail = "sara@school.edu",
+                currentUserDisplayName = "سارة",
+                isCloudAuthenticated = true
+            )
+            studentVm.applyResolvedUserRole(studentRes)
+            assertEquals(com.example.model.UserRole.LEARNER, studentVm.uiState.value.userRole)
+            assertEquals(com.example.model.AppPage.DASHBOARD, studentVm.uiState.value.page)
+            assertEquals("uid_student_1", studentVm.uiState.value.activeLearner.userId)
+            assertEquals("G04", studentVm.uiState.value.activeLearner.enrolledGradeKey)
+
+            // Authenticated student cannot escalate to Admin or navigate to Admin Dashboard
+            studentVm.selectRole(com.example.model.UserRole.ADMIN)
+            studentVm.navigateTo(com.example.model.AppPage.ADMIN_DASHBOARD)
+            studentVm.switchToRoleEntry()
+            assertEquals(com.example.model.UserRole.LEARNER, studentVm.uiState.value.userRole)
+            assertEquals(com.example.model.AppPage.DASHBOARD, studentVm.uiState.value.page)
+        } finally {
+            database.close()
+        }
+    }
+
 }
 
 private val testKeyStoreMap = java.util.concurrent.ConcurrentHashMap<String, java.security.Key>()

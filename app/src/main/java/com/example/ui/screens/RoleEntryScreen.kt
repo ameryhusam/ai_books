@@ -7,6 +7,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -25,6 +27,8 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.material.icons.rounded.AdminPanelSettings
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.FolderOpen
+import androidx.compose.material.icons.rounded.Login
+import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.School
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -48,9 +52,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.R
 import com.example.model.ImportedWorkspace
+import com.example.model.LearnerProfile
 import com.example.model.UserRole
+import com.example.model.WorkspaceSummary
 import com.example.ui.components.EduPanel
 import com.example.ui.theme.EduBg
+import com.example.ui.theme.EduFieldBg
 import com.example.ui.theme.EduGreen
 import com.example.ui.theme.EduGreenDark
 import com.example.ui.theme.EduHeroKicker
@@ -60,18 +67,28 @@ import com.example.ui.theme.EduLilac
 import com.example.ui.theme.EduLine
 import com.example.ui.theme.EduMint
 import com.example.ui.theme.EduMuted
+import com.example.ui.theme.EduOrange
 import com.example.ui.theme.EduPurple
 import com.example.ui.theme.EduWhite
 import com.example.ui.theme.EduYellow
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun RoleEntryScreen(
     workspace: ImportedWorkspace?,
+    workspaces: List<WorkspaceSummary> = emptyList(),
+    availableLearners: List<LearnerProfile> = listOf(LearnerProfile.DEFAULT),
+    activeLearner: LearnerProfile = LearnerProfile.DEFAULT,
     isBusy: Boolean,
+    onSelectLearner: (String) -> Unit = {},
     onSelectRole: (UserRole) -> Unit,
     onBindDirectFolder: () -> Unit,
+    onOpenGoogleAuth: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
+    val distinctGrades = workspaces.map { it.gradeKey.uppercase() }.distinct().sorted()
+    val hasAnyWorkspace = workspaces.isNotEmpty() || workspace != null
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -130,7 +147,7 @@ fun RoleEntryScreen(
                                 color = EduWhite
                             )
                             Text(
-                                text = "يفصل النظام بين تجربة المتعلّم الخالصة ومسار المدير المسؤول عن ربط الملفات وتوليد الأسئلة والمحتوى.",
+                                text = "يضبط المدير صفوفاً متعددة ويعيّن لكل طالب صفّه الدراسي، فيظهر للطالب صفّه المسجّل فقط.",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = EduHeroSub
                             )
@@ -142,8 +159,8 @@ fun RoleEntryScreen(
             item(key = "workspace_status_card") {
                 EduPanel(
                     modifier = Modifier.fillMaxWidth(),
-                    containerColor = if (workspace != null) EduMint.copy(alpha = 0.55f) else EduWhite,
-                    borderColor = if (workspace != null) EduGreen else EduLine
+                    containerColor = if (hasAnyWorkspace) EduMint.copy(alpha = 0.55f) else EduWhite,
+                    borderColor = if (hasAnyWorkspace) EduGreen else EduLine
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -152,33 +169,35 @@ fun RoleEntryScreen(
                     ) {
                         Surface(
                             shape = CircleShape,
-                            color = if (workspace != null) EduGreen else EduLilac,
+                            color = if (hasAnyWorkspace) EduGreen else EduLilac,
                             modifier = Modifier.size(40.dp)
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
-                                    imageVector = if (workspace != null) Icons.Rounded.CheckCircle else Icons.Rounded.FolderOpen,
+                                    imageVector = if (hasAnyWorkspace) Icons.Rounded.CheckCircle else Icons.Rounded.FolderOpen,
                                     contentDescription = null,
-                                    tint = if (workspace != null) EduWhite else EduPurple,
+                                    tint = if (hasAnyWorkspace) EduWhite else EduPurple,
                                     modifier = Modifier.size(20.dp)
                                 )
                             }
                         }
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = if (workspace != null) {
-                                    "الصف المرتبط: ${workspace.gradeKey} • ${workspace.title}"
-                                } else {
-                                    "لم يتم ربط مجلد الصف الدراسي بعد"
+                                text = when {
+                                    distinctGrades.size > 1 -> "الصفوف المهيأة (${distinctGrades.size}): ${distinctGrades.joinToString(" • ")}"
+                                    workspace != null -> "الصف المرتبط: ${workspace.gradeKey} • ${workspace.title}"
+                                    workspaces.isNotEmpty() -> "الصف المرتبط: ${workspaces.first().gradeKey}"
+                                    else -> "لم يتم ربط مجلد الصف الدراسي بعد"
                                 },
                                 style = MaterialTheme.typography.titleSmall,
                                 color = EduInk
                             )
                             Text(
-                                text = if (workspace != null) {
-                                    "${workspace.books.size} مادة • ${workspace.lessons.size} درس • قراءة مباشرة بدون نسخ أو أذونات"
-                                } else {
-                                    "اربط مجلد مساحة العمل المحلية مباشرة من الذاكرة (SAF بدون أذونات تخزين أو نسخ للملفات)."
+                                text = when {
+                                    distinctGrades.size > 1 -> "يمكن لكل طالب الدخول إلى صفّه المسجّل فقط، بينما يدير النظام كل الصفوف."
+                                    workspace != null -> "${workspace.books.size} مادة • ${workspace.lessons.size} درس • قراءة مباشرة بدون نسخ أو أذونات"
+                                    workspaces.isNotEmpty() -> "تم ضبط مساحة العمل محلياً بدون نسخ للملفات."
+                                    else -> "اربط مجلد مساحة العمل المحلية مباشرة من الذاكرة (SAF بدون أذونات تخزين أو نسخ للملفات)."
                                 },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = EduMuted
@@ -203,7 +222,7 @@ fun RoleEntryScreen(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = if (workspace != null) "تغيير مجلد مساحة العمل أو الصف" else "ربط مجلد مساحة العمل محلياً (بدون نسخ)",
+                            text = if (hasAnyWorkspace) "إضافة أو تحديث مجلد الصفوف الدراسية" else "ربط مجلد مساحة العمل محلياً (بدون نسخ)",
                             color = EduGreenDark,
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.Bold
@@ -213,17 +232,92 @@ fun RoleEntryScreen(
             }
 
             item(key = "role_learner_card") {
+                val enrolledGrade = activeLearner.enrolledGradeKey?.trim()?.uppercase()?.takeIf { it.isNotBlank() }
+                val effectiveGradeNotice = when {
+                    enrolledGrade != null && distinctGrades.any { it.equals(enrolledGrade, ignoreCase = true) } ->
+                        "الصف المسجّل للطالب «${activeLearner.displayName}»: $enrolledGrade (سيظهر له هذا الصف فقط)"
+                    enrolledGrade != null ->
+                        "الطالب «${activeLearner.displayName}» مسجّل في الصف $enrolledGrade (لم يُربط مجلده بعد من حساب المدير)"
+                    distinctGrades.size == 1 ->
+                        "الطالب «${activeLearner.displayName}» سيدخل إلى الصف المتاح: ${distinctGrades.first()}"
+                    distinctGrades.size > 1 ->
+                        "توجد عدة صفوف مهيأة؛ لم يُعيَّن صف للطالب «${activeLearner.displayName}» بعد — اضبطه من حساب المدير."
+                    else ->
+                        "اربط صفّاً دراسياً أولاً ثم ادخل كمتعلّم."
+                }
                 RoleChoiceCard(
                     title = "الدخول كمتعلّم",
                     badgeText = "مسار الطالب",
-                    description = "عرض المواد والوحدات ومسار الدروس المنجزة، دراسة الدرس عبر PDF مع التبديل الفوري للتفاعلي، اجتياز اختبار نهاية الدرس لاحتساب النقاط والإكمال، وتتبع المفاهيم التي تحتاج تقوية.",
-                    ctaLabel = "دخول المتعلّم",
+                    description = "عرض المواد والوحدات ومسار الدروس المنجزة الخاصة بصف الطالب المسجّل فقط، مع PDF والتفاعلي واختبارات الإتقان.",
+                    ctaLabel = if (enrolledGrade != null) "دخول الطالب (${activeLearner.displayName} • $enrolledGrade)" else "دخول المتعلّم (${activeLearner.displayName})",
                     icon = Icons.Rounded.School,
                     accentColor = EduGreen,
                     containerTint = EduWhite,
                     buttonContainer = EduYellow,
                     buttonContent = EduInk,
                     testTag = "enter_as_learner_button",
+                    extraContent = {
+                        if (availableLearners.isNotEmpty()) {
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(
+                                    text = "اختر حساب الطالب:",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = EduInk,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                                    verticalArrangement = Arrangement.spacedBy(7.dp)
+                                ) {
+                                    availableLearners.forEach { profile ->
+                                        val selected = profile.userId == activeLearner.userId
+                                        val gradeLabel = profile.enrolledGradeKey?.takeIf { it.isNotBlank() } ?: "غير مسجّل"
+                                        Surface(
+                                            shape = RoundedCornerShape(20.dp),
+                                            color = if (selected) EduGreen else EduFieldBg,
+                                            border = BorderStroke(1.dp, if (selected) EduGreenDark else EduLine),
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(20.dp))
+                                                .minimumInteractiveComponentSize()
+                                                .clickable { onSelectLearner(profile.userId) }
+                                                .testTag("entry_learner_chip_${profile.userId}")
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Rounded.Person,
+                                                    contentDescription = null,
+                                                    tint = if (selected) EduWhite else EduMuted,
+                                                    modifier = Modifier.size(14.dp)
+                                                )
+                                                Text(
+                                                    text = "${profile.displayName} • $gradeLabel",
+                                                    style = MaterialTheme.typography.labelMedium,
+                                                    color = if (selected) EduWhite else EduInk,
+                                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = if (enrolledGrade == null && distinctGrades.size > 1) EduOrange.copy(alpha = 0.14f) else EduMint.copy(alpha = 0.45f),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(
+                                        text = effectiveGradeNotice,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = EduInk,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)
+                                    )
+                                }
+                            }
+                        }
+                    },
                     onClick = { onSelectRole(UserRole.LEARNER) }
                 )
             }
@@ -232,7 +326,7 @@ fun RoleEntryScreen(
                 RoleChoiceCard(
                     title = "الدخول كمدير / معلم",
                     badgeText = "الإدارة والتوليد",
-                    description = "ربط مساحة عمل الصف محلياً، استوديو توليد الشروح وبنوك الأسئلة والدروس التفاعلية، إدارة الحزم التفاعلية، ومفاتيح وإعدادات مزودي AI.",
+                    description = "ربط وضبط أكثر من صف دراسي، تسجيل كل طالب في صفّه، استوديو توليد الشروح وبنوك الأسئلة والدروس التفاعلية، وإدارة مزودي AI.",
                     ctaLabel = "دخول المدير",
                     icon = Icons.Rounded.AdminPanelSettings,
                     accentColor = EduPurple,
@@ -242,6 +336,34 @@ fun RoleEntryScreen(
                     testTag = "enter_as_admin_button",
                     onClick = { onSelectRole(UserRole.ADMIN) }
                 )
+            }
+
+            if (onOpenGoogleAuth != null) {
+                item(key = "return_to_google_auth") {
+                    OutlinedButton(
+                        onClick = onOpenGoogleAuth,
+                        shape = RoundedCornerShape(14.dp),
+                        border = BorderStroke(1.dp, EduGreen),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .minimumInteractiveComponentSize()
+                            .testTag("entry_google_sign_in_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Login,
+                            contentDescription = null,
+                            tint = EduGreenDark,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "تسجيل الدخول بحساب Google للتحقق من الدور",
+                            color = EduGreenDark,
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
             }
         }
     }
@@ -259,6 +381,7 @@ private fun RoleChoiceCard(
     buttonContainer: Color,
     buttonContent: Color,
     testTag: String,
+    extraContent: (@Composable () -> Unit)? = null,
     onClick: () -> Unit
 ) {
     Surface(
@@ -320,6 +443,8 @@ private fun RoleChoiceCard(
                 style = MaterialTheme.typography.bodyMedium,
                 color = EduMuted
             )
+
+            extraContent?.invoke()
 
             Button(
                 onClick = onClick,

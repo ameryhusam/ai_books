@@ -54,6 +54,44 @@ data class LessonProgress(
     @ServerTimestamp val updatedAt: Timestamp? = null
 )
 
+@Keep
+@IgnoreExtraProperties
+data class CloudUserAccount(
+    @DocumentId val id: String = "",
+    val userId: String = "",
+    val role: String = ROLE_STUDENT,
+    val displayName: String? = null,
+    val enrolledGradeKey: String? = null,
+    @ServerTimestamp val createdAt: Timestamp? = null,
+    @ServerTimestamp val updatedAt: Timestamp? = null
+) {
+    companion object {
+        const val ROLE_ADMIN = "admin"
+        const val ROLE_STUDENT = "student"
+    }
+}
+
+enum class AuthRoleDestination {
+    ADMIN_DASHBOARD,
+    STUDENT_VIEW
+}
+
+data class UserRoleResolution(
+    val rawRole: String,
+    val resolvedRole: UserRole,
+    val destination: AuthRoleDestination,
+    val enrolledGradeKey: String? = null,
+    val displayName: String? = null,
+    val documentExists: Boolean = false
+)
+
+sealed interface AuthRoleCheckState {
+    data object Idle : AuthRoleCheckState
+    data object Checking : AuthRoleCheckState
+    data class Resolved(val resolution: UserRoleResolution) : AuthRoleCheckState
+    data class Error(val message: String) : AuthRoleCheckState
+}
+
 sealed interface SyncUiState<out T> {
     data object Loading : SyncUiState<Nothing>
     data class Success<T>(val data: T) : SyncUiState<T>

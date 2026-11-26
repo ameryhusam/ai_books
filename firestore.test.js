@@ -268,4 +268,96 @@ test("Cross-user isolation: Alice cannot read, list, create, update, or delete B
       .doc("bob_prog")
       .update({ completed: false, xpEarned: 0, scorePercent: 0, updatedAt: new Date(Date.now() - 500) })
   );
+  await assertFails(aliceDb.collection("users").doc(BOB_UID).get());
+  await assertFails(aliceDb.collection("users").get());
+});
+
+function buildUserPayload(userId, overrides = {}) {
+  const now = new Date(Date.now() - 2000);
+  return {
+    userId,
+    role: "student",
+    displayName: "أحمد",
+    createdAt: now,
+    updatedAt: now,
+    ...overrides,
+  };
+}
+
+test("Users collection: role lookup, default student creation, and privilege escalation prevention", async () => {
+  const unauthDb = testEnv.unauthenticatedContext().firestore();
+  await assertFails(unauthDb.collection("users").doc(ALICE_UID).get());
+  await assertFails(unauthDb.collection("users").doc(ALICE_UID).set(buildUserPayload(ALICE_UID)));
+
+  // Seed Bob as pre-provisioned admin (e.g. from server/console)
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await context
+      .firestore()
+      .collection("users")
+      .doc(BOB_UID)
+      .set(buildUserPayload(BOB_UID, { role: "admin", displayName: "المدير" }));
+  });
+
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  const bobDb = testEnv.authenticatedContext(BOB_UID).firestore();
+
+  // Admin can read own role document; cannot list collection
+  await assertSucceeds(bobDb.collection("users").doc(BOB_UID).get());
+  await assertFails(bobDb.collection("users").get());
+
+  // Student cannot self-create with role: 'admin' or enrolledGradeKey or ghost fields
+  await assertFails(
+    aliceDb.collection("users").doc(ALICE_UID).set(buildUserPayload(ALICE_UID, { role: "admin" }))
+  );
+  await assertFails(
+    aliceDb
+      .collection("users")
+      .doc(ALICE_UID)
+      .set(buildUserPayload(ALICE_UID, { enrolledGradeKey: "G04" }))
+  );
+  await assertFails(
+    aliceDb
+      .collection("users")
+      .doc(ALICE_UID)
+      .set(buildUserPayload(ALICE_UID, { isVerified: true }))
+  );
+
+  // Valid initial default student creation succeeds
+  await assertSucceeds(
+    aliceDb.collection("users").doc(ALICE_UID).set(buildUserPayload(ALICE_UID))
+  );
+  await assertSucceeds(aliceDb.collection("users").doc(ALICE_UID).get());
+
+  // Student can update displayName only
+  await assertSucceeds(
+    aliceDb.collection("users").doc(ALICE_UID).update({
+      displayName: "أحمد محمد",
+      updatedAt: new Date(Date.now() - 500),
+    })
+  );
+
+  // Student cannot escalate role to admin or mutate createdAt or delete profile
+  await assertFails(
+    aliceDb.collection("users").doc(ALICE_UID).update({
+      role: "admin",
+      updatedAt: new Date(Date.now() - 300),
+    })
+  );
+  await assertFails(
+    aliceDb.collection("users").doc(ALICE_UID).update({
+      enrolledGradeKey: "G07",
+      updatedAt: new Date(Date.now() - 300),
+    })
+  );
+  await assertFails(
+    aliceDb.collection("users").doc(ALICE_UID).update({
+      createdAt: new Date(Date.now() - 300),
+      updatedAt: new Date(Date.now() - 300),
+    })
+  );
+  await assertFails(aliceDb.collection("users").doc(ALICE_UID).delete());
+
+  // Cross-user read/write blocked
+  await assertFails(aliceDb.collection("users").doc(BOB_UID).get());
+  await assertFails(aliceDb.collection("users").doc(BOB_UID).set(buildUserPayload(ALICE_UID)));
 });

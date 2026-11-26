@@ -91,13 +91,17 @@ fun StudentPerformanceChartCard(
     overallCompletionPercent: Int,
     activeLearner: LearnerProfile,
     availableLearners: List<LearnerProfile>,
+    availableGrades: List<String> = emptyList(),
     onSelectLearner: (String) -> Unit,
-    onAddLearner: (String) -> Unit,
+    onAddLearner: (String, String?) -> Unit,
     onSelectConceptForReinforcement: (String?) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var showAddLearnerDialog by remember { mutableStateOf(false) }
     var newLearnerName by remember { mutableStateOf("") }
+    var newLearnerGrade by remember(availableGrades) {
+        mutableStateOf(availableGrades.firstOrNull().orEmpty())
+    }
 
     val masteredCount = remember(concepts) { concepts.count { it.status == MasteryStatus.MASTERED } }
     val weakCount = remember(concepts) { concepts.count { it.status == MasteryStatus.NEEDS_REINFORCEMENT } }
@@ -218,8 +222,9 @@ fun StudentPerformanceChartCard(
                             tint = if (isSelected) EduWhite else EduMuted,
                             modifier = Modifier.size(14.dp)
                         )
+                        val gradeSuffix = profile.enrolledGradeKey?.takeIf { it.isNotBlank() }?.let { " • $it" }.orEmpty()
                         Text(
-                            text = profile.displayName,
+                            text = "${profile.displayName}$gradeSuffix",
                             style = MaterialTheme.typography.labelMedium,
                             color = if (isSelected) EduWhite else EduInk,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
@@ -333,13 +338,37 @@ fun StudentPerformanceChartCard(
                             .fillMaxWidth()
                             .testTag("new_learner_name_input")
                     )
+                    if (availableGrades.isNotEmpty()) {
+                        Text(
+                            text = "الصف المسجّل للطالب:",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = EduInk,
+                            fontWeight = FontWeight.Bold
+                        )
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            availableGrades.forEach { grade ->
+                                EduPill(
+                                    text = grade,
+                                    active = newLearnerGrade.equals(grade, ignoreCase = true),
+                                    onClick = { newLearnerGrade = grade },
+                                    testTag = "add_learner_grade_$grade"
+                                )
+                            }
+                        }
+                    }
                 }
             },
             confirmButton = {
                 Button(
                     enabled = newLearnerName.trim().isNotEmpty(),
                     onClick = {
-                        onAddLearner(newLearnerName.trim())
+                        onAddLearner(
+                            newLearnerName.trim(),
+                            newLearnerGrade.trim().takeIf { it.isNotBlank() }
+                        )
                         newLearnerName = ""
                         showAddLearnerDialog = false
                     },
