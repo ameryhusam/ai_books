@@ -508,6 +508,7 @@ class EduMiniRepository(
         }
         require(questionLanguage in setOf("ar", "en", "ar_en")) { "لغة الأسئلة المحددة غير مدعومة." }
         if (task == TaskType.QUESTIONS) {
+            require(questionCount in 1..30) { "عدد الأسئلة يجب أن يكون بين 1 و30." }
             val allowedTypeIds = com.example.model.QuestionType.entries.map { it.id }.toSet()
             require(questionTypeIds.distinct().size == questionTypeIds.size && questionTypeIds.all { it in allowedTypeIds }) {
                 "تتضمن قائمة أنواع الأسئلة قيمة غير مدعومة أو مكررة."
