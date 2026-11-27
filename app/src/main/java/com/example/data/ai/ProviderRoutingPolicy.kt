@@ -31,11 +31,33 @@ internal object ProviderRoutingPolicy {
         return listOf(exact)
     }
 
+    fun orderedProfiles(
+        providers: List<ProviderConfig>,
+        selectedProvider: ProviderType,
+        preferredProfileId: String
+    ): List<ProviderConfig> = activeProfiles(providers, selectedProvider)
+        .sortedWith(
+            compareBy<ProviderConfig> { if (it.id == preferredProfileId) 0 else 1 }
+                .thenBy { it.priority }
+                .thenBy { it.lastUsedAtEpochMs }
+                .thenBy { it.createdAt }
+        )
+
     fun modelCandidates(profile: ProviderConfig): List<String> {
         val primary = profile.model.trim()
         if (primary.isBlank()) return emptyList()
         if (profile.strictModel) return listOf(primary)
         return (listOf(primary) + profile.fallbackModels.map { it.trim() })
+            .filter { it.isNotBlank() }
+            .distinct()
+    }
+
+    /** The UI-selected model is always first; same-provider configured fallbacks follow. */
+    fun modelCandidates(profile: ProviderConfig, preferredModelId: String): List<String> {
+        val preferred = preferredModelId.trim()
+        require(preferred.isNotBlank()) { "An explicit catalogue model ID is required." }
+        if (profile.strictModel) return listOf(preferred)
+        return (listOf(preferred) + modelCandidates(profile))
             .filter { it.isNotBlank() }
             .distinct()
     }
