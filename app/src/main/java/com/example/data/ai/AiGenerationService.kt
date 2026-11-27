@@ -83,7 +83,7 @@ class AiGenerationService(
         responseSchemaJson: String = "",
         responseFormat: String = "text"
     ): String {
-        val blueprint = Indexer2PromptRegistry.blueprintFor(task)
+        val blueprint = BookIndexPromptRegistry.blueprintFor(task)
         val promptTemplate = context?.let { appContext ->
             appContext.assets.open(blueprint.sourcePath).bufferedReader(Charsets.UTF_8).use { it.readText() }
         }.orEmpty()
@@ -95,7 +95,7 @@ class AiGenerationService(
             unitTitle = PromptPrivacySanitizer.sanitize(lesson.unitTitle),
             title = PromptPrivacySanitizer.sanitize(lesson.title)
         )
-        return Indexer2PromptRegistry.assemblePrompt(
+        return BookIndexPromptRegistry.assemblePrompt(
         lesson = safeLesson,
         task = task,
         source = PromptPrivacySanitizer.sanitize(source),
