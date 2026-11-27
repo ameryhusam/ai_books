@@ -1976,7 +1976,15 @@ private fun LearningPathNodeRow(
 ) {
     val visibleDraftsCount = if (showApprovedOnly) node.approvedDraftsCount else node.draftsCount
     val visiblePackagesCount = if (showApprovedOnly) node.publishedPackagesCount else node.packagesCount
-    val (nodeColor, borderColor, bgColor) = when (node.status) {
+    val displayStatus = if (
+        showApprovedOnly &&
+        node.status == LearningNodeStatus.IN_PROGRESS &&
+        visibleDraftsCount == 0 &&
+        visiblePackagesCount == 0 &&
+        node.questionsCount == 0 &&
+        node.quizAttemptedCount == 0
+    ) LearningNodeStatus.NOT_STARTED else node.status
+    val (nodeColor, borderColor, bgColor) = when (displayStatus) {
         LearningNodeStatus.COMPLETED -> Triple(EduGreen, EduGreen, EduMint.copy(alpha = 0.4f))
         LearningNodeStatus.READY -> Triple(EduPurple, EduPurple.copy(alpha = 0.55f), EduWhite)
         LearningNodeStatus.IN_PROGRESS -> Triple(EduOrange, EduOrange.copy(alpha = 0.6f), EduWhite)
@@ -2056,7 +2064,7 @@ private fun LearningPathNodeRow(
                         color = EduInk
                     )
                     val details = buildString {
-                        append(node.status.labelAr)
+                        append(displayStatus.labelAr)
                         node.lesson.pageRange?.let { append(" • ص $it") }
                         if (node.questionsCount > 0) append(" • ${node.questionsCount} سؤال")
                     }
