@@ -456,13 +456,11 @@ only as a legacy/offline seed/cache. It is not authoritative for authenticated
 users and does not grant model-management rights. API credentials remain
 separately encrypted in `edu_mini_ai_profiles_v1`.
 
-The generation dialog presents two independent selections:
-- a model that is enabled and supports generation in the central catalogue;
-- an enabled API key belonging to the selected provider.
+The generation dialog asks the user to choose a model only. The application automatically selects the highest-priority enabled API key for the selected provider; the user does not choose an individual key for each generation request.
 
-The selected model ID and API-key record ID are required parameters throughout
+The selected model ID and internally selected API-key record ID are passed to
 `EduMiniRepository.generateContent` and `AiGenerationService.generate`.
-The selected key is attempted first. If it is quota-exhausted or invalid, routing may use another enabled key of the same provider. Gemini may move through enabled same-provider catalogue models after model-specific failures; these model candidates are not stored on individual keys. OpenAI-compatible key failover keeps the requested model unchanged. The default model is only the initial selection in the dialog. Concept remediation uses the system default model and an available key.
+The first enabled key is attempted first. If it is quota-exhausted or invalid, routing moves to another enabled key of the same provider. Gemini may move through enabled same-provider catalogue models after model-specific failures; these model candidates are not stored on individual keys. OpenAI-compatible key failover keeps the requested model unchanged. The default model is only the initial selection in the dialog. Concept remediation uses the system default model and the highest-priority available key.
 
 Model IDs are the provider-facing version identifiers. Renaming an ID creates
 the new catalogue document and retires the old document; a default entry is
@@ -843,7 +841,7 @@ The source changes are in place, but behavior is not considered verified until t
 
 ## Provider connection test in Settings
 
-The Settings screen uses the existing `testFormProvider` / `testSavedProvider` → repository → `AiGenerationService.testProviderConnection` path. It tests unsaved API-key values directly, allowing a user to verify a key before saving it. The test sends one short text-only request to the selected provider using that provider's enabled default catalogue model (or the first enabled supported model when no default exists). It does not use lesson prompts, templates, PDF attachments, generation history, quota reservation, draft persistence, or cross-provider fallback.
+The Settings screen uses the existing `testFormProvider` / `testSavedProvider` → repository → `AiGenerationService.testProviderConnection` path. It tests the specific unsaved or saved API key directly, allowing a user to verify that key before saving it. The test sends one short text-only request to the selected provider using that provider's enabled default catalogue model (or the first enabled supported model when no default exists). It does not use lesson prompts, templates, PDF attachments, generation history, quota reservation, draft persistence, or cross-provider fallback.
 
 A successful result displays provider, model, elapsed time, and the complete returned text. The result dialog is scrollable rather than truncating the response. The Settings button displays an in-progress state and prevents duplicate test requests.
 
