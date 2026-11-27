@@ -2309,7 +2309,7 @@ class MainViewModel(
             return
         }
         val raw = (rawTextOverride ?: snapshot.generatedResult).trim()
-        val activity = InteractiveActivityParser.parse(raw, lesson.title)
+        val activity = InteractiveActivityParser.parseStrictJson(raw, lesson.title)
         if (activity == null) {
             _uiState.update {
                 it.copy(
@@ -3626,7 +3626,7 @@ class MainViewModel(
                     }.getOrNull()
                 } else null
                 val interactiveParsed = if (snapshot.task == TaskType.INTERACTIVE) {
-                    InteractiveActivityParser.parse(out.text, lesson.title)
+                    InteractiveActivityParser.parseStrictJson(out.text, lesson.title)
                 } else {
                     null
                 }
