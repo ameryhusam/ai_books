@@ -94,7 +94,6 @@ data class MainUiState(
     val isSystemAdmin: Boolean = false,
     val isGenerationModelPickerOpen: Boolean = false,
     val selectedGenerationModelId: String = "",
-    val selectedGenerationProfileId: String = "",
     val selectedProvider: ProviderType = ProviderType.GEMINI,
     val providerForm: ProviderFormState = ProviderFormState(),
     val recentRuns: List<GenerationRunRecord> = emptyList(),
