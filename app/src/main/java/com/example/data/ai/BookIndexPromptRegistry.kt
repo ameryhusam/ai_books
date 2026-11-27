@@ -172,7 +172,7 @@ object BookIndexPromptRegistry {
                       "unitKey": "unit_01",
                       "title": "الوحدة الأولى",
                       "partKey": "P01",
-                      "assignmentStatus": "ASSIGNED",
+                      "assignmentStatus": "assigned",
                       "assignmentSource": "INDEX_EVIDENCE",
                       "assignmentEvidence": "دليل واضح من فهرس المحتويات",
                       "lessons": [
