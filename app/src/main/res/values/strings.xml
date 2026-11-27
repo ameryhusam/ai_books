@@ -61,7 +61,7 @@
     <string name="package_upload_cta">رفع HTML مستقل أو حزمة ZIP (3D / وسائط)</string>
     <string name="package_versions_heading">إصدارات الحزم التفاعلية</string>
     <string name="settings_title">إعداد AI</string>
-    <string name="settings_sub">أكثر من مزود مع fallback تلقائي ذكي</string>
+    <string name="settings_sub">إدارة اتصالات الذكاء الاصطناعي</string>
     <string name="settings_provider_label">المزود</string>
     <string name="settings_profile_name_label">اسم الاتصال</string>
     <string name="settings_model_label">النموذج</string>
