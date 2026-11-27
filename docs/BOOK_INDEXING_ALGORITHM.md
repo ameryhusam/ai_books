@@ -235,7 +235,7 @@ The reference implementation demonstrates this sequence:
 
 1. Resolve the exact source artifact. For question generation, resolve one approved lesson-level PDF from the canonical index; do not substitute another lesson or use metadata alone.
 2. Read the PDF bytes, validate the PDF signature and size, and calculate SHA-256.
-3. Load the task prompt and response schema from the task/template registry.
+3. Load the task prompt/instructions from the task-template registry and derive the response schema from the current Room/database AI-writable projection.
 4. Render the prompt variables using the selected lesson/book context and user instructions.
 5. Attach the original lesson PDF to the prompt as `application/pdf` for Gemini. For OpenAI-compatible endpoints, render supported PDF pages to JPEG image inputs; do not claim native-PDF support for every compatible endpoint.
 6. Send prompt, source attachment and JSON response configuration in one provider request.
