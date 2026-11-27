@@ -292,7 +292,9 @@ data class GeneratedResult(
     val contentHash: String = "",
     val sourcePdfHash: String = "",
     val promptUsed: String = "",
-    val responseSchemaJson: String = ""
+    val responseSchemaJson: String = "",
+    /** Feature-owned contract/domain validation findings; raw text remains reviewable. */
+    val validationIssues: List<String> = emptyList()
 )
 
 data class DraftRecord(
