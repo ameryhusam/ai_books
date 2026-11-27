@@ -903,7 +903,8 @@ data class StagedWorkspacePreview(
     val grades: List<StagedGradeSummary>,
     val warnings: List<String>,
     val requiresReviewConfirmation: Boolean = false,
-    val reviewFindings: List<String> = emptyList()
+    val reviewFindings: List<String> = emptyList(),
+    val reviewIndexPaths: List<String> = emptyList()
 )
 
 sealed interface GlobalSearchHit {
