@@ -192,13 +192,15 @@ object WorkspaceContractValidator {
             "requiresReview",
             "indexSha256",
             "canonicalIndexSha256",
-            "partIndexes",
             "assignmentSource",
             "assignmentEvidence",
             "assignmentStatus",
             "provisionalAssignment"
         )
-        val reviewErrors = errors.filter { message -> reviewMarkers.any { marker -> message.contains(marker, ignoreCase = true) } }
+        val reviewErrors = errors.filter { message ->
+            reviewMarkers.any { marker -> message.contains(marker, ignoreCase = true) } ||
+                (message.contains("partIndexes", ignoreCase = true) && message.contains("لا تطابق"))
+        }
         val blockingErrors = errors.filterNot { it in reviewErrors }
         return WorkspaceContractValidation(
             canonicalContract = canonical,
