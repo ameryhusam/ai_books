@@ -145,6 +145,9 @@ fun AdminDashboardScreen(
         }
     }
 
+    val unassignedPercent = if (availableLearners.isEmpty()) 0
+        else (unassignedLearners.size * 100 / availableLearners.size)
+
     val filteredStudents = remember(availableLearners, studentFilter, filterGradeKey, availableGradeSet) {
         when (studentFilter) {
             StudentRosterFilter.ALL -> availableLearners
@@ -199,7 +202,7 @@ fun AdminDashboardScreen(
                     )
                     AdminStatCard(
                         value = unassignedLearners.size.toString(),
-                        label = "بلا صف مسجّل",
+                        label = "بلا صف مسجّل • $unassignedPercent%",
                         accent = if (unassignedLearners.isNotEmpty()) EduOrange else EduGreen,
                         modifier = Modifier
                             .weight(1f)
