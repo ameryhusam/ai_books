@@ -522,7 +522,7 @@ fun SettingsScreen(
                     }
 
                     Text(
-                        text = "النماذج الاحتياطية (Fallback مفصولة بفاصلة)",
+                        text = "النماذج الاحتياطية (تُجرّب بالترتيب بعد النموذج الأساسي)",
                         style = MaterialTheme.typography.labelMedium,
                         color = EduInk,
                         modifier = Modifier.padding(top = 6.dp)
@@ -572,6 +572,12 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = EduMuted,
                         modifier = Modifier.padding(top = 8.dp)
+                    )
+                    Text(
+                        text = "سياسة المحاولات: Gemini يحاول النموذج حتى 3 مرات عند الازدحام ثم ينتقل إلى النموذج الاحتياطي التالي. عند نفاد الحصة أو عدم صلاحية المفتاح ينتقل إلى ملف Gemini API آخر. OpenAI-compatible يعيد المحاولة حتى 3 مرات ثم ينتقل إلى مفتاح آخر. لا يحدث انتقال تلقائي بين Gemini وOpenAI. قد تتشارك المفاتيح التابعة للمشروع نفسه الحصة.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = EduMuted,
+                        modifier = Modifier.padding(top = 4.dp)
                     )
                     Text(
                         text = stringResource(R.string.settings_api_key_label),
