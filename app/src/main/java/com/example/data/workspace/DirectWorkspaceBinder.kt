@@ -211,6 +211,7 @@ class DirectWorkspaceBinder(private val context: Context) {
             warnings.addAll(validation.warnings.map { "$bookRel: $it" })
             if (!validation.isValid) {
                 rejectionErrors.addAll(validation.errors.map { "$bookRel: $it" })
+                rejectionErrors.addAll(validation.reviewRequiredErrors.map { "$bookRel: $it" })
                 continue
             }
 
@@ -564,6 +565,7 @@ class DirectWorkspaceBinder(private val context: Context) {
             warnings.addAll(validation.warnings.map { "$bookLabel: $it" })
             if (!validation.isValid) {
                 rejectionErrors.addAll(validation.errors.map { "$bookLabel: $it" })
+                rejectionErrors.addAll(validation.reviewRequiredErrors.map { "$bookLabel: $it" })
                 return@forEach
             }
 
