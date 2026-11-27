@@ -78,4 +78,26 @@ class BookIndexIntakeWorkflowTest {
         assertTrue(draft.validationErrors().isEmpty())
         assertTrue(draft.canApprove())
     }
+    @Test
+    fun unconfirmedDefaultPartProposalCannotBeApproved() {
+        val draft = validDraft().copy(
+            units = validDraft().units.map { unit ->
+                unit.copy(
+                    assignmentSource = IndexAssignmentSource.DEFAULT_PROPOSAL,
+                    assignmentEvidence = "Suggested by default; awaiting user confirmation"
+                )
+            }
+        )
+        assertFalse(draft.canApprove())
+        assertTrue(draft.validationErrors().any { it.contains("غير موثوق") })
+    }
+
+    @Test
+    fun aiDiscoveryContractHasReusablePromptAndVersionedSchema() {
+        assertTrue(com.example.data.workspace.BookIndexPromptTemplate.SOURCE_PATH.endsWith("book_index_discovery.prompt.md"))
+        assertTrue(com.example.data.workspace.BookIndexPromptTemplate.responseSchemaJson.contains("subjectKey"))
+        assertTrue(com.example.data.workspace.BookIndexPromptTemplate.responseSchemaJson.contains("printedPageStart"))
+        assertTrue(com.example.data.workspace.BookIndexPromptTemplate.responseSchemaJson.contains("assignmentEvidence"))
+    }
+
 }
