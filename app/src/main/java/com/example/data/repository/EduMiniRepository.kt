@@ -439,11 +439,13 @@ class EduMiniRepository(
         val nativePdf = runCatching {
             aiGenerationService.extractLessonPdfBase64(pdfInfo.storedPdfPath, maxBytes = 18 * 1024 * 1024)
         }.getOrNull()
-        val pageImages = aiGenerationService.extractLessonPdfPageImagesBase64(
-            pdfPath = pdfInfo.storedPdfPath,
-            maxPages = 20,
-            sampleAcrossDocument = false
-        )
+        val pageImages = if (selectedProvider == ProviderType.OPENAI_COMPATIBLE || nativePdf == null) {
+            aiGenerationService.extractLessonPdfPageImagesBase64(
+                pdfPath = pdfInfo.storedPdfPath,
+                maxPages = 20,
+                sampleAcrossDocument = false
+            )
+        } else emptyList()
         require(nativePdf != null || pageImages.isNotEmpty()) {
             "تعذر تجهيز صفحات PDF لإرسالها إلى نموذج الذكاء الاصطناعي."
         }
