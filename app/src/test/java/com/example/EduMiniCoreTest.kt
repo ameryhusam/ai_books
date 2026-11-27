@@ -3150,8 +3150,9 @@ class EduMiniCoreTest {
             model = "",
             fallbackModels = listOf("gemini-primary", "gemini-fallback")
         )
+        // API-key records are credential-only; model fallbacks come from the provider catalogue.
         assertEquals(
-            listOf("gemini-selected", "gemini-primary", "gemini-fallback"),
+            listOf("gemini-selected"),
             com.example.data.ai.ProviderRoutingPolicy.modelCandidates(credentialOnlyProfile, "gemini-selected")
         )
         assertEquals(
