@@ -388,15 +388,15 @@ A provider profile stores:
 - ordered fallback model IDs;
 - `strictModel`.
 
-Provider profile data can store a primary model and fallback candidates, but the current generation call path uses the exact model ID selected in the generation dialog. It calls ProviderRoutingPolicy.exactModelCandidate(requestedModelId); it does not currently dispatch the profile fallback-model list. The selected profile ID is also enforced explicitly.
+Provider profiles retain an ordered primary model and fallbackModels list. The active execution path now uses the UI-selected model first, followed by configured same-provider Gemini fallbacks. The selected API profile is attempted first, then other enabled profiles belonging to the same provider are eligible according to the provider-specific failover rules. OpenAI-compatible model selection remains fixed; its fallback path rotates API profiles/keys, not providers.
 
-This is the current policy: diagnose and retry the selected provider/model rather than silently moving to an unselected model or provider. If same-provider model fallback is enabled in a later change, it must be explicit, observable and tested.
+Current policy: keep provider selection explicit and isolated, but permit configured same-provider fallback. For Gemini, make up to three actual dispatch attempts per model on transient overload/rate-limit/network/server failures, then move to the next configured Gemini model. A confirmed daily/project quota exhaustion or invalid key skips the current API profile immediately and tries another enabled Gemini profile. OpenAI-compatible requests keep the selected model, retry transient failures up to three dispatches, then move to another enabled OpenAI-compatible profile/key; invalid key and confirmed quota exhaustion move to the next key immediately.
 
 ### 7.2 Current Gemini behavior
 
-The current generation path filters to the selected provider and exact selected profile, uses only the exact model ID selected by the user, and checks the process-local cooldown for that selected Gemini profile/model. On HTTP 429 it records cooldown and stops the request. It does not rotate to another Google key, another profile or another model. Confirmed quota exhaustion also stops the request. Eligible transient non-429 failures are retried on the same selected provider/profile/model within the bounded retry loop.
+The current generation path filters profiles by the selected provider and orders the selected profile first. Gemini retries a saturated model up to three times, marks only that profile/model pair cooling down, and then tries the next configured model. It moves to another Gemini API profile only when the current profile is quota-exhausted, invalid, or otherwise unavailable. OpenAI-compatible requests retain the chosen model and can move to another same-provider API key after three transient failures, or immediately for confirmed quota exhaustion/invalid credentials. No cross-provider fallback occurs.
 
-The profile fallback-model list is not used by this call path. ProviderRoutingPolicy.modelCandidates(profile) exists, but AiGenerationService.generate() currently calls exactModelCandidate(requestedModelId). Do not claim model fallback is active until the dispatch path and tests actually use it.
+The active task-neutral AiGenerationService.execute(AiExecutionRequest) dispatch path uses ProviderRoutingPolicy.orderedProfiles() and modelCandidates(profile, requestedModelId). The older generate(lesson, task, ...) method is now a compatibility adapter that prepares the lesson prompt and delegates to execute().
 
 ### 7.3 Current OpenAI-compatible behavior
 
@@ -592,7 +592,7 @@ Template changes must not erase existing drafts or source workspace records.
 - OpenAI-compatible failure never dispatches Gemini.
 - Candidate model order follows the selected profile configuration.
 - Strict model mode attempts only the primary model.
-- Gemini 429 cooldown affects the relevant model/profile and does not silently rotate Google keys.
+- Gemini 429 cooldown is model-scoped. After three attempts, the next configured Gemini model is tried; another API profile is selected for quota exhaustion or invalid/unavailable credentials, not as a way to bypass a model's ordinary rate limit.
 - Confirmed quota exhaustion stops prohibited retries.
 - OpenAI-compatible model candidates are independent of Gemini models and cooldown state.
 - Provider switching affects new requests only.
@@ -675,14 +675,14 @@ Create one task-neutral request/execution boundary inside `AiGenerationService`.
 - the fully assembled prompt;
 - source attachments (native PDF payloads and/or rendered page images);
 - response format and a real versioned JSON Schema;
-- provider, selected profile and exact model;
+- provider, selected/actual profile, actual model, attempt count and failover reason;
 - prompt/schema versions and hashes, source hash and request fingerprint.
 
 Move provider routing, quota reservation, cancellation, provider call, retry/cooldown and raw response extraction into one task-neutral execution method. It receives a fully assembled prompt, attachments, response format/schema, selected provider/profile/model and provenance; it does not require LessonRef or TaskType. Keep the current lesson-generation API as a compatibility adapter while moving prompt preparation out of the service. Add book-index, learner-assessment, recommendation and remediation task adapters; each prepares its own inputs and calls the same execution method. Do not add another OkHttp client, Gemini HTTP implementation or provider retry loop.
 
 The shared service returns raw provider text and an execution envelope. It does not parse question arrays, map index JSON into intake drafts, calculate learner scores, interpret mistakes or write Room records. Those operations belong to the requesting feature's use case/repository. The UI receives the feature's resulting state, not a direct provider callback.
 
-Preserve current Android provider policy: no silent cross-provider fallback, no automatic key rotation to bypass quota, exact selected model/profile, and existing cooldown rules. Reusing the proven request shape does not mean copying a different runtime's key/model fallback behavior.
+Preserve provider isolation while using the configured same-provider fallback policy: Gemini model fallback and quota-triggered Gemini profile failover; OpenAI-compatible key/profile failover. Do not switch between Gemini and OpenAI. Keep retry counts, cooldowns, profile changes and provider errors observable.
 
 ### 15.5 Response handling for index discovery
 
