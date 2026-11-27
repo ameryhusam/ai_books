@@ -3446,7 +3446,7 @@ class MainViewModel(
         }
         generationJob?.cancel()
         generationJob = viewModelScope.launch {
-            _uiState.update { it.copy(isBusy = true, activeDraftId = "", generationProgressPercent = 2, generationStage = "بدء تجهيز الطلب") }
+            _uiState.update { it.copy(isBusy = true, activeDraftId = "", generatedResult = "", generatedDisplayResult = "", generationProgressPercent = 2, generationStage = "بدء تجهيز الطلب") }
             try {
                 val out = repository.generateContent(
                     workspaceId = snapshot.workspace?.workspaceId.orEmpty(),
