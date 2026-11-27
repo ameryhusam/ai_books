@@ -750,6 +750,7 @@ private fun AuthenticatedEduMiniContent(
                                             sourceText = state.sourceText,
                                             extraInstructions = state.extraInstructions,
                                             generatedResult = state.generatedResult,
+                                            displayGeneratedResult = state.generatedDisplayResult,
                                             packageSourcePages = state.packageSourcePages,
                                             lessonDrafts = lessonDrafts,
                                             cloudDraftsState = cloudDraftsState,
