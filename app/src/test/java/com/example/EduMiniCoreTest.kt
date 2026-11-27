@@ -295,7 +295,7 @@ class EduMiniCoreTest {
     }
 
     @Test
-    fun workspaceContractValidatorBlocksUnverifiedLegacySource() {
+    fun workspaceContractValidatorMarksUnverifiedSourceForReview() {
         val index = """
             {
               "gradeKey": "G04",
@@ -344,7 +344,7 @@ class EduMiniCoreTest {
     }
 
     @Test
-    fun workspaceContractValidatorRequiresUnitAssignmentProvenanceForManifestV2() {
+    fun workspaceContractValidatorMarksMissingUnitAssignmentProvenanceForReview() {
         val index = """
             {
               "gradeKey": "G04",
