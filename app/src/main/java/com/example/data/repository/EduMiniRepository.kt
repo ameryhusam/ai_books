@@ -6,6 +6,7 @@ import kotlinx.coroutines.CancellationException
 import com.example.data.ai.AiExecutionRequest
 import com.example.data.ai.AiGenerationService
 import com.example.data.ai.BookIndexPromptRegistry
+import com.example.data.workspace.BookIndexPromptTemplate
 import com.example.data.ai.TemplateResponseAdapter
 import com.example.data.ai.QuestionResponseContract
 import com.example.data.ai.TemplateOutputValidator
@@ -406,6 +407,85 @@ class EduMiniRepository(
         val splitter = pdfBookSplitter
             ?: throw IllegalStateException("ميزة تقطيع الكتب من PDF متوقفة حالياً؛ استخدم الربط المباشر بمجلد workspace.")
         return splitter.ingestBookPdf(uri)
+    }
+
+    /**
+     * Runs AI-assisted PDF index discovery through the same provider execution path
+     * used by Content Studio and lesson preparation. The result is a draft only.
+     */
+    suspend fun discoverBookIndexFromPdf(
+        pdfInfo: PdfBookInfo,
+        providers: List<ProviderConfig>,
+        selectedProvider: ProviderType,
+        selectedModelId: String,
+        selectedProfileId: String,
+        onProgress: (Int, String) -> Unit = { _, _ -> }
+    ): GeneratedResult {
+        require(pdfInfo.storedPdfPath.isNotBlank()) { "مسار ملف PDF غير محدد." }
+        require(selectedModelId.isNotBlank()) { "يجب اختيار نموذج AI لاكتشاف الفهرس." }
+        require(providers.any { it.id == selectedProfileId && it.provider == selectedProvider }) {
+            "مفتاح API المحدد غير موجود أو لا ينتمي إلى المزود المختار."
+        }
+        val context = appContext ?: throw IllegalStateException("سياق التطبيق غير متاح لقراءة قالب اكتشاف الفهرس.")
+        onProgress(8, "قراءة قالب اكتشاف الفهرس")
+        val promptTemplate = context.assets.open(BookIndexPromptTemplate.SOURCE_PATH)
+            .bufferedReader(Charsets.UTF_8).use { it.readText() }
+        require(promptTemplate.isNotBlank()) { "قالب اكتشاف الفهرس فارغ." }
+
+        onProgress(18, "فحص ملف PDF وتجهيز المرفقات")
+        // Gemini receives the complete PDF when it fits the native request limit.
+        // OpenAI-compatible endpoints receive rendered page images; the shared executor
+        // selects the attachment representation supported by the active provider.
+        val nativePdf = runCatching {
+            aiGenerationService.extractLessonPdfBase64(pdfInfo.storedPdfPath, maxBytes = 18 * 1024 * 1024)
+        }.getOrNull()
+        val pageImages = aiGenerationService.extractLessonPdfPageImagesBase64(
+            pdfPath = pdfInfo.storedPdfPath,
+            maxPages = 20
+        )
+        require(nativePdf != null || pageImages.isNotEmpty()) {
+            "تعذر تجهيز صفحات PDF لإرسالها إلى نموذج الذكاء الاصطناعي."
+        }
+
+        val schema = BookIndexPromptTemplate.responseSchemaJson
+        val prompt = buildString {
+            append(promptTemplate.trim())
+            append("\n\n## Source file metadata\n")
+            append("File name: ").append(pdfInfo.fileName).append("\n")
+            append("Physical PDF page count: ").append(pdfInfo.totalPages).append("\n")
+            append("Source SHA-256: ").append(pdfInfo.sha256).append("\n")
+            append("Default printed-to-physical page offset: 1. The user may edit it.\n")
+            append("If a physical PDF page is not directly verified, set pdfPageStart/pdfPageEnd to 0 and preserve printed page values separately.\n")
+            append("Never mark the result approved. Keep uncertain source layout and unit part assignments in review.\n")
+            append("\n## Required JSON Schema\n").append(schema)
+        }
+        val schemaHash = sha256Full(schema)
+        val requestFingerprint = sha256Full(
+            listOf(pdfInfo.sha256, selectedProvider.id, selectedModelId, schemaHash, prompt).joinToString("|")
+        )
+        onProgress(42, "إرسال ملف PDF وقالب الفهرس إلى مزود الذكاء الاصطناعي")
+        val result = executeAiTask(
+            workspaceId = "index-discovery-${pdfInfo.sha256.take(16)}",
+            taskId = "BOOK_INDEX_DISCOVERY",
+            request = AiExecutionRequest(
+                prompt = prompt,
+                providers = providers,
+                selectedProvider = selectedProvider,
+                requestedModelId = selectedModelId,
+                requestedProfileId = selectedProfileId,
+                pdfPageImagesBase64 = pageImages,
+                pdfDocumentBase64 = nativePdf?.base64,
+                responseSchemaJson = schema,
+                responseFormat = "json",
+                templateId = "ai_book_index_discovery",
+                templateVersion = 1,
+                responseSchemaHash = schemaHash,
+                requestFingerprint = requestFingerprint,
+                sourcePdfHash = pdfInfo.sha256
+            )
+        )
+        onProgress(92, "استلام مسودة الفهرس للتحقق والمراجعة")
+        return result.copy(sourcePdfHash = pdfInfo.sha256, responseSchemaJson = schema)
     }
 
     fun generateAutoSplits(totalPages: Int, pagesPerLesson: Int): List<LessonSplitDraft> {
