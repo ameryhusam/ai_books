@@ -458,18 +458,26 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.labelMedium,
                         color = EduInk
                     )
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(7.dp),
-                        verticalArrangement = Arrangement.spacedBy(7.dp)
-                    ) {
-                        ProviderType.entries.forEach { type ->
-                            EduPill(
-                                text = type.displayName,
-                                active = form.provider == type,
-                                onClick = { onSelectProviderType(type) },
-                                testTag = "provider_type_${type.id}"
-                            )
+                    if (form.editingProviderId == null) {
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(7.dp),
+                            verticalArrangement = Arrangement.spacedBy(7.dp)
+                        ) {
+                            ProviderType.entries.forEach { type ->
+                                EduPill(
+                                    text = type.displayName,
+                                    active = form.provider == type,
+                                    onClick = { onSelectProviderType(type) },
+                                    testTag = "provider_type_${type.id}"
+                                )
+                            }
                         }
+                    } else {
+                        Text(
+                            text = form.provider.displayName,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = EduInk
+                        )
                     }
 
                     if (form.provider == ProviderType.OPENAI_COMPATIBLE) {
