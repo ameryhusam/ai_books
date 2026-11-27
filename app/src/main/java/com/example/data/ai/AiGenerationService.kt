@@ -343,20 +343,6 @@ class AiGenerationService(
             "لا توجد ملفات API مفعّلة للمزود ${selectedProvider.displayName}."
         }
         val errors = mutableListOf<String>()
-        val prompt = buildPrompt(
-            lesson = lesson,
-            task = task,
-            source = source,
-            extra = extra,
-            questionCount = questionCount,
-            questionTypeIds = questionTypeIds,
-            questionLanguage = questionLanguage,
-            attachedPdfPagesCount = if (!pdfDocumentBase64.isNullOrBlank()) 1 else pdfPageImagesBase64.size,
-            questionStyleHint = questionStyleHint,
-            difficultyHint = difficultyHint,
-            responseSchemaJson = responseSchemaJson,
-            responseFormat = responseFormat
-        )
         val expectJson = responseFormat.equals("json", ignoreCase = true) || responseSchemaJson.isNotBlank()
 
         profileLoop@ for (profile in active) {
