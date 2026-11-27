@@ -115,19 +115,30 @@ The current TypeScript exporter writes `edu.book_manifest.v2` with:
 
 For a standalone source, the canonical index is `P01/index.json` or `P02/index.json` and its manifest is beside it. For a merged source, the canonical index is root `index.json` and derived part views are inside P01/P02. Hashes are calculated from the exact serialized bytes written to each file.
 
-## 8. Current implementation status (verified snapshot)
+## 8. Current implementation status
 
-The following changes are now present in the TypeScript main path:
-- shared types define `assignmentStatus`, `proposedPartKey`, `assignmentSource`, and `assignmentEvidence`;
-- the extraction schema accepts assignment provenance, and the extraction prompt requires explicit evidence for `assigned`; the model must not invent a P01 proposal;
-- source layout is derived from PDF discovery evidence or an explicit reviewer choice, not from filename, model output, or top-level partKey alone; a cover label P01/P02 identifies a candidate part but does not prove the PDF is standalone. Automatic SINGLE_PART_FILE classification requires explicit standalone wording; otherwise the UI requires a reviewer to select the physical layout;
-- the intake UI adds a P01 proposal only for unresolved units in a source already classified as merged, displays it as unconfirmed, and records reviewer confirmation when P01/P02 is selected;
-- approval and slicing reject an unresolved `sourceLayout`, a source-level `partKey` that conflicts with the layout, or any unit without `assignmentStatus=assigned`, trusted `assignmentSource`, and non-empty `assignmentEvidence`;
-- the exporter writes an independent source's canonical index and manifest inside P01/P02; a merged source retains one root canonical index and may write filtered part views;
-- manifest v2 records the canonical index path/hash and an independent hash for each derived part index;
-- lesson records retain `sliceFile.workspaceUri`, which is the consumer-facing path.
+The Kotlin/Android repository now contains the following app-owned foundations:
 
-The repository has no successful CI status attached to the latest commits in this session, and no TypeScript build or automated test suite was run here. The legacy Python paths referenced by older algorithm notes were not found in the current `main` tree; those notes are now marked historical. The TypeScript path is the current implementation under review, but full runtime compatibility remains unverified until the project's build/tests and workspace upload/download flow are executed.
+- PDF intake in PdfBookSplitter records the source filename, SHA-256 and physical page count.
+- The current fixed-page splitter output is explicitly marked as a provisional draft (edu.book_index.draft.v1 / edu.book_manifest.draft.v1), not as a canonical v2 index or verified source.
+- The splitter no longer assigns P01 unconditionally to every LessonRef; an unknown part remains unknown.
+- BookIndexIntakeWorkflow.kt defines the shared review contract for grade/subject names and keys, source layout/part, book title, template selection, discovery method, offset, unit/lesson metadata, printed and physical PDF pages, assignment provenance and reviewer confirmation.
+- The shared validator blocks approval while source layout, unit-part assignment, page ranges or reviewer confirmation remain unresolved.
+- A dedicated reusable AI discovery prompt exists at app/src/main/assets/prompts/book_indexing/book_index_discovery.prompt.md.
+- Existing reusable lesson-generation prompt resources were moved under prompts/book_indexing, and the registry now uses app-owned BookIndexPromptRegistry / BookIndexSchemaSpec naming.
+- The registry's canonical index example now declares edu.book_index.v2 and includes grade/subject display metadata, offset, source layout, assignment evidence and separate printed/physical page fields. The book manifest example describes edu.book_manifest.v2.
+
+The following end-to-end pieces are not yet implemented or verified and must not be described as completed:
+
+- The book upload UI is not yet wired to BookIndexIntakeWorkflow. The existing PDF splitter dialog is not the complete metadata-review experience.
+- Automatic extraction of grade, subject, table of contents, unit/lesson titles and page evidence is not yet connected to the intake screen.
+- The dedicated discovery prompt is not yet invoked with selected PDF pages through the AI provider pipeline.
+- Built-in deterministic TOC parsing and AI-assisted extraction are not yet selectable from one integrated intake screen.
+- The approved intake model is not yet the sole input to the canonical v2 index serializer, manifest writer and final slicer.
+- No end-to-end Android build, instrumented test, or full upload → discover → edit → confirm → approve → slice test was run during this change.
+
+Therefore, the data contract and architectural ownership are now established, but the complete interactive discovery workflow remains the next implementation milestone.
+
 ## 9. Consumer requirements for Edu Mini
 
 Edu Mini must:
@@ -148,7 +159,7 @@ Edu Mini must:
 - A merged source has one root canonical index; part indexes are derived.
 - Each source PDF has its own source SHA-256.
 - Each index hash belongs to the exact index file it describes.
-- The application consumes the app-generated workspace; it does not reimplement its indexing logic.
+- The application owns and executes the indexing algorithm and exports a validated app-generated workspace.
 
 
 ## 11. App-owned book intake and indexing workflow
