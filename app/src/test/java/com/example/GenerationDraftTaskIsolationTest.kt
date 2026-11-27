@@ -4,11 +4,75 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.local.DraftEntity
 import com.example.data.local.EduMiniDatabase
+import com.example.data.local.QuestionEntity
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class GenerationDraftTaskIsolationTest {
+
+    @Test
+    fun approvingDraftPromotesOnlyItsLinkedQuestions() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val db = Room.inMemoryDatabaseBuilder(context, EduMiniDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            val dao = db.eduMiniDao()
+            dao.insertQuestions(
+                listOf(
+                    QuestionEntity(
+                        id = "q-draft-linked",
+                        workspaceId = "ws",
+                        gradeKey = "G04",
+                        bookKey = "ARAB",
+                        unitKey = "unit_01",
+                        lessonKey = "lesson_01",
+                        lessonTitle = "الدرس",
+                        type = "mcq",
+                        prompt = "سؤال مرتبط بالمسودة",
+                        optionsJson = "[]",
+                        correctAnswer = "أ",
+                        rationale = "",
+                        difficulty = "easy",
+                        sourcePages = null,
+                        fingerprint = "fp-linked",
+                        reviewed = false,
+                        createdAt = "2026-01-01T00:00:00Z",
+                        draftId = "draft-linked"
+                    ),
+                    QuestionEntity(
+                        id = "q-other",
+                        workspaceId = "ws",
+                        gradeKey = "G04",
+                        bookKey = "ARAB",
+                        unitKey = "unit_01",
+                        lessonKey = "lesson_01",
+                        lessonTitle = "الدرس",
+                        type = "mcq",
+                        prompt = "سؤال لمسودة أخرى",
+                        optionsJson = "[]",
+                        correctAnswer = "ب",
+                        rationale = "",
+                        difficulty = "easy",
+                        sourcePages = null,
+                        fingerprint = "fp-other",
+                        reviewed = false,
+                        createdAt = "2026-01-01T00:00:00Z",
+                        draftId = "draft-other"
+                    )
+                )
+            )
+
+            assertEquals(1, dao.approveQuestionsForDraft("draft-linked"))
+            val stored = dao.observeQuestionsForWorkspace("ws").first().associateBy { it.id }
+            assertEquals(true, stored.getValue("q-draft-linked").reviewed)
+            assertEquals(false, stored.getValue("q-other").reviewed)
+        } finally {
+            db.close()
+        }
+    }
 
     @Test
     fun draftVersionsAreIndependentForEachTask() = runBlocking {
