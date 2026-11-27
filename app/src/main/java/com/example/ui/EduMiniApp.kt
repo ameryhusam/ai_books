@@ -850,14 +850,12 @@ private fun AuthenticatedEduMiniContent(
                     GenerationModelPickerDialog(
                         provider = state.selectedProvider,
                         models = state.aiModelCatalog,
-                        profiles = state.providers,
+                        apiKeys = state.providers,
                         defaultModelId = state.aiModelCatalog.firstOrNull {
                             it.provider == state.selectedProvider && it.isDefault
                         }?.modelId.orEmpty(),
                         selectedModelId = state.selectedGenerationModelId,
-                        selectedProfileId = state.selectedGenerationProfileId,
                         onSelectModel = viewModel::selectGenerationModel,
-                        onSelectProfile = viewModel::selectGenerationProfile,
                         onConfirm = viewModel::confirmGenerationSelection,
                         onDismiss = viewModel::dismissGenerationModelPicker
                     )
