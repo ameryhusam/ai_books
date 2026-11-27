@@ -373,6 +373,11 @@ class EduMiniRepository(
             throw IllegalStateException(failures.joinToString("\n\n").ifBlank { "تعذر ربط أي صف دراسي." })
         }
         if (failures.isNotEmpty()) {
+            if (bound.isEmpty()) {
+                throw IllegalStateException(
+                    "تعذر ربط أي صف من الصفوف المحددة: " + failures.joinToString("؛ ")
+                )
+            }
             val existingFirst = bound.first()
             val mergedWarnings = (failures.map { "تعذر ربط صف إضافي • $it" } + existingFirst.warnings).distinct()
             val updatedFirst = existingFirst.copy(warnings = mergedWarnings)
