@@ -484,12 +484,12 @@ enum class PdfSplitTemplate(
     UNIT_GROUPED(
         id = "unit_grouped",
         labelAr = "قالب وحدات ودروس قياسي",
-        descriptionAr = "تجميع الدروس في وحدات منظمة (4 دروس/وحدة) متوافقة مع indexer2"
+        descriptionAr = "تجميع الدروس في وحدات منظمة (4 دروس/وحدة) متوافقة مع مخطط الفهرس المعتمد"
     ),
     AI_TOC_SCHEMA(
         id = "ai_toc_schema",
         labelAr = "تجزئة ذكية بالبرومبت ومخطط الفهرس",
-        descriptionAr = "تحليل فهرس الكتاب بالذكاء الاصطناعي وفق مخطط index.json المعتمد"
+        descriptionAr = "تحليل فهرس الكتاب بالذكاء الاصطناعي وفق مخطط index.json المعتمد داخل التطبيق"
     )
 }
 
@@ -891,7 +891,7 @@ data class PromptBlueprintSpec(
     val quickInstructions: String = ""
 )
 
-data class Indexer2SchemaSpec(
+data class BookIndexSchemaSpec(
     val id: String,
     val fileName: String,
     val titleAr: String,
