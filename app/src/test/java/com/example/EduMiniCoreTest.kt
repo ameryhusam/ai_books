@@ -6,7 +6,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.sqlite.db.SupportSQLiteOpenHelper
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import com.example.data.ai.AiGenerationService
-import com.example.data.ai.Indexer2PromptRegistry
+import com.example.data.ai.BookIndexPromptRegistry
 import com.example.data.ai.TemplateResponseAdapter
 import com.example.data.ai.TemplateOutputValidator
 import com.example.data.ai.QuestionResponseContract
@@ -1660,7 +1660,7 @@ class EduMiniCoreTest {
     fun indexer2PromptRegistryCoversAllTasksAndStandardSchemas() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         TaskType.entries.forEach { task ->
-            val blueprint = Indexer2PromptRegistry.blueprintFor(task)
+            val blueprint = BookIndexPromptRegistry.blueprintFor(task)
             assertEquals(task, blueprint.task)
             assertTrue(blueprint.sourcePath.startsWith("prompts/indexer2/"))
             assertTrue(blueprint.outputContract.isNotBlank())
@@ -1669,13 +1669,13 @@ class EduMiniCoreTest {
             }
         }
 
-        assertEquals(6, Indexer2PromptRegistry.schemas.size)
-        assertTrue(Indexer2PromptRegistry.schemas.any { it.fileName.contains("index.json") })
-        assertTrue(Indexer2PromptRegistry.schemas.any { it.fileName.contains("book_manifest.json") })
-        assertTrue(Indexer2PromptRegistry.schemas.any { it.fileName.contains("interactive.json") })
-        assertTrue(Indexer2PromptRegistry.schemas.any { it.fileName == "manifest.json" })
+        assertEquals(6, BookIndexPromptRegistry.schemas.size)
+        assertTrue(BookIndexPromptRegistry.schemas.any { it.fileName.contains("index.json") })
+        assertTrue(BookIndexPromptRegistry.schemas.any { it.fileName.contains("book_manifest.json") })
+        assertTrue(BookIndexPromptRegistry.schemas.any { it.fileName.contains("interactive.json") })
+        assertTrue(BookIndexPromptRegistry.schemas.any { it.fileName == "manifest.json" })
 
-        val prompt = Indexer2PromptRegistry.assemblePrompt(
+        val prompt = BookIndexPromptRegistry.assemblePrompt(
             lesson = sampleLesson(),
             task = TaskType.EXPLANATION,
             source = "مفهوم القسمة المطولة",
