@@ -37,7 +37,10 @@ class WorkspaceImporter(private val context: Context) {
     private val workspacesRoot: File
         get() = File(context.filesDir, "edumini/workspaces")
 
-    suspend fun inspectZipFromUri(uri: Uri): StagedWorkspacePreview = withContext(Dispatchers.IO) {
+    suspend fun inspectZipFromUri(
+        uri: Uri,
+        onProgress: (String, Int) -> Unit = { _, _ -> }
+    ): StagedWorkspacePreview = withContext(Dispatchers.IO) {
         val declaredSize = queryFileSize(uri)
         if (declaredSize != null && declaredSize > MAX_ZIP_BYTES) {
             throw IllegalArgumentException("حجم ZIP أكبر من الحد التجريبي (120 MB)")
@@ -45,13 +48,14 @@ class WorkspaceImporter(private val context: Context) {
         val stream = context.contentResolver.openInputStream(uri)
             ?: throw IllegalStateException("تعذر فتح ملف ZIP المختار")
         stream.use { input ->
-            inspectZipFromStream(input, declaredSize)
+            inspectZipFromStream(input, declaredSize, onProgress)
         }
     }
 
     suspend fun inspectZipFromStream(
         inputStream: InputStream,
-        declaredSizeBytes: Long? = null
+        declaredSizeBytes: Long? = null,
+        onProgress: (String, Int) -> Unit = { _, _ -> }
     ): StagedWorkspacePreview = withContext(Dispatchers.IO) {
         if (declaredSizeBytes != null && declaredSizeBytes > MAX_ZIP_BYTES) {
             throw IllegalArgumentException("حجم ZIP أكبر من الحد التجريبي (120 MB)")
@@ -64,6 +68,7 @@ class WorkspaceImporter(private val context: Context) {
 
         if (tempDir.exists()) tempDir.deleteRecursively()
         tempDir.mkdirs()
+        onProgress("تهيئة مساحة الفحص المؤقتة", 5)
 
         val zipNames = mutableListOf<String>()
         val seenNames = HashSet<String>()
@@ -85,6 +90,10 @@ class WorkspaceImporter(private val context: Context) {
                         throw IllegalArgumentException("ZIP يحتوي ملفاً مكرراً: $normalized")
                     }
                     zipNames.add(normalized)
+                    onProgress(
+                        "فك ضغط الملفات (${zipNames.size})",
+                        (10 + zipNames.size * 40 / MAX_FILES).coerceIn(10, 50)
+                    )
                     if (zipNames.size > MAX_FILES) {
                         throw IllegalArgumentException("الأرشيف يحتوي عدداً كبيراً جداً من الملفات")
                     }
@@ -115,7 +124,9 @@ class WorkspaceImporter(private val context: Context) {
             if (zipNames.isEmpty()) {
                 throw IllegalArgumentException("ZIP فارغ")
             }
+            onProgress("التحقق من ملفات الحزمة وبصماتها", 58)
             verifyExportManifest(tempDir)
+            onProgress("اكتشاف الصفوف والمواد", 68)
 
             val gradeRoots = zipNames.mapNotNull { path ->
                 GRADE_ROOT_REGEX.find(path)?.groupValues?.get(1)
@@ -127,7 +138,11 @@ class WorkspaceImporter(private val context: Context) {
 
             val zipNameSet = zipNames.toHashSet()
             val warnings = mutableListOf<String>()
-            val gradeSummaries = gradeRoots.mapNotNull { grade ->
+            val gradeSummaries = gradeRoots.mapIndexedNotNull { gradeIndex, grade ->
+                onProgress(
+                    "تحليل فهارس الصف ${grade}",
+                    (70 + (gradeIndex * 20 / gradeRoots.size.coerceAtLeast(1))).coerceAtMost(90)
+                )
                 val parsed = parseGradeFromDir(
                     baseDir = tempDir,
                     destRootPath = tempDir.absolutePath,
@@ -152,6 +167,7 @@ class WorkspaceImporter(private val context: Context) {
                 )
             }
 
+            onProgress("اكتملت معاينة الصفوف والمواد", 100)
             StagedWorkspacePreview(
                 stagingId = stagingId,
                 tempDirPath = tempDir.absolutePath,
@@ -168,7 +184,8 @@ class WorkspaceImporter(private val context: Context) {
 
     suspend fun commitStagedGrades(
         preview: StagedWorkspacePreview,
-        selectedGrades: List<String>
+        selectedGrades: List<String>,
+        onProgress: (String, Int) -> Unit = { _, _ -> }
     ): List<ImportedWorkspace> = withContext(Dispatchers.IO) {
         val tempDir = File(preview.tempDirPath)
         if (!tempDir.exists()) {
@@ -188,6 +205,10 @@ class WorkspaceImporter(private val context: Context) {
             val allFileSet = allFiles.toHashSet()
             val baseStamp = System.currentTimeMillis()
             gradesToImport.forEachIndexed { idx, gradeKey ->
+                onProgress(
+                    "التحقق من بيانات الصف ${gradeKey}",
+                    (10 + idx * 70 / gradesToImport.size.coerceAtLeast(1)).coerceAtMost(80)
+                )
                 val gradeFiles = allFiles.filter { it.startsWith("workspace/$gradeKey/") }
                 val validationWarnings = mutableListOf<String>()
                 val validatedPreview = parseGradeFromDir(
@@ -240,6 +261,7 @@ class WorkspaceImporter(private val context: Context) {
                     require(parsed.books.isNotEmpty()) {
                         "فشل التحقق من الكتب بعد نسخها إلى مساحة العمل الداخلية للصف $gradeKey."
                     }
+                    onProgress("تثبيت مواد ودروس الصف ${gradeKey}", (20 + (idx + 1) * 70 / gradesToImport.size.coerceAtLeast(1)).coerceAtMost(95))
                     committed.add(
                         ImportedWorkspace(
                             workspaceId = workspaceId,
@@ -263,6 +285,7 @@ class WorkspaceImporter(private val context: Context) {
             if (committed.isEmpty()) {
                 throw IllegalArgumentException("لم يتم العثور على كتب صالحة في الصفوف المحددة")
             }
+            onProgress("اكتمل تجهيز الصفوف المحددة", 100)
             committed
         } catch (error: Exception) {
             // Multi-grade imports are staged as one package operation: remove earlier grade copies
