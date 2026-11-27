@@ -501,11 +501,11 @@ class EduMiniRepository(
         onProgress: (percent: Int, stage: String) -> Unit = { _, _ -> }
     ): GeneratedResult {
         require(selectedModelId.isNotBlank()) { "يجب اختيار نموذج من قائمة مدير النظام." }
-        require(providers.any {
-            it.id == selectedProfileId && it.provider == selectedProvider && it.enabled && it.apiKey.isNotBlank()
-        }) { "ملف اتصال API المحدد غير متاح أو لا ينتمي إلى المزود المختار." }
+        require(providers.any { it.id == selectedProfileId && it.provider == selectedProvider }) {
+            "ملف API المحدد غير موجود أو لا ينتمي إلى المزود المختار."
+        }
         if (providers.none { it.provider == selectedProvider && it.enabled && it.apiKey.isNotBlank() }) {
-            throw IllegalStateException("لا يوجد ملف ${selectedProvider.displayName} مفعّل بمفتاح ونموذج صالحين. اختر مزوداً آخر أو أضف إعداداته.")
+            throw IllegalStateException("لا يوجد أي ملف API مفعّل بمفتاح صالح للمزود ${selectedProvider.displayName}.")
         }
         require(questionLanguage in setOf("ar", "en", "ar_en")) { "لغة الأسئلة المحددة غير مدعومة." }
         if (task == TaskType.QUESTIONS) {
@@ -663,46 +663,59 @@ class EduMiniRepository(
                 )
             }
         )
-        onProgress(88, "التحقق من الاستجابة ومواءمة الحقول مع نموذج التطبيق")
+        onProgress(88, "فحص الاستجابة مع الاحتفاظ بالمحتوى المستلم")
+        val responseIssues = mutableListOf<String>()
         if (responseFormat.equals("json", ignoreCase = true)) {
             val outputIssues = TemplateOutputValidator.validateOutput(result.text, responseSchema)
-            if (outputIssues.isNotEmpty()) {
-                dao.insertGenerationRun(
-                    GenerationRunEntity(
-                        id = "run-validation-" + System.currentTimeMillis() + "-" + UUID.randomUUID().toString().take(6),
-                        workspaceId = workspaceId.ifBlank { lesson.rootPath },
-                        lessonKey = lesson.lessonKey,
-                        task = task.id,
-                        providerLabel = result.providerLabel,
-                        model = result.model,
-                        status = "VALIDATION_FAILED",
-                        errorSummary = outputIssues.joinToString("; ").take(220),
-                        createdAt = Instant.now().toString(),
-                        durationMs = result.durationMs.coerceAtLeast(1L),
-                        tokensUsed = result.tokensUsed
-                    )
-                )
-                throw TemplateOutputValidator.ValidationException(
-                    TemplateOutputValidator.FailureCode.INVALID_AI_OUTPUT,
-                    outputIssues
-                )
-            }
+            responseIssues += outputIssues
         }
         if (task == TaskType.QUESTIONS) {
-            QuestionBankEngine.parseGeneratedQuestions(
-                rawText = result.text,
-                workspaceId = workspaceId.ifBlank { lesson.workspaceId }.ifBlank { lesson.rootPath },
-                lesson = lesson,
-                expectedCount = questionCount,
-                selectedTypeIds = questionTypeIds,
-                expectedDifficultyId = difficultyHint
+            val questionValidation = runCatching {
+                QuestionBankEngine.parseGeneratedQuestions(
+                    rawText = result.text,
+                    workspaceId = workspaceId.ifBlank { lesson.workspaceId }.ifBlank { lesson.rootPath },
+                    lesson = lesson,
+                    expectedCount = questionCount,
+                    selectedTypeIds = questionTypeIds,
+                    expectedDifficultyId = difficultyHint
+                )
+            }
+            questionValidation.exceptionOrNull()?.message?.let { message ->
+                responseIssues += message
+            }
+        }
+
+        if (responseIssues.isNotEmpty()) {
+            dao.insertGenerationRun(
+                GenerationRunEntity(
+                    id = "run-validation-" + System.currentTimeMillis() + "-" + UUID.randomUUID().toString().take(6),
+                    workspaceId = workspaceId.ifBlank { lesson.rootPath },
+                    lessonKey = lesson.lessonKey,
+                    task = task.id,
+                    providerLabel = result.providerLabel,
+                    model = result.model,
+                    status = "RESPONSE_REVIEW_REQUIRED",
+                    errorSummary = responseIssues.joinToString("; ").take(220),
+                    createdAt = Instant.now().toString(),
+                    durationMs = result.durationMs.coerceAtLeast(1L),
+                    tokensUsed = result.tokensUsed
+                )
             )
         }
-        val adaptedText = TemplateResponseAdapter.adapt(result.text, responseMapping)
-        onProgress(96, "حساب بصمات المصدر والقالب والمحتوى")
-        return if (adaptedText == result.text) result else result.copy(
+
+        // Never transform a response that failed its contract: preserve exactly what the
+        // provider returned so the feature UI can display and review it.
+        val adaptedText = if (responseIssues.isEmpty()) {
+            runCatching { TemplateResponseAdapter.adapt(result.text, responseMapping) }
+                .onFailure { responseIssues += "فشل تحويل الحقول إلى نموذج التطبيق: ${it.message ?: "خطأ غير محدد"}" }
+                .getOrDefault(result.text)
+        } else result.text
+
+        onProgress(96, "حفظ الاستجابة وبصماتها مع حالة التحقق")
+        return result.copy(
             text = adaptedText,
-            contentHash = sha256Full(adaptedText)
+            contentHash = sha256Full(adaptedText),
+            validationIssues = responseIssues.toList()
         )
     }
 
