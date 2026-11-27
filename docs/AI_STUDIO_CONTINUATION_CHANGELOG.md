@@ -49,7 +49,7 @@ The commit subjects also record fixes to PDF streaming/hash consistency, duplica
 - Includes question count, style/difficulty hints, source text, and PDF attachment context in the assembled prompt.
 - The commit history records removal of task-specific hard-coded response contracts and resolution of the generation contract from persisted templates.
 
-**Compatibility point:** the prompt asset is now the task guidance; the persisted template owns the output contract. Do not reintroduce a second hard-coded JSON schema in these asset files.
+**Compatibility point (updated 2026-11-27):** the prompt asset supplies task guidance. Persisted templates retain legacy schema/mapping fields for compatibility and explicitly permitted non-persistent outputs, but they are not authoritative for records written to Room. For database-backed tasks, the response schema and decoder must be generated from the current Room/database AI-writable projection. Do not reintroduce a second hard-coded JSON schema in prompt assets.
 
 ### 3.2 Provider generation and PDF transport
 
