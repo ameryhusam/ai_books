@@ -3423,7 +3423,7 @@ class EduMiniCoreTest {
     }
 
     @Test
-    fun geminiRetriesThreeTimesThenUsesNextConfiguredModel() {
+    fun geminiRetriesThreeTimesThenUsesNextCatalogueModel() {
         val server = ServerSocket(0)
         val requestLines = java.util.Collections.synchronizedList(mutableListOf<String>())
         val serverFailure = java.util.concurrent.atomic.AtomicReference<Throwable?>(null)
@@ -3450,13 +3450,12 @@ class EduMiniCoreTest {
             val profile = ProviderConfig(
                 id = "gemini-retry-profile",
                 provider = ProviderType.GEMINI,
-                label = "Gemini retry profile",
-                model = "gemini-primary",
+                label = "GEMINI_API_KEY_1",
+                model = "",
                 baseUrl = "",
                 apiKey = "gemini-retry-key",
                 enabled = true,
-                createdAt = 1L,
-                fallbackModels = listOf("gemini-fallback")
+                createdAt = 1L
             )
             val generated = runBlocking {
                 AiGenerationService(
@@ -3467,7 +3466,8 @@ class EduMiniCoreTest {
                         providers = listOf(profile),
                         selectedProvider = ProviderType.GEMINI,
                         requestedModelId = "gemini-primary",
-                        requestedProfileId = profile.id
+                        requestedProfileId = profile.id,
+                        modelFallbackIds = listOf("gemini-fallback")
                     )
                 )
             }
