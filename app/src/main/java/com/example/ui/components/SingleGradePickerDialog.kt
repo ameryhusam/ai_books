@@ -200,7 +200,7 @@ fun SingleGradePickerDialog(
                                             color = EduMint
                                         ) {
                                             Text(
-                                                text = "مربوط مسبقاً",
+                                                text = "موجود — سيتم تحديثه",
                                                 style = MaterialTheme.typography.labelSmall,
                                                 color = EduGreenDark,
                                                 fontWeight = FontWeight.Bold,

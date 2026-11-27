@@ -38,6 +38,7 @@ import com.example.data.security.ProviderStorage
 import com.example.data.workspace.DirectWorkspaceBinder
 import com.example.data.workspace.PdfBookSplitter
 import com.example.data.workspace.WorkspaceExporter
+import com.example.data.workspace.WorkspaceContractValidator
 import com.example.data.workspace.WorkspaceImporter
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.pdmodel.PDDocument
@@ -295,11 +296,21 @@ class EduMiniCoreTest {
     }
 
     @Test
-    fun workspaceContractValidatorBlocksUnverifiedLegacySource() {
+    fun unresolvedUnitProposalIsNotPromotedFromLessonPath() {
+        val unit = Json.parseToJsonElement(
+            """{"partKey":"unknown","proposedPartKey":"P01","assignmentStatus":"need_review","lessons":[{"sliceFile":{"workspaceUri":"workspace/G04/SCI/P01/units/unit_01/lesson_01.pdf"}}]}"""
+        ).jsonObject
+        val resolved = WorkspaceContractValidator.resolveUnitPartKey(unit)
+        assertEquals("", resolved)
+    }
+
+    @Test
+    fun workspaceContractValidatorMarksUnverifiedSourceForReview() {
         val index = """
             {
               "gradeKey": "G04",
               "subjectKey": "SCI",
+              "partKey": "BOTH",
               "approvalStatus": "APPROVED",
               "sourceLayout": "MERGED_PARTS_FILE",
               "units": [{
@@ -324,6 +335,7 @@ class EduMiniCoreTest {
               "manifestVersion": "edu.book_manifest.v1",
               "gradeKey": "G04",
               "subjectKey": "SCI",
+              "partKey": "BOTH",
               "sourceLayout": "MERGED_PARTS_FILE",
               "sourceReviewStatus": "NEEDS_REVIEW",
               "sourceSha256": "${"a".repeat(64)}",
@@ -339,11 +351,12 @@ class EduMiniCoreTest {
             availableRelativePaths = setOf("workspace/G04/SCI/P01/units/unit_01/lesson_01.pdf")
         )
         assertFalse(result.isValid)
-        assertTrue(result.errors.any { it.contains("NEEDS_REVIEW") || it.contains("غير معتمد للمراجعة النهائية") })
+        assertTrue(result.isImportableWithReview)
+        assertTrue(result.reviewRequiredErrors.any { it.contains("NEEDS_REVIEW") || it.contains("غير معتمد للمراجعة النهائية") })
     }
 
     @Test
-    fun workspaceContractValidatorRequiresUnitAssignmentProvenanceForManifestV2() {
+    fun workspaceContractValidatorMarksMissingUnitAssignmentProvenanceForReview() {
         val index = """
             {
               "gradeKey": "G04",
@@ -398,8 +411,9 @@ class EduMiniCoreTest {
         )
 
         assertFalse(result.isValid)
-        assertTrue(result.errors.any { it.contains("assignmentSource") })
-        assertTrue(result.errors.any { it.contains("assignmentEvidence") })
+        assertTrue(result.isImportableWithReview)
+        assertTrue(result.reviewRequiredErrors.any { it.contains("assignmentSource") })
+        assertTrue(result.reviewRequiredErrors.any { it.contains("assignmentEvidence") })
     }
 
     @Test
@@ -1490,6 +1504,233 @@ class EduMiniCoreTest {
         assertEquals("G05", committed.first().gradeKey)
         assertEquals("العلوم 5", committed.first().books.first().title)
         assertFalse(File(staged.tempDirPath).exists())
+    }
+
+    @Test
+    fun importerAllowsIndexHashMismatchOnlyAfterExplicitReviewConsent() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val importer = WorkspaceImporter(context)
+        val indexRaw = """
+            {
+              "gradeKey":"G05",
+              "subjectKey":"SCI",
+              "partKey":"BOTH",
+              "sourceLayout":"MERGED_PARTS_FILE",
+              "approvalStatus":"NEEDS_REVIEW",
+              "requiresReview":true,
+              "units":[{
+                "unitKey":"unit_01",
+                "title":"الوحدة الأولى",
+                "partKey":"unknown",
+                "proposedPartKey":"P01",
+                "assignmentStatus":"need_review",
+                "assignmentSource":"DEFAULT_PROPOSAL",
+                "assignmentEvidence":"تحتاج إلى مراجعة المستخدم",
+                "lessons":[{
+                  "lessonKey":"lesson_01",
+                  "title":"الدرس الأول",
+                  "pdfPageStart":1,
+                  "pdfPageEnd":2,
+                  "sliceFile":{"workspaceUri":"workspace/G05/SCI/P01/units/unit_01/lesson_01.pdf"}
+                }]
+              }]
+            }
+        """.trimIndent()
+        val manifestRaw = """
+            {
+              "manifestVersion":"edu.book_manifest.v1",
+              "gradeKey":"G05",
+              "subjectKey":"SCI",
+              "partKey":"BOTH",
+              "sourceLayout":"MERGED_PARTS_FILE",
+              "sourceReviewStatus":"VERIFIED",
+              "sourceSha256":"${"a".repeat(64)}",
+              "indexSha256":"${"b".repeat(64)}"
+            }
+        """.trimIndent()
+        val zipBytes = createTestZip(
+            mapOf(
+                "manifest.json" to """{"artifacts":[{"path":"workspace/G05/SCI/index.json","sha256":"${"c".repeat(64)}"}]}""",
+                "workspace/G05/SCI/book_manifest.json" to manifestRaw,
+                "workspace/G05/SCI/index.json" to indexRaw,
+                "workspace/G05/SCI/P01/units/unit_01/lesson_01.pdf" to "%PDF-1.4 lesson"
+            )
+        )
+
+        val preview = importer.inspectZipFromStream(ByteArrayInputStream(zipBytes), zipBytes.size.toLong())
+        assertTrue(preview.requiresReviewConfirmation)
+        assertTrue(preview.reviewFindings.any { it.contains("SHA-256") || it.contains("approvalStatus") })
+
+        val withoutConsent = runCatching {
+            importer.commitStagedGrades(preview, listOf("G05"))
+        }.exceptionOrNull()
+        assertNotNull(withoutConsent)
+
+        val imported = importer.commitStagedGrades(
+            preview = preview,
+            selectedGrades = listOf("G05"),
+            allowReviewImport = true
+        ).single()
+        assertTrue(imported.books.single().requiresReview)
+        assertEquals("NEEDS_REVIEW", imported.books.single().approvalStatus)
+        assertEquals("UNKNOWN", imported.units.single().partKey)
+        assertEquals("P01", imported.units.single().proposedPartKey)
+        assertEquals("need_review", imported.units.single().assignmentStatus)
+        assertTrue(imported.warnings.any { it.contains("SHA-256") || it.contains("approvalStatus") })
+    }
+
+    @Test
+    fun stagedImportUpdatesExistingGradeAndPreservesWorkspaceIdentity() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val db = Room.inMemoryDatabaseBuilder(context, EduMiniDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        val importer = WorkspaceImporter(context)
+        val repo = EduMiniRepository(
+            dao = db.eduMiniDao(),
+            providerStorage = ProviderStorage(context),
+            workspaceImporter = importer,
+            aiGenerationService = AiGenerationService(context),
+            interactivePackageImporter = InteractivePackageImporter(context),
+            appContext = context
+        )
+        try {
+            val existing = repo.createClassroom("G05", "الصف الخامس")
+            val zipBytes = createTestZip(
+                mapOf(
+                    "workspace/G05/SCI/book_manifest.json" to """{"title":"العلوم 5"}""",
+                    "workspace/G05/SCI/index.json" to """{"units":[{"unitKey":"u1","title":"الوحدة الأولى","lessons":[{"lessonKey":"l1","title":"الدرس الأول"}]}]}""",
+                    "workspace/G06/MATH/book_manifest.json" to """{"title":"الرياضيات 6"}""",
+                    "workspace/G06/MATH/index.json" to """{"units":[{"unitKey":"u2","title":"الوحدة الثانية","lessons":[{"lessonKey":"l2","title":"الدرس الثاني"}]}]}"""
+                )
+            )
+            val preview = importer.inspectZipFromStream(
+                ByteArrayInputStream(zipBytes),
+                zipBytes.size.toLong()
+            )
+
+            val imported = repo.commitStagedWorkspaces(preview, listOf("G05", "G06"))
+            val savedGrades = repo.allWorkspaces.first()
+            val savedG05 = savedGrades.single { it.gradeKey == "G05" }
+            val savedG06 = savedGrades.single { it.gradeKey == "G06" }
+            val updated = imported.single { it.gradeKey == "G05" }
+            val added = imported.single { it.gradeKey == "G06" }
+            val observed = repo.observeWorkspace(existing.workspaceId).first()
+
+            assertEquals(2, imported.size)
+            assertEquals(existing.workspaceId, updated.workspaceId)
+            assertEquals(existing.workspaceId, savedG05.workspaceId)
+            assertTrue(existing.workspaceId != savedG06.workspaceId)
+            assertNotNull(observed)
+            assertEquals("العلوم 5", observed!!.books.single().title)
+            assertEquals(1, observed.lessons.size)
+            assertEquals(existing.workspaceId, observed.lessons.single().workspaceId)
+            assertTrue(File(updated.rootPath).isDirectory)
+            assertTrue(File(added.rootPath).isDirectory)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun directFolderBindingUpdatesExistingGradeFromAnotherSourceFolder() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val db = Room.inMemoryDatabaseBuilder(context, EduMiniDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        val repo = EduMiniRepository(
+            dao = db.eduMiniDao(),
+            providerStorage = ProviderStorage(context),
+            workspaceImporter = WorkspaceImporter(context),
+            aiGenerationService = AiGenerationService(context),
+            interactivePackageImporter = InteractivePackageImporter(context),
+            directWorkspaceBinder = DirectWorkspaceBinder(context),
+            appContext = context
+        )
+        val firstRoot = File(context.cacheDir, "direct_grade_source_a_${System.currentTimeMillis()}").apply { mkdirs() }
+        val secondRoot = File(context.cacheDir, "direct_grade_source_b_${System.currentTimeMillis()}").apply { mkdirs() }
+        try {
+            val existing = repo.createClassroom("G04", "الصف الرابع")
+            fun createBook(root: File, subject: String, title: String) {
+                val bookDir = File(root, "workspace/G04/$subject").apply { mkdirs() }
+                val indexRaw = """
+                    {
+                      "schemaVersion":"edu.book_index.v2",
+                      "gradeKey":"G04",
+                      "gradeName":"الصف الرابع",
+                      "subjectKey":"$subject",
+                      "partKey":"BOTH",
+                      "sourceLayout":"MERGED_PARTS_FILE",
+                      "sourceLayoutEvidence":"مصدر PDF موحد",
+                      "approvalStatus":"APPROVED",
+                      "requiresReview":false,
+                      "offset":2,
+                      "totalPdfPages":300,
+                      "sourceFileName":"source.pdf",
+                      "units":[{
+                        "unitKey":"unit_01",
+                        "title":"الوحدة الأولى",
+                        "partKey":"P01",
+                        "assignmentStatus":"assigned",
+                        "assignmentSource":"INDEX_EVIDENCE",
+                        "assignmentEvidence":"عنوان الوحدة في الفهرس",
+                        "lessons":[{
+                          "lessonKey":"lesson_01",
+                          "title":"الدرس الأول",
+                          "partKey":"P01",
+                          "pdfPageStart":2,
+                          "pdfPageEnd":4,
+                          "printedPageStart":5,
+                          "printedPageEnd":7,
+                          "sortOrder":4,
+                          "sliceFile":{"workspaceUri":"workspace/G04/$subject/units/unit_01/lesson_01.pdf"}
+                        }]
+                      }]
+                    }
+                """.trimIndent()
+                val indexSha = MessageDigest.getInstance("SHA-256")
+                    .digest(indexRaw.toByteArray())
+                    .joinToString("") { "%02x".format(it) }
+                File(bookDir, "index.json").writeText(indexRaw)
+                File(bookDir, "book_manifest.json").writeText(
+                    """{"manifestVersion":"edu.book_manifest.v1","gradeKey":"G04","gradeName":"الصف الرابع","title":"$title","subjectKey":"$subject","partKey":"BOTH","sourceLayout":"MERGED_PARTS_FILE","sourceLayoutEvidence":"مصدر PDF موحد","sourceReviewStatus":"VERIFIED","sourceSha256":"${"c".repeat(64)}","indexSha256":"$indexSha"}"""
+                )
+                File(bookDir, "units/unit_01/lesson_01.pdf").apply {
+                    parentFile?.mkdirs()
+                    writeText("%PDF-1.4 sample lesson content")
+                }
+            }
+            createBook(firstRoot, "MATH", "الرياضيات - المصدر الأول")
+            val first = repo.bindDirectWorkspace(firstRoot.absolutePath, "G04")
+            assertEquals(existing.workspaceId, first.workspaceId)
+
+            createBook(secondRoot, "SCI", "العلوم - المصدر الثاني")
+            val second = repo.bindDirectWorkspace(secondRoot.absolutePath, "G04")
+            val saved = repo.allWorkspaces.first().filter { it.gradeKey == "G04" }
+            val observed = repo.observeWorkspace(existing.workspaceId).first()
+
+            assertEquals(1, saved.size)
+            assertEquals(existing.workspaceId, second.workspaceId)
+            assertNotNull(observed)
+            assertEquals("العلوم - المصدر الثاني", observed!!.books.single().title)
+            assertEquals(secondRoot.absolutePath, observed.rootPath)
+            assertEquals("MERGED_PARTS_FILE", observed.books.single().sourceLayout)
+            assertEquals(2, observed.books.single().offset)
+            assertEquals(300, observed.books.single().totalPdfPages)
+            assertEquals("source.pdf", observed.books.single().sourceFileName)
+            assertEquals("assigned", observed.units.single().assignmentStatus)
+            assertEquals("INDEX_EVIDENCE", observed.units.single().assignmentSource)
+            assertEquals("عنوان الوحدة في الفهرس", observed.units.single().assignmentEvidence)
+            assertEquals(2, observed.lessons.single().pdfPageStart)
+            assertEquals(4, observed.lessons.single().pdfPageEnd)
+            assertEquals(5, observed.lessons.single().printedPageStart)
+            assertEquals(7, observed.lessons.single().printedPageEnd)
+            assertEquals(4, observed.lessons.single().sortOrder)
+        } finally {
+            firstRoot.deleteRecursively()
+            secondRoot.deleteRecursively()
+            db.close()
+        }
     }
 
     @Test

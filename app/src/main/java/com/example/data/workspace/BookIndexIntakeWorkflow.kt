@@ -1,5 +1,15 @@
 package com.example.data.workspace
 
+import com.example.model.PdfBookInfo
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonObject
+
 /**
  * App-owned intake contract for discovering and reviewing a school-book index.
  * Discovery results are proposals only; explicit reviewer confirmation is required
@@ -66,7 +76,7 @@ data class BookIndexIntakeDraft(
     val sourceLayoutEvidence: String = "",
     val partKey: String? = null,
     /** Physical PDF page = printed page + offset. Applied only if physical page is absent. */
-    val offset: Int = 0,
+    val offset: Int = 1,
     val selectedTemplateId: String = BookIndexTemplate.BUILT_INS.first().id,
     val discoveryMethod: IndexDiscoveryMethod = IndexDiscoveryMethod.BUILT_IN_TEMPLATE,
     val discoveryConfidence: Double? = null,
@@ -159,40 +169,170 @@ object BookIndexPromptTemplate {
 
     val responseSchemaJson: String = """
         {
-          "bookTitle": "اسم الكتاب",
-          "gradeName": "اسم الصف",
-          "gradeKey": "G07",
-          "subjectName": "اسم المادة",
-          "subjectKey": "SCI",
-          "componentKey": null,
-          "sourceLayout": "SINGLE_PART_FILE | MERGED_PARTS_FILE | UNKNOWN",
-          "sourceLayoutEvidence": "دليل من الغلاف أو صفحة العنوان أو محتوى الملف",
-          "partKey": "P01 | P02 | BOTH | null",
-          "offset": 4,
-          "units": [
-            {
-              "unitKey": "unit_01",
-              "title": "اسم الوحدة",
-              "partKey": "P01 | P02 | null",
-              "proposedPartKey": null,
-              "assignmentStatus": "assigned | need_review",
-              "assignmentSource": "INDEX_EVIDENCE | DEFAULT_PROPOSAL",
-              "assignmentEvidence": "الدليل النصي",
-              "lessons": [
-                {
-                  "lessonKey": "lesson_01",
-                  "title": "اسم الدرس",
-                  "printedPageStart": 1,
-                  "printedPageEnd": 6,
-                  "pdfPageStart": 5,
-                  "pdfPageEnd": 10,
-                  "assignmentStatus": "assigned | need_review",
-                  "assignmentEvidence": "الدليل النصي"
+          "type": "object",
+          "required": ["bookTitle", "gradeName", "gradeKey", "subjectName", "subjectKey", "sourceLayout", "sourceLayoutEvidence", "partKey", "offset", "units", "discoveryNotes"],
+          "properties": {
+            "bookTitle": {"type": "string"},
+            "gradeName": {"type": "string"},
+            "gradeKey": {"type": "string"},
+            "subjectName": {"type": "string"},
+            "subjectKey": {"type": "string"},
+            "componentKey": {"type": "string"},
+            "sourceLayout": {"type": "string", "enum": ["SINGLE_PART_FILE", "MERGED_PARTS_FILE", "UNKNOWN"]},
+            "sourceLayoutEvidence": {"type": "string"},
+            "partKey": {"type": "string", "enum": ["P01", "P02", "BOTH", "UNKNOWN"]},
+            "offset": {"type": "integer"},
+            "discoveryConfidence": {"type": "number"},
+            "units": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["unitKey", "title", "partKey", "proposedPartKey", "assignmentStatus", "assignmentSource", "assignmentEvidence", "lessons"],
+                "properties": {
+                  "unitKey": {"type": "string"},
+                  "title": {"type": "string"},
+                  "partKey": {"type": "string", "enum": ["P01", "P02", "UNKNOWN"]},
+                  "proposedPartKey": {"type": "string"},
+                  "assignmentStatus": {"type": "string", "enum": ["assigned", "need_review"]},
+                  "assignmentSource": {"type": "string", "enum": ["INDEX_EVIDENCE", "DEFAULT_PROPOSAL", "LEGACY_UNVERIFIED"]},
+                  "assignmentEvidence": {"type": "string"},
+                  "lessons": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": ["lessonKey", "title", "printedPageStart", "printedPageEnd", "pdfPageStart", "pdfPageEnd", "assignmentStatus", "assignmentEvidence"],
+                      "properties": {
+                        "lessonKey": {"type": "string"},
+                        "title": {"type": "string"},
+                        "printedPageStart": {"type": "integer"},
+                        "printedPageEnd": {"type": "integer"},
+                        "pdfPageStart": {"type": "integer"},
+                        "pdfPageEnd": {"type": "integer"},
+                        "assignmentStatus": {"type": "string", "enum": ["assigned", "need_review"]},
+                        "assignmentEvidence": {"type": "string"}
+                      }
+                    }
+                  }
                 }
-              ]
-            }
-          ],
-          "discoveryNotes": []
+              }
+            },
+            "discoveryNotes": {"type": "array", "items": {"type": "string"}}
+          }
         }
     """.trimIndent()
+}
+
+/**
+ * Converts provider output into the app-owned review draft. AI output is never approved here.
+ * Printed page numbers remain separate from physical PDF page numbers.
+ */
+object BookIndexAiResponseParser {
+    private val json = Json { ignoreUnknownKeys = true; isLenient = false }
+
+    fun parse(rawResponse: String, pdfInfo: PdfBookInfo): BookIndexIntakeDraft {
+        val firstObject = rawResponse.indexOf('{')
+        val lastObject = rawResponse.lastIndexOf('}')
+        require(firstObject >= 0 && lastObject > firstObject) {
+            "لم يتم العثور على كائن JSON في استجابة اكتشاف الفهرس."
+        }
+        val root = json.parseToJsonElement(rawResponse.substring(firstObject, lastObject + 1)).jsonObject
+
+        fun JsonObject.text(key: String): String =
+            (this[key] as? JsonPrimitive)?.contentOrNull?.trim().orEmpty()
+
+        fun JsonObject.number(key: String): Int? =
+            (this[key] as? JsonPrimitive)?.intOrNull
+
+        fun JsonObject.array(key: String): JsonArray =
+            (this[key] as? JsonArray) ?: JsonArray(emptyList())
+
+        fun part(value: String): String? =
+            value.trim().uppercase().takeIf { it == "P01" || it == "P02" }
+
+        fun status(value: String): IndexAssignmentStatus =
+            if (value.equals("assigned", true)) IndexAssignmentStatus.ASSIGNED
+            else IndexAssignmentStatus.NEEDS_REVIEW
+
+        fun source(value: String, assignmentStatus: IndexAssignmentStatus): IndexAssignmentSource =
+            when (value.trim().uppercase()) {
+                "INDEX_EVIDENCE" -> IndexAssignmentSource.INDEX_EVIDENCE
+                "REVIEWER" -> IndexAssignmentSource.REVIEWER
+                "DEFAULT_PROPOSAL" -> IndexAssignmentSource.DEFAULT_PROPOSAL
+                else -> if (assignmentStatus == IndexAssignmentStatus.ASSIGNED) {
+                    IndexAssignmentSource.INDEX_EVIDENCE
+                } else IndexAssignmentSource.LEGACY_UNVERIFIED
+            }
+
+        val layout = when (root.text("sourceLayout").uppercase()) {
+            "SINGLE_PART_FILE" -> IndexSourceLayout.SINGLE_PART_FILE
+            "MERGED_PARTS_FILE" -> IndexSourceLayout.MERGED_PARTS_FILE
+            else -> IndexSourceLayout.UNKNOWN
+        }
+        val sourcePart = root.text("partKey").uppercase().let {
+            when {
+                layout == IndexSourceLayout.MERGED_PARTS_FILE && it == "BOTH" -> "BOTH"
+                it == "P01" || it == "P02" -> it
+                else -> null
+            }
+        }
+        val units = root.array("units").mapIndexed { unitIndex, element ->
+            val unit = element as? JsonObject ?: JsonObject(emptyMap())
+            val unitStatus = status(unit.text("assignmentStatus"))
+            val unitPart = part(unit.text("partKey"))
+            val proposedPart = part(unit.text("proposedPartKey"))
+            val lessons = unit.array("lessons").mapIndexed { lessonIndex, lessonElement ->
+                val lesson = lessonElement as? JsonObject ?: JsonObject(emptyMap())
+                BookIndexLessonDraft(
+                    lessonKey = lesson.text("lessonKey").ifBlank {
+                        "lesson_" + (lessonIndex + 1).toString().padStart(2, '0')
+                    },
+                    title = lesson.text("title"),
+                    printedPageStart = lesson.number("printedPageStart")?.takeIf { it > 0 },
+                    printedPageEnd = lesson.number("printedPageEnd")?.takeIf { it > 0 },
+                    pdfPageStart = lesson.number("pdfPageStart")?.takeIf { it > 0 },
+                    pdfPageEnd = lesson.number("pdfPageEnd")?.takeIf { it > 0 },
+                    assignmentStatus = status(lesson.text("assignmentStatus")),
+                    assignmentSource = IndexAssignmentSource.INDEX_EVIDENCE,
+                    assignmentEvidence = lesson.text("assignmentEvidence")
+                )
+            }
+            BookIndexUnitDraft(
+                unitKey = unit.text("unitKey").ifBlank {
+                    "unit_" + (unitIndex + 1).toString().padStart(2, '0')
+                },
+                title = unit.text("title"),
+                partKey = unitPart,
+                proposedPartKey = proposedPart,
+                assignmentStatus = unitStatus,
+                assignmentSource = source(unit.text("assignmentSource"), unitStatus),
+                assignmentEvidence = unit.text("assignmentEvidence"),
+                lessons = lessons
+            )
+        }
+
+        return BookIndexIntakeDraft(
+            sourceFileName = pdfInfo.fileName,
+            sourceSha256 = pdfInfo.sha256,
+            totalPdfPages = pdfInfo.totalPages,
+            bookTitle = root.text("bookTitle"),
+            gradeKey = root.text("gradeKey"),
+            gradeName = root.text("gradeName"),
+            subjectKey = root.text("subjectKey"),
+            subjectName = root.text("subjectName"),
+            componentKey = root.text("componentKey").ifBlank { null },
+            sourceLayout = layout,
+            sourceLayoutEvidence = root.text("sourceLayoutEvidence"),
+            partKey = sourcePart,
+            offset = root.number("offset") ?: 1,
+            selectedTemplateId = "ai_book_index_discovery",
+            discoveryMethod = IndexDiscoveryMethod.AI_PROMPT,
+            discoveryConfidence = (root["discoveryConfidence"] as? JsonPrimitive)?.doubleOrNull,
+            units = units,
+            reviewerConfirmed = false,
+            reviewerId = null,
+            reviewNotes = root.array("discoveryNotes").mapNotNull {
+                (it as? JsonPrimitive)?.contentOrNull
+            }.joinToString("\n")
+        )
+    }
 }

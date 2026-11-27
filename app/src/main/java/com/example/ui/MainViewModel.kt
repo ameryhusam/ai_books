@@ -780,9 +780,19 @@ class MainViewModel(
 
     fun inspectDirectFolderUri(treeUri: Uri) {
         viewModelScope.launch {
-            _uiState.update { it.copy(isBusy = true, directInspection = null) }
+            _uiState.update {
+                it.copy(
+                    isBusy = true,
+                    directInspection = null,
+                    workspaceOperation = WorkspaceOperationProgress("فحص مجلد مساحة العمل", "قراءة محتويات المجلد", 5)
+                )
+            }
             try {
-                val inspection = repository.inspectDirectTreeUri(treeUri)
+                val inspection = repository.inspectDirectTreeUri(treeUri) { stage, percent ->
+                    _uiState.update {
+                        it.copy(workspaceOperation = WorkspaceOperationProgress("فحص مجلد مساحة العمل", stage, percent))
+                    }
+                }
                 _uiState.update { state ->
                     state.copy(
                         directInspection = inspection
@@ -796,7 +806,7 @@ class MainViewModel(
                     )
                 }
             } finally {
-                _uiState.update { it.copy(isBusy = false) }
+                _uiState.update { it.copy(isBusy = false, workspaceOperation = null) }
             }
         }
     }
@@ -810,9 +820,18 @@ class MainViewModel(
         val targets = gradeKeys.map { it.trim().uppercase() }.filter { it.isNotBlank() }.distinct()
         if (targets.isEmpty()) return
         viewModelScope.launch {
-            _uiState.update { it.copy(isBusy = true) }
+            _uiState.update {
+                it.copy(
+                    isBusy = true,
+                    workspaceOperation = WorkspaceOperationProgress("ربط الصفوف والمواد", "بدء ربط الصفوف المحددة", 3)
+                )
+            }
             try {
-                val boundList = repository.bindDirectWorkspaces(inspection.rootUriOrPath, targets)
+                val boundList = repository.bindDirectWorkspaces(inspection.rootUriOrPath, targets) { stage, percent ->
+                    _uiState.update {
+                        it.copy(workspaceOperation = WorkspaceOperationProgress("ربط الصفوف والمواد", stage, percent))
+                    }
+                }
                 val primary = boundList.first()
                 _studentDashboardState.value = StudentDashboardState()
                 _uiState.update { state ->
@@ -852,7 +871,7 @@ class MainViewModel(
                     )
                 }
             } finally {
-                _uiState.update { it.copy(isBusy = false) }
+                _uiState.update { it.copy(isBusy = false, workspaceOperation = null) }
             }
         }
     }
@@ -860,12 +879,21 @@ class MainViewModel(
     fun refreshDirectWorkspaceCatalog() {
         val currentWorkspace = _uiState.value.workspace ?: return
         viewModelScope.launch {
-            _uiState.update { it.copy(isBusy = true) }
+            _uiState.update {
+                it.copy(
+                    isBusy = true,
+                    workspaceOperation = WorkspaceOperationProgress("تحديث مساحة العمل", "قراءة فهارس الصف ومواده", 5)
+                )
+            }
             try {
                 val refreshed = repository.bindDirectWorkspace(
                     rootUriOrPath = currentWorkspace.rootPath,
                     gradeKey = currentWorkspace.gradeKey
-                )
+                ) { stage, percent ->
+                    _uiState.update {
+                        it.copy(workspaceOperation = WorkspaceOperationProgress("تحديث مساحة العمل", stage, percent))
+                    }
+                }
                 _studentDashboardState.value = StudentDashboardState()
                 _uiState.update { state ->
                     val nextBookKey = refreshed.books
@@ -902,7 +930,7 @@ class MainViewModel(
                     )
                 }
             } finally {
-                _uiState.update { it.copy(isBusy = false) }
+                _uiState.update { it.copy(isBusy = false, workspaceOperation = null) }
             }
         }
     }
@@ -2745,9 +2773,18 @@ class MainViewModel(
 
     fun inspectWorkspaceZip(uri: Uri) {
         viewModelScope.launch {
-            _uiState.update { it.copy(isBusy = true) }
+            _uiState.update {
+                it.copy(
+                    isBusy = true,
+                    workspaceOperation = WorkspaceOperationProgress("فحص حزمة المحتوى", "فتح ملف ZIP وتجهيز الفحص", 3)
+                )
+            }
             try {
-                val staged = repository.inspectWorkspaceZip(uri)
+                val staged = repository.inspectWorkspaceZip(uri) { stage, percent ->
+                    _uiState.update {
+                        it.copy(workspaceOperation = WorkspaceOperationProgress("فحص حزمة المحتوى", stage, percent))
+                    }
+                }
                 if (staged.grades.isEmpty()) {
                     repository.discardStagedPreview(staged)
                     _uiState.update {
@@ -2766,18 +2803,31 @@ class MainViewModel(
                     it.copy(alert = AlertMessage("خطأ في ZIP", e.message ?: "تعذر فحص ملف ZIP"))
                 }
             } finally {
-                _uiState.update { it.copy(isBusy = false) }
+                _uiState.update { it.copy(isBusy = false, workspaceOperation = null) }
             }
         }
     }
 
-    fun confirmStagedImport(selectedGrades: List<String>) {
+    fun confirmStagedImport(selectedGrades: List<String>, allowReviewImport: Boolean = false) {
         val preview = _uiState.value.stagedPreview ?: return
         if (selectedGrades.isEmpty()) return
         viewModelScope.launch {
-            _uiState.update { it.copy(isBusy = true) }
+            _uiState.update {
+                it.copy(
+                    isBusy = true,
+                    workspaceOperation = WorkspaceOperationProgress("استيراد الصفوف والمواد", "بدء تجهيز الصفوف المحددة", 2)
+                )
+            }
             try {
-                val committed = repository.commitStagedWorkspaces(preview, selectedGrades)
+                val committed = repository.commitStagedWorkspaces(
+                    preview = preview,
+                    selectedGrades = selectedGrades,
+                    allowReviewImport = allowReviewImport
+                ) { stage, percent ->
+                    _uiState.update {
+                        it.copy(workspaceOperation = WorkspaceOperationProgress("استيراد الصفوف والمواد", stage, percent))
+                    }
+                }
                 val primary = committed.lastOrNull()
                 if (primary != null) {
                     val diskBytes = repository.computeWorkspaceDiskBytes(primary.rootPath)
@@ -2808,7 +2858,7 @@ class MainViewModel(
                     )
                 }
             } finally {
-                _uiState.update { it.copy(isBusy = false) }
+                _uiState.update { it.copy(isBusy = false, workspaceOperation = null) }
             }
         }
     }

@@ -1,0 +1,44 @@
+name: Workspace Quick Tests
+
+on:
+  push:
+    paths:
+      - 'app/src/main/java/com/example/data/workspace/**'
+      - 'app/src/main/java/com/example/data/ai/AiGenerationService.kt'
+      - 'app/src/main/java/com/example/data/repository/EduMiniRepository.kt'
+      - 'app/src/main/assets/prompts/book_indexing/book_index_discovery.prompt.md'
+      - 'app/src/test/java/com/example/data/workspace/**'
+      - 'app/src/test/java/com/example/BookIndexIntakeWorkflowTest.kt'
+      - 'app/src/test/java/com/example/EduMiniCoreTest.kt'
+      - '.github/workflows/workspace-quick-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: workspace-quick-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  workspace-unit-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+      - name: Run focused workspace and PDF index intake tests (no APK assembly)
+        run: >-
+          gradle :app:testDebugUnitTest
+          --tests com.example.data.workspace.WorkspaceContractValidatorTest
+          --tests com.example.BookIndexIntakeWorkflowTest
+          -PallowMissingGoogleServices=true

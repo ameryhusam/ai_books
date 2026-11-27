@@ -3,8 +3,10 @@ package com.example.data.repository
 import android.content.Context
 import android.net.Uri
 import kotlinx.coroutines.CancellationException
+import com.example.data.ai.AiExecutionRequest
 import com.example.data.ai.AiGenerationService
 import com.example.data.ai.BookIndexPromptRegistry
+import com.example.data.workspace.BookIndexPromptTemplate
 import com.example.data.ai.TemplateResponseAdapter
 import com.example.data.ai.QuestionResponseContract
 import com.example.data.ai.TemplateOutputValidator
@@ -26,6 +28,7 @@ import com.example.data.local.TeacherNoteEntity
 import com.example.data.local.WorkspaceEntity
 import com.example.data.local.WorkspaceIndexEntity
 import com.example.data.local.WorkspaceUnitEntity
+import com.example.data.local.WorkspaceCatalogGraph
 import com.example.data.packageimport.InteractiveBundleBuilder
 import com.example.data.packageimport.InteractivePackageImporter
 import com.example.model.InteractiveActivityModel
@@ -183,17 +186,59 @@ class EduMiniRepository(
         }
     }
 
-    suspend fun inspectWorkspaceZip(uri: Uri): StagedWorkspacePreview {
-        return workspaceImporter.inspectZipFromUri(uri)
+    suspend fun inspectWorkspaceZip(
+        uri: Uri,
+        onProgress: (String, Int) -> Unit = { _, _ -> }
+    ): StagedWorkspacePreview {
+        return workspaceImporter.inspectZipFromUri(uri, onProgress)
     }
 
     suspend fun commitStagedWorkspaces(
         preview: StagedWorkspacePreview,
-        selectedGrades: List<String>
+        selectedGrades: List<String>,
+        allowReviewImport: Boolean = false,
+        onProgress: (String, Int) -> Unit = { _, _ -> }
     ): List<ImportedWorkspace> {
-        val committed = workspaceImporter.commitStagedGrades(preview, selectedGrades)
-        committed.forEach { saveImportedWorkspace(it) }
-        return committed
+        val grades = selectedGrades.map { it.trim().uppercase() }.filter { it.isNotBlank() }.distinct()
+        require(grades.isNotEmpty()) { "يجب اختيار صف واحد على الأقل." }
+
+        val existingByGrade = dao.observeAllWorkspaces().first()
+            .filter { it.gradeKey.trim().uppercase() in grades }
+            .groupBy { it.gradeKey.trim().uppercase() }
+        val ambiguousGrades = existingByGrade.filterValues { it.size > 1 }.keys
+        require(ambiguousGrades.isEmpty()) {
+            "توجد أكثر من مساحة عمل مسجلة للصفوف " + ambiguousGrades.sorted().joinToString("، ") +
+                "؛ لم يتم الاستيراد لتجنب تحديث مساحة غير مقصودة."
+        }
+
+        val staged = workspaceImporter.commitStagedGrades(
+            preview = preview,
+            selectedGrades = grades,
+            allowReviewImport = allowReviewImport
+        ) { stage, percent ->
+            onProgress(stage, (percent * 0.88f).toInt().coerceIn(1, 88))
+        }
+        val replacements = staged.map { incoming ->
+            val existing = existingByGrade[incoming.gradeKey.trim().uppercase()]?.singleOrNull()
+            val targetWorkspaceId = existing?.workspaceId ?: incoming.workspaceId
+            incoming.copy(
+                workspaceId = targetWorkspaceId,
+                lessons = incoming.lessons.map { lesson -> lesson.copy(workspaceId = targetWorkspaceId) }
+            )
+        }
+
+        try {
+            onProgress("حفظ الصفوف والمواد في قاعدة البيانات", 92)
+            dao.syncDirectWorkspaceCatalogBatch(replacements.map(::toWorkspaceCatalogGraph))
+        } catch (error: Exception) {
+            staged.forEach { deleteManagedWorkspaceDirectory(it.rootPath) }
+            throw error
+        }
+
+        onProgress("اكتمل تحديث الصفوف والمواد", 100)
+        // Keep replaced managed folders: other Room records may still reference their files.
+        // Cleanup requires a separate reference audit and explicit migration/retention policy.
+        return replacements
     }
 
     fun discardStagedPreview(preview: StagedWorkspacePreview) {
@@ -213,10 +258,13 @@ class EduMiniRepository(
         return imported
     }
 
-    suspend fun inspectDirectTreeUri(treeUri: Uri): DirectWorkspaceInspection {
+    suspend fun inspectDirectTreeUri(
+        treeUri: Uri,
+        onProgress: (String, Int) -> Unit = { _, _ -> }
+    ): DirectWorkspaceInspection {
         val binder = directWorkspaceBinder
             ?: throw IllegalStateException("أداة ربط مساحة العمل المباشرة غير مهيأة")
-        return binder.inspectTreeUri(treeUri)
+        return binder.inspectTreeUri(treeUri, onProgress)
     }
 
     suspend fun createClassroom(gradeKey: String, title: String): ImportedWorkspace {
@@ -242,50 +290,77 @@ class EduMiniRepository(
         return workspace
     }
 
-    suspend fun bindDirectWorkspace(rootUriOrPath: String, gradeKey: String): ImportedWorkspace {
+    suspend fun bindDirectWorkspace(
+        rootUriOrPath: String,
+        gradeKey: String,
+        onProgress: (String, Int) -> Unit = { _, _ -> }
+    ): ImportedWorkspace {
         val binder = directWorkspaceBinder
             ?: throw IllegalStateException("أداة ربط مساحة العمل المباشرة غير مهيأة")
-        val bound = binder.bindSingleGrade(rootUriOrPath, gradeKey)
-        val emptyPlaceholders = dao.observeAllWorkspaces().first().filter {
-            it.gradeKey.equals(bound.workspace.gradeKey, ignoreCase = true) &&
-                it.rootPath.isBlank() &&
-                it.workspaceId != bound.workspace.workspaceId
+        val bound = binder.bindSingleGrade(rootUriOrPath, gradeKey, onProgress)
+        val existingMatches = dao.observeAllWorkspaces().first().filter {
+            it.gradeKey.equals(bound.workspace.gradeKey, ignoreCase = true)
         }
-        emptyPlaceholders.forEach { dao.deleteWorkspaceGraph(it.workspaceId) }
-        saveImportedWorkspace(bound.workspace)
-        if (bound.preloadedQuestions.isNotEmpty()) {
-            val existingFingerprints = dao.observeQuestionsForWorkspace(bound.workspace.workspaceId)
+        require(existingMatches.size <= 1) {
+            "توجد أكثر من مساحة عمل مسجلة للصف ${bound.workspace.gradeKey}؛ لم يتم الربط لتجنب تحديث مساحة غير مقصودة."
+        }
+        val existing = existingMatches.singleOrNull()
+        val targetWorkspaceId = existing?.workspaceId ?: bound.workspace.workspaceId
+        val workspaceToSave = bound.workspace.copy(
+            workspaceId = targetWorkspaceId,
+            lessons = bound.workspace.lessons.map { it.copy(workspaceId = targetWorkspaceId) }
+        )
+        val questionsToSave = bound.preloadedQuestions.map { it.copy(workspaceId = targetWorkspaceId) }
+        val packagesToSave = bound.preloadedInteractivePackages.map { it.copy(workspaceId = targetWorkspaceId) }
+
+        saveImportedWorkspace(workspaceToSave)
+        if (questionsToSave.isNotEmpty()) {
+            val existingFingerprints = dao.observeQuestionsForWorkspace(targetWorkspaceId)
                 .first()
                 .map { "${it.bookKey}|${it.unitKey}|${it.lessonKey}|${it.fingerprint}" }
                 .toHashSet()
-            val toInsert = bound.preloadedQuestions.filter {
+            val toInsert = questionsToSave.filter {
                 "${it.bookKey}|${it.unitKey}|${it.lessonKey}|${it.fingerprint}" !in existingFingerprints
             }
             if (toInsert.isNotEmpty()) {
                 dao.insertQuestions(toInsert.map { it.toEntity() })
             }
         }
-        if (bound.preloadedInteractivePackages.isNotEmpty()) {
-            val existingById = dao.observePackagesForWorkspace(bound.workspace.workspaceId)
+        if (packagesToSave.isNotEmpty()) {
+            val existingById = dao.observePackagesForWorkspace(targetWorkspaceId)
                 .first()
                 .associateBy { it.id }
-            bound.preloadedInteractivePackages.forEach { pkg ->
-                val existing = existingById[pkg.id]
-                if (existing == null || existing.rootDir != pkg.rootDir || existing.entryFile != pkg.entryFile || existing.reportJson != pkg.reportJson) {
+            packagesToSave.forEach { pkg ->
+                val existingPackage = existingById[pkg.id]
+                if (existingPackage == null || existingPackage.rootDir != pkg.rootDir ||
+                    existingPackage.entryFile != pkg.entryFile || existingPackage.reportJson != pkg.reportJson
+                ) {
                     dao.insertInteractivePackage(pkg)
                 }
             }
         }
-        return bound.workspace
+        // Do not delete the previous workspace directory here. Package and learning records
+        // may still reference files under its root; cleanup is deferred until references migrate.
+        return workspaceToSave
     }
 
-    suspend fun bindDirectWorkspaces(rootUriOrPath: String, gradeKeys: List<String>): List<ImportedWorkspace> {
+    suspend fun bindDirectWorkspaces(
+        rootUriOrPath: String,
+        gradeKeys: List<String>,
+        onProgress: (String, Int) -> Unit = { _, _ -> }
+    ): List<ImportedWorkspace> {
         val cleanGrades = gradeKeys.map { it.trim().uppercase() }.filter { it.isNotBlank() }.distinct()
         if (cleanGrades.isEmpty()) return emptyList()
         val bound = mutableListOf<ImportedWorkspace>()
         val failures = mutableListOf<String>()
-        for (gradeKey in cleanGrades) {
-            runCatching { bindDirectWorkspace(rootUriOrPath, gradeKey) }
+        for ((index, gradeKey) in cleanGrades.withIndex()) {
+            val basePercent = 10 + index * 80 / cleanGrades.size
+            onProgress("بدء ربط الصف $gradeKey (${index + 1}/${cleanGrades.size})", basePercent)
+            runCatching {
+                bindDirectWorkspace(rootUriOrPath, gradeKey) { stage, percent ->
+                    onProgress("$gradeKey: $stage", (basePercent + percent * 80 / cleanGrades.size / 100).coerceAtMost(95))
+                }
+            }
                 .onSuccess { bound.add(it) }
                 .onFailure { err ->
                     failures.add("$gradeKey: ${err.message ?: "خطأ غير متوقع"}")
@@ -295,12 +370,18 @@ class EduMiniRepository(
             throw IllegalStateException(failures.joinToString("\n\n").ifBlank { "تعذر ربط أي صف دراسي." })
         }
         if (failures.isNotEmpty()) {
+            if (bound.isEmpty()) {
+                throw IllegalStateException(
+                    "تعذر ربط أي صف من الصفوف المحددة: " + failures.joinToString("؛ ")
+                )
+            }
             val existingFirst = bound.first()
             val mergedWarnings = (failures.map { "تعذر ربط صف إضافي • $it" } + existingFirst.warnings).distinct()
             val updatedFirst = existingFirst.copy(warnings = mergedWarnings)
             saveImportedWorkspace(updatedFirst)
             bound[0] = updatedFirst
         }
+        onProgress("اكتمل ربط الصفوف المحددة", 100)
         return bound
     }
 
@@ -328,6 +409,88 @@ class EduMiniRepository(
         return splitter.ingestBookPdf(uri)
     }
 
+    /**
+     * Runs AI-assisted PDF index discovery through the same provider execution path
+     * used by Content Studio and lesson preparation. The result is a draft only.
+     */
+    suspend fun discoverBookIndexFromPdf(
+        pdfInfo: PdfBookInfo,
+        providers: List<ProviderConfig>,
+        selectedProvider: ProviderType,
+        selectedModelId: String,
+        selectedProfileId: String,
+        onProgress: (Int, String) -> Unit = { _, _ -> }
+    ): GeneratedResult {
+        require(pdfInfo.storedPdfPath.isNotBlank()) { "مسار ملف PDF غير محدد." }
+        require(selectedModelId.isNotBlank()) { "يجب اختيار نموذج AI لاكتشاف الفهرس." }
+        require(providers.any { it.id == selectedProfileId && it.provider == selectedProvider }) {
+            "مفتاح API المحدد غير موجود أو لا ينتمي إلى المزود المختار."
+        }
+        val context = appContext ?: throw IllegalStateException("سياق التطبيق غير متاح لقراءة قالب اكتشاف الفهرس.")
+        onProgress(8, "قراءة قالب اكتشاف الفهرس")
+        val promptTemplate = context.assets.open(BookIndexPromptTemplate.SOURCE_PATH)
+            .bufferedReader(Charsets.UTF_8).use { it.readText() }
+        require(promptTemplate.isNotBlank()) { "قالب اكتشاف الفهرس فارغ." }
+
+        onProgress(18, "فحص ملف PDF وتجهيز المرفقات")
+        // Gemini receives the complete PDF when it fits the native request limit.
+        // OpenAI-compatible endpoints receive rendered page images; the shared executor
+        // selects the attachment representation supported by the active provider.
+        val nativePdf = runCatching {
+            aiGenerationService.extractLessonPdfBase64(pdfInfo.storedPdfPath, maxBytes = 18 * 1024 * 1024)
+        }.getOrNull()
+        val pageImages = if (selectedProvider == ProviderType.OPENAI_COMPATIBLE || nativePdf == null) {
+            aiGenerationService.extractLessonPdfPageImagesBase64(
+                pdfPath = pdfInfo.storedPdfPath,
+                maxPages = 20,
+                sampleAcrossDocument = false
+            )
+        } else emptyList()
+        require(nativePdf != null || pageImages.isNotEmpty()) {
+            "تعذر تجهيز صفحات PDF لإرسالها إلى نموذج الذكاء الاصطناعي."
+        }
+
+        val schema = BookIndexPromptTemplate.responseSchemaJson
+        val prompt = buildString {
+            append(promptTemplate.trim())
+            append("\n\n## Source file metadata\n")
+            append("File name: ").append(pdfInfo.fileName).append("\n")
+            append("Physical PDF page count: ").append(pdfInfo.totalPages).append("\n")
+            append("Source SHA-256: ").append(pdfInfo.sha256).append("\n")
+            append("Default printed-to-physical page offset: 1. The user may edit it.\n")
+            append("If a physical PDF page is not directly verified, set pdfPageStart/pdfPageEnd to 0 and preserve printed page values separately.\n")
+            append("Never mark the result approved. Keep uncertain source layout and unit part assignments in review.\n")
+            append("\n## Required JSON Schema\n").append(schema)
+        }
+        val schemaHash = sha256Full(schema)
+        val requestFingerprint = sha256Full(
+            listOf(pdfInfo.sha256, selectedProvider.id, selectedModelId, schemaHash, prompt).joinToString("|")
+        )
+        onProgress(42, "إرسال ملف PDF وقالب الفهرس إلى مزود الذكاء الاصطناعي")
+        val result = executeAiTask(
+            workspaceId = "index-discovery-${pdfInfo.sha256.take(16)}",
+            taskId = "BOOK_INDEX_DISCOVERY",
+            request = AiExecutionRequest(
+                prompt = prompt,
+                providers = providers,
+                selectedProvider = selectedProvider,
+                requestedModelId = selectedModelId,
+                requestedProfileId = selectedProfileId,
+                pdfPageImagesBase64 = pageImages,
+                pdfDocumentBase64 = nativePdf?.base64,
+                responseSchemaJson = schema,
+                responseFormat = "json",
+                templateId = "ai_book_index_discovery",
+                templateVersion = 1,
+                responseSchemaHash = schemaHash,
+                requestFingerprint = requestFingerprint,
+                sourcePdfHash = pdfInfo.sha256
+            )
+        )
+        onProgress(92, "استلام مسودة الفهرس للتحقق والمراجعة")
+        return result.copy(sourcePdfHash = pdfInfo.sha256, responseSchemaJson = schema)
+    }
+
     fun generateAutoSplits(totalPages: Int, pagesPerLesson: Int): List<LessonSplitDraft> {
         val splitter = pdfBookSplitter
             ?: throw IllegalStateException("ميزة تقطيع الكتب من PDF متوقفة حالياً؛ استخدم الربط المباشر بمجلد workspace.")
@@ -351,10 +514,26 @@ class EduMiniRepository(
             splits = splits
         )
         saveImportedWorkspace(workspace)
+        splitter.discardIngestedBookPdf(pdfInfo)
         return workspace
     }
 
     suspend fun saveImportedWorkspace(imported: ImportedWorkspace) {
+        val graph = toWorkspaceCatalogGraph(imported)
+        if (imported.indexRecords.isNotEmpty()) {
+            dao.syncDirectWorkspaceCatalog(
+                workspace = graph.workspace,
+                books = graph.books,
+                lessons = graph.lessons,
+                indexes = graph.indexes,
+                units = graph.units
+            )
+        } else {
+            dao.saveWorkspaceGraph(graph.workspace, graph.books, graph.lessons)
+        }
+    }
+
+    private fun toWorkspaceCatalogGraph(imported: ImportedWorkspace): WorkspaceCatalogGraph {
         val workspaceEntity = WorkspaceEntity(
             workspaceId = imported.workspaceId,
             gradeKey = imported.gradeKey,
@@ -375,7 +554,19 @@ class EduMiniRepository(
                 lessonsCount = book.lessonsCount,
                 coverPath = book.coverPath,
                 sourcePdfPath = book.sourcePdfPath,
-                subjectName = book.subjectName
+                subjectName = book.subjectName,
+                approvalStatus = book.approvalStatus ?: "LEGACY_UNVERIFIED",
+                requiresReview = book.requiresReview,
+                sourceReviewStatus = book.sourceReviewStatus ?: "UNKNOWN",
+                schemaVersion = book.schemaVersion,
+                gradeName = book.gradeName,
+                sourceLayout = book.sourceLayout,
+                sourceLayoutEvidence = book.sourceLayoutEvidence,
+                partKey = book.partKey,
+                offset = book.offset,
+                totalPdfPages = book.totalPdfPages,
+                sourceFileName = book.sourceFileName,
+                sourceSha256 = book.sourceSha256
             )
         }
         val lessonEntities = imported.lessons.map { lesson ->
@@ -396,46 +587,64 @@ class EduMiniRepository(
                 pdfPath = lesson.pdfPath,
                 sourceTextPath = lesson.sourceTextPath,
                 interactivePath = lesson.interactivePath,
-                printedPageRange = lesson.printedPageRange
+                printedPageRange = lesson.printedPageRange,
+                printedPageStart = lesson.printedPageStart,
+                printedPageEnd = lesson.printedPageEnd,
+                pdfPageStart = lesson.pdfPageStart,
+                pdfPageEnd = lesson.pdfPageEnd,
+                sortOrder = lesson.sortOrder
             )
         }
-        if (imported.indexRecords.isNotEmpty()) {
-            val indexEntities = imported.indexRecords.map { index ->
-                WorkspaceIndexEntity(
-                    workspaceId = imported.workspaceId,
-                    bookKey = index.bookKey,
-                    indexUri = index.indexUriOrPath,
-                    indexRelativePath = index.indexRelativePath,
-                    manifestUri = index.manifestUriOrPath,
-                    manifestRelativePath = index.manifestRelativePath,
-                    indexSha256 = index.indexSha256,
-                    manifestSha256 = index.manifestSha256,
-                    sourceSha256 = index.sourceSha256,
-                    indexSchemaVersion = index.indexSchemaVersion,
-                    manifestVersion = index.manifestVersion,
-                    lastSyncedAt = index.lastSyncedAt
-                )
-            }
-            val unitEntities = imported.units.map { unit ->
-                WorkspaceUnitEntity(
-                    workspaceId = imported.workspaceId,
-                    bookKey = unit.bookKey,
-                    unitKey = unit.unitKey,
-                    title = unit.title,
-                    partKey = unit.partKey,
-                    sortOrder = unit.sortOrder,
-                    sourceIndexPath = unit.sourceIndexPath
-                )
-            }
-            dao.syncDirectWorkspaceCatalog(
-                workspace = workspaceEntity,
-                books = bookEntities,
-                lessons = lessonEntities,
-                indexes = indexEntities,
-                units = unitEntities
+        val indexEntities = imported.indexRecords.map { index ->
+            WorkspaceIndexEntity(
+                workspaceId = imported.workspaceId,
+                bookKey = index.bookKey,
+                indexUri = index.indexUriOrPath,
+                indexRelativePath = index.indexRelativePath,
+                manifestUri = index.manifestUriOrPath,
+                manifestRelativePath = index.manifestRelativePath,
+                indexSha256 = index.indexSha256,
+                manifestSha256 = index.manifestSha256,
+                sourceSha256 = index.sourceSha256,
+                indexSchemaVersion = index.indexSchemaVersion,
+                manifestVersion = index.manifestVersion,
+                lastSyncedAt = index.lastSyncedAt
             )
-        } else {
-            dao.saveWorkspaceGraph(workspaceEntity, bookEntities, lessonEntities)
+        }
+        val unitEntities = imported.units.map { unit ->
+            WorkspaceUnitEntity(
+                workspaceId = imported.workspaceId,
+                bookKey = unit.bookKey,
+                unitKey = unit.unitKey,
+                title = unit.title,
+                partKey = unit.partKey,
+                sortOrder = unit.sortOrder,
+                sourceIndexPath = unit.sourceIndexPath,
+                proposedPartKey = unit.proposedPartKey,
+                assignmentStatus = unit.assignmentStatus,
+                assignmentSource = unit.assignmentSource,
+                assignmentEvidence = unit.assignmentEvidence
+            )
+        }
+        return WorkspaceCatalogGraph(
+            workspace = workspaceEntity,
+            books = bookEntities,
+            lessons = lessonEntities,
+            indexes = indexEntities,
+            units = unitEntities
+        )
+    }
+
+    private fun deleteManagedWorkspaceDirectory(rootPath: String) {
+        val context = appContext ?: return
+        if (rootPath.isBlank() || UriIO.isContentUri(rootPath)) return
+        runCatching {
+            val managedRoot = File(context.filesDir, "edumini/workspaces").canonicalFile
+            val candidate = File(rootPath).canonicalFile
+            val managedPrefix = managedRoot.path + File.separator
+            if (candidate.path.startsWith(managedPrefix)) {
+                candidate.deleteRecursively()
+            }
         }
     }
 
@@ -630,51 +839,43 @@ class EduMiniRepository(
             .distinct()
         val startedMs = System.currentTimeMillis()
         onProgress(42, "إرسال البرومبت والمرفق إلى مزود الذكاء الاصطناعي")
-        val result = aiGenerationService.generate(
-            lesson = lesson,
-            task = task,
-            source = effectiveSource,
-            extra = effectiveExtra,
-            providers = providers,
-            selectedProvider = selectedProvider,
-            requestedModelId = selectedModelId,
-            requestedProfileId = selectedProfileId,
-            questionCount = questionCount,
-            questionTypeIds = questionTypeIds,
-            questionLanguage = questionLanguage,
-            pdfPageImagesBase64 = pageImages,
-            pdfDocumentBase64 = pdfPayload?.base64,
-            responseSchemaJson = responseSchema,
-            responseFormat = responseFormat,
-            templateId = activeTemplate?.id.orEmpty(),
-            templateVersion = activeTemplate?.version ?: 1,
-            responseSchemaHash = schemaHash,
-            requestFingerprint = requestSeedHash,
-            sourcePdfHash = pdfHash,
-            onReserveProvider = { profile -> providerStorage.reserveProviderKey(profile.id) },
-            onProviderStateChanged = { providerId, status, retryAfter ->
-                providerStorage.updateProviderRuntimeState(providerId, status, retryAfter)
-            },
-            questionStyleHint = questionStyleHint,
-            difficultyHint = difficultyHint,
-            onAttemptFinished = { providerLabel, model, success, error ->
-                dao.insertGenerationRun(
-                    GenerationRunEntity(
-                        id = "run-${System.currentTimeMillis()}-${UUID.randomUUID().toString().take(6)}",
-                        workspaceId = workspaceId.ifBlank { lesson.rootPath },
-                        lessonKey = lesson.lessonKey,
-                        task = task.id,
-                        providerLabel = providerLabel,
-                        model = model,
-                        status = if (success) "SUCCESS" else "FAILED",
-                        errorSummary = error?.take(220),
-                        createdAt = Instant.now().toString(),
-                        durationMs = (System.currentTimeMillis() - startedMs).coerceAtLeast(1L),
-                        tokensUsed = 0
-                    )
-                )
-            },
-            modelFallbackIds = modelFallbackIds
+        val prompt = withContext(Dispatchers.IO) {
+            aiGenerationService.buildPrompt(
+                lesson = lesson,
+                task = task,
+                source = effectiveSource,
+                extra = effectiveExtra,
+                questionCount = questionCount,
+                questionTypeIds = questionTypeIds,
+                questionLanguage = questionLanguage,
+                attachedPdfPagesCount = if (pdfPayload != null) 1 else pageImages.size,
+                questionStyleHint = questionStyleHint,
+                difficultyHint = difficultyHint,
+                responseSchemaJson = responseSchema,
+                responseFormat = responseFormat
+            )
+        }
+        val result = executeAiTask(
+            workspaceId = workspaceId.ifBlank { lesson.workspaceId }.ifBlank { lesson.rootPath },
+            taskId = task.id,
+            lessonKey = lesson.lessonKey,
+            request = AiExecutionRequest(
+                prompt = prompt,
+                providers = providers,
+                selectedProvider = selectedProvider,
+                requestedModelId = selectedModelId,
+                requestedProfileId = selectedProfileId,
+                modelFallbackIds = modelFallbackIds,
+                pdfPageImagesBase64 = pageImages,
+                pdfDocumentBase64 = pdfPayload?.base64,
+                responseSchemaJson = responseSchema,
+                responseFormat = responseFormat,
+                templateId = activeTemplate?.id.orEmpty(),
+                templateVersion = activeTemplate?.version ?: 1,
+                responseSchemaHash = schemaHash,
+                requestFingerprint = requestSeedHash,
+                sourcePdfHash = pdfHash
+            )
         )
         onProgress(88, "فحص الاستجابة مع الاحتفاظ بالمحتوى المستلم")
         val responseIssues = mutableListOf<String>()
@@ -738,6 +939,62 @@ class EduMiniRepository(
             text = adaptedText,
             contentHash = sha256Full(adaptedText),
             validationIssues = responseIssues.toList()
+        )
+    }
+
+    /**
+     * The single application-owned provider execution path used by Content Studio,
+     * lesson preparation, book-index discovery and future AI features.
+     *
+     * Feature callers prepare prompts/contracts and attachments; this method owns
+     * provider-key reservation, runtime state updates, model fallback and run telemetry.
+     */
+    suspend fun executeAiTask(
+        workspaceId: String,
+        taskId: String,
+        lessonKey: String = "",
+        request: AiExecutionRequest
+    ): GeneratedResult {
+        require(taskId.isNotBlank()) { "معرّف مهمة AI مطلوب." }
+        val startedAt = System.currentTimeMillis()
+        val modelFallbackIds = request.modelFallbackIds.ifEmpty {
+            providerStorage.loadModelCatalog()
+                .filter {
+                    it.provider == request.selectedProvider &&
+                        it.modelId != request.requestedModelId &&
+                        it.isEnabled &&
+                        it.supportsGenerateContent &&
+                        it.lifecycleStatus != com.example.data.ai.AiModelDefinition.STATUS_DEPRECATED
+                }
+                .sortedWith(compareBy<com.example.data.ai.AiModelDefinition> { !it.isDefault }.thenBy { it.displayName })
+                .map { it.modelId }
+                .distinct()
+        }
+        return aiGenerationService.execute(
+            request.copy(
+                modelFallbackIds = modelFallbackIds,
+                onReserveProvider = { profile -> providerStorage.reserveProviderKey(profile.id) },
+                onProviderStateChanged = { providerId, status, retryAfter ->
+                    providerStorage.updateProviderRuntimeState(providerId, status, retryAfter)
+                },
+                onAttemptFinished = { providerLabel, model, success, error ->
+                    dao.insertGenerationRun(
+                        GenerationRunEntity(
+                            id = "run-${System.currentTimeMillis()}-${UUID.randomUUID().toString().take(6)}",
+                            workspaceId = workspaceId,
+                            lessonKey = lessonKey,
+                            task = taskId,
+                            providerLabel = providerLabel,
+                            model = model,
+                            status = if (success) "SUCCESS" else "FAILED",
+                            errorSummary = error?.take(220),
+                            createdAt = Instant.now().toString(),
+                            durationMs = (System.currentTimeMillis() - startedAt).coerceAtLeast(1L),
+                            tokensUsed = 0
+                        )
+                    )
+                }
+            )
         )
     }
 
@@ -2587,7 +2844,11 @@ class EduMiniRepository(
         title = title,
         partKey = partKey,
         sortOrder = sortOrder,
-        sourceIndexPath = sourceIndexPath
+        sourceIndexPath = sourceIndexPath,
+        proposedPartKey = proposedPartKey,
+        assignmentStatus = assignmentStatus,
+        assignmentSource = assignmentSource,
+        assignmentEvidence = assignmentEvidence
     )
 
     private fun BookEntity.toModel() = BookRef(
@@ -2599,7 +2860,19 @@ class EduMiniRepository(
         lessonsCount = lessonsCount,
         coverPath = coverPath,
         sourcePdfPath = sourcePdfPath,
-        subjectName = subjectName
+        subjectName = subjectName,
+        approvalStatus = approvalStatus,
+        requiresReview = requiresReview,
+        sourceReviewStatus = sourceReviewStatus,
+        schemaVersion = schemaVersion,
+        gradeName = gradeName,
+        sourceLayout = sourceLayout,
+        sourceLayoutEvidence = sourceLayoutEvidence,
+        partKey = partKey,
+        offset = offset,
+        totalPdfPages = totalPdfPages,
+        sourceFileName = sourceFileName,
+        sourceSha256 = sourceSha256
     )
 
     private fun LessonEntity.toModel(wsId: String) = LessonRef(
@@ -2619,7 +2892,12 @@ class EduMiniRepository(
         workspaceId = wsId,
         sourceTextPath = sourceTextPath,
         interactivePath = interactivePath,
-        printedPageRange = printedPageRange
+        printedPageRange = printedPageRange,
+        printedPageStart = printedPageStart,
+        printedPageEnd = printedPageEnd,
+        pdfPageStart = pdfPageStart,
+        pdfPageEnd = pdfPageEnd,
+        sortOrder = sortOrder
     )
 
     fun openOutputStreamForUri(uri: Uri): OutputStream? {

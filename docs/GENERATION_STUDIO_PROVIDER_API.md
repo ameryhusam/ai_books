@@ -654,24 +654,27 @@ The earlier reference workflow uses the same pattern for index discovery: it sup
 - cancellation, bounded transient retries, quota reservation and rate-limit cooldown;
 - provider/model and request provenance returned with `GeneratedResult`.
 
-`EduMiniRepository.generateContent()` prepares the question task's prompt/schema/source, calls `AiGenerationService.generate()`, validates the output and invokes the question parser. It invokes `QuestionBankEngine.parseGeneratedQuestions()` before returning `GeneratedResult` to `MainViewModel`. Therefore a task-parser/semantic-validation failure can prevent the caller from receiving a response that the provider already returned. This is a feature-pipeline failure, not necessarily an API transport failure. The current question schema is centralized in `QuestionResponseContract`, but its direct Room-schema derivation remains outstanding.
+`EduMiniRepository.generateContent()` prepares the lesson task's prompt/schema/source and now calls `EduMiniRepository.executeAiTask()`. The two MainViewModel entry points used by Content Studio and lesson preparation both reach this same repository method. The repository helper injects provider-key reservation, runtime-state updates, same-provider model fallback and generation-run telemetry, then calls `AiGenerationService.execute(AiExecutionRequest)`. Feature-level validation/parsing remains after the transport result. The current question schema is centralized in `QuestionResponseContract`, but its direct Room-schema derivation remains outstanding.
 
-### 15.3 Why index discovery is not connected yet
+### 15.3 Current book-index discovery backend
 
-The current AiGenerationService.generate() entry point is lesson-specific: it requires LessonRef and TaskType, builds the prompt through BookIndexPromptRegistry and couples transport execution to lesson-generation context. Book intake runs before a lesson exists, and learner-assessment/recommendation requests may not have a LessonRef either. A task-neutral request boundary is therefore required.
+Book intake now has a task-neutral adapter: `EduMiniRepository.discoverBookIndexFromPdf()` loads `BookIndexPromptTemplate.SOURCE_PATH`, prepares the original PDF attachment, builds the JSON-schema request and calls the same `executeAiTask()` method used by Content Studio/lesson preparation. It does not create a fake `LessonRef`, use a content `TaskType`, create a second HTTP client or implement a second retry loop.
 
-The new `BookIndexPromptTemplate.SOURCE_PATH` and prompt asset are not currently loaded by the service. In addition, `BookIndexPromptTemplate.responseSchemaJson` is presently an example JSON object, not a JSON Schema. It is suitable only as an illustrative shape; it must not be passed to Gemini's `responseSchema` or the local schema validator.
+`BookIndexPromptTemplate.responseSchemaJson` is now a versioned JSON Schema with nested unit/lesson properties. `BookIndexAiResponseParser` converts the returned raw JSON into an unapproved `BookIndexIntakeDraft`; the parser preserves printed/physical page fields separately and defaults offset to 1 when absent. The PDF picker is not yet wired to this method, and the draft is not yet displayed in an editable review screen or persisted.
 
-### 15.4 Required correction without duplicate AI code
+### 15.4 Implemented single execution path and remaining alignment
 
-Create one task-neutral request/execution boundary inside `AiGenerationService`. It should accept:
-- the fully assembled prompt;
-- source attachments (native PDF payloads and/or rendered page images);
-- response format and a real versioned JSON Schema;
-- provider, selected/actual profile, actual model, attempt count and failover reason;
-- prompt/schema versions and hashes, source hash and request fingerprint.
+The shared application entry point is `EduMiniRepository.executeAiTask(workspaceId, taskId, lessonKey, request)`. It accepts a fully prepared `AiExecutionRequest` and centralizes provider-key reservation, runtime-state updates, same-provider model fallback and generation-run telemetry. It then invokes the single task-neutral transport method `AiGenerationService.execute()`.
 
-Move provider routing, quota reservation, cancellation, provider call, retry/cooldown and raw response extraction into one task-neutral execution method. It receives a fully assembled prompt, attachments, response format/schema, selected provider/profile/model and provenance; it does not require LessonRef or TaskType. Keep the current lesson-generation API as a compatibility adapter while moving prompt preparation out of the service. Add book-index, learner-assessment, recommendation and remediation task adapters; each prepares its own inputs and calls the same execution method. Do not add another OkHttp client, Gemini HTTP implementation or provider retry loop.
+Current call graph:
+
+- Content Studio → `MainViewModel` → `EduMiniRepository.generateContent()` → `executeAiTask()` → `AiGenerationService.execute()`.
+- Lesson preparation/reinforcement → `MainViewModel` → `EduMiniRepository.generateContent()` → `executeAiTask()` → `AiGenerationService.execute()`.
+- PDF index discovery → `EduMiniRepository.discoverBookIndexFromPdf()` → `executeAiTask()` → `AiGenerationService.execute()`.
+
+`AiGenerationService.generate(lesson, task, ...)` remains as a compatibility adapter that delegates to `execute()`, but `EduMiniRepository` no longer calls it. Do not add feature-specific HTTP clients or provider retry logic.
+
+Remaining alignment: generate the AI-writable response projection from the Room schema/database contract rather than maintaining a parallel schema literal; persist raw index response and validation diagnostics; and connect the PDF picker to the review/approval workflow.
 
 The shared service returns raw provider text and an execution envelope. It does not parse question arrays, map index JSON into intake drafts, calculate learner scores, interpret mistakes or write Room records. Those operations belong to the requesting feature's use case/repository. The UI receives the feature's resulting state, not a direct provider callback.
 
@@ -679,7 +682,7 @@ Preserve provider isolation while using the configured same-provider fallback po
 
 ### 15.5 Response handling for index discovery
 
-The index-intake feature receives an untrusted discovery response from the shared service. The feature—not AiGenerationService—must parse one JSON object, validate it against the database-derived index-intake projection, convert it into BookIndexIntakeDraft, run index-specific domain checks, retain the raw response and diagnostics, display extracted values and uncertainty, and require explicit user confirmation before canonical index/manifest writing or slicing.
+The repository currently returns the raw `GeneratedResult`; `BookIndexAiResponseParser` maps its JSON text into an unapproved `BookIndexIntakeDraft`. This keeps parsing and domain semantics outside `AiGenerationService`. The parser and domain validator have focused unit tests. Still required: validate against the eventual Room-derived projection, retain the raw response and diagnostics in durable draft storage, display editable values and uncertainty, and require explicit user confirmation before canonical index/manifest writing or slicing.
 
 A schema-valid response is not necessarily semantically correct. In particular, the model cannot approve its own part assignments or source-layout inference.
 

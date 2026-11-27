@@ -77,44 +77,61 @@ class DirectWorkspaceBinder(private val context: Context) {
         }
     }
 
-    suspend fun inspectTreeUri(treeUri: Uri): DirectWorkspaceInspection = withContext(Dispatchers.IO) {
+    suspend fun inspectTreeUri(
+        treeUri: Uri,
+        onProgress: (String, Int) -> Unit = { _, _ -> }
+    ): DirectWorkspaceInspection = withContext(Dispatchers.IO) {
+        onProgress("حفظ صلاحية الوصول إلى المجلد", 5)
         takePersistableReadPermission(treeUri)
-        val entries = indexSafTree(treeUri)
+        onProgress("قراءة ملفات مساحة العمل", 20)
+        val entries = indexSafTree(treeUri, onProgress)
+        onProgress("تحليل فهارس الصفوف والمواد", 60)
         val rootDocId = DocumentsContract.getTreeDocumentId(treeUri)
         val rootDocUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, rootDocId)
         val folderName = UriIO.displayName(context, rootDocUri.toString())
             .ifBlank { rootDocId.substringAfterLast('/').substringAfterLast(':') }
             .ifBlank { "مساحة العمل المحلية" }
-        inspectIndexedEntries(
+        val inspection = inspectIndexedEntries(
             rootUriOrPath = treeUri.toString(),
             folderDisplayName = folderName,
             isSafUri = true,
             entries = entries
         )
+        onProgress("اكتمل فحص المجلد", 100)
+        inspection
     }
 
-    suspend fun inspectDirectory(directory: File): DirectWorkspaceInspection = withContext(Dispatchers.IO) {
+    suspend fun inspectDirectory(
+        directory: File,
+        onProgress: (String, Int) -> Unit = { _, _ -> }
+    ): DirectWorkspaceInspection = withContext(Dispatchers.IO) {
         require(directory.isDirectory) { "المجلد المحدد غير موجود: ${directory.absolutePath}" }
-        val entries = indexLocalDirectory(directory)
-        inspectIndexedEntries(
+        onProgress("قراءة ملفات مساحة العمل", 20)
+        val entries = indexLocalDirectory(directory, onProgress)
+        onProgress("تحليل فهارس الصفوف والمواد", 60)
+        val inspection = inspectIndexedEntries(
             rootUriOrPath = directory.absolutePath,
             folderDisplayName = directory.name.ifBlank { "مساحة العمل" },
             isSafUri = false,
             entries = entries
         )
+        onProgress("اكتمل فحص المجلد", 100)
+        inspection
     }
 
     suspend fun bindSingleGrade(
         rootUriOrPath: String,
-        gradeKey: String
+        gradeKey: String,
+        onProgress: (String, Int) -> Unit = { _, _ -> }
     ): DirectBoundWorkspaceResult = withContext(Dispatchers.IO) {
+        onProgress("قراءة ملفات الصف $gradeKey", 10)
         val isSaf = UriIO.isContentUri(rootUriOrPath)
         if (isSaf) takePersistableReadPermission(Uri.parse(rootUriOrPath))
         val entries: List<IndexedEntry>
         val folderName: String
         if (isSaf) {
             val treeUri = Uri.parse(rootUriOrPath)
-            entries = indexSafTree(treeUri)
+            entries = indexSafTree(treeUri, onProgress)
             val rootDocId = DocumentsContract.getTreeDocumentId(treeUri)
             val rootDocUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, rootDocId)
             folderName = UriIO.displayName(context, rootDocUri.toString())
@@ -122,10 +139,11 @@ class DirectWorkspaceBinder(private val context: Context) {
         } else {
             val dir = File(rootUriOrPath)
             require(dir.isDirectory) { "تعذر فتح مجلد مساحة العمل: $rootUriOrPath" }
-            entries = indexLocalDirectory(dir)
+            entries = indexLocalDirectory(dir, onProgress)
             folderName = dir.name
         }
 
+        onProgress("فهرسة ملفات الصف ${gradeKey}", 52)
         val entryMap = entries.associateBy { it.relativePath.lowercase() }
         val warnings = mutableListOf<String>()
         val rejectionErrors = mutableListOf<String>()
@@ -136,6 +154,7 @@ class DirectWorkspaceBinder(private val context: Context) {
             "لم يتم العثور على كتب صالحة للصف $gradeKey داخل المجلد المحدد."
         }
 
+        onProgress("تحليل مواد ودروس الصف ${gradeKey}", 55)
         val workspaceId = computeStableWorkspaceId(rootUriOrPath, gradeKey)
         val books = mutableListOf<BookRef>()
         val lessons = mutableListOf<LessonRef>()
@@ -193,6 +212,7 @@ class DirectWorkspaceBinder(private val context: Context) {
             warnings.addAll(validation.warnings.map { "$bookRel: $it" })
             if (!validation.isValid) {
                 rejectionErrors.addAll(validation.errors.map { "$bookRel: $it" })
+                rejectionErrors.addAll(validation.reviewRequiredErrors.map { "$bookRel: $it" })
                 continue
             }
 
@@ -328,7 +348,11 @@ class DirectWorkspaceBinder(private val context: Context) {
                         title = firstNonBlank(unit.str("title"), unit.str("unitTitle"), unit.str("name"), unitKey),
                         partKey = resolvedUnitPart,
                         sortOrder = unitOrder,
-                        sourceIndexPath = slot.indexEntry.uriOrPath
+                        sourceIndexPath = slot.indexEntry.uriOrPath,
+                        proposedPartKey = unit.str("proposedPartKey").ifBlank { null },
+                        assignmentStatus = unit.str("assignmentStatus").ifBlank { "need_review" },
+                        assignmentSource = unit.str("assignmentSource").ifBlank { "LEGACY_UNVERIFIED" },
+                        assignmentEvidence = unit.str("assignmentEvidence")
                     )
                 )
             }
@@ -343,7 +367,28 @@ class DirectWorkspaceBinder(private val context: Context) {
                     lessonsCount = parsedLessons.size,
                     coverPath = resolvedCoverEntry?.uriOrPath,
                     sourcePdfPath = resolvedBookPdfEntry?.uriOrPath,
-                    subjectName = subjectName
+                    subjectName = subjectName,
+                    approvalStatus = indexObj.str("approvalStatus").ifBlank { "LEGACY_UNVERIFIED" },
+                    requiresReview = !indexObj.str("approvalStatus").equals("APPROVED", ignoreCase = true) ||
+                        indexObj.str("requiresReview").equals("true", ignoreCase = true),
+                    sourceReviewStatus = firstNonBlank(
+                        manifestObj?.str("sourceReviewStatus"),
+                        indexObj.str("sourceReviewStatus")
+                    ).ifBlank { "UNKNOWN" },
+                    schemaVersion = firstNonBlank(
+                        indexObj.str("schemaVersion"),
+                        indexObj.str("indexSchemaVersion"),
+                        manifestObj?.str("schemaVersion"),
+                        "edu.book_index.v2"
+                    ),
+                    gradeName = firstNonBlank(indexObj.str("gradeName"), manifestObj?.str("gradeName")),
+                    sourceLayout = firstNonBlank(indexObj.str("sourceLayout"), manifestObj?.str("sourceLayout")).ifBlank { "UNKNOWN" },
+                    sourceLayoutEvidence = firstNonBlank(indexObj.str("sourceLayoutEvidence"), manifestObj?.str("sourceLayoutEvidence")),
+                    partKey = firstNonBlank(indexObj.str("partKey"), manifestObj?.str("partKey")).ifBlank { null },
+                    offset = firstNonBlank(indexObj.str("offset"), manifestObj?.str("offset")).toIntOrNull() ?: 1,
+                    totalPdfPages = firstNonBlank(indexObj.str("totalPdfPages"), manifestObj?.str("totalPdfPages")).toIntOrNull() ?: 0,
+                    sourceFileName = firstNonBlank(manifestObj?.str("sourceFileName"), indexObj.str("sourceFileName")).ifBlank { null },
+                    sourceSha256 = firstNonBlank(manifestObj?.str("sourceSha256"), indexObj.str("sourceSha256")).ifBlank { null }
                 )
             )
             lessons.addAll(parsedLessons)
@@ -467,6 +512,7 @@ class DirectWorkspaceBinder(private val context: Context) {
             units = unitRefs
         )
 
+        onProgress("اكتمل ربط الصف ${gradeKey}", 100)
         DirectBoundWorkspaceResult(
             workspace = workspace,
             preloadedQuestions = preloadedQuestions,
@@ -545,6 +591,7 @@ class DirectWorkspaceBinder(private val context: Context) {
             warnings.addAll(validation.warnings.map { "$bookLabel: $it" })
             if (!validation.isValid) {
                 rejectionErrors.addAll(validation.errors.map { "$bookLabel: $it" })
+                rejectionErrors.addAll(validation.reviewRequiredErrors.map { "$bookLabel: $it" })
                 return@forEach
             }
 
@@ -1078,7 +1125,12 @@ class DirectWorkspaceBinder(private val context: Context) {
                         workspaceId = workspaceId,
                         sourceTextPath = matchedTxt?.uriOrPath,
                         interactivePath = matchedHtml?.uriOrPath,
-                        printedPageRange = printedPageRange
+                        printedPageRange = printedPageRange,
+                        printedPageStart = printedStartPage.toIntOrNull(),
+                        printedPageEnd = printedEndPage.toIntOrNull(),
+                        pdfPageStart = startPage.toIntOrNull(),
+                        pdfPageEnd = endPage.toIntOrNull(),
+                        sortOrder = l.str("sortOrder").toIntOrNull() ?: li
                     )
                 )
             }
@@ -1106,10 +1158,13 @@ class DirectWorkspaceBinder(private val context: Context) {
         }
     }
 
-    private fun indexSafTree(treeUri: Uri): List<IndexedEntry> {
+    private fun indexSafTree(
+        treeUri: Uri,
+        onProgress: (String, Int) -> Unit = { _, _ -> }
+    ): List<IndexedEntry> {
         val results = mutableListOf<IndexedEntry>()
         val rootDocId = DocumentsContract.getTreeDocumentId(treeUri)
-        walkSafChildren(treeUri, rootDocId, "", results)
+        walkSafChildren(treeUri, rootDocId, "", results, onProgress)
         return results
     }
 
@@ -1117,7 +1172,8 @@ class DirectWorkspaceBinder(private val context: Context) {
         treeUri: Uri,
         parentDocId: String,
         parentRel: String,
-        out: MutableList<IndexedEntry>
+        out: MutableList<IndexedEntry>,
+        onProgress: (String, Int) -> Unit
     ) {
         if (out.size >= MAX_INDEXED_FILES) return
         val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentDocId)
@@ -1141,27 +1197,37 @@ class DirectWorkspaceBinder(private val context: Context) {
                     val size = if (sizeIdx >= 0 && !cursor.isNull(sizeIdx)) cursor.getLong(sizeIdx) else 0L
                     val rel = if (parentRel.isBlank()) name else "$parentRel/$name"
                     if (mime == DocumentsContract.Document.MIME_TYPE_DIR) {
-                        walkSafChildren(treeUri, docId, rel, out)
+                        walkSafChildren(treeUri, docId, rel, out, onProgress)
                     } else {
                         val docUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
                         out.add(IndexedEntry(rel, docUri.toString(), size))
+                        if (out.size % 25 == 0) {
+                            onProgress("قراءة ملفات المجلد (${out.size})", (20 + out.size * 30 / MAX_INDEXED_FILES).coerceAtMost(50))
+                        }
                     }
                 }
             }
         }
     }
 
-    private fun indexLocalDirectory(root: File): List<IndexedEntry> {
+    private fun indexLocalDirectory(
+        root: File,
+        onProgress: (String, Int) -> Unit = { _, _ -> }
+    ): List<IndexedEntry> {
         val basePath = root.toPath()
-        return root.walkTopDown()
+        val results = mutableListOf<IndexedEntry>()
+        root.walkTopDown()
             .onEnter { dir -> !dir.name.startsWith(".") }
             .filter { it.isFile }
             .take(MAX_INDEXED_FILES)
-            .map { file ->
+            .forEach { file ->
                 val rel = basePath.relativize(file.toPath()).toString().replace('\\', '/')
-                IndexedEntry(rel, file.absolutePath, file.length())
+                results.add(IndexedEntry(rel, file.absolutePath, file.length()))
+                if (results.size % 25 == 0) {
+                    onProgress("قراءة ملفات المجلد (${results.size})", (20 + results.size * 30 / MAX_INDEXED_FILES).coerceAtMost(50))
+                }
             }
-            .toList()
+        return results
     }
 
     private fun joinRel(prefix: String, tail: String): String {

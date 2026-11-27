@@ -14,9 +14,14 @@ import java.util.Locale
 data class WorkspaceContractValidation(
     val canonicalContract: Boolean,
     val errors: List<String>,
-    val warnings: List<String>
+    val warnings: List<String>,
+    val reviewRequiredErrors: List<String> = emptyList()
 ) {
-    val isValid: Boolean get() = errors.isEmpty()
+    /** Strict validation used by direct folder binding. */
+    val isValid: Boolean get() = errors.isEmpty() && reviewRequiredErrors.isEmpty()
+
+    /** Errors in this set may be imported only after explicit user acceptance and remain flagged for review. */
+    val isImportableWithReview: Boolean get() = errors.isEmpty()
 }
 
 /** Validates indexer2 source identity, approval, index fingerprint and lesson file references. */
@@ -68,6 +73,31 @@ object WorkspaceContractValidator {
             }
         }
         val canonical = manifestVersion.startsWith("edu.book_manifest.") || sourceLayout.isNotBlank()
+
+        if (!canonical) {
+            val legacyApprovalStatus = index.string("approvalStatus")
+            if (legacyApprovalStatus.isNotBlank() && !legacyApprovalStatus.equals("APPROVED", ignoreCase = true)) {
+                errors.add("[index.json → approvalStatus] الفهرس غير معتمد: '$legacyApprovalStatus'.")
+            }
+            if (index.boolean("requiresReview") || index.boolean("requires_review")) {
+                errors.add("[index.json → requiresReview] الفهرس يحمل علامة requiresReview=true.")
+            }
+            if (sourceReviewStatus.isNotBlank() && !sourceReviewStatus.equals("VERIFIED", ignoreCase = true)) {
+                errors.add("[book_manifest.json → sourceReviewStatus] المصدر يحتاج إلى مراجعة: '$sourceReviewStatus'.")
+            }
+            val legacyIndexSha = manifest?.string("indexSha256").orEmpty()
+            if (legacyIndexSha.isNotBlank() &&
+                (!legacyIndexSha.matches(Regex("^[a-fA-F0-9]{64}$")) || !sha256(indexRaw).equals(legacyIndexSha, ignoreCase = true))
+            ) {
+                errors.add("[book_manifest.json → indexSha256] بصمة index.json غير صالحة أو غير مطابقة.")
+            }
+            val legacyCanonicalIndexSha = manifest?.string("canonicalIndexSha256").orEmpty()
+            if (legacyCanonicalIndexSha.isNotBlank() &&
+                (!legacyCanonicalIndexSha.matches(Regex("^[a-fA-F0-9]{64}$")) || !sha256(indexRaw).equals(legacyCanonicalIndexSha, ignoreCase = true))
+            ) {
+                errors.add("[book_manifest.json → canonicalIndexSha256] بصمة الفهرس canonical غير صالحة أو غير مطابقة.")
+            }
+        }
 
         validateIdentityField(manifest, "gradeKey", expectedGrade, "book_manifest.json", errors)
         validateIdentityField(index, "gradeKey", expectedGrade, "index.json", errors)
@@ -216,14 +246,22 @@ object WorkspaceContractValidator {
                 }
             }
             if (canonical && partKey !in setOf("P01", "P02")) {
-                errors.add("[index.json → units[${unitKey.ifBlank { unitIndex.toString() }}].partKey] الوحدة «${unitTitle.ifBlank { unitKey }}» غير مسندة إلى P01 أو P02.")
+                val proposedPartKey = unit.string("proposedPartKey")
+                val unresolvedAssignment = assignmentStatus.equals("need_review", ignoreCase = true) ||
+                    proposedPartKey.isNotBlank() || unit.boolean("provisionalAssignment")
+                val message = "[index.json → units[${unitKey.ifBlank { unitIndex.toString() }}].partKey] الوحدة «${unitTitle.ifBlank { unitKey }}» غير مسندة إلى P01 أو P02."
+                if (unresolvedAssignment) {
+                    errors.add("$message [REVIEW_REQUIRED]")
+                } else {
+                    errors.add(message)
+                }
             } else if (!canonical && partKey.isBlank()) {
                 warnings.add("إسناد الجزء (partKey) غير موجود للوحدة ${unitTitle.ifBlank { unitKey }}.")
             }
             if (canonical && assignmentStatus.isBlank()) {
                 missingAssignmentUnits.add(unitTitle.ifBlank { unitKey })
             }
-            if (canonical && assignmentStatus.isNotBlank() && !assignmentStatus.equals("assigned", ignoreCase = true)) {
+            if (assignmentStatus.isNotBlank() && !assignmentStatus.equals("assigned", ignoreCase = true)) {
                 errors.add("[index.json → units[${unitKey.ifBlank { unitIndex.toString() }}].assignmentStatus] الوحدة «${unitTitle.ifBlank { unitKey }}» حالتها '$assignmentStatus' (المطلوب 'assigned').")
             }
             if (unit.boolean("provisionalAssignment")) {
@@ -293,7 +331,32 @@ object WorkspaceContractValidator {
             val suffix = if (missingAssignmentUnits.size > 3) " (+${missingAssignmentUnits.size - 3})" else ""
             warnings.add("حقل assignmentStatus غير موجود في ${missingAssignmentUnits.size} وحدة ($preview$suffix)؛ تم الاعتماد على partKey مع حالة مراجعة المصدر.")
         }
-        return WorkspaceContractValidation(canonical, errors.distinct(), warnings.distinct())
+        val reviewMarkers = listOf(
+            "sourceMetadata",
+            "sourceRequiresReview",
+            "partEvidence",
+            "sourceReviewStatus",
+            "approvalStatus",
+            "requiresReview",
+            "indexSha256",
+            "canonicalIndexSha256",
+            "assignmentSource",
+            "assignmentEvidence",
+            "assignmentStatus",
+            "provisionalAssignment",
+            "REVIEW_REQUIRED"
+        )
+        val reviewErrors = errors.filter { message ->
+            reviewMarkers.any { marker -> message.contains(marker, ignoreCase = true) } ||
+                (message.contains("partIndexes", ignoreCase = true) && message.contains("لا تطابق"))
+        }
+        val blockingErrors = errors.filterNot { it in reviewErrors }
+        return WorkspaceContractValidation(
+            canonicalContract = canonical,
+            errors = blockingErrors.distinct(),
+            warnings = warnings.distinct(),
+            reviewRequiredErrors = reviewErrors.distinct()
+        )
     }
 
     /**
@@ -307,6 +370,12 @@ object WorkspaceContractValidator {
     ): String {
         val direct = firstNonBlank(unit.string("partKey"), unit.string("part")).uppercase(Locale.ROOT)
         if (direct == "P01" || direct == "P02") return direct
+
+        // A proposal or explicit need_review state must never be promoted from a lesson path.
+        val provisionalAssignment = unit.boolean("provisionalAssignment") ||
+            unit.string("assignmentStatus").equals("need_review", ignoreCase = true) ||
+            unit.string("proposedPartKey").isNotBlank()
+        if (provisionalAssignment) return ""
 
         val lessons = unit["lessons"] as? JsonArray
         if (lessons != null) {

@@ -152,7 +152,8 @@ class AiGenerationService(
 
     suspend fun extractLessonPdfPageImagesBase64(
         pdfPath: String?,
-        maxPages: Int = 4
+        maxPages: Int = 4,
+        sampleAcrossDocument: Boolean = true
     ): List<String> = withContext(Dispatchers.IO) {
         require(!pdfPath.isNullOrBlank()) { "مسار PDF غير محدد" }
         require(maxPages > 0) { "عدد صفحات PDF المطلوب يجب أن يكون أكبر من صفر" }
@@ -172,8 +173,8 @@ class AiGenerationService(
             PdfRenderer(pfd).use { renderer ->
                 require(renderer.pageCount > 0) { "ملف PDF لا يحتوي صفحات" }
                 val selectedCount = renderer.pageCount.coerceAtMost(maxPages)
-                val selectedIndexes = if (selectedCount == 1) {
-                    listOf(0)
+                val selectedIndexes = if (!sampleAcrossDocument || selectedCount == 1) {
+                    (0 until selectedCount).toList()
                 } else {
                     (0 until selectedCount).map { index ->
                         (index.toLong() * (renderer.pageCount - 1) / (selectedCount - 1)).toInt()

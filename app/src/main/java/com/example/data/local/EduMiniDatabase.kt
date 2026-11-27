@@ -403,6 +403,14 @@ data class PromptTemplateEntity(
     @ColumnInfo(name = "version", defaultValue = "1") val version: Int = 1
 )
 
+data class WorkspaceCatalogGraph(
+    val workspace: WorkspaceEntity,
+    val books: List<BookEntity>,
+    val lessons: List<LessonEntity>,
+    val indexes: List<WorkspaceIndexEntity>,
+    val units: List<WorkspaceUnitEntity>
+)
+
 @Dao
 interface EduMiniDao {
     @Query("SELECT * FROM workspaces ORDER BY importedAt DESC LIMIT 1")
@@ -510,6 +518,19 @@ interface EduMiniDao {
         deleteWorkspaceUnits(workspace.workspaceId)
         if (indexes.isNotEmpty()) insertWorkspaceIndexes(indexes)
         if (units.isNotEmpty()) insertWorkspaceUnits(units)
+    }
+
+    @Transaction
+    suspend fun syncDirectWorkspaceCatalogBatch(graphs: List<WorkspaceCatalogGraph>) {
+        graphs.forEach { graph ->
+            syncDirectWorkspaceCatalog(
+                workspace = graph.workspace,
+                books = graph.books,
+                lessons = graph.lessons,
+                indexes = graph.indexes,
+                units = graph.units
+            )
+        }
     }
 
     @Query("SELECT * FROM workspace_indexes WHERE workspace_id = :workspaceId ORDER BY book_key")
