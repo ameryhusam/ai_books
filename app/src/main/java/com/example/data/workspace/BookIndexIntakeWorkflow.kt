@@ -164,7 +164,7 @@ object BookIndexPromptTemplate {
               "title": "اسم الوحدة",
               "partKey": "P01 | P02 | null",
               "proposedPartKey": null,
-              "assignmentStatus": "ASSIGNED | NEEDS_REVIEW",
+              "assignmentStatus": "assigned | need_review",
               "assignmentSource": "INDEX_EVIDENCE | DEFAULT_PROPOSAL | LEGACY_UNVERIFIED",
               "assignmentEvidence": "الدليل النصي",
               "lessons": [
@@ -175,7 +175,7 @@ object BookIndexPromptTemplate {
                   "printedPageEnd": 6,
                   "pdfPageStart": 5,
                   "pdfPageEnd": 10,
-                  "assignmentStatus": "ASSIGNED | NEEDS_REVIEW",
+                  "assignmentStatus": "assigned | need_review",
                   "assignmentEvidence": "الدليل النصي"
                 }
               ]
