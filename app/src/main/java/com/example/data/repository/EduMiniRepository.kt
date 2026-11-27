@@ -666,7 +666,11 @@ class EduMiniRepository(
         onProgress(88, "فحص الاستجابة مع الاحتفاظ بالمحتوى المستلم")
         val responseIssues = mutableListOf<String>()
         if (responseFormat.equals("json", ignoreCase = true)) {
-            val outputIssues = TemplateOutputValidator.validateOutput(result.text, responseSchema)
+            val outputIssues = runCatching {
+                TemplateOutputValidator.validateOutput(result.text, responseSchema)
+            }.getOrElse { error ->
+                listOf("تعذر تنفيذ فحص عقد JSON: ${error.message ?: "خطأ تحقق غير محدد"}")
+            }
             responseIssues += outputIssues
         }
         if (task == TaskType.QUESTIONS) {
@@ -686,21 +690,25 @@ class EduMiniRepository(
         }
 
         if (responseIssues.isNotEmpty()) {
-            dao.insertGenerationRun(
-                GenerationRunEntity(
-                    id = "run-validation-" + System.currentTimeMillis() + "-" + UUID.randomUUID().toString().take(6),
-                    workspaceId = workspaceId.ifBlank { lesson.rootPath },
-                    lessonKey = lesson.lessonKey,
-                    task = task.id,
-                    providerLabel = result.providerLabel,
-                    model = result.model,
-                    status = "RESPONSE_REVIEW_REQUIRED",
-                    errorSummary = responseIssues.joinToString("; ").take(220),
-                    createdAt = Instant.now().toString(),
-                    durationMs = result.durationMs.coerceAtLeast(1L),
-                    tokensUsed = result.tokensUsed
+            runCatching {
+                dao.insertGenerationRun(
+                    GenerationRunEntity(
+                        id = "run-validation-" + System.currentTimeMillis() + "-" + UUID.randomUUID().toString().take(6),
+                        workspaceId = workspaceId.ifBlank { lesson.rootPath },
+                        lessonKey = lesson.lessonKey,
+                        task = task.id,
+                        providerLabel = result.providerLabel,
+                        model = result.model,
+                        status = "RESPONSE_REVIEW_REQUIRED",
+                        errorSummary = responseIssues.joinToString("; ").take(220),
+                        createdAt = Instant.now().toString(),
+                        durationMs = result.durationMs.coerceAtLeast(1L),
+                        tokensUsed = result.tokensUsed
+                    )
                 )
-            )
+            }.onFailure { error ->
+                responseIssues += "تعذر حفظ سجل تشخيص التحقق: ${error.message ?: "خطأ قاعدة بيانات غير محدد"}"
+            }
         }
 
         // Never transform a response that failed its contract: preserve exactly what the
