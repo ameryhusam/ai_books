@@ -44,9 +44,15 @@ object AiModelCatalogDefaults {
             modelId = "gemini-3.5-flash",
             displayName = "Gemini 3.5 Flash",
             provider = ProviderType.GEMINI,
-            lifecycleStatus = AiModelDefinition.STATUS_ROUTED,
-            replacementModelId = "gemini-3.8-flash",
+            lifecycleStatus = AiModelDefinition.STATUS_AVAILABLE,
             isDefault = true,
+            source = AiModelDefinition.SOURCE_GOOGLE
+        ),
+        AiModelDefinition(
+            modelId = "gemini-3.6-flash",
+            displayName = "Gemini 3.6 Flash",
+            provider = ProviderType.GEMINI,
+            lifecycleStatus = AiModelDefinition.STATUS_AVAILABLE,
             source = AiModelDefinition.SOURCE_GOOGLE
         ),
         AiModelDefinition(
