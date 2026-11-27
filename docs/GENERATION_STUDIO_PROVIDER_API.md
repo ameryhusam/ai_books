@@ -845,3 +845,14 @@ The source changes are in place, but behavior is not considered verified until t
 - Do not hardcode explanations or provider policy paragraphs into the UI as part of this catalog change. The model test controls and default-model selection remain concise UI elements.
 - Increment the local catalog seed version so existing installations receive the newly added 3.7 entry without clearing custom models or API credentials.
 - These entries are configured candidates; successful use depends on model availability and permissions for the user's Google API key. Do not claim that every account can invoke every candidate without a live API test.
+
+
+## Provider connection test in Settings
+
+The Settings screen uses the existing `testFormProvider` / `testSavedProvider` → repository → `AiGenerationService.testProviderConnection` path. It tests unsaved form values directly, allowing a user to verify a profile before saving it. The test sends one short text-only request to exactly the selected provider and model; it does not use lesson prompts, templates, PDF attachments, generation history, quota reservation, draft persistence, or cross-provider fallback.
+
+A successful result displays provider, model, elapsed time, and the complete returned text. The result dialog is scrollable rather than truncating the response. The Settings button displays an in-progress state and prevents duplicate test requests.
+
+Provider HTTP failures are mapped to typed diagnostics for invalid credentials, exhausted quota, rate limiting, unavailable model, invalid request, empty response, and provider/network failure. Quota signals are evaluated before generic HTTP 403/429 handling so quota errors are not mislabeled as invalid credentials. Empty or whitespace-only model output is never reported as success. API keys are not included in test output; any accidental exact-key echo is masked.
+
+Gemini uses its own `x-goog-api-key` header and generateContent endpoint. OpenAI-compatible profiles use their own Bearer token and configured `/chat/completions` endpoint. MockWebServer tests verify request construction, full response handling, error classification, and empty/network failure behavior without requiring real API credentials. Passing these tests validates transport handling, not live account/model entitlement; live verification must be performed on an Android device with the user's own provider configuration.
