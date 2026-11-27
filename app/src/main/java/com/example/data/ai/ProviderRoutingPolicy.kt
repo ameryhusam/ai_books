@@ -62,8 +62,7 @@ internal object ProviderRoutingPolicy {
         val preferred = preferredModelId.trim()
         require(preferred.isNotBlank()) { "An explicit catalogue model ID is required." }
         if (profile.strictModel) return listOf(preferred)
-        val legacyProfileCandidates = if (profile.model.isBlank()) emptyList() else modelCandidates(profile)
-        return (listOf(preferred) + providerFallbackIds + legacyProfileCandidates)
+        return (listOf(preferred) + providerFallbackIds)
             .map { it.trim() }
             .filter { it.isNotBlank() }
             .distinct()
