@@ -300,37 +300,51 @@ class EduMiniRepository(
         val binder = directWorkspaceBinder
             ?: throw IllegalStateException("أداة ربط مساحة العمل المباشرة غير مهيأة")
         val bound = binder.bindSingleGrade(rootUriOrPath, gradeKey, onProgress)
-        val emptyPlaceholders = dao.observeAllWorkspaces().first().filter {
-            it.gradeKey.equals(bound.workspace.gradeKey, ignoreCase = true) &&
-                it.rootPath.isBlank() &&
-                it.workspaceId != bound.workspace.workspaceId
+        val existingMatches = dao.observeAllWorkspaces().first().filter {
+            it.gradeKey.equals(bound.workspace.gradeKey, ignoreCase = true)
         }
-        emptyPlaceholders.forEach { dao.deleteWorkspaceGraph(it.workspaceId) }
-        saveImportedWorkspace(bound.workspace)
-        if (bound.preloadedQuestions.isNotEmpty()) {
-            val existingFingerprints = dao.observeQuestionsForWorkspace(bound.workspace.workspaceId)
+        require(existingMatches.size <= 1) {
+            "توجد أكثر من مساحة عمل مسجلة للصف ${bound.workspace.gradeKey}؛ لم يتم الربط لتجنب تحديث مساحة غير مقصودة."
+        }
+        val existing = existingMatches.singleOrNull()
+        val targetWorkspaceId = existing?.workspaceId ?: bound.workspace.workspaceId
+        val workspaceToSave = bound.workspace.copy(
+            workspaceId = targetWorkspaceId,
+            lessons = bound.workspace.lessons.map { it.copy(workspaceId = targetWorkspaceId) }
+        )
+        val questionsToSave = bound.preloadedQuestions.map { it.copy(workspaceId = targetWorkspaceId) }
+        val packagesToSave = bound.preloadedInteractivePackages.map { it.copy(workspaceId = targetWorkspaceId) }
+
+        saveImportedWorkspace(workspaceToSave)
+        if (questionsToSave.isNotEmpty()) {
+            val existingFingerprints = dao.observeQuestionsForWorkspace(targetWorkspaceId)
                 .first()
                 .map { "${it.bookKey}|${it.unitKey}|${it.lessonKey}|${it.fingerprint}" }
                 .toHashSet()
-            val toInsert = bound.preloadedQuestions.filter {
+            val toInsert = questionsToSave.filter {
                 "${it.bookKey}|${it.unitKey}|${it.lessonKey}|${it.fingerprint}" !in existingFingerprints
             }
             if (toInsert.isNotEmpty()) {
                 dao.insertQuestions(toInsert.map { it.toEntity() })
             }
         }
-        if (bound.preloadedInteractivePackages.isNotEmpty()) {
-            val existingById = dao.observePackagesForWorkspace(bound.workspace.workspaceId)
+        if (packagesToSave.isNotEmpty()) {
+            val existingById = dao.observePackagesForWorkspace(targetWorkspaceId)
                 .first()
                 .associateBy { it.id }
-            bound.preloadedInteractivePackages.forEach { pkg ->
-                val existing = existingById[pkg.id]
-                if (existing == null || existing.rootDir != pkg.rootDir || existing.entryFile != pkg.entryFile || existing.reportJson != pkg.reportJson) {
+            packagesToSave.forEach { pkg ->
+                val existingPackage = existingById[pkg.id]
+                if (existingPackage == null || existingPackage.rootDir != pkg.rootDir ||
+                    existingPackage.entryFile != pkg.entryFile || existingPackage.reportJson != pkg.reportJson
+                ) {
                     dao.insertInteractivePackage(pkg)
                 }
             }
         }
-        return bound.workspace
+        if (existing != null && existing.rootPath != workspaceToSave.rootPath) {
+            deleteManagedWorkspaceDirectory(existing.rootPath)
+        }
+        return workspaceToSave
     }
 
     suspend fun bindDirectWorkspaces(
