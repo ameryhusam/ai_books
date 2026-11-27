@@ -77,36 +77,52 @@ class DirectWorkspaceBinder(private val context: Context) {
         }
     }
 
-    suspend fun inspectTreeUri(treeUri: Uri): DirectWorkspaceInspection = withContext(Dispatchers.IO) {
+    suspend fun inspectTreeUri(
+        treeUri: Uri,
+        onProgress: (String, Int) -> Unit = { _, _ -> }
+    ): DirectWorkspaceInspection = withContext(Dispatchers.IO) {
+        onProgress("حفظ صلاحية الوصول إلى المجلد", 5)
         takePersistableReadPermission(treeUri)
+        onProgress("قراءة ملفات مساحة العمل", 20)
         val entries = indexSafTree(treeUri)
+        onProgress("تحليل فهارس الصفوف والمواد", 60)
         val rootDocId = DocumentsContract.getTreeDocumentId(treeUri)
         val rootDocUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, rootDocId)
         val folderName = UriIO.displayName(context, rootDocUri.toString())
             .ifBlank { rootDocId.substringAfterLast('/').substringAfterLast(':') }
             .ifBlank { "مساحة العمل المحلية" }
-        inspectIndexedEntries(
+        val inspection = inspectIndexedEntries(
             rootUriOrPath = treeUri.toString(),
             folderDisplayName = folderName,
             isSafUri = true,
             entries = entries
         )
+        onProgress("اكتمل فحص المجلد", 100)
+        inspection
     }
 
-    suspend fun inspectDirectory(directory: File): DirectWorkspaceInspection = withContext(Dispatchers.IO) {
+    suspend fun inspectDirectory(
+        directory: File,
+        onProgress: (String, Int) -> Unit = { _, _ -> }
+    ): DirectWorkspaceInspection = withContext(Dispatchers.IO) {
         require(directory.isDirectory) { "المجلد المحدد غير موجود: ${directory.absolutePath}" }
+        onProgress("قراءة ملفات مساحة العمل", 20)
         val entries = indexLocalDirectory(directory)
-        inspectIndexedEntries(
+        onProgress("تحليل فهارس الصفوف والمواد", 60)
+        val inspection = inspectIndexedEntries(
             rootUriOrPath = directory.absolutePath,
             folderDisplayName = directory.name.ifBlank { "مساحة العمل" },
             isSafUri = false,
             entries = entries
         )
+        onProgress("اكتمل فحص المجلد", 100)
+        inspection
     }
 
     suspend fun bindSingleGrade(
         rootUriOrPath: String,
-        gradeKey: String
+        gradeKey: String,
+        onProgress: (String, Int) -> Unit = { _, _ -> }
     ): DirectBoundWorkspaceResult = withContext(Dispatchers.IO) {
         val isSaf = UriIO.isContentUri(rootUriOrPath)
         if (isSaf) takePersistableReadPermission(Uri.parse(rootUriOrPath))
@@ -126,6 +142,7 @@ class DirectWorkspaceBinder(private val context: Context) {
             folderName = dir.name
         }
 
+        onProgress("فهرسة ملفات الصف ${gradeKey}", 30)
         val entryMap = entries.associateBy { it.relativePath.lowercase() }
         val warnings = mutableListOf<String>()
         val rejectionErrors = mutableListOf<String>()
@@ -136,6 +153,7 @@ class DirectWorkspaceBinder(private val context: Context) {
             "لم يتم العثور على كتب صالحة للصف $gradeKey داخل المجلد المحدد."
         }
 
+        onProgress("تحليل مواد ودروس الصف ${gradeKey}", 55)
         val workspaceId = computeStableWorkspaceId(rootUriOrPath, gradeKey)
         val books = mutableListOf<BookRef>()
         val lessons = mutableListOf<LessonRef>()
@@ -467,6 +485,7 @@ class DirectWorkspaceBinder(private val context: Context) {
             units = unitRefs
         )
 
+        onProgress("اكتمل ربط الصف ${gradeKey}", 100)
         DirectBoundWorkspaceResult(
             workspace = workspace,
             preloadedQuestions = preloadedQuestions,
