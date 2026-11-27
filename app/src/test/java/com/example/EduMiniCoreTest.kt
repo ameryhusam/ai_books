@@ -1495,6 +1495,75 @@ class EduMiniCoreTest {
     }
 
     @Test
+    fun importerAllowsIndexHashMismatchOnlyAfterExplicitReviewConsent() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val importer = WorkspaceImporter(context)
+        val indexRaw = """
+            {
+              "gradeKey":"G05",
+              "subjectKey":"SCI",
+              "partKey":"P01",
+              "sourceLayout":"SINGLE_PART_FILE",
+              "approvalStatus":"NEEDS_REVIEW",
+              "requiresReview":true,
+              "units":[{
+                "unitKey":"unit_01",
+                "title":"الوحدة الأولى",
+                "partKey":"P01",
+                "assignmentStatus":"need_review",
+                "assignmentSource":"DEFAULT_PROPOSAL",
+                "assignmentEvidence":"تحتاج إلى مراجعة المستخدم",
+                "lessons":[{
+                  "lessonKey":"lesson_01",
+                  "title":"الدرس الأول",
+                  "pdfPageStart":1,
+                  "pdfPageEnd":2,
+                  "sliceFile":{"workspaceUri":"workspace/G05/SCI/P01/units/unit_01/lesson_01.pdf"}
+                }]
+              }]
+            }
+        """.trimIndent()
+        val manifestRaw = """
+            {
+              "manifestVersion":"edu.book_manifest.v1",
+              "gradeKey":"G05",
+              "subjectKey":"SCI",
+              "partKey":"P01",
+              "sourceLayout":"SINGLE_PART_FILE",
+              "sourceReviewStatus":"VERIFIED",
+              "sourceSha256":"${"a".repeat(64)}",
+              "indexSha256":"${"b".repeat(64)}"
+            }
+        """.trimIndent()
+        val zipBytes = createTestZip(
+            mapOf(
+                "manifest.json" to """{"artifacts":[{"path":"workspace/G05/SCI/P01/index.json","sha256":"${"c".repeat(64)}"}]}""",
+                "workspace/G05/SCI/P01/book_manifest.json" to manifestRaw,
+                "workspace/G05/SCI/P01/index.json" to indexRaw,
+                "workspace/G05/SCI/P01/units/unit_01/lesson_01.pdf" to "%PDF-1.4 lesson"
+            )
+        )
+
+        val preview = importer.inspectZipFromStream(ByteArrayInputStream(zipBytes), zipBytes.size.toLong())
+        assertTrue(preview.requiresReviewConfirmation)
+        assertTrue(preview.reviewFindings.any { it.contains("SHA-256") || it.contains("approvalStatus") })
+
+        val withoutConsent = runCatching {
+            importer.commitStagedGrades(preview, listOf("G05"))
+        }.exceptionOrNull()
+        assertNotNull(withoutConsent)
+
+        val imported = importer.commitStagedGrades(
+            preview = preview,
+            selectedGrades = listOf("G05"),
+            allowReviewImport = true
+        ).single()
+        assertTrue(imported.books.single().requiresReview)
+        assertEquals("NEEDS_REVIEW", imported.books.single().approvalStatus)
+        assertTrue(imported.warnings.any { it.contains("SHA-256") || it.contains("approvalStatus") })
+    }
+
+    @Test
     fun stagedImportUpdatesExistingGradeAndPreservesWorkspaceIdentity() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val db = Room.inMemoryDatabaseBuilder(context, EduMiniDatabase::class.java)
