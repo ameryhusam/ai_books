@@ -220,7 +220,8 @@ object WorkspaceContractValidator {
             "assignmentSource",
             "assignmentEvidence",
             "assignmentStatus",
-            "provisionalAssignment"
+            "provisionalAssignment",
+            "REVIEW_REQUIRED"
         )
         val reviewErrors = errors.filter { message ->
             reviewMarkers.any { marker -> message.contains(marker, ignoreCase = true) } ||
@@ -269,7 +270,15 @@ object WorkspaceContractValidator {
                 }
             }
             if (canonical && partKey !in setOf("P01", "P02")) {
-                errors.add("[index.json → units[${unitKey.ifBlank { unitIndex.toString() }}].partKey] الوحدة «${unitTitle.ifBlank { unitKey }}» غير مسندة إلى P01 أو P02.")
+                val proposedPartKey = unit.string("proposedPartKey")
+                val unresolvedAssignment = assignmentStatus.equals("need_review", ignoreCase = true) ||
+                    proposedPartKey.isNotBlank() || unit.boolean("provisionalAssignment")
+                val message = "[index.json → units[${unitKey.ifBlank { unitIndex.toString() }}].partKey] الوحدة «${unitTitle.ifBlank { unitKey }}» غير مسندة إلى P01 أو P02."
+                if (unresolvedAssignment) {
+                    errors.add("$message [REVIEW_REQUIRED]")
+                } else {
+                    errors.add(message)
+                }
             } else if (!canonical && partKey.isBlank()) {
                 warnings.add("إسناد الجزء (partKey) غير موجود للوحدة ${unitTitle.ifBlank { unitKey }}.")
             }
