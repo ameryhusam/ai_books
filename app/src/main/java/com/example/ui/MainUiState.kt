@@ -79,6 +79,7 @@ data class MainUiState(
     val sourceText: String = "",
     val extraInstructions: String = "",
     val generatedResult: String = "",
+    val generatedDisplayResult: String = "",
     val generatedQuestionExpectedCount: Int? = null,
     val generatedQuestionExpectedTypeIds: List<String> = emptyList(),
     val generatedQuestionExpectedDifficultyId: String = "",
