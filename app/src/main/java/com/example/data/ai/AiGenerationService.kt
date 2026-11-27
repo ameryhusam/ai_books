@@ -738,13 +738,20 @@ class AiGenerationService(
             val rawBody = response.body?.string().orEmpty()
             val jsonObj = runCatching { json.parseToJsonElement(rawBody).jsonObject }.getOrNull()
             if (!response.isSuccessful) {
-                val errMsg = jsonObj?.get("error")
-                    ?.let { it as? JsonObject }
-                    ?.get("message")
-                    ?.let { it as? JsonPrimitive }
-                    ?.contentOrNull
+                val errorObject = jsonObj?.get("error") as? JsonObject
+                val errMsg = (errorObject?.get("message") as? JsonPrimitive)?.contentOrNull
                     ?: "API HTTP ${response.code}"
-                throw ProviderCallException(errMsg, isTransientHttp(response.code), response.code, retryAfterEpochMs(response))
+                val providerReason = listOf("type", "code", "param")
+                    .mapNotNull { key -> (errorObject?.get(key) as? JsonPrimitive)?.contentOrNull }
+                    .filter { it.isNotBlank() }
+                    .joinToString(" ")
+                throw ProviderCallException(
+                    message = errMsg,
+                    isTransient = isTransientHttp(response.code),
+                    httpCode = response.code,
+                    retryAfterEpochMs = retryAfterEpochMs(response),
+                    providerReason = providerReason
+                )
             }
 
             val choices = jsonObj?.get("choices") as? JsonArray
