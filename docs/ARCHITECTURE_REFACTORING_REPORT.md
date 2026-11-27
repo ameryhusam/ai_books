@@ -61,6 +61,43 @@ Also inspect the PR diff for accidental declaration changes and verify that no d
 5. Separate cloud sync state handling from local learning state.
 6. Add focused tests at each seam before removing old delegation paths.
 
+## Oversized-file inventory and incremental plan — 2026-11-27
+
+The current source tree was inspected by file size and responsibility. Size is a prioritization signal only; it is not, by itself, a reason to split a file.
+
+| File | Current size | Primary responsibility | Proposed extraction boundary |
+|---|---:|---|---|
+| `EduMiniCoreTest.kt` | 246.4 KiB | Cross-feature unit/integration tests and fixtures | Split tests by workspace, indexing, AI generation, assessment, learner progress; centralize only genuinely shared fixtures |
+| `MainViewModel.kt` | 162.2 KiB | UI state orchestration across app features | Extract feature coordinators/use cases, beginning with workspace operations after their behavior stabilizes |
+| `EduMiniRepository.kt` | 126.1 KiB | Persistence and operations across workspace, learning, assessment, generation and providers | Keep a compatibility facade; move one cohesive domain operation at a time behind focused collaborators |
+| `StudioScreen.kt` | 119.6 KiB | Compose studio screen and its panels/dialogs | Extract stateless panels and dialogs first; retain state ownership and event contracts in the screen |
+| `DashboardScreen.kt` | 95.9 KiB | Dashboard presentation | Extract independent cards/sections without changing query or navigation behavior |
+| `EduMiniApp.kt` | 88.1 KiB | App root, role routing and global dialogs | Keep root routing; move global operation dialogs and role-specific content into focused composables |
+| `QuestionBankScreen.kt` | 69.5 KiB | Question-bank workflows and presentation | Separate editor, filters and question cards where state boundaries are already clear |
+| `EduMiniDatabase.kt` | 64.9 KiB | Room entities, DAO and migrations | Separate entities, DAO and migration definitions without changing schema or migration order |
+| `DirectWorkspaceBinder.kt` | 63.8 KiB | SAF/local scanning, index validation and catalog binding | Separate tree scanning from index-to-catalog mapping; preserve the binder facade |
+| `WorkspaceImporter.kt` | 41.8 KiB | ZIP extraction, validation, grade parsing and file installation | Separate archive safety/manifest verification from grade parsing and installation |
+
+### Recommended sequence
+
+1. **Stabilize workspace behavior first.** Complete review-mode import, multi-grade add/update, progress reporting and their tests before extracting these same code paths.
+2. **Split test coverage.** Move tests into feature-specific files with no test-logic changes. This makes later refactors easier to validate and reduces the cost of diagnosing failures.
+3. **Extract pure workspace helpers.** Separate archive path safety, manifest hash verification and index-to-entity mapping. Keep existing public importer/binder entry points as facades.
+4. **Extract UI presentation.** Move stateless Studio and Dashboard sections into separate composables. Do not move state or business decisions during this pass.
+5. **Extract repository domains.** Introduce one focused collaborator at a time while preserving `EduMiniRepository` methods as a compatibility facade; avoid a broad interface rewrite.
+6. **Extract ViewModel orchestration.** Move workspace operations first, then generation and assessment workflows, only after each collaborator has tests and explicit state/event contracts.
+7. **Split Room source files last.** Keep entity definitions, database version, migrations and exported schema unchanged; verify Room schema output after each extraction.
+
+### Per-slice acceptance criteria
+
+- One responsibility moved per commit; no simultaneous behavior change unless required by the feature being fixed.
+- Existing public method signatures and persisted identifiers remain stable wherever possible.
+- Add or move focused tests before deleting the old implementation path.
+- Compare behavior and database rows before/after; do not introduce a Room migration solely to support file organization.
+- Android build is run at a deliberate validation checkpoint (PR open/ready or manual dispatch), not on every commit.
+
+No broad file decomposition is included in this workspace feature PR. The inventory establishes the order and boundaries for later, independently reviewable refactoring slices.
+
 ## Guardrails
 
 - Do not split by arbitrary line count; split by responsibility and dependency direction.
