@@ -2808,7 +2808,7 @@ class MainViewModel(
         }
     }
 
-    fun confirmStagedImport(selectedGrades: List<String>) {
+    fun confirmStagedImport(selectedGrades: List<String>, allowReviewImport: Boolean = false) {
         val preview = _uiState.value.stagedPreview ?: return
         if (selectedGrades.isEmpty()) return
         viewModelScope.launch {
@@ -2819,7 +2819,11 @@ class MainViewModel(
                 )
             }
             try {
-                val committed = repository.commitStagedWorkspaces(preview, selectedGrades) { stage, percent ->
+                val committed = repository.commitStagedWorkspaces(
+                    preview = preview,
+                    selectedGrades = selectedGrades,
+                    allowReviewImport = allowReviewImport
+                ) { stage, percent ->
                     _uiState.update {
                         it.copy(workspaceOperation = WorkspaceOperationProgress("استيراد الصفوف والمواد", stage, percent))
                     }
