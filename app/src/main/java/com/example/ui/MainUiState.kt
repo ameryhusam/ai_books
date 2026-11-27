@@ -87,6 +87,8 @@ data class MainUiState(
     val activeDraftTemplateId: String = "",
     val activeDraftTemplateVersion: Int = 1,
     val activeDraftResponseSchemaHash: String = "",
+    val activeDraftPromptUsed: String = "",
+    val activeDraftResponseSchemaJson: String = "",
     val activeDraftRequestFingerprint: String = "",
     val activeDraftContentHash: String = "",
     val activeDraftSourcePdfHash: String = "",
