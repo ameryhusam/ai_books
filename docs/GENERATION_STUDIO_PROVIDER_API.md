@@ -1,7 +1,7 @@
 # Edu Mini Generation Studio — Functional, Template and Provider Contract
 
 **Document status:** corrected against the current Android implementation and the accepted design decisions  
-**Scope:** Generation Studio, reusable prompt templates, source PDF attachment, response contracts, provider isolation, model fallback, draft persistence and future work.
+**Scope:** Generation Studio, reusable prompt templates, source PDF attachment, database-derived response contracts, shared AI execution, provider isolation, exact model selection/retry policy, draft persistence and future work.
 
 This document distinguishes three states throughout:
 
@@ -241,8 +241,8 @@ A reusable prompt template is more than a prompt string. The Room `prompt_templa
 | `title` | User-facing template name |
 | `task` | Generation task to which the template applies |
 | `instructions` | Reusable task instructions |
-| `response_schema_json` | Provider-facing output schema/structure |
-| `response_mapping_json` | Mapping from provider field names to application canonical fields |
+| `response_schema_json` | Legacy provider-facing schema field retained for compatibility and permitted non-persistent outputs; not authoritative for database-backed tasks |
+| `response_mapping_json` | Legacy field mapping retained for compatibility; database-backed tasks use the mapping generated with the database-derived response projection |
 | `response_format` | `text` or `json` |
 | `source_attachment_mode` | Source attachment policy, currently defaulting to `pdf_native` |
 | `version` | Template version, incremented when an existing template is edited |
@@ -576,7 +576,8 @@ Template changes must not erase existing drafts or source workspace records.
 - JSON response is validated before adaptation and draft persistence.
 - Invalid AI output is recorded as validation failure and is not persisted as a normal draft.
 - Field mapping preserves original provider fields while adding canonical aliases.
-- Different tasks can use different schemas/mappings without task-specific hardcoded response bodies.
+- Legacy non-persistent tasks can use explicitly permitted template schemas/mappings without hardcoded response bodies.
+- Database-backed tasks derive their response schema/decoder/mapping from the current Room schema and fail tests if that contract drifts.
 
 ### PDF and source
 - Gemini receives the original PDF bytes as `application/pdf` with the prompt.
