@@ -457,7 +457,9 @@ class AiGenerationService(
                             "QUOTA_EXHAUSTED" -> {
                                 lastFailureKind = AiExecutionFailureKind.QUOTA_EXHAUSTED
                                 notifyProviderState(onProviderStateChanged, profile.id, failureStatus, e.retryAfterEpochMs)
-                                errors.add("${profile.label}: تم استنفاد الحصة؛ سيتم تجربة مفتاح API آخر للمزود نفسه.")
+                                // Project ownership is not available in the key record. Keep same-provider
+                                // failover for unknown projects; never infer shared quota from key identity.
+                                errors.add("${profile.label}: تم تأكيد نفاد الحصة؛ ستتم تجربة مفتاح آخر للمزود نفسه لأن المشروع غير معروف.")
                                 skipProfile = true
                                 break@modelLoop
                             }
@@ -987,11 +989,22 @@ class AiGenerationService(
         provider: ProviderType
     ): String {
         val signals = "${error.providerReason} $message".lowercase()
+        val explicitQuotaSignal = Regex(
+            "quota_exceeded|quota exceeded|quota exhausted|daily quota|insufficient quota|insufficient_quota|" +
+                "billing limit|billing_hard_limit|exceeded your current quota|" +
+                "per.?day.*per.?project.*per.?model|generate.?requests.*per.?day.*per.?project.*per.?model|" +
+                "free.?tier.*requests.*per.?day"
+        ).containsMatchIn(signals)
+        // RESOURCE_EXHAUSTED alone is ambiguous. Treat it as quota exhaustion only
+        // when Google's structured error details identify a quota metric/id/dimension.
+        val resourceExhaustedWithQuotaDetails =
+            Regex("\\bresource_exhausted\\b").containsMatchIn(signals) &&
+                Regex("quota.?id|quota.?metric|quota.?dimension|quota.?limit|per.?project|per.?day")
+                    .containsMatchIn(signals)
         return when {
-            Regex("quota_exceeded|quota exceeded|quota exhausted|daily quota|insufficient quota|insufficient_quota|billing limit|billing_hard_limit|exceeded your current quota|per.?day.*per.?project.*per.?model|generate.?requests.*per.?day.*per.?project.*per.?model|free.?tier.*requests.*per.?day")
-                .containsMatchIn(signals) -> "QUOTA_EXHAUSTED"
-            error.httpCode == 401 || error.httpCode == 403 ||
-                Regex("invalid api.?key|api key not valid|unauthorized|authentication failed")
+            explicitQuotaSignal || resourceExhaustedWithQuotaDetails -> "QUOTA_EXHAUSTED"
+            error.httpCode == 401 ||
+                Regex("invalid api.?key|api key not valid|api.?key_invalid|unauthorized|authentication failed")
                     .containsMatchIn(signals) -> "INVALID_KEY"
             error.httpCode == 404 ||
                 Regex("model.*(not found|does not exist)|model_not_found|unsupported model|unknown model")
