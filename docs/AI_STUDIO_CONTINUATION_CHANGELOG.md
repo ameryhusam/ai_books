@@ -512,6 +512,7 @@ The latest Android CI run observed during this pass is [run 45715165859](https:/
 - Added `gemini-3.7-flash` to the built-in catalog; the four configured IDs are `gemini-3.5-flash`, `gemini-3.6-flash`, `gemini-3.7-flash`, and `gemini-3.8-flash`.
 - Kept `gemini-3.5-flash` as the default model.
 - Bumped the local model-catalog seed version from 2 to 3 so existing installations merge the missing 3.7 entry while preserving custom model definitions and API credentials.
+- Updated authorized central-catalog synchronization to merge missing built-in entries even when the Firestore catalog already contains older Gemini models; existing definitions and custom entries are not overwritten.
 - Extended catalog and migration tests to assert all four Gemini entries and exactly one default.
 - No explanatory UI text or new provider-policy copy was added as part of this change.
 - Live API availability and the model-test UI behavior still require runtime verification with a newly rotated Google API key; no user-supplied key was committed.
