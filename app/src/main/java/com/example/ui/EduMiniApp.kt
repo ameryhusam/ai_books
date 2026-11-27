@@ -22,7 +22,10 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -781,6 +784,7 @@ private fun AuthenticatedEduMiniContent(
                                             form = state.providerForm,
                                             providers = state.providers,
                                             selectedProvider = state.selectedProvider,
+                                            isTestingProvider = state.isTestingProvider,
                                             modelCatalog = state.aiModelCatalog,
                                             canManageAiModels = state.isCloudAuthenticated && state.authenticatedUserRole == UserRole.ADMIN && state.isSystemAdmin,
                                             onAddAiModel = viewModel::addAiModel,
@@ -1065,6 +1069,9 @@ private fun AuthenticatedEduMiniContent(
                         text = {
                             Text(
                                 text = alert.message,
+                                modifier = Modifier
+                                    .heightIn(max = 440.dp)
+                                    .verticalScroll(rememberScrollState()),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = EduInk
                             )
