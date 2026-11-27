@@ -3361,17 +3361,23 @@ class MainViewModel(
     }
 
     fun addOrUpdateProvider() {
-        val form = _uiState.value.providerForm
+        val state = _uiState.value
+        val form = state.providerForm
         if (form.label.trim().isEmpty() || form.apiKey.trim().isEmpty()) {
             _uiState.update {
                 it.copy(alert = AlertMessage("بيانات ناقصة", "أدخل اسم الاتصال ومفتاح API"))
             }
             return
         }
-        val fallbacks = form.fallbackModels
-            .split(",", "،", "\n")
-            .map { it.trim() }
-            .filter { it.isNotEmpty() && !it.equals(form.model.trim(), ignoreCase = true) }
+        // Keep credentials provider-scoped. Enabled models remain catalogue-owned and are
+        // supplied as same-provider fallback candidates, not chosen as part of API-key entry.
+        val fallbacks = state.aiModelCatalog
+            .filter {
+                it.provider == form.provider && it.isEnabled && it.supportsGenerateContent &&
+                    it.lifecycleStatus != AiModelDefinition.STATUS_DEPRECATED
+            }
+            .sortedWith(compareBy<AiModelDefinition> { !it.isDefault }.thenBy { it.displayName })
+            .map { it.modelId }
             .distinct()
         viewModelScope.launch {
             val existingId = form.editingProviderId
@@ -3383,9 +3389,9 @@ class MainViewModel(
                         p.copy(
                             provider = form.provider,
                             label = form.label.trim(),
-                            model = form.model.trim(),
+                            model = "",
                             fallbackModels = fallbacks,
-                            strictModel = form.strictModel,
+                            strictModel = false,
                             baseUrl = form.baseUrl.trim(),
                             apiKey = form.apiKey.trim(),
                             dailyRequestLimit = form.dailyRequestLimit.toIntOrNull()?.coerceAtLeast(0) ?: 0,
@@ -3403,9 +3409,9 @@ class MainViewModel(
                     id = System.currentTimeMillis().toString(),
                     provider = form.provider,
                     label = form.label.trim(),
-                    model = form.model.trim(),
+                    model = "",
                     fallbackModels = fallbacks,
-                    strictModel = form.strictModel,
+                    strictModel = false,
                     baseUrl = form.baseUrl.trim(),
                     apiKey = form.apiKey.trim(),
                     enabled = true,
