@@ -476,18 +476,6 @@ fun SettingsScreen(
                         }
                     }
 
-                    Text(
-                        text = stringResource(R.string.settings_profile_name_label),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = EduInk,
-                        modifier = Modifier.padding(top = 6.dp)
-                    )
-                    SettingsField(
-                        value = form.label,
-                        onValueChange = onLabelChange,
-                        testTag = "provider_label_input"
-                    )
-
                     if (form.provider == ProviderType.OPENAI_COMPATIBLE) {
                         Text(
                             text = stringResource(R.string.settings_base_url_label),
@@ -592,7 +580,7 @@ fun SettingsScreen(
                     }
 
                     EduYellowButton(
-                        text = if (form.editingProviderId != null) "حفظ تعديل المزود" else stringResource(R.string.settings_add_api_cta),
+                        text = if (form.editingProviderId != null) "حفظ المفتاح" else stringResource(R.string.settings_add_api_cta),
                         onClick = onAddOrUpdateProvider,
                         icon = Icons.Rounded.Add,
                         testTag = "add_provider_button",
@@ -614,7 +602,8 @@ fun SettingsScreen(
                 items = providers,
                 key = { it.id }
             ) { profile ->
-                val idx = providers.indexOfFirst { it.id == profile.id }
+                val providerKeys = providers.filter { it.provider == profile.provider }.sortedBy { it.priority }
+                val providerIndex = providerKeys.indexOfFirst { it.id == profile.id }
                 EduPanel(modifier = Modifier.fillMaxWidth()) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -623,7 +612,7 @@ fun SettingsScreen(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "#${idx + 1} • ${profile.label}",
+                                text = profile.label,
                                 style = MaterialTheme.typography.titleSmall,
                                 color = EduInk
                             )
@@ -672,30 +661,30 @@ fun SettingsScreen(
                         ) {
                             Icon(
                                 imageVector = Icons.Outlined.Edit,
-                                contentDescription = "تعديل المزود",
+                                contentDescription = "تعديل المفتاح",
                                 tint = EduGreenDark
                             )
                         }
                         IconButton(
                             onClick = { onMoveProvider(profile.id, -1) },
-                            enabled = idx > 0,
+                            enabled = providerIndex > 0,
                             modifier = Modifier.minimumInteractiveComponentSize()
                         ) {
                             Icon(
                                 imageVector = Icons.Rounded.KeyboardArrowUp,
                                 contentDescription = "رفع الأولوية",
-                                tint = if (idx > 0) EduGreenDark else EduLine
+                                tint = if (providerIndex > 0) EduGreenDark else EduLine
                             )
                         }
                         IconButton(
                             onClick = { onMoveProvider(profile.id, 1) },
-                            enabled = idx in 0 until providers.lastIndex,
+                            enabled = providerIndex in 0 until providerKeys.lastIndex,
                             modifier = Modifier.minimumInteractiveComponentSize()
                         ) {
                             Icon(
                                 imageVector = Icons.Rounded.KeyboardArrowDown,
                                 contentDescription = "خفض الأولوية",
-                                tint = if (idx in 0 until providers.lastIndex) EduGreenDark else EduLine
+                                tint = if (providerIndex in 0 until providerKeys.lastIndex) EduGreenDark else EduLine
                             )
                         }
                         if (profile.runtimeStatus != "ACTIVE" && profile.enabled) {
