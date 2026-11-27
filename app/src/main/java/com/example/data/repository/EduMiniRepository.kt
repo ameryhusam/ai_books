@@ -1507,11 +1507,6 @@ class EduMiniRepository(
                 packageId = record.id
             )
         }
-        questionBankService.syncInteractiveCheckpointsToQuestionBank(
-            workspaceId = canonicalWs,
-            lesson = lesson,
-            activity = activity
-        )
         return record
     }
 
