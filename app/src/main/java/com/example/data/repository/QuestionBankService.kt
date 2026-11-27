@@ -4,7 +4,6 @@ import com.example.data.local.EduMiniDao
 import com.example.data.local.QuestionAttemptEntity
 import com.example.data.local.QuestionEntity
 import com.example.model.ConceptMasterySummary
-import com.example.model.InteractiveActivityModel
 import com.example.model.LearnerProfile
 import com.example.model.LessonRef
 import com.example.model.MasteryStatus
@@ -226,77 +225,6 @@ class QuestionBankService(
             dao.insertQuestions(newItems.map { it.toEntity() })
         }
         return newItems
-    }
-
-    /**
-     * Extracts checkpoint questions from an [InteractiveActivityModel] and links/saves them
-     * directly into the Room question bank so interactive lessons & quizzes share one truth.
-     */
-    suspend fun syncInteractiveCheckpointsToQuestionBank(
-        workspaceId: String,
-        lesson: LessonRef,
-        activity: InteractiveActivityModel,
-        draftId: String = "",
-        templateId: String = "",
-        promptUsed: String = "",
-        responseSchemaJson: String = "",
-        sourceIndexSha256: String = ""
-    ): List<QuestionItem> {
-        val canonicalWs = workspaceId.ifBlank { lesson.workspaceId }.ifBlank { lesson.rootPath }
-        if (canonicalWs.isBlank()) return emptyList()
-        val now = Instant.now().toString()
-        val extracted = activity.steps.mapNotNull { step ->
-            val qPrompt = step.checkpointQuestion.trim()
-            val qAns = step.checkpointAnswer.trim()
-            if (qPrompt.isBlank() || qAns.isBlank()) return@mapNotNull null
-            val options = step.checkpointOptions.map { it.trim() }.filter { it.isNotBlank() }
-            val qType = when {
-                options.size == 2 && options.any { it == "صح" || it == "خطأ" } -> QuestionType.TRUE_FALSE
-                options.isNotEmpty() -> QuestionType.MCQ
-                else -> QuestionType.SHORT_ANSWER
-            }
-            val concept = inferConceptTag(
-                explicitTag = step.conceptTag.ifBlank { step.title },
-                prompt = qPrompt,
-                rationale = step.body,
-                lessonTitle = lesson.title
-            )
-            QuestionItem(
-                id = "q-int-${System.currentTimeMillis()}-${UUID.randomUUID().toString().take(6)}",
-                workspaceId = canonicalWs,
-                gradeKey = lesson.grade,
-                bookKey = lesson.bookKey,
-                unitKey = lesson.unitKey,
-                lessonKey = lesson.lessonKey,
-                lessonTitle = lesson.title,
-                type = qType,
-                prompt = qPrompt,
-                options = options,
-                correctAnswer = qAns,
-                rationale = step.body.take(240),
-                difficulty = QuestionDifficulty.MEDIUM,
-                sourcePages = lesson.pageRange,
-                fingerprint = QuestionBankEngine.computeFingerprint(qPrompt),
-                reviewed = true,
-                createdAt = now,
-                conceptTag = concept,
-                draftId = draftId,
-                templateId = templateId,
-                promptUsed = promptUsed,
-                responseSchemaJson = responseSchemaJson,
-                sourceIndexSha256 = sourceIndexSha256
-            )
-        }
-        return saveQuestionsWithConceptTags(
-            workspaceId = canonicalWs,
-            lesson = lesson,
-            parsedQuestions = extracted,
-            draftId = draftId,
-            templateId = templateId,
-            promptUsed = promptUsed,
-            responseSchemaJson = responseSchemaJson,
-            sourceIndexSha256 = sourceIndexSha256
-        )
     }
 
     suspend fun recordBatchAttemptsForUser(
