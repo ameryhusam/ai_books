@@ -119,6 +119,35 @@ The TypeScript exporter now writes `edu.book_manifest.v2` with:
 For an independent source, the canonical index path is `P01/index.json` or `P02/index.json`, and the manifest is beside that index. For a merged source, the canonical index path is root `index.json`; derived part indexes are optional filtered views.
 
 Hashes are calculated from the exact serialized bytes written to each file. Never compare one index file against another file's hash.
+### 7.1 Book manifest versus student package manifest
+
+These manifests have separate scopes and must not be merged:
+
+- `book_manifest.json` is the companion provenance/validation manifest for one canonical book index and its source PDF. It describes the book source layout, source identity, canonical index location, and hashes. Its current version identifier is `edu.book_manifest.v2`.
+- `package_manifest.json` belongs to a grade-scoped student distribution ZIP. It describes the package identity/version, included books and lesson assets, package-relative paths, sizes, and hashes. It is not a replacement for the book manifest and is not the administrator's full backup.
+
+The `sourceFileName` and `sourceSha256` in a book manifest describe the source PDF used to create the index/slices. They do not require the original source PDF to be included in a student package. The student package carries the approved lesson PDFs and required learner assets.
+
+### 7.2 Manifest v2 validation baseline
+
+The current Android `WorkspaceContractValidator` confirms these implementation requirements for a canonical v2 source:
+
+- `manifestVersion` equals `edu.book_manifest.v2`;
+- `gradeKey` and `subjectKey` agree with the canonical index and selected curriculum location;
+- `sourceLayout` is `SINGLE_PART_FILE` or `MERGED_PARTS_FILE`, and agrees between manifest and index;
+- `sourceReviewStatus` is `VERIFIED`, while the index has `approvalStatus=APPROVED` and does not require review;
+- `sourceSha256` and `indexSha256` are valid 64-character hexadecimal SHA-256 values; `indexSha256` is checked against the exact current index bytes;
+- when canonical index metadata is supplied, `canonicalIndexPath` and `canonicalIndexSha256` must describe the correct root/part index and its bytes;
+- each optional `partIndexes[]` item has a safe relative `path` and its own `sha256`, and the referenced file must exist and match;
+- strict v2 source metadata requires `sourceMetadata.sourceRequiresReview=false` and non-empty `sourceMetadata.partEvidence`;
+- units and lessons must have stable keys, confirmed part assignments, and valid physical PDF page ranges; unresolved assignments block canonical validation.
+
+For a standalone source, `partKey` must agree between manifest and index (`P01` or `P02`), and the canonical index is part-local. For a merged source, the source-level `partKey` is `BOTH`, the canonical index is the root `index.json`, and P01/P02 indexes are derived views.
+
+Compatibility note: the validator still accepts older manifests in a warning/legacy path. Do not silently upgrade a legacy manifest to v2 by filling guessed provenance. Generate v2 only when the source evidence and hashes are available.
+
+The validator currently enforces a subset of the documented manifest fields; this is an implementation contract, not yet a standalone machine-readable JSON Schema. Before treating the format as frozen for external producers, add a versioned JSON Schema and golden fixtures for both standalone and merged layouts, then verify the TypeScript exporter and Android validator against the same fixtures.
+
 ## 8. Identity and key rules
 
 - Canonical identity keys are grade, subject and optional component.
