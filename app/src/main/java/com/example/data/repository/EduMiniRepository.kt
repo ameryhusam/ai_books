@@ -184,13 +184,17 @@ class EduMiniRepository(
         }
     }
 
-    suspend fun inspectWorkspaceZip(uri: Uri): StagedWorkspacePreview {
-        return workspaceImporter.inspectZipFromUri(uri)
+    suspend fun inspectWorkspaceZip(
+        uri: Uri,
+        onProgress: (String, Int) -> Unit = { _, _ -> }
+    ): StagedWorkspacePreview {
+        return workspaceImporter.inspectZipFromUri(uri, onProgress)
     }
 
     suspend fun commitStagedWorkspaces(
         preview: StagedWorkspacePreview,
-        selectedGrades: List<String>
+        selectedGrades: List<String>,
+        onProgress: (String, Int) -> Unit = { _, _ -> }
     ): List<ImportedWorkspace> {
         val grades = selectedGrades.map { it.trim().uppercase() }.filter { it.isNotBlank() }.distinct()
         require(grades.isNotEmpty()) { "يجب اختيار صف واحد على الأقل." }
@@ -204,7 +208,9 @@ class EduMiniRepository(
                 "؛ لم يتم الاستيراد لتجنب تحديث مساحة غير مقصودة."
         }
 
-        val staged = workspaceImporter.commitStagedGrades(preview, grades)
+        val staged = workspaceImporter.commitStagedGrades(preview, grades) { stage, percent ->
+            onProgress(stage, (percent * 0.88f).toInt().coerceIn(1, 88))
+        }
         val replacements = staged.map { incoming ->
             val existing = existingByGrade[incoming.gradeKey.trim().uppercase()]?.singleOrNull()
             val targetWorkspaceId = existing?.workspaceId ?: incoming.workspaceId
@@ -215,12 +221,14 @@ class EduMiniRepository(
         }
 
         try {
+            onProgress("حفظ الصفوف والمواد في قاعدة البيانات", 92)
             dao.syncDirectWorkspaceCatalogBatch(replacements.map(::toWorkspaceCatalogGraph))
         } catch (error: Exception) {
             staged.forEach { deleteManagedWorkspaceDirectory(it.rootPath) }
             throw error
         }
 
+        onProgress("اكتمل تحديث الصفوف والمواد", 100)
         staged.forEach { incoming ->
             val old = existingByGrade[incoming.gradeKey.trim().uppercase()]?.singleOrNull()
             if (old != null && old.rootPath != incoming.rootPath) {
