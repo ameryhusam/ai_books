@@ -267,7 +267,7 @@ object BookIndexPromptRegistry {
             descriptionAr = "صيغة توافق قديمة لحزمة مساحة العمل؛ تحتوي بصمات SHA-256 للملفات المصدّرة.",
             schemaJson = """
                 {
-                  "format": "edu-mini-مخطط الفهرس-1.0",
+                  "format": "edu-mini-indexer2-1.0",
                   "workspaceId": "import-...",
                   "gradeKey": "G04",
                   "exportedAt": "2026-11-24T00:00:00Z",
