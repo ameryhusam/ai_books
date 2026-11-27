@@ -627,11 +627,6 @@ fun SettingsScreen(
                                 style = MaterialTheme.typography.titleSmall,
                                 color = EduInk
                             )
-                            val fallbackSuffix = if (profile.fallbackModels.isNotEmpty() && !profile.strictModel) {
-                                " • احتياطي: ${profile.fallbackModels.joinToString(", ")}"
-                            } else if (profile.strictModel) {
-                                " • وضع صارم"
-                            } else ""
                             val statusLabel = when (profile.runtimeStatus.uppercase()) {
                                 "ACTIVE" -> "نشط"
                                 "DISABLED" -> "معطّل"
@@ -641,7 +636,7 @@ fun SettingsScreen(
                                 else -> "خطأ مؤقت"
                             }
                             Text(
-                                text = "${profile.provider.id} • ${profile.model}$fallbackSuffix • ${stringResource(R.string.settings_key_hidden)}",
+                                text = "${profile.provider.displayName} • ${stringResource(R.string.settings_key_hidden)}",
 
                                 style = MaterialTheme.typography.bodySmall,
                                 color = EduMuted
