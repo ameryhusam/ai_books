@@ -150,3 +150,40 @@ New tests cover:
 - preservation of lesson completion after an unsuccessful review retake.
 
 Gradle unit tests and Android assembly have not been run in the GitHub editing environment. Follow `docs/LOCAL_ANDROID_TESTING.md` before release.
+
+
+## AI-assisted learner interpretation and recommendations
+
+The deterministic analytics in this document remain the source of truth for recorded scores, attempt counts, accuracy, mastery thresholds, delayed recall, recurring errors and assessment outcomes. AI is an optional interpretation and teaching-support layer; it must not recalculate authoritative metrics or replace the deterministic evidence rules.
+
+### Inputs prepared by the learning feature
+
+The learning-assessment feature may send a compact, task-specific summary containing:
+- first-attempt and latest accuracy, delayed recall and sample sizes where eligible;
+- question/assessment attempts, concept tags, repeated wrong answers and recurring distractors;
+- lesson completion and prerequisite coverage;
+- hint/assistance use and response timing only when reliably recorded;
+- previous support assignments and whether each was opened, read, completed and followed by a new attempt/assessment;
+- relevant lesson/source excerpts needed to ground a recommendation.
+
+Use aggregate or pseudonymous learner context where possible. Do not send unnecessary names, account identifiers or unrelated personal records.
+
+### Permitted AI outputs
+
+AI may produce an adult-reviewable interpretation containing:
+- strengths supported by observed evidence;
+- concepts that need reinforcement, with the attempts/questions supporting the conclusion;
+- possible misconceptions as hypotheses rather than diagnoses;
+- recommendations for how to explain or teach the concept, such as visual explanation, worked examples, guided practice, step-by-step scaffolding, retrieval practice, spaced review or interleaved practice;
+- a proposed remedial explanation/lesson, examples and follow-up questions;
+- priority, uncertainty and the evidence needed to confirm improvement.
+
+An absence of evidence must not be described as a weakness. AI must return an explicit insufficient-evidence result when the sample is too small or unreliable. Do not infer fixed intelligence, cognitive ability or unsupported learning-style labels.
+
+### Ownership and feedback loop
+
+The learning-assessment/recommendation feature owns preparing the evidence summary, sending the task request, parsing and validating the response, checking recommendations against the learner's curriculum, saving the recommendation, presenting it to the parent/teacher and recording acceptance or rejection. AiGenerationService only sends the prepared request to the selected provider and returns the raw response with execution metadata.
+
+A recommendation is not an assigned intervention until the parent/teacher accepts it. To evaluate usefulness, record assignment, open/read/complete events and link the follow-up practice or assessment to the intervention. Compare subsequent performance using adequate and preferably equivalent-but-not-identical questions; do not attribute improvement to a lesson merely because a score increased afterward.
+
+These AI-assisted capabilities are architectural requirements and are not all implemented by the current analytics/reporting code.
