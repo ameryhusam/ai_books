@@ -22,7 +22,6 @@ data class PdfPreviewPayload(
 data class ProviderFormState(
     val editingProviderId: String? = null,
     val provider: ProviderType = ProviderType.GEMINI,
-    val label: String = "Gemini",
     val model: String = "",
     val fallbackModels: String = "",
     val strictModel: Boolean = false,
