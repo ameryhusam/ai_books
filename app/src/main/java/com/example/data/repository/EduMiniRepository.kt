@@ -1430,6 +1430,9 @@ class EduMiniRepository(
                 expectedQuestionDifficultyId = expectedBatch?.difficultyId
             )
         }
+        if (alreadyStoredForDraft == 0 && savedQuestions.isEmpty()) {
+            throw IllegalArgumentException("لم يتم استخراج أسئلة صالحة من المسودة؛ لم يتم اعتمادها أو تغيير حالتها.")
+        }
         val approvedCount = dao.approveQuestionsForDraft(draft.id)
         dao.updateDraftStatus(draftId, DraftStatus.APPROVED.id)
         return maxOf(approvedCount, savedQuestions.size)
