@@ -478,6 +478,13 @@ fun SettingsScreen(
                             style = MaterialTheme.typography.bodyMedium,
                             color = EduInk
                         )
+                        providers.firstOrNull { it.id == form.editingProviderId }?.label?.let { keyAlias ->
+                            Text(
+                                text = "تعديل $keyAlias",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = EduMuted
+                            )
+                        }
                     }
 
                     if (form.provider == ProviderType.OPENAI_COMPATIBLE) {
