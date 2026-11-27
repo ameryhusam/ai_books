@@ -49,6 +49,23 @@ import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
+enum class AiExecutionFailureKind {
+    QUOTA_EXHAUSTED,
+    RATE_LIMITED,
+    INVALID_CREDENTIALS,
+    INVALID_REQUEST,
+    EMPTY_RESPONSE,
+    NETWORK_ERROR,
+    MODEL_UNAVAILABLE,
+    PROVIDER_UNAVAILABLE
+}
+
+class AiExecutionException(
+    val kind: AiExecutionFailureKind,
+    message: String,
+    cause: Throwable? = null
+) : IllegalStateException(message, cause)
+
 data class AiExecutionRequest(
     val prompt: String,
     val providers: List<ProviderConfig>,
@@ -343,6 +360,7 @@ class AiGenerationService(
             "لا توجد ملفات API مفعّلة للمزود ${selectedProvider.displayName}."
         }
         val errors = mutableListOf<String>()
+        var lastFailureKind = AiExecutionFailureKind.PROVIDER_UNAVAILABLE
         val expectJson = responseFormat.equals("json", ignoreCase = true) || responseSchemaJson.isNotBlank()
 
         profileLoop@ for (profile in active) {
@@ -383,6 +401,11 @@ class AiGenerationService(
                         val reserved = onReserveProvider?.invoke(candidateProfile) ?: true
                         if (!reserved) {
                             val state = profile.runtimeStatus.uppercase()
+                            lastFailureKind = when (state) {
+                                "QUOTA_EXHAUSTED" -> AiExecutionFailureKind.QUOTA_EXHAUSTED
+                                "INVALID_KEY" -> AiExecutionFailureKind.INVALID_CREDENTIALS
+                                else -> AiExecutionFailureKind.PROVIDER_UNAVAILABLE
+                            }
                             errors.add(
                                 "${profile.label}: لم يُرسل الطلب لأن ملف API غير متاح حالياً (الحالة: $state)."
                             )
@@ -428,12 +451,14 @@ class AiGenerationService(
 
                         when (failureStatus) {
                             "QUOTA_EXHAUSTED" -> {
+                                lastFailureKind = AiExecutionFailureKind.QUOTA_EXHAUSTED
                                 onProviderStateChanged?.invoke(profile.id, failureStatus, e.retryAfterEpochMs)
                                 errors.add("${profile.label}: تم استنفاد الحصة؛ سيتم تجربة ملف API آخر للمزود نفسه.")
                                 skipProfile = true
                                 break@modelLoop
                             }
                             "INVALID_KEY" -> {
+                                lastFailureKind = AiExecutionFailureKind.INVALID_CREDENTIALS
                                 onProviderStateChanged?.invoke(profile.id, failureStatus, 0L)
                                 errors.add("${profile.label}: المفتاح غير صالح؛ سيتم تجربة ملف API آخر للمزود نفسه.")
                                 skipProfile = true
@@ -441,16 +466,20 @@ class AiGenerationService(
                             }
                             "INVALID_REQUEST" -> {
                                 onProviderStateChanged?.invoke(profile.id, failureStatus, 0L)
-                                throw IllegalStateException(
+                                lastFailureKind = AiExecutionFailureKind.INVALID_REQUEST
+                                throw AiExecutionException(
+                                    lastFailureKind,
                                     "${profile.label}/$modelName: رفض المزود الطلب بسبب إعداد أو مدخل غير صالح: $reason",
                                     e
                                 )
                             }
                             "MODEL_UNAVAILABLE" -> {
+                                lastFailureKind = AiExecutionFailureKind.MODEL_UNAVAILABLE
                                 onProviderStateChanged?.invoke(profile.id, failureStatus, 0L)
                                 moveToNextModel = true
                             }
                             "RATE_LIMITED" -> {
+                                lastFailureKind = AiExecutionFailureKind.RATE_LIMITED
                                 if (profile.provider == ProviderType.GEMINI) {
                                     profileHadRetryableFailure = true
                                     if (attempt == 2) {
@@ -471,7 +500,13 @@ class AiGenerationService(
                             else -> {
                                 if (!e.isTransient) {
                                     onProviderStateChanged?.invoke(profile.id, failureStatus, e.retryAfterEpochMs)
-                                    throw IllegalStateException(
+                                    lastFailureKind = if (failureStatus == "EMPTY_RESPONSE") {
+                                        AiExecutionFailureKind.EMPTY_RESPONSE
+                                    } else {
+                                        AiExecutionFailureKind.PROVIDER_UNAVAILABLE
+                                    }
+                                    throw AiExecutionException(
+                                        lastFailureKind,
                                         "${profile.label}/$modelName: فشل غير قابل لإعادة المحاولة: $reason",
                                         e
                                     )
@@ -492,6 +527,7 @@ class AiGenerationService(
                         errors.add("${profile.label}/$modelName (المحاولة ${attempt + 1}/3): $reason")
                         onAttemptFinished?.invoke(profile.label, modelName, false, reason)
                         onProviderStateChanged?.invoke(profile.id, "NETWORK_ERROR", 0L)
+                        lastFailureKind = AiExecutionFailureKind.NETWORK_ERROR
                         profileHadRetryableFailure = true
                         if (attempt == 2) {
                             if (profile.provider == ProviderType.GEMINI) {
@@ -524,19 +560,22 @@ class AiGenerationService(
             if (skipProfile) continue@profileLoop
 
             if (profile.provider == ProviderType.GEMINI && profileHadRetryableFailure) {
-                throw IllegalStateException(
+                throw AiExecutionException(
+                    AiExecutionFailureKind.RATE_LIMITED,
                     "تعذر استخدام نماذج Gemini المهيأة على الملف ${profile.label} بعد ثلاث محاولات لكل نموذج. لم يتم تدوير مفاتيح Google بسبب الازدحام؛ تدوير الملف الآخر مخصص لحالة نفاد الحصة أو عدم صلاحية المفتاح. التفاصيل: ${errors.joinToString(" | ")}"
                 )
             }
 
             if (profile.provider == ProviderType.GEMINI && errors.isNotEmpty()) {
-                throw IllegalStateException(
+                throw AiExecutionException(
+                    lastFailureKind,
                     "تعذر التوليد عبر Gemini بعد تجربة النماذج المهيأة: ${errors.joinToString(" | ")}"
                 )
             }
         }
 
-        throw IllegalStateException(
+        throw AiExecutionException(
+            lastFailureKind,
             "تعذر التوليد عبر ${selectedProvider.displayName}. جُرّبت ملفات API المفعّلة التابعة للمزود نفسه فقط. التفاصيل: ${errors.joinToString(" | ")}"
         )
     }
@@ -868,6 +907,8 @@ class AiGenerationService(
             error.httpCode == 404 ||
                 Regex("model[^ ]*(not found|does not exist)|model_not_found|unsupported model")
                     .containsMatchIn(signals) -> "MODEL_UNAVAILABLE"
+            Regex("لم يُرجع .* محتوى نصياً|استجابة فارغة|empty response")
+                .containsMatchIn(signals) -> "EMPTY_RESPONSE"
             error.httpCode == 400 -> "INVALID_REQUEST"
             Regex("rate_limit_exceeded|rate.?limit|too many requests|requests per minute|tokens per minute|retry after")
                 .containsMatchIn(signals) -> "RATE_LIMITED"
