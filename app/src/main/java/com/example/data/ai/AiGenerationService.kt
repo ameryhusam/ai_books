@@ -246,13 +246,15 @@ class AiGenerationService(
     ): GeneratedResult = withContext(Dispatchers.IO) {
         require(requestedModelId.isNotBlank()) { "يجب اختيار نموذج من كتالوج مدير النظام." }
         require(requestedProfileId.isNotBlank()) { "يجب اختيار ملف اتصال API." }
-        val active = ProviderRoutingPolicy.activeProfiles(providers, selectedProvider)
-            .filter { it.id == requestedProfileId }
-
-        if (active.isEmpty()) {
-            throw IllegalStateException("ملف اتصال API المحدد غير متاح أو لا يطابق المزود ${selectedProvider.displayName}. لا يتم اختيار ملف آخر تلقائياً.")
+        val active = ProviderRoutingPolicy.orderedProfiles(
+            providers = providers,
+            selectedProvider = selectedProvider,
+            preferredProfileId = requestedProfileId
+        )
+        require(active.isNotEmpty()) {
+            "لا توجد ملفات API مفعّلة للمزود ${selectedProvider.displayName}."
         }
-
+        val errors = mutableListOf<String>()
         val prompt = buildPrompt(
             lesson = lesson,
             task = task,
@@ -267,37 +269,51 @@ class AiGenerationService(
             responseSchemaJson = responseSchemaJson,
             responseFormat = responseFormat
         )
-        val errors = mutableListOf<String>()
+        val expectJson = responseFormat.equals("json", ignoreCase = true) || responseSchemaJson.isNotBlank()
 
-        for (profile in active) {
-            // The selected model is exact: do not silently substitute a profile fallback.
-            val exactSelectedModel = ProviderRoutingPolicy.exactModelCandidate(requestedModelId)
-            val modelCandidates = if (
-                profile.provider == ProviderType.GEMINI &&
-                geminiModelRouter.isCoolingDown(profile.id, requestedModelId)
-            ) emptyList() else exactSelectedModel
+        profileLoop@ for (profile in active) {
+            val modelCandidates = when (profile.provider) {
+                ProviderType.GEMINI -> ProviderRoutingPolicy.modelCandidates(profile, requestedModelId)
+                ProviderType.OPENAI_COMPATIBLE -> listOf(requestedModelId.trim())
+            }.distinct()
             if (modelCandidates.isEmpty()) {
-                val message = "${profile.label}: لا توجد نماذج متاحة لهذا المفتاح حالياً"
-                errors.add(message)
-                if (profile.provider == ProviderType.GEMINI) {
-                    throw IllegalStateException("$message؛ لن ننتقل تلقائياً إلى مفتاح Google آخر لتجاوز حد المعدل.")
-                }
-                continue
+                errors.add("${profile.label}: لا توجد نماذج مرشحة صالحة لهذا الملف.")
+                continue@profileLoop
             }
 
-            var geminiRateLimitObserved = false
+            var skipProfile = false
+            var profileHadRetryableFailure = false
+
             modelLoop@ for (modelName in modelCandidates) {
-                val candidateProfile = profile.copy(model = modelName, fallbackModels = emptyList(), strictModel = true)
-                val expectJson = responseFormat.equals("json", ignoreCase = true) || responseSchemaJson.isNotBlank()
-                var retry = 0
-                while (retry < 3) {
+                if (profile.provider == ProviderType.GEMINI &&
+                    geminiModelRouter.isCoolingDown(profile.id, modelName)
+                ) {
+                    errors.add("${profile.label}/$modelName: النموذج في فترة تهدئة بعد ازدحام سابق.")
+                    profileHadRetryableFailure = true
+                    continue@modelLoop
+                }
+
+                val candidateProfile = profile.copy(
+                    model = modelName,
+                    fallbackModels = emptyList(),
+                    strictModel = true
+                )
+                var attempt = 0
+                var moveToNextModel = false
+
+                while (attempt < 3 && !moveToNextModel) {
                     val callStart = System.currentTimeMillis()
                     try {
                         val reserved = onReserveProvider?.invoke(candidateProfile) ?: true
                         if (!reserved) {
-                            errors.add("${profile.label}/$modelName: المفتاح معطّل أو مقيّد أو استنفد حصته اليومية")
+                            val state = profile.runtimeStatus.uppercase()
+                            errors.add(
+                                "${profile.label}: لم يُرسل الطلب لأن ملف API غير متاح حالياً (الحالة: $state)."
+                            )
+                            skipProfile = true
                             break@modelLoop
                         }
+
                         val (outputText, tokens) = callProvider(
                             profile = candidateProfile,
                             prompt = prompt,
@@ -329,63 +345,115 @@ class AiGenerationService(
                         throw e
                     } catch (e: ProviderCallException) {
                         val reason = e.message?.takeIf { it.isNotBlank() } ?: "فشل"
-                        errors.add("${profile.label}/$modelName: $reason")
+                        errors.add("${profile.label}/$modelName (المحاولة ${attempt + 1}/3): $reason")
                         onAttemptFinished?.invoke(profile.label, modelName, false, reason)
                         val failureStatus = classifyProviderFailure(e, reason, profile.provider)
-                        if (failureStatus == "QUOTA_EXHAUSTED") {
-                            onProviderStateChanged?.invoke(profile.id, failureStatus, e.retryAfterEpochMs)
-                            // A confirmed quota exhaustion is not a model-level saturation
-                            // signal. Stop this generation instead of cycling through models
-                            // or other Google profiles to bypass the provider's quota.
-                            throw IllegalStateException(
-                                "${profile.label}: أفاد Gemini باستنفاد الحصة المتاحة لهذا المفتاح/المشروع. أوقفنا المحاولات الإضافية؛ تحقق من حالة الحصة لدى Google.",
-                                e
-                            )
-                        }
 
-                        if (e.httpCode == 429 && profile.provider == ProviderType.GEMINI) {
-                            geminiRateLimitObserved = true
-                            geminiModelRouter.markCoolingDown(profile.id, modelName, e.retryAfterEpochMs)
-                        } else if (failureStatus != "RATE_LIMITED" || profile.provider == ProviderType.OPENAI_COMPATIBLE) {
-                            onProviderStateChanged?.invoke(profile.id, failureStatus, e.retryAfterEpochMs)
-                        }
-                        // A rate-limit response cools down the affected Gemini model.
-                        // Only transient non-429 failures are retried on the same request.
-                        // Gemini and OpenAI provider paths remain isolated.
-                        if (e.httpCode == 429 || !e.isTransient) {
-                            break
-                        }
-                        if (retry == 0) {
-                            delay((800L shl retry).coerceAtMost(4_000L) + kotlin.random.Random.nextLong(0L, 251L))
+                        when (failureStatus) {
+                            "QUOTA_EXHAUSTED" -> {
+                                onProviderStateChanged?.invoke(profile.id, failureStatus, e.retryAfterEpochMs)
+                                errors.add("${profile.label}: تم استنفاد الحصة؛ سيتم تجربة ملف API آخر للمزود نفسه.")
+                                skipProfile = true
+                                break@modelLoop
+                            }
+                            "INVALID_KEY" -> {
+                                onProviderStateChanged?.invoke(profile.id, failureStatus, 0L)
+                                errors.add("${profile.label}: المفتاح غير صالح؛ سيتم تجربة ملف API آخر للمزود نفسه.")
+                                skipProfile = true
+                                break@modelLoop
+                            }
+                            "INVALID_REQUEST" -> {
+                                onProviderStateChanged?.invoke(profile.id, failureStatus, 0L)
+                                throw IllegalStateException(
+                                    "${profile.label}/$modelName: رفض المزود الطلب بسبب إعداد أو مدخل غير صالح: $reason",
+                                    e
+                                )
+                            }
+                            "MODEL_UNAVAILABLE" -> {
+                                onProviderStateChanged?.invoke(profile.id, failureStatus, 0L)
+                                moveToNextModel = true
+                            }
+                            "RATE_LIMITED" -> {
+                                onProviderStateChanged?.invoke(profile.id, failureStatus, e.retryAfterEpochMs)
+                                if (profile.provider == ProviderType.GEMINI) {
+                                    profileHadRetryableFailure = true
+                                    if (attempt == 2) {
+                                        geminiModelRouter.markCoolingDown(profile.id, modelName, e.retryAfterEpochMs)
+                                        moveToNextModel = true
+                                    }
+                                } else if (attempt == 2) {
+                                    // OpenAI-compatible profiles may represent separate projects/keys.
+                                    skipProfile = true
+                                    break@modelLoop
+                                }
+                            }
+                            else -> {
+                                if (!e.isTransient) {
+                                    onProviderStateChanged?.invoke(profile.id, failureStatus, e.retryAfterEpochMs)
+                                    throw IllegalStateException(
+                                        "${profile.label}/$modelName: فشل غير قابل لإعادة المحاولة: $reason",
+                                        e
+                                    )
+                                }
+                                profileHadRetryableFailure = true
+                                if (attempt == 2) {
+                                    if (profile.provider == ProviderType.GEMINI) {
+                                        moveToNextModel = true
+                                    } else {
+                                        skipProfile = true
+                                        break@modelLoop
+                                    }
+                                }
+                            }
                         }
                     } catch (e: IOException) {
                         val reason = e.message?.takeIf { it.isNotBlank() } ?: "خطأ شبكة"
-                        errors.add("${profile.label}/$modelName: $reason")
+                        errors.add("${profile.label}/$modelName (المحاولة ${attempt + 1}/3): $reason")
                         onAttemptFinished?.invoke(profile.label, modelName, false, reason)
-                        onProviderStateChanged?.invoke(profile.id, "ERROR", 0L)
-                        if (retry == 0) {
-                            delay((800L shl retry).coerceAtMost(4_000L) + kotlin.random.Random.nextLong(0L, 251L))
+                        onProviderStateChanged?.invoke(profile.id, "NETWORK_ERROR", 0L)
+                        profileHadRetryableFailure = true
+                        if (attempt == 2) {
+                            if (profile.provider == ProviderType.GEMINI) {
+                                moveToNextModel = true
+                            } else {
+                                skipProfile = true
+                                break@modelLoop
+                            }
                         }
                     } catch (e: Exception) {
                         val reason = e.message?.takeIf { it.isNotBlank() } ?: "فشل"
                         errors.add("${profile.label}/$modelName: $reason")
                         onAttemptFinished?.invoke(profile.label, modelName, false, reason)
                         onProviderStateChanged?.invoke(profile.id, "ERROR", 0L)
-                        break
+                        throw e
                     }
-                    retry++
+
+                    if (attempt < 2 && !moveToNextModel && !skipProfile) {
+                        val retryAfter = (800L shl attempt).coerceAtMost(8_000L)
+                        delay(retryAfter + kotlin.random.Random.nextLong(0L, 251L))
+                    }
+                    attempt++
                 }
             }
 
-            if (geminiRateLimitObserved) {
+            if (skipProfile) continue@profileLoop
+
+            if (profile.provider == ProviderType.GEMINI && profileHadRetryableFailure) {
                 throw IllegalStateException(
-                    "${profile.label}: أعاد Gemini HTTP 429. تم احترام فترة الانتظار وتجربة نماذج هذا المفتاح فقط؛ لن يتم تدوير مفاتيح Google تلقائياً.",
-                    null
+                    "تعذر استخدام نماذج Gemini المهيأة على الملف ${profile.label} بعد ثلاث محاولات لكل نموذج. لم يتم تدوير مفاتيح Google بسبب الازدحام؛ تدوير الملف الآخر مخصص لحالة نفاد الحصة أو عدم صلاحية المفتاح. التفاصيل: ${errors.joinToString(" | ")}"
+                )
+            }
+
+            if (profile.provider == ProviderType.GEMINI && errors.isNotEmpty()) {
+                throw IllegalStateException(
+                    "تعذر التوليد عبر Gemini بعد تجربة النماذج المهيأة: ${errors.joinToString(" | ")}"
                 )
             }
         }
 
-        throw IllegalStateException("تعذر التوليد عبر ${selectedProvider.displayName}: ${errors.joinToString(" | ")}")
+        throw IllegalStateException(
+            "تعذر التوليد عبر ${selectedProvider.displayName}. جُرّبت ملفات API المفعّلة التابعة للمزود نفسه فقط. التفاصيل: ${errors.joinToString(" | ")}"
+        )
     }
 
     suspend fun testProviderConnection(profile: ProviderConfig): String = withContext(Dispatchers.IO) {
