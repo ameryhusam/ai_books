@@ -103,6 +103,8 @@ grades، subjects، books، units، lessons، lesson_sources، workspaces، less
 
 ## 14. UX والهوية
 
+**قيد منصة مهم:** المستودع الحالي تطبيق Android أصلي مبني بـ Kotlin وJetpack Compose وGradle (`com.android.application`) ولا يحتوي مشروع iOS/Xcode. لذلك APK الحالي لا يمكن تثبيته على iPadOS. عقد حزمة الصف وملفات PDF يمكن جعلهما مشتركين بين Android وiPad، لكن تشغيله على iPad يتطلب تطبيق iPadOS منفصلاً/نقلاً إلى بنية متعددة المنصات أو قراراً باستخدام أجهزة Android للأبناء. لا تُسجل ميزة iPad على أنها مدعومة قبل وجود build واختبارات فعلية على iPadOS.
+
 Mobile-first مع دعم Tablet، Arabic RTL من البداية، ألوان Indigo/Blue مع Teal/Green، خلفيات محايدة، تسلسل واضح، بطاقات، تقدم، وتقليل ازدحام الواجهات. Home تعرض الصفوف/الكتب/الدروس/مسودات AI ومتابعة آخر مساحة عمل. Workspace يربط مصدر PDF بالمحرر؛ على Tablet يمكن split-view وعلى الهاتف أقسام أو tabs.
 
 ## 15. الأمن والاعتمادية
