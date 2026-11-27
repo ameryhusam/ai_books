@@ -214,7 +214,10 @@ data class BookRef(
     val lessonsCount: Int,
     val coverPath: String? = null,
     val sourcePdfPath: String? = null,
-    val subjectName: String? = null
+    val subjectName: String? = null,
+    val approvalStatus: String? = null,
+    val requiresReview: Boolean = false,
+    val sourceReviewStatus: String? = null
 )
 
 data class LessonRef(
@@ -898,7 +901,9 @@ data class StagedWorkspacePreview(
     val fileCount: Int,
     val expandedBytes: Long,
     val grades: List<StagedGradeSummary>,
-    val warnings: List<String>
+    val warnings: List<String>,
+    val requiresReviewConfirmation: Boolean = false,
+    val reviewFindings: List<String> = emptyList()
 )
 
 sealed interface GlobalSearchHit {
