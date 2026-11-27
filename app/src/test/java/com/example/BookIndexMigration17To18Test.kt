@@ -127,7 +127,7 @@ class BookIndexMigration17To18Test {
 
             assertEquals(1, scalar("SELECT COUNT(*) FROM books WHERE rowId = 7 AND title = 'Science'"))
             assertEquals("LEGACY_UNVERIFIED", string("SELECT approvalStatus FROM books WHERE rowId = 7"))
-            assertEquals(0, scalar("SELECT offset FROM books WHERE rowId = 7"))
+            assertEquals(0, scalar("SELECT "offset" FROM books WHERE rowId = 7"))
             assertEquals(1, scalar("SELECT requiresReview FROM books WHERE rowId = 7"))
             assertEquals(1, scalar("SELECT COUNT(*) FROM workspace_units WHERE unit_key = 'unit_01'"))
             assertEquals("LEGACY_UNVERIFIED", string("SELECT assignment_source FROM workspace_units WHERE unit_key = 'unit_01'"))
