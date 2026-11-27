@@ -1357,6 +1357,7 @@ class EduMiniRepository(
 
     suspend fun approveDraft(draftId: String): Int {
         val draft = dao.getDraftById(draftId) ?: return 0
+        if (draft.status == DraftStatus.APPROVED.id) return 0
         val task = TaskType.fromId(draft.task)
         val lessonRef = dao.getLessonsForWorkspaceSnapshot(draft.workspaceId)
             .firstOrNull {
@@ -1401,7 +1402,7 @@ class EduMiniRepository(
         if (task == TaskType.INTERACTIVE) {
             val activity = InteractiveActivityParser.parseStrictJson(draft.content, lessonRef.title)
                 ?: throw IllegalArgumentException("تعذر اعتماد النشاط: بنية النشاط التفاعلي غير صالحة.")
-            val publishedPackage = buildAndPublishInteractiveBundle(
+            buildAndPublishInteractiveBundle(
                 workspaceId = draft.workspaceId,
                 lesson = lessonRef,
                 activity = activity,
