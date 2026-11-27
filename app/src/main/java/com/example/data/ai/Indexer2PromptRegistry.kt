@@ -1,11 +1,11 @@
 package com.example.data.ai
 
-import com.example.model.Indexer2SchemaSpec
+import com.example.model.BookIndexSchemaSpec
 import com.example.model.LessonRef
 import com.example.model.PromptBlueprintSpec
 import com.example.model.TaskType
 
-object Indexer2PromptRegistry {
+object BookIndexPromptRegistry {
 
     val blueprints: List<PromptBlueprintSpec> = listOf(
         PromptBlueprintSpec(
@@ -88,7 +88,7 @@ object Indexer2PromptRegistry {
             outputContract = "JSON صريح يحتوي schemaVersion, title, objective, steps[](conceptTag, checkpoint), ordering[], matching[]",
             schemaSnippet = """
                 {
-                  "schemaVersion": 1,
+                  "schemaVersion": "edu.book_index.v2",
                   "title": "عنوان النشاط التفاعلي",
                   "objective": "الهدف التعليمي للنشاط",
                   "steps": [
@@ -148,15 +148,15 @@ object Indexer2PromptRegistry {
         )
     )
 
-    val schemas: List<Indexer2SchemaSpec> = listOf(
-        Indexer2SchemaSpec(
+    val schemas: List<BookIndexSchemaSpec> = listOf(
+        BookIndexSchemaSpec(
             id = "schema_index",
             fileName = "workspace/Gxx/<SUBJECT>/index.json",
             titleAr = "مخطط الفهرس المرجعي للكتاب (index.json)",
-            descriptionAr = "المخطط المعتمد في indexer2 لتعريف الوحدات والدروس وأرقام الصفحات في الكتاب المدرسي.",
+            descriptionAr = "مخطط الفهرس المعتمد داخل التطبيق لتعريف الوحدات والدروس وأرقام الصفحات في الكتاب المدرسي.",
             schemaJson = """
                 {
-                  "schemaVersion": 1,
+                  "schemaVersion": "edu.book_index.v2",
                   "gradeKey": "G04",
                   "subjectKey": "ARAB",
                   "units": [
@@ -177,7 +177,7 @@ object Indexer2PromptRegistry {
                 }
             """.trimIndent()
         ),
-        Indexer2SchemaSpec(
+        BookIndexSchemaSpec(
             id = "schema_manifest",
             fileName = "workspace/Gxx/<SUBJECT>/book_manifest.json",
             titleAr = "مخطط بطاقة الكتاب والغلاف (book_manifest.json)",
@@ -193,21 +193,21 @@ object Indexer2PromptRegistry {
                 }
             """.trimIndent()
         ),
-        Indexer2SchemaSpec(
+        BookIndexSchemaSpec(
             id = "schema_questions",
             fileName = "questions/<unit>/<lesson>/ai_generated.json",
             titleAr = "مخطط بنك الأسئلة التفاعلي (questions.json)",
             descriptionAr = "يدعم 6 أنماط: mcq, true_false, fill_blank, ordering, matching, short_answer مع تصنيف المفهوم conceptTag.",
             schemaJson = QuestionResponseContract.schemaJson
         ),
-        Indexer2SchemaSpec(
+        BookIndexSchemaSpec(
             id = "schema_interactive",
             fileName = "edu_mini_generated/<unit>/<lesson>/lesson.interactive.json",
             titleAr = "مخطط النشاط التفاعلي الأصيل (lesson.interactive.json)",
             descriptionAr = "مخطط JSON تصريحي مزوّد بـ conceptTag يشغّله مشغّل الأنشطة المدمج وباني حزمة JS+HTML.",
             schemaJson = blueprints.first { it.task == TaskType.INTERACTIVE }.schemaSnippet
         ),
-        Indexer2SchemaSpec(
+        BookIndexSchemaSpec(
             id = "schema_interactive_bundle",
             fileName = "interactive/<book>/<unit>/<lesson>/{index.html, interactive-engine.js, lesson.interactive.json}",
             titleAr = "مخطط تخزين حزمة الدرس التفاعلي المتكاملة (HTML + JS + JSON + Room DB)",
@@ -233,7 +233,7 @@ object Indexer2PromptRegistry {
                 }
             """.trimIndent()
         ),
-        Indexer2SchemaSpec(
+        BookIndexSchemaSpec(
             id = "schema_export_manifest",
             fileName = "manifest.json",
             titleAr = "مخطط حزمة التصدير الموثّقة (indexer2 Export)",
