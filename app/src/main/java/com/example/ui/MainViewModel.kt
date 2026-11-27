@@ -2745,9 +2745,18 @@ class MainViewModel(
 
     fun inspectWorkspaceZip(uri: Uri) {
         viewModelScope.launch {
-            _uiState.update { it.copy(isBusy = true) }
+            _uiState.update {
+                it.copy(
+                    isBusy = true,
+                    workspaceOperation = WorkspaceOperationProgress("فحص حزمة المحتوى", "فتح ملف ZIP وتجهيز الفحص", 3)
+                )
+            }
             try {
-                val staged = repository.inspectWorkspaceZip(uri)
+                val staged = repository.inspectWorkspaceZip(uri) { stage, percent ->
+                    _uiState.update {
+                        it.copy(workspaceOperation = WorkspaceOperationProgress("فحص حزمة المحتوى", stage, percent))
+                    }
+                }
                 if (staged.grades.isEmpty()) {
                     repository.discardStagedPreview(staged)
                     _uiState.update {
@@ -2766,7 +2775,7 @@ class MainViewModel(
                     it.copy(alert = AlertMessage("خطأ في ZIP", e.message ?: "تعذر فحص ملف ZIP"))
                 }
             } finally {
-                _uiState.update { it.copy(isBusy = false) }
+                _uiState.update { it.copy(isBusy = false, workspaceOperation = null) }
             }
         }
     }
@@ -2775,9 +2784,18 @@ class MainViewModel(
         val preview = _uiState.value.stagedPreview ?: return
         if (selectedGrades.isEmpty()) return
         viewModelScope.launch {
-            _uiState.update { it.copy(isBusy = true) }
+            _uiState.update {
+                it.copy(
+                    isBusy = true,
+                    workspaceOperation = WorkspaceOperationProgress("استيراد الصفوف والمواد", "بدء تجهيز الصفوف المحددة", 2)
+                )
+            }
             try {
-                val committed = repository.commitStagedWorkspaces(preview, selectedGrades)
+                val committed = repository.commitStagedWorkspaces(preview, selectedGrades) { stage, percent ->
+                    _uiState.update {
+                        it.copy(workspaceOperation = WorkspaceOperationProgress("استيراد الصفوف والمواد", stage, percent))
+                    }
+                }
                 val primary = committed.lastOrNull()
                 if (primary != null) {
                     val diskBytes = repository.computeWorkspaceDiskBytes(primary.rootPath)
@@ -2808,7 +2826,7 @@ class MainViewModel(
                     )
                 }
             } finally {
-                _uiState.update { it.copy(isBusy = false) }
+                _uiState.update { it.copy(isBusy = false, workspaceOperation = null) }
             }
         }
     }
