@@ -1177,7 +1177,9 @@ class DirectWorkspaceBinder(private val context: Context) {
                     } else {
                         val docUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
                         out.add(IndexedEntry(rel, docUri.toString(), size))
-                        onProgress("قراءة ملفات المجلد (${out.size})", (20 + out.size * 30 / MAX_INDEXED_FILES).coerceAtMost(50))
+                        if (out.size % 25 == 0) {
+                            onProgress("قراءة ملفات المجلد (${out.size})", (20 + out.size * 30 / MAX_INDEXED_FILES).coerceAtMost(50))
+                        }
                     }
                 }
             }
@@ -1197,7 +1199,9 @@ class DirectWorkspaceBinder(private val context: Context) {
             .forEach { file ->
                 val rel = basePath.relativize(file.toPath()).toString().replace('\\', '/')
                 results.add(IndexedEntry(rel, file.absolutePath, file.length()))
-                onProgress("قراءة ملفات المجلد (${results.size})", (20 + results.size * 30 / MAX_INDEXED_FILES).coerceAtMost(50))
+                if (results.size % 25 == 0) {
+                    onProgress("قراءة ملفات المجلد (${results.size})", (20 + results.size * 30 / MAX_INDEXED_FILES).coerceAtMost(50))
+                }
             }
         return results
     }
