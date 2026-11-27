@@ -595,7 +595,7 @@ fun SettingsScreen(
             }
 
             items(
-                items = providers,
+                items = providers.sortedWith(compareBy<ProviderConfig> { it.provider.id }.thenBy { it.priority }.thenBy { it.createdAt }),
                 key = { it.id }
             ) { profile ->
                 val providerKeys = providers.filter { it.provider == profile.provider }.sortedBy { it.priority }
