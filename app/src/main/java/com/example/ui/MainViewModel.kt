@@ -1825,7 +1825,15 @@ class MainViewModel(
 
         generationJob?.cancel()
         generationJob = viewModelScope.launch {
-            _uiState.update { it.copy(isBusy = true, alert = null) }
+            _uiState.update {
+                it.copy(
+                    isBusy = true,
+                    activeDraftId = "",
+                    generatedResult = "",
+                    generatedDisplayResult = "",
+                    alert = null
+                )
+            }
             try {
                 val output = repository.generateContent(
                     workspaceId = workspace.workspaceId,
