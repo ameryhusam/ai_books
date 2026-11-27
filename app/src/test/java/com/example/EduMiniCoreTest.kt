@@ -4866,6 +4866,8 @@ class EduMiniCoreTest {
 
         val initial = storage.loadModelCatalog()
         assertTrue(initial.any { it.modelId == "gemini-3.5-flash" && it.isDefault })
+        assertTrue(initial.any { it.modelId == "gemini-3.6-flash" && it.displayName == "Gemini 3.6 Flash" })
+        assertTrue(initial.any { it.modelId == "gemini-3.8-flash" && it.displayName == "Gemini 3.8 Flash" })
 
         val custom = com.example.data.ai.AiModelDefinition(
             modelId = "gemini-custom-test",
@@ -4884,6 +4886,22 @@ class EduMiniCoreTest {
         storage.setDefaultModel(ProviderType.GEMINI, "gemini-3.5-flash")
         storage.deleteModelDefinition(renamed.modelId)
         assertFalse(storage.loadModelCatalog().any { it.modelId == renamed.modelId })
+    }
+
+    @Test
+    fun aiModelCatalogMigrationRestoresGeminiSeedsWhenLegacyCatalogWasEmpty() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        context.getSharedPreferences("edu_mini_secure_prefs", android.content.Context.MODE_PRIVATE)
+            .edit().clear()
+            .putString("edu_mini_ai_model_catalog_v1", "[]")
+            .commit()
+        val storage = ProviderStorage(context)
+
+        val migrated = storage.loadModelCatalog()
+        assertTrue(migrated.any { it.modelId == "gemini-3.5-flash" && it.isDefault })
+        assertTrue(migrated.any { it.modelId == "gemini-3.6-flash" })
+        assertTrue(migrated.any { it.modelId == "gemini-3.8-flash" })
+        assertEquals(1, migrated.count { it.provider == ProviderType.GEMINI && it.isDefault })
     }
 
     @Test
