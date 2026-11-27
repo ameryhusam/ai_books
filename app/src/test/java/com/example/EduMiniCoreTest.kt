@@ -38,6 +38,7 @@ import com.example.data.security.ProviderStorage
 import com.example.data.workspace.DirectWorkspaceBinder
 import com.example.data.workspace.PdfBookSplitter
 import com.example.data.workspace.WorkspaceExporter
+import com.example.data.workspace.WorkspaceContractValidator
 import com.example.data.workspace.WorkspaceImporter
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.pdmodel.PDDocument
