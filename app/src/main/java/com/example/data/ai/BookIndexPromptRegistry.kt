@@ -163,6 +163,7 @@ object BookIndexPromptRegistry {
                   "subjectName": "اللغة العربية",
                   "title": "كتاب اللغة العربية",
                   "sourceLayout": "SINGLE_PART_FILE",
+                  "sourceLayoutEvidence": "الغلاف يحدد الكتاب باعتباره الجزء الأول",
                   "partKey": "P01",
                   "offset": 4,
                   "approvalStatus": "APPROVED",
