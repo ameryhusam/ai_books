@@ -389,7 +389,7 @@ A provider profile stores:
 - `strictModel`.
 
 Provider profiles retain an ordered primary model and fallbackModels list. SettingsScreen exposes the fallback model chips in the profile editor; their stored order is the execution order, and enabling strictModel disables model fallback. The active execution path now uses the UI-selected model first, followed by configured same-provider Gemini fallbacks. The selected API profile is attempted first, then other enabled profiles belonging to the same provider are eligible according to the provider-specific failover rules. OpenAI-compatible model selection remains fixed; its fallback path rotates API profiles/keys, not providers.
-The built-in Gemini catalogue seeds `gemini-3.5-flash` (default), `gemini-3.6-flash`, and `gemini-3.8-flash`. These are Google Gemini model IDs, not application-invented aliases. Keep the provider label as `Gemini`; display names such as `Gemini 3.5 Flash` are presentation labels while API dispatch uses the exact `modelId`. The central Firestore catalogue remains authoritative: only an authorized system administrator may bootstrap the three seed entries when the central collection is empty. New Gemini API profiles preselect the central default model and include the other enabled Gemini models as ordered fallback candidates; an existing profile's explicit model/fallback choices must not be overwritten.
+The built-in Gemini catalogue seeds four selectable model IDs: `gemini-3.5-flash` (default), `gemini-3.6-flash`, `gemini-3.7-flash`, and `gemini-3.8-flash`. These are Google Gemini model IDs, not application-invented aliases. Keep the provider label as `Gemini`; display names such as `Gemini 3.5 Flash` are presentation labels while API dispatch uses the exact `modelId`. The central Firestore catalogue remains authoritative: only an authorized system administrator may bootstrap the three seed entries when the central collection is empty. New Gemini API profiles preselect the central default model and include the other enabled Gemini models as ordered fallback candidates; an existing profile's explicit model/fallback choices must not be overwritten.
 
 Current policy: keep provider selection explicit and isolated, but permit configured same-provider fallback. For Gemini, make up to three actual dispatch attempts per model on transient overload/rate-limit/network/server failures, then move to the next configured Gemini model. A confirmed daily/project quota exhaustion or invalid key skips the current API profile immediately and tries another enabled Gemini profile. OpenAI-compatible requests keep the selected model, retry transient failures up to three dispatches, then move to another enabled OpenAI-compatible profile/key; invalid key and confirmed quota exhaustion move to the next key immediately.
 
@@ -831,8 +831,17 @@ The source changes are in place, but behavior is not considered verified until t
 
 - Provider identity is `Gemini`; model identity is a separate exact Google model ID.
 - Default model: `gemini-3.5-flash` (display: `Gemini 3.5 Flash`).
-- Configured fallback candidates: `gemini-3.6-flash` and `gemini-3.8-flash` (display names retain the Gemini family/version).
+- Other built-in Gemini models: `gemini-3.6-flash`, `gemini-3.7-flash`, and `gemini-3.8-flash` (display names retain the Gemini family/version).
+- The four built-in entries are enabled and user-manageable in the model catalog. The selected default is the first model used; fallback order is configured by the profile/runtime policy and must not be inferred from model display order.
 - A new Gemini API profile preselects the central default and orders the other enabled Gemini models as fallbacks. Existing profiles retain their saved explicit selection.
 - The central Firestore collection is still authoritative. An empty collection is bootstrapped from built-in seeds only for a user whose `system_admins/{uid}` record grants `manage_ai_models`; a normal teacher/admin role is not sufficient. Non-authorized users must not silently substitute a local catalogue for the central one.
 - Local SharedPreferences catalog migration restores missing built-in metadata for legacy installs without overwriting custom entries or API credentials.
-- Google model documentation confirms the exact IDs `gemini-3.5-flash`, `gemini-3.6-flash`, and `gemini-3.8-flash`. See the official [Gemini model list](https://ai.google.dev/gemini-api/docs/models) and [pricing/model IDs](https://ai.google.dev/gemini-api/docs/pricing).
+- The configured model IDs are `gemini-3.5-flash`, `gemini-3.6-flash`, `gemini-3.7-flash`, and `gemini-3.8-flash`; availability and access are determined by the user's Google API account. See the official [Gemini model list](https://ai.google.dev/gemini-api/docs/models) and [pricing/model IDs](https://ai.google.dev/gemini-api/docs/pricing).
+
+### 8.2.2 Four built-in Gemini models — 2026-11-27
+
+- Seed exactly these four model IDs in the editable catalog: `gemini-3.5-flash`, `gemini-3.6-flash`, `gemini-3.7-flash`, `gemini-3.8-flash`.
+- Keep `gemini-3.5-flash` as the initial default to match the configured rollout order requested for this application.
+- Do not hardcode explanations or provider policy paragraphs into the UI as part of this catalog change. The model test controls and default-model selection remain concise UI elements.
+- Increment the local catalog seed version so existing installations receive the newly added 3.7 entry without clearing custom models or API credentials.
+- These entries are configured candidates; successful use depends on model availability and permissions for the user's Google API key. Do not claim that every account can invoke every candidate without a live API test.
