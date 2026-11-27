@@ -2271,11 +2271,28 @@ class MainViewModel(
     }
 
     fun testSavedProvider(profile: ProviderConfig) {
-        if (_uiState.value.isTestingProvider) return
+        val state = _uiState.value
+        if (state.isTestingProvider) return
+        val testModel = profile.model.ifBlank {
+            state.aiModelCatalog.firstOrNull {
+                it.provider == profile.provider && it.isDefault && it.isEnabled &&
+                    it.supportsGenerateContent && it.lifecycleStatus != AiModelDefinition.STATUS_DEPRECATED
+            }?.modelId ?: state.aiModelCatalog.firstOrNull {
+                it.provider == profile.provider && it.isEnabled &&
+                    it.supportsGenerateContent && it.lifecycleStatus != AiModelDefinition.STATUS_DEPRECATED
+            }?.modelId.orEmpty()
+        }
+        if (testModel.isBlank()) {
+            _uiState.update {
+                it.copy(alert = AlertMessage("لا يوجد نموذج متاح", "أضف نموذجاً مفعّلاً لهذا المزود إلى كتالوج النماذج أولاً."))
+            }
+            return
+        }
+        val profileToTest = profile.copy(model = testModel)
         viewModelScope.launch {
             _uiState.update { it.copy(isTestingProvider = true) }
             try {
-                val report = repository.testProviderConnection(profile)
+                val report = repository.testProviderConnection(profileToTest)
                 _uiState.update {
                     it.copy(alert = AlertMessage("نجاح اختبار النموذج", report))
                 }
