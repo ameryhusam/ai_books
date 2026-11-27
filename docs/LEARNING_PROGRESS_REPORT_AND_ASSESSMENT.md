@@ -1,11 +1,11 @@
 # Learning Progress Report and Assessment Design
 
-Date: 2026-11-25
-Branch: `main`
+Date: 2026-11-27
+Branch: `refactor/extract-ui-state-models`
 
 ## Product intent
 
-The product should measure durable learning, not merely lesson completion or a single test score. The administrator device is used by the parent/teacher to prepare content, distribute grade packages, and review each child's progress. Each child uses the app on their own iPad, imports the package for their grade, studies lessons offline, and records attempts locally. Learner-facing screens remain concise; adult-facing reports provide diagnostic evidence for teaching decisions.
+The product should measure durable learning, not merely lesson completion or a single test score. The administrator device is used by the parent/teacher to prepare content, distribute grade packages, and review each child's progress. Each child uses the Android app on their own Android tablet, imports the package for their grade, studies lessons offline, and records attempts locally. Learner-facing screens remain concise; adult-facing reports provide diagnostic evidence for teaching decisions.
 
 ## Indicators currently implemented
 
@@ -110,6 +110,21 @@ The content and performance flows are deliberately separate:
 - **Future/online service:** may synchronize learner records and package/version metadata. It must not be required to open downloaded lesson PDFs or continue learning.
 
 A package update must not overwrite learner attempts or reset progress for unchanged lesson IDs. Content version and learner performance synchronization require separate conflict policies.
+
+## Offline database behavior and update semantics
+
+The learner experience should use Room as its local operational store:
+
+- Catalog screens observe local `workspaces`, `books`, `lessons`, and `workspace_units` records.
+- Lesson text is read from `lesson_texts`; lesson PDFs and interactive resources are opened from validated app-managed local files referenced by Room metadata.
+- Practice and quizzes query the local `questions` bank, excluding questions that are not reviewed/approved.
+- Assessments query local `assessments` and their referenced question IDs. An assessment must not be offered unless all required questions are installed and approved.
+- Learner actions write to `lesson_progress`, `question_attempts`, `assessment_attempts`, and `study_days`, scoped by the active local learner ID.
+- DAO `Flow` observations refresh the UI after local Room writes. They do not themselves fetch changed content from another device or server.
+
+Content updates arrive through a separately imported grade package. The importer must verify the package manifest, relative paths, sizes and hashes; stage changed files; reconcile catalog/content rows by stable IDs; and activate the new package atomically. It must not overwrite learner attempt history or reset progress for unchanged lesson identities. Pending learner records remain local until the separate performance-sync channel is available.
+
+The current schema has a publication signal for interactive packages (`published_for_students`) and a review signal for questions (`reviewed`). The assessment entity does not currently expose a matching publication/approval field. The package-export policy must therefore define how an assessment becomes publishable before assessment distribution is implemented; do not infer publication from its mere presence in Room.
 
 ## Important limitations / next design work
 
