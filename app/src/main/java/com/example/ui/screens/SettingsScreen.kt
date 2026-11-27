@@ -113,7 +113,6 @@ fun SettingsScreen(
     onSignOut: () -> Unit = {},
     onBackToLibrary: () -> Unit,
     onSelectProviderType: (ProviderType) -> Unit,
-    onLabelChange: (String) -> Unit,
     onModelChange: (String) -> Unit,
     onFallbackModelsChange: (String) -> Unit,
     onBaseUrlChange: (String) -> Unit,
