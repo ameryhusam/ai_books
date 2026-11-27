@@ -527,6 +527,11 @@ fun SettingsScreen(
                         color = EduInk,
                         modifier = Modifier.padding(top = 6.dp)
                     )
+                    Text(
+                        text = "اختر النماذج التي تريد استخدامها كبدائل. ترتيب الاختيار هو ترتيب التجربة؛ إذا لم تحدد بديلاً أو فعّلت الالتزام الصارم فلن ينتقل Gemini إلى نموذج آخر.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = EduMuted
+                    )
                     FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
