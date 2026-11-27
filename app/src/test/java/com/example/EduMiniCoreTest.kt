@@ -309,6 +309,7 @@ class EduMiniCoreTest {
             {
               "gradeKey": "G04",
               "subjectKey": "SCI",
+              "partKey": "BOTH",
               "approvalStatus": "APPROVED",
               "sourceLayout": "MERGED_PARTS_FILE",
               "units": [{
@@ -333,6 +334,7 @@ class EduMiniCoreTest {
               "manifestVersion": "edu.book_manifest.v1",
               "gradeKey": "G04",
               "subjectKey": "SCI",
+              "partKey": "BOTH",
               "sourceLayout": "MERGED_PARTS_FILE",
               "sourceReviewStatus": "NEEDS_REVIEW",
               "sourceSha256": "${"a".repeat(64)}",
