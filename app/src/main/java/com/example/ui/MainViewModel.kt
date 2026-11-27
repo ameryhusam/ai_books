@@ -3065,9 +3065,9 @@ class MainViewModel(
                         )
                     }.getOrNull()
                 } else null
-                val resultMessage = when {
+                val resultSummary = when {
                     snapshot.task == TaskType.QUESTIONS && questionSaveError != null ->
-                        "تم حفظ المسودة، لكن لم تُضف الأسئلة إلى بنك الأسئلة لأن التحقق من الدفعة أو منع التكرار لم ينجح: $questionSaveError"
+                        "تم استلام الاستجابة من ${out.providerLabel} (${out.model}) وحفظ نصها كمسودة، لكن لم تُدرج الأسئلة في بنك الأسئلة: $questionSaveError"
                     snapshot.task == TaskType.QUESTIONS && syncedQuestionsCount > 0 ->
                         "تم التوليد عبر ${out.providerLabel} (${out.model})، وحُفظت المسودة وتم التحقق من العدد والأنواع قبل إضافة $syncedQuestionsCount سؤالاً إلى بنك الأسئلة واختبار الدرس."
                     snapshot.task == TaskType.QUESTIONS ->
@@ -3079,7 +3079,16 @@ class MainViewModel(
                     snapshot.task == TaskType.INTERACTIVE && interactiveParsed != null ->
                         "تم التوليد عبر ${out.providerLabel} (${out.model}) وأصبح النشاط التفاعلي (${interactiveParsed.steps.size} محطة) جاهزاً للتشغيل في شاشة المتعلم والاستوديو."
                     else ->
-                        "تم التوليد عبر ${out.providerLabel} (${out.model}) وحفظ النسخة وربطها بمسار الدرس."
+                        "تم استلام الاستجابة عبر ${out.providerLabel} (${out.model}) وحفظها كمسودة."
+                }
+                val reviewIssues = (out.validationIssues + listOfNotNull(questionSaveError))
+                    .filter { it.isNotBlank() }
+                    .distinct()
+                val resultMessage = if (reviewIssues.isEmpty()) {
+                    resultSummary
+                } else {
+                    resultSummary + "\n\nالمحتوى المستلم محفوظ ويمكن مراجعته، لكن توجد مشكلات تمنع اعتماده أو إدراجه في قاعدة البيانات:\n" +
+                        reviewIssues.joinToString("\n") { "• $it" }
                 }
                 _uiState.update {
                     it.copy(
@@ -3097,7 +3106,7 @@ class MainViewModel(
                         activeDraftContentHash = out.contentHash,
                         activeDraftSourcePdfHash = out.sourcePdfHash,
                         alert = AlertMessage(
-                            title = "تم الحفظ والربط",
+                            title = if (reviewIssues.isEmpty()) "تم الحفظ والربط" else "تم استلام المحتوى - يحتاج مراجعة",
                             message = resultMessage
                         )
                     )
