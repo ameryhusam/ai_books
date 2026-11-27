@@ -3033,9 +3033,11 @@ class EduMiniCoreTest {
             }
             // Local dailyRequestLimit is diagnostic only; all active concurrent reservations succeed.
             assertEquals(8, sameDayReservations.count { it })
-            assertEquals(8, storage.loadProviders().single { it.id == provider.id }.dailyRequestsUsed)
+            val loadedKey = storage.loadProviders().single { it.id == provider.id }
+            assertEquals(8, loadedKey.dailyRequestsUsed)
+            assertEquals("GEMINI_API_KEY_1", loadedKey.label)
 
-            // A provider-confirmed exhausted quota blocks this profile for the current quota day.
+            // A provider-confirmed exhausted quota blocks this API key for the current quota day.
             storage.updateProviderRuntimeState(provider.id, ProviderStorage.STATUS_QUOTA_EXHAUSTED, 0L)
             assertFalse(storage.reserveProviderKey(provider.id, dayOne + 30_000L))
 
