@@ -1637,10 +1637,51 @@ class EduMiniCoreTest {
             val existing = repo.createClassroom("G04", "الصف الرابع")
             fun createBook(root: File, subject: String, title: String) {
                 val bookDir = File(root, "workspace/G04/$subject").apply { mkdirs() }
-                File(bookDir, "book_manifest.json").writeText("""{"title":"$title"}""")
-                File(bookDir, "index.json").writeText(
-                    """{"units":[{"unitKey":"unit_01","title":"الوحدة الأولى","lessons":[{"lessonKey":"lesson_01","title":"الدرس الأول"}]}]}"""
+                val indexRaw = """
+                    {
+                      "schemaVersion":"edu.book_index.v2",
+                      "gradeKey":"G04",
+                      "gradeName":"الصف الرابع",
+                      "subjectKey":"$subject",
+                      "sourceLayout":"MERGED_PARTS_FILE",
+                      "sourceLayoutEvidence":"مصدر PDF موحد",
+                      "approvalStatus":"APPROVED",
+                      "requiresReview":false,
+                      "offset":2,
+                      "totalPdfPages":300,
+                      "sourceFileName":"source.pdf",
+                      "units":[{
+                        "unitKey":"unit_01",
+                        "title":"الوحدة الأولى",
+                        "partKey":"P01",
+                        "assignmentStatus":"assigned",
+                        "assignmentSource":"INDEX_EVIDENCE",
+                        "assignmentEvidence":"عنوان الوحدة في الفهرس",
+                        "lessons":[{
+                          "lessonKey":"lesson_01",
+                          "title":"الدرس الأول",
+                          "partKey":"P01",
+                          "pdfPageStart":2,
+                          "pdfPageEnd":4,
+                          "printedPageStart":5,
+                          "printedPageEnd":7,
+                          "sortOrder":4,
+                          "sliceFile":{"workspaceUri":"workspace/G04/$subject/units/unit_01/lesson_01.pdf"}
+                        }]
+                      }]
+                    }
+                """.trimIndent()
+                val indexSha = MessageDigest.getInstance("SHA-256")
+                    .digest(indexRaw.toByteArray())
+                    .joinToString("") { "%02x".format(it) }
+                File(bookDir, "index.json").writeText(indexRaw)
+                File(bookDir, "book_manifest.json").writeText(
+                    """{"manifestVersion":"edu.book_manifest.v1","gradeKey":"G04","gradeName":"الصف الرابع","subjectKey":"$subject","sourceLayout":"MERGED_PARTS_FILE","sourceLayoutEvidence":"مصدر PDF موحد","sourceReviewStatus":"VERIFIED","sourceSha256":"${"c".repeat(64)}","indexSha256":"$indexSha"}"""
                 )
+                File(bookDir, "units/unit_01/lesson_01.pdf").apply {
+                    parentFile?.mkdirs()
+                    writeText("%PDF-1.4 sample lesson content")
+                }
             }
             createBook(firstRoot, "MATH", "الرياضيات - المصدر الأول")
             val first = repo.bindDirectWorkspace(firstRoot.absolutePath, "G04")
@@ -1656,6 +1697,18 @@ class EduMiniCoreTest {
             assertNotNull(observed)
             assertEquals("العلوم - المصدر الثاني", observed!!.books.single().title)
             assertEquals(secondRoot.absolutePath, observed.rootPath)
+            assertEquals("MERGED_PARTS_FILE", observed.books.single().sourceLayout)
+            assertEquals(2, observed.books.single().offset)
+            assertEquals(300, observed.books.single().totalPdfPages)
+            assertEquals("source.pdf", observed.books.single().sourceFileName)
+            assertEquals("assigned", observed.units.single().assignmentStatus)
+            assertEquals("INDEX_EVIDENCE", observed.units.single().assignmentSource)
+            assertEquals("عنوان الوحدة في الفهرس", observed.units.single().assignmentEvidence)
+            assertEquals(2, observed.lessons.single().pdfPageStart)
+            assertEquals(4, observed.lessons.single().pdfPageEnd)
+            assertEquals(5, observed.lessons.single().printedPageStart)
+            assertEquals(7, observed.lessons.single().printedPageEnd)
+            assertEquals(4, observed.lessons.single().sortOrder)
         } finally {
             firstRoot.deleteRecursively()
             secondRoot.deleteRecursively()
