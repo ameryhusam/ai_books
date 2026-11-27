@@ -292,7 +292,7 @@ Changing the lesson, task, prompt instructions, database-derived schema version/
 
 - The save path checks that schema and mapping inputs parse as JSON objects.
 - Before a JSON generation request, `TemplateOutputValidator` checks the schema structure.
-- After the provider responds, the raw JSON is validated against the stored schema before response mapping and draft persistence.
+- For legacy non-persistent template outputs, the response may be validated against the template schema. For database-backed tasks, validation must use the schema generated from the current Room/database AI-writable projection; a template-stored schema must not override it.
 - An invalid provider output is recorded as a validation failure and is not saved as a normal draft.
 - The supported validator subset includes object, array, string, number, integer, boolean and null types, object properties/required fields, array items, enum and boolean `additionalProperties`.
 
@@ -647,18 +647,7 @@ Book-index discovery is a different task, not a different AI integration. It mus
 
 ### 15.1 Proven request sequence to reuse
 
-The existing PDF lesson-question flow establishes the reusable sequence:
-
-1. Resolve the selected lesson and its exact segmented PDF from the workspace index.
-2. Read and validate the PDF bytes, enforce the size limit and calculate SHA-256.
-3. Resolve the task prompt and response schema.
-4. Assemble prompt variables from curriculum/lesson context and user instructions.
-5. Attach the original PDF to Gemini as `application/pdf`; for OpenAI-compatible providers, render PDF pages as JPEG image parts.
-6. Submit prompt, attachment and JSON response configuration through the shared provider service.
-7. Extract the provider's response text and usage metadata.
-8. Validate JSON against the response schema, then run task-specific semantic validation.
-9. Preserve request provenance (provider, model, prompt, schema/hash, source PDF hash and request fingerprint).
-10. Keep the output as a reviewable draft; only explicit approval may persist selected content.
+The existing PDF lesson-question flow establishes the provider request sequence. The feature resolves the lesson PDF, prepares prompt and database-derived response contract, and calls the shared service. The service dispatches the request and returns raw response text with provider/usage metadata. The question-bank feature then parses and validates the response, maps it to application models, retains provenance and persists a reviewable draft or question batch. Semantic validation and persistence are not responsibilities of the provider transport service.
 
 The earlier reference workflow uses the same pattern for index discovery: it supplies a sampled original-book PDF rather than a lesson PDF, and changes only the prompt, schema and task context. The important reusable behavior is the request/response contract—not the older service's key/model fallback policy.
 
@@ -672,7 +661,7 @@ The earlier reference workflow uses the same pattern for index discovery: it sup
 - cancellation, bounded transient retries, quota reservation and rate-limit cooldown;
 - provider/model and request provenance returned with `GeneratedResult`.
 
-`EduMiniRepository.generateContent()` prepares the question task's prompt/schema/source, calls `AiGenerationService.generate()`, validates the output and invokes the question parser. `QuestionResponseContract` is the single provider-facing question schema source; the application does not trust a prompt example as a schema.
+`EduMiniRepository.generateContent()` prepares the question task's prompt/schema/source, calls `AiGenerationService.generate()`, validates the output and invokes the question parser. It invokes `QuestionBankEngine.parseGeneratedQuestions()` before returning `GeneratedResult` to `MainViewModel`. Therefore a task-parser/semantic-validation failure can prevent the caller from receiving a response that the provider already returned. This is a feature-pipeline failure, not necessarily an API transport failure. The current question schema is centralized in `QuestionResponseContract`, but its direct Room-schema derivation remains outstanding.
 
 ### 15.3 Why index discovery is not connected yet
 
@@ -710,7 +699,7 @@ Keep:
 - physical page positions in the original uploaded PDF;
 - local page numbers inside a sliced lesson PDF;
 
-as separate coordinates. The app applies `originalPdfPage = printedBookPage + offset` only when a verified physical page is not already available. Never apply offset twice. A non-constant mapping or weak page evidence requires calibration review.
+as separate coordinates. The app applies `originalPdfPage = printedBookPage + offset`, with offset defaulting to +1 and editable by the user for special PDFs. Apply it once only; if physical PDF positions are already set, do not apply it again.
 
 ### 15.7 Prompt/schema separation
 
@@ -771,3 +760,50 @@ Safeguards:
 - send only the minimum learner data required and avoid unnecessary direct identifiers.
 
 The learning-assessment/recommendation feature processes this output. AiGenerationService only transports the request and returns raw response plus execution metadata.
+
+
+## 19. Indexer2 versus ai_books: verified behavior and response-delivery diagnosis
+
+### 19.1 User-confirmed Indexer2 behavior
+
+The user has confirmed that Indexer2 was manually tested by selecting a specific lesson and subject, requesting a question bank, receiving a JSON response and displaying the questions on the question-bank page using that page's normal UI. This confirms the tested Indexer2 lesson-question workflow end to end. It does not, by itself, prove that Indexer2's separate book-index extraction route was tested.
+
+### 19.2 Current ai_books question-generation path
+
+The current Android source path is:
+1. MainViewModel.startGeneration() captures the selected lesson/task and calls EduMiniRepository.generateContent().
+2. EduMiniRepository prepares the source, selected PDF attachment, question prompt and QuestionResponseContract schema.
+3. AiGenerationService.generate() builds a lesson/task-specific prompt, dispatches to the selected provider and extracts text from the provider response.
+4. EduMiniRepository validates the JSON and calls QuestionBankEngine.parseGeneratedQuestions() before returning GeneratedResult.
+5. MainViewModel then persists the draft and calls saveQuestionsFromDraftText() to insert questions and update UI state.
+
+The provider transport and feature response handling are currently chained inside one repository operation. The service is still coupled to LessonRef/TaskType, and the repository can throw after provider success but before MainViewModel receives GeneratedResult.
+
+### 19.3 Concrete code-level failure points
+
+The source audit identifies these failure boundaries. Without the failed run's provider/model and error record, none should be claimed as the single proven runtime cause:
+
+- **Provider returned text, feature parser rejected it:** QuestionBankEngine.parseGeneratedQuestions() runs inside EduMiniRepository.generateContent() before the result is returned. A mismatch in root JSON shape, count, type distribution, difficulty or question semantics throws out of generateContent(). MainViewModel then displays the exception under the generic title "تعذر التوليد". The raw response is not delivered to the normal Studio state and the draft is not persisted by that path. This is the strongest code-level explanation for a response that may have been received but appears not to have arrived.
+- **Gemini returned no extractable candidate text:** callGemini() reads text from candidates[0].content.parts[*].text. If the provider response contains no candidate text (for example, a blocked/safety response or another finish state), the method reduces it to the generic "استجابة فارغة" error. The current extraction path does not retain enough promptFeedback/finishReason details in the returned error for the feature to distinguish all such cases.
+- **OpenAI-compatible response content shape:** callOpenAiCompatible() currently reads choices[0].message.content only when it is a JSON primitive/string. Some compatible endpoints may return content as an array of text segments; that response shape would be treated as blank even though a message exists. This is a compatibility risk in source code, not proof that it caused the user's particular failure.
+- **Question insertion after the draft is saved:** in MainViewModel.startGeneration(), saveQuestionsFromDraftText() is wrapped separately after the draft is persisted. If this later insertion fails, the app can still show the generated draft and a specific "draft saved, questions not inserted" message. This differs from the earlier parser failure that prevents GeneratedResult from reaching MainViewModel.
+
+### 19.4 Required correction and diagnostic behavior
+
+The implementation work following this documentation must:
+1. make AiGenerationService return a common raw-response envelope without task parsing;
+2. let the question-bank feature own JSON parsing, question validation, mapping and insertion;
+3. preserve the raw response and provider diagnostics when feature validation fails, so the user can distinguish "AI did not return content" from "AI returned content but it was rejected";
+4. report separate statuses for request preparation, HTTP/provider failure, empty provider content, JSON parse failure, schema failure, task validation failure, database insertion failure and UI delivery;
+5. parse supported provider response shapes safely, including Gemini candidate/finish metadata and OpenAI-compatible string or content-array forms;
+6. avoid logging API keys or full sensitive source material; retain only the minimum response/diagnostic information needed for review and troubleshooting;
+7. ensure a valid provider response is not discarded merely because a later task-specific parser or database insert fails.
+
+### 19.5 Regression tests required
+
+- Gemini success with one or more text parts returns the complete concatenated response.
+- Gemini blocked/no-candidate/empty-parts responses produce a precise provider diagnostic rather than an unexplained generic empty response.
+- OpenAI-compatible string content and supported array-of-text-segments content are both extracted.
+- A provider-success response that fails question semantic validation is retained and surfaced as "response received; question batch rejected", not reported as a transport failure.
+- A valid question response reaches the question-bank feature, is mapped to Room entities, inserted transactionally and observed by the question-bank UI.
+- A later database insertion failure preserves the raw response/draft and reports the insertion error separately.
