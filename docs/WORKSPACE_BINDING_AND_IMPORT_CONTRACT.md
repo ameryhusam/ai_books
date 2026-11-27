@@ -94,6 +94,17 @@ Classification is based on the index and companion manifest fields, not folder n
 
 Reject ambiguous or contradictory combinations rather than guessing.
 
+## 4.1 Multi-grade discovery and add/update behavior
+
+A selected workspace folder or ZIP may contain more than one grade. The inspection screen lists every discovered grade with its subject/book and lesson counts; the administrator may select multiple grades in one operation.
+
+For each selected grade:
+- if no workspace exists for that grade, create the grade and its books, units and lessons;
+- if exactly one workspace exists, update that workspace and preserve its `workspaceId` so existing learner progress and linked records remain attached;
+- if multiple workspaces already exist for the same grade, stop and request reconciliation rather than selecting one arbitrarily.
+
+Multi-grade ZIP catalog changes are committed in one Room transaction. Files are staged first; old app-managed files are removed only after the transaction succeeds. External source folders/URIs are never deleted by a rebind. A progress dialog reports inspection, copying, catalog update and completion stages.
+
 ## 5. Index and manifest integrity
 
 The manifest must identify the source PDF using `sourceSha256`. Hashes identify exact serialized index bytes:
@@ -103,6 +114,27 @@ The manifest must identify the source PDF using `sourceSha256`. Hashes identify 
 The exporter must declare the exact relative index paths and hashes in the manifest. The consumer verifies every declared file against its own hash. It must not compare a part index with the root index hash.
 
 For backward compatibility, the consumer may read the legacy root-index manifest contract when its fields and hash validate. Compatibility must not weaken validation of new packages.
+
+### 5.1 Explicit review-mode import
+
+A ZIP package may be imported into the administrator workspace in **Review** mode when the remaining issues are reviewable rather than structural or security failures. This is an exception path, not approval of the source.
+
+Reviewable findings include:
+- `approvalStatus` is not `APPROVED` or `requiresReview=true`;
+- `sourceReviewStatus` is not `VERIFIED`;
+- unit assignment status is explicitly not `assigned`, or required provenance fields are untrusted/missing;
+- the declared SHA-256 for an `index.json` file does not match the file bytes, including an exported package-manifest index artifact hash.
+
+The importer must show the exact findings and require an explicit user acknowledgement before proceeding. Imported books are persisted with `approvalStatus=NEEDS_REVIEW` and `requiresReview=true` when affected. The acknowledgement records permission to stage the content; it does **not** mark the index approved, repair its hash, or make it eligible for a final student package. A reviewer must resolve the findings and approve the content separately.
+
+The override must never bypass:
+- ZIP path traversal or paths escaping the package root;
+- malformed JSON, invalid canonical grade/subject identity, or ambiguous source layout;
+- missing/unreadable required lesson files or invalid declared lesson paths;
+- missing files, size mismatches, malformed hashes, or SHA-256 mismatches for non-index artifacts;
+- malformed or unsafe part-index paths, duplicate paths, or missing derived index files.
+
+Do not rewrite the declared hash to match the imported bytes. Preserve the actual validation result and the review status so that later export/approval can distinguish reviewed content from verified content.
 
 ## 6. Lesson file resolution
 
