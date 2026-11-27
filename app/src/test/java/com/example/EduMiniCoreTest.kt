@@ -3153,7 +3153,7 @@ class EduMiniCoreTest {
             com.example.data.ai.ProviderRoutingPolicy.modelCandidates(credentialOnlyProfile, "gemini-selected")
         )
         assertEquals(
-            listOf("gemini-selected", "gemini-catalog-fallback", "gemini-primary", "gemini-fallback"),
+            listOf("gemini-selected", "gemini-catalog-fallback"),
             com.example.data.ai.ProviderRoutingPolicy.modelCandidates(
                 credentialOnlyProfile,
                 "gemini-selected",
