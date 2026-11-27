@@ -135,7 +135,8 @@ fun EduMarkdownReader(
                             modifier = Modifier.padding(start = 6.dp)
                         )
                     }
-                    line.startsWith("{") || line.startsWith("[") || line.startsWith("}") || line.startsWith("]") || line.startsWith("\"") -> {
+                    line.startsWith("{") || line.startsWith("[") || line.startsWith("}") || line.startsWith("]") ||
+                        line.startsWith("```") || Regex("^\".+\"\\s*:").containsMatchIn(line) -> {
                         Text(
                             text = line,
                             style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),

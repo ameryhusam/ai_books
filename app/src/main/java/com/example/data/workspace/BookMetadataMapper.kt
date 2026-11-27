@@ -64,6 +64,10 @@ object BookMetadataMapper {
     private val basicGrades = (1..9).map { "G%02d".format(Locale.ROOT, it) }.toSet()
     private val secondaryGrades = setOf("G10", "G11", "G12")
 
+    fun allGrades(): Map<String, String> = grades.toMap()
+    fun allSubjects(): Map<String, String> = subjects.toMap()
+    fun allComponents(): Map<String, String> = components.toMap()
+
     /** Accept canonical G01..G12 and compact G1..G9 forms only. Unknown input returns null. */
     fun normalizeGradeKey(raw: String?): String? {
         val clean = raw?.trim()?.uppercase(Locale.ROOT).orEmpty()

@@ -331,6 +331,184 @@ class PdfBookSplitter(private val context: Context) {
         )
     }
 
+    data class ApprovedBookSplitResult(
+        val updatedBook: com.example.data.local.BookEntity,
+        val updatedLessons: List<com.example.data.local.LessonEntity>,
+        val filesCount: Int,
+        val warnings: List<String>
+    )
+
+    fun managedWorkspaceDir(workspaceId: String): File =
+        File(workspacesRoot.apply { mkdirs() }, workspaceId).apply { mkdirs() }
+
+    fun renderBookCoverPng(sourcePdf: File, outCoverFile: File): Boolean {
+        outCoverFile.parentFile?.mkdirs()
+        return renderCoverPng(sourcePdf, outCoverFile)
+    }
+
+    /**
+     * Stage 5: Slices an approved, Room-persisted book into per-part unit/lesson PDFs,
+     * extracted `.txt` files, and `.extraction.json` metadata.
+     * Supports both `SINGLE_PART_FILE` and `MERGED_PARTS_FILE` (P01 + P02 in one source PDF).
+     * Lesson page ranges are read directly from Room (`pdfPageStart..pdfPageEnd`) without re-applying offset.
+     */
+    suspend fun splitApprovedBookFromDatabase(
+        workspace: com.example.data.local.WorkspaceEntity,
+        book: com.example.data.local.BookEntity,
+        units: List<com.example.data.local.WorkspaceUnitEntity>,
+        lessons: List<com.example.data.local.LessonEntity>,
+        pdfInfo: PdfBookInfo,
+        destDir: File,
+        onProgress: (String, Int) -> Unit = { _, _ -> }
+    ): ApprovedBookSplitResult = withContext(Dispatchers.IO) {
+        require(book.approvalStatus.equals("APPROVED", ignoreCase = true) && !book.requiresReview) {
+            "لا يمكن تقطيع كتاب غير معتمد في قاعدة البيانات (${book.bookKey})."
+        }
+        val layout = runCatching { IndexSourceLayout.valueOf(book.sourceLayout) }
+            .getOrDefault(IndexSourceLayout.UNKNOWN)
+        require(layout == IndexSourceLayout.SINGLE_PART_FILE || layout == IndexSourceLayout.MERGED_PARTS_FILE) {
+            "بنية مصدر الكتاب غير محددة للتقطيع: ${book.sourceLayout}"
+        }
+        val sourcePdf = File(pdfInfo.storedPdfPath)
+        require(sourcePdf.isFile) { "ملف PDF الأصلي غير موجود" }
+
+        onProgress("التحقق من ملف PDF وصفحاته", 58)
+        PDFBoxResourceLoader.init(context.applicationContext)
+        val actualPageCount = runCatching {
+            PDDocument.load(sourcePdf, MemoryUsageSetting.setupTempFileOnly()).use { it.numberOfPages }
+        }.getOrElse { error ->
+            throw IllegalArgumentException("ملف PDF غير صالح أو غير قابل للقراءة: ${error.message ?: "خطأ غير معروف"}", error)
+        }
+        require(actualPageCount > 0) { "ملف PDF لا يحتوي صفحات" }
+        require(actualPageCount == pdfInfo.totalPages) {
+            "عدد صفحات PDF لا يطابق بيانات الملف: المتوقع ${pdfInfo.totalPages}، الفعلي $actualPageCount"
+        }
+
+        val identity = RoomBookIndexProjection.canonicalBookIdentity(
+            gradeKey = workspace.gradeKey,
+            subjectKey = book.subjectKey,
+            componentKey = book.componentKey,
+            sourceLayout = layout,
+            partKey = book.partKey
+        )
+        val bookRootDir = File(destDir, identity.bookRootRel).apply { mkdirs() }
+        val canonicalBookDir = File(destDir, identity.canonicalBookRel).apply { mkdirs() }
+        val coverFile = File(canonicalBookDir, "cover.png")
+        val existingCover = coverFile.takeIf { it.isFile && it.length() > 0L }
+            ?: if (renderBookCoverPng(sourcePdf, coverFile)) coverFile else null
+
+        val unitSortByKey = units.sortedBy { it.sortOrder }
+            .mapIndexed { index, unit -> unit.unitKey to index }
+            .toMap()
+        val unitPartByKey = units.associate { it.unitKey to (it.partKey ?: "") }
+        val warnings = mutableListOf<String>()
+        val updatedLessons = mutableListOf<com.example.data.local.LessonEntity>()
+        var generatedFilesCount = if (existingCover != null) 1 else 0
+
+        val sortedLessons = lessons.sortedWith(
+            compareBy<com.example.data.local.LessonEntity> { unitSortByKey[it.unitKey] ?: Int.MAX_VALUE }
+                .thenBy { it.sortOrder }
+                .thenBy { it.rowId }
+        )
+        require(sortedLessons.isNotEmpty()) { "لا توجد دروس معتمدة للكتاب ${book.title}" }
+
+        onProgress("تقطيع صفحات الدروس واستخراج النصوص", 64)
+        PDDocument.load(sourcePdf, MemoryUsageSetting.setupTempFileOnly()).use { sourceDocument ->
+            val total = sortedLessons.size.coerceAtLeast(1)
+            sortedLessons.forEachIndexed { idx, lesson ->
+                val startPage = lesson.pdfPageStart
+                val endPage = lesson.pdfPageEnd
+                require(startPage != null && endPage != null && startPage >= 1 && endPage >= startPage && endPage <= sourceDocument.numberOfPages) {
+                    "نطاق صفحات PDF غير صالح للدرس ${lesson.title}: ${startPage ?: 0}–${endPage ?: 0} (إجمالي ${sourceDocument.numberOfPages})"
+                }
+                val resolvedPart = (lesson.partKey?.takeIf { it in setOf("P01", "P02") }
+                    ?: unitPartByKey[lesson.unitKey]?.takeIf { it in setOf("P01", "P02") }
+                    ?: book.partKey?.takeIf { it in setOf("P01", "P02") }
+                    ?: throw IllegalStateException("تعذر تحديد الجزء (P01/P02) للدرس ${lesson.title}"))
+                    .uppercase()
+                if (layout == IndexSourceLayout.SINGLE_PART_FILE) {
+                    require(resolvedPart == book.partKey?.uppercase()) {
+                        "الجزء $resolvedPart للدرس ${lesson.title} لا يطابق جزء الكتاب المستقل ${book.partKey}"
+                    }
+                }
+
+                val unitOrder = unitSortByKey[lesson.unitKey] ?: 0
+                val unitFolder = RoomBookIndexProjection.unitFolderKey(lesson.unitKey, unitOrder)
+                val lessonNum = RoomBookIndexProjection.extractTrailingNumber(lesson.lessonKey, lesson.sortOrder + 1)
+                val baseRel = "$resolvedPart/units/$unitFolder/lesson_${lessonNum.toString().padStart(2, '0')}"
+                val outPdf = File(bookRootDir, "$baseRel.pdf")
+                val outText = File(bookRootDir, "$baseRel.txt")
+                val outMeta = File(bookRootDir, "$baseRel.extraction.json")
+                outPdf.parentFile?.mkdirs()
+
+                val pct = 64 + ((idx + 1) * 28 / total)
+                onProgress("تقطيع ${lesson.title} (${idx + 1}/$total)", pct.coerceAtMost(92))
+
+                PDDocument().use { lessonDocument ->
+                    for (pageNumber in startPage..endPage) {
+                        val sourcePage = sourceDocument.getPage(pageNumber - 1)
+                        val importedPage = lessonDocument.importPage(sourcePage)
+                        sourcePage.resources?.let { resources -> importedPage.setResources(resources) }
+                    }
+                    lessonDocument.save(outPdf)
+                }
+
+                val extracted = runCatching {
+                    PdfTextExtractor(context).extract(
+                        pdfFile = sourcePdf,
+                        startPage = startPage,
+                        endPage = endPage
+                    )
+                }.getOrElse { err ->
+                    PdfTextExtractionResult(
+                        text = "",
+                        method = "error",
+                        ocrPages = 0,
+                        warning = "تعذر استخراج النص: ${err.message ?: "خطأ غير معروف"}"
+                    )
+                }
+                outText.writeText(extracted.text, Charsets.UTF_8)
+                val extractionMeta = buildJsonObject {
+                    put("method", extracted.method)
+                    put("ocrPages", extracted.ocrPages)
+                    put("warning", extracted.warning ?: "")
+                    put("pdfPageStart", startPage)
+                    put("pdfPageEnd", endPage)
+                    if (lesson.printedPageStart != null) put("printedPageStart", lesson.printedPageStart)
+                    if (lesson.printedPageEnd != null) put("printedPageEnd", lesson.printedPageEnd)
+                    put("partKey", resolvedPart)
+                }
+                outMeta.writeText(json.encodeToString(extractionMeta), Charsets.UTF_8)
+
+                if (extracted.warning != null) warnings.add("${lesson.title}: ${extracted.warning}")
+                if (extracted.text.isBlank()) warnings.add("${lesson.title}: لم يتم استخراج نص؛ راجع صفحات PDF يدوياً.")
+
+                generatedFilesCount += listOf(outPdf, outText, outMeta).count { it.isFile }
+                updatedLessons.add(
+                    lesson.copy(
+                        rootPath = destDir.absolutePath,
+                        partKey = resolvedPart,
+                        pageRange = "$startPage–$endPage",
+                        pdfPath = outPdf.takeIf { it.isFile }?.absolutePath,
+                        sourceTextPath = outText.takeIf { it.isFile }?.absolutePath ?: lesson.sourceTextPath
+                    )
+                )
+            }
+        }
+
+        val updatedBook = book.copy(
+            lessonsCount = updatedLessons.size,
+            coverPath = existingCover?.absolutePath ?: book.coverPath,
+            sourcePdfPath = null
+        )
+        ApprovedBookSplitResult(
+            updatedBook = updatedBook,
+            updatedLessons = updatedLessons,
+            filesCount = generatedFilesCount,
+            warnings = warnings.distinct()
+        )
+    }
+
     private fun splitPdfIntoLessons(
         sourcePdf: File,
         bookDir: File,
@@ -417,12 +595,17 @@ class PdfBookSplitter(private val context: Context) {
     }
 
     private fun countPages(pdfFile: File): Int {
-        return runCatching {
+        val androidRendererCount = runCatching {
             ParcelFileDescriptor.open(pdfFile, ParcelFileDescriptor.MODE_READ_ONLY).use { pfd ->
                 PdfRenderer(pfd).use { renderer ->
                     renderer.pageCount
                 }
             }
+        }.getOrDefault(0)
+        if (androidRendererCount > 0) return androidRendererCount
+        return runCatching {
+            PDFBoxResourceLoader.init(context.applicationContext)
+            PDDocument.load(pdfFile, MemoryUsageSetting.setupTempFileOnly()).use { it.numberOfPages }
         }.getOrDefault(0)
     }
 

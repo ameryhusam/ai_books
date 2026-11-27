@@ -326,45 +326,126 @@ fun SettingsScreen(
             item(key = "ai_model_catalog") {
                 EduPanel(modifier = Modifier.fillMaxWidth()) {
                     Text("كتالوج نماذج الذكاء الاصطناعي", style = MaterialTheme.typography.titleSmall, color = EduInk)
+                    Text(
+                        text = "النموذج الافتراضي يبدأ به التوليد تلقائياً، وتعمل بقية النماذج المفعّلة للمزود كاحتياطي عند الضغط أو تعذّر الاستجابة.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = EduMuted
+                    )
                     if (modelCatalog.isEmpty()) {
                         Text("لا توجد نماذج منشورة حالياً. يضيف مدير النظام النماذج إلى القائمة المركزية.", color = EduMuted, style = MaterialTheme.typography.bodySmall)
                     }
                     modelCatalog.forEach { model ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = if (model.isDefault) com.example.ui.theme.EduMint.copy(alpha = 0.4f) else EduFieldBg,
+                            border = BorderStroke(1.dp, if (model.isDefault) EduGreen.copy(alpha = 0.6f) else EduLine),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(model.displayName, color = EduInk, fontWeight = FontWeight.SemiBold)
-                                Text(
-                                    "${model.modelId} • ${model.provider.displayName} • ${model.lifecycleStatus}",
-                                    color = EduMuted,
-                                    style = MaterialTheme.typography.bodySmall
-                                )
-                                if (model.isDefault) Text("النموذج الافتراضي", color = EduGreenDark, style = MaterialTheme.typography.labelSmall)
-                                if (!model.isEnabled) Text("معطّل", color = EduRed, style = MaterialTheme.typography.labelSmall)
-                            }
-                            if (canManageAiModels) TextButton(
-                                enabled = model.isEnabled && model.supportsGenerateContent && model.lifecycleStatus != AiModelDefinition.STATUS_DEPRECATED,
-                                onClick = { onSetDefaultAiModel(model.provider, model.modelId) }
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Text(if (model.isDefault) "افتراضي" else "تعيين")
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text(
+                                        text = model.displayName,
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = EduInk,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "${model.modelId} • ${model.provider.displayName} • ${model.lifecycleStatus}",
+                                        color = EduMuted,
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                    FlowRow(
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        if (model.isDefault) {
+                                            Surface(
+                                                shape = RoundedCornerShape(8.dp),
+                                                color = com.example.ui.theme.EduMint
+                                            ) {
+                                                Text(
+                                                    text = "النموذج الافتراضي",
+                                                    color = EduGreenDark,
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                                )
+                                            }
+                                        } else if (model.isEnabled && model.supportsGenerateContent && model.lifecycleStatus != AiModelDefinition.STATUS_DEPRECATED) {
+                                            Surface(
+                                                shape = RoundedCornerShape(8.dp),
+                                                color = com.example.ui.theme.EduLilac
+                                            ) {
+                                                Text(
+                                                    text = "احتياطي تلقائي",
+                                                    color = com.example.ui.theme.EduPurple,
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                                )
+                                            }
+                                        }
+                                        if (!model.isEnabled) {
+                                            Surface(
+                                                shape = RoundedCornerShape(8.dp),
+                                                color = EduRed.copy(alpha = 0.14f)
+                                            ) {
+                                                Text(
+                                                    text = "معطّل",
+                                                    color = EduRed,
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                                if (canManageAiModels) {
+                                    FlowRow(
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        OutlinedButton(
+                                            enabled = !model.isDefault && model.isEnabled && model.supportsGenerateContent && model.lifecycleStatus != AiModelDefinition.STATUS_DEPRECATED,
+                                            onClick = { onSetDefaultAiModel(model.provider, model.modelId) },
+                                            shape = RoundedCornerShape(10.dp),
+                                            border = BorderStroke(1.dp, if (model.isDefault) EduLine else EduGreen),
+                                            modifier = Modifier.minimumInteractiveComponentSize()
+                                        ) {
+                                            Text(
+                                                text = if (model.isDefault) "افتراضي حالي" else "تعيين كافتراضي",
+                                                style = MaterialTheme.typography.labelMedium,
+                                                color = if (model.isDefault) EduMuted else EduGreenDark
+                                            )
+                                        }
+                                        TextButton(
+                                            onClick = {
+                                                editingModelId = model.modelId
+                                                modelIdInput = model.modelId
+                                                modelNameInput = model.displayName
+                                                modelLifecycleStatus = model.lifecycleStatus
+                                                catalogProvider = model.provider
+                                            },
+                                            modifier = Modifier.minimumInteractiveComponentSize()
+                                        ) { Text("تعديل", color = EduBlue) }
+                                        TextButton(
+                                            enabled = !model.isDefault,
+                                            onClick = { onUpdateAiModel(model.modelId, model.copy(isEnabled = !model.isEnabled)) },
+                                            modifier = Modifier.minimumInteractiveComponentSize()
+                                        ) {
+                                            Text(if (model.isEnabled) "تعطيل" else "تفعيل", color = EduInk)
+                                        }
+                                        TextButton(
+                                            enabled = !model.isDefault,
+                                            onClick = { onDeleteAiModel(model.modelId) },
+                                            modifier = Modifier.minimumInteractiveComponentSize()
+                                        ) { Text("حذف", color = EduRed) }
+                                    }
+                                }
                             }
-                            if (canManageAiModels) TextButton(onClick = {
-                                editingModelId = model.modelId
-                                modelIdInput = model.modelId
-                                modelNameInput = model.displayName
-                                modelLifecycleStatus = model.lifecycleStatus
-                                catalogProvider = model.provider
-                            }) { Text("تعديل") }
-                            if (canManageAiModels) TextButton(
-                                enabled = !model.isDefault,
-                                onClick = { onUpdateAiModel(model.modelId, model.copy(isEnabled = !model.isEnabled)) }
-                            ) {
-                                Text(if (model.isEnabled) "تعطيل" else "تفعيل")
-                            }
-                            if (canManageAiModels) TextButton(enabled = !model.isDefault, onClick = { onDeleteAiModel(model.modelId) }) { Text("حذف", color = EduRed) }
                         }
                     }
                     if (canManageAiModels) {

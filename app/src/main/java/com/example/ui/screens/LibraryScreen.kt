@@ -1032,13 +1032,13 @@ private fun LibraryHeroCard(
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.PictureAsPdf,
-                        contentDescription = "عرض ملف PDF محلي",
+                        contentDescription = "استيراد كتاب PDF واكتشاف الفهرس",
                         tint = EduWhite,
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "عرض ملف PDF محلي مباشرة",
+                        text = "استيراد كتاب PDF واكتشاف الفهرس",
                         style = MaterialTheme.typography.labelMedium,
                         color = EduWhite,
                         fontWeight = FontWeight.Bold

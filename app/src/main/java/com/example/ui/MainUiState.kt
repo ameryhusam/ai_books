@@ -2,6 +2,7 @@ package com.example.ui
 
 import com.example.model.*
 import com.example.data.ai.AiModelDefinition
+import com.example.data.workspace.BookIndexIntakeDraft
 
 /**
  * UI-facing state models shared by Compose screens and MainViewModel.
@@ -41,6 +42,16 @@ data class WorkspaceOperationProgress(
     val title: String,
     val stage: String,
     val percent: Int? = null
+)
+
+data class BookIndexReviewUiState(
+    val pdfInfo: PdfBookInfo,
+    val draft: BookIndexIntakeDraft,
+    val aiProviderLabel: String? = null,
+    val aiModel: String? = null,
+    val discoveryError: String? = null,
+    val discoveryValidationIssues: List<String> = emptyList(),
+    val isDiscovering: Boolean = false
 )
 
 data class MainUiState(
@@ -89,6 +100,7 @@ data class MainUiState(
     val reinforcementConceptTitle: String? = null,
     val reinforcementQuestions: List<QuestionItem> = emptyList(),
     val directInspection: DirectWorkspaceInspection? = null,
+    val bookIndexReview: BookIndexReviewUiState? = null,
     val previewingPdf: PdfPreviewPayload? = null,
     val previewingBookCover: BookRef? = null,
     val promptSourcesOpen: Boolean = false,

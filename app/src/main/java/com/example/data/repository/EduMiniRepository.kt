@@ -409,6 +409,10 @@ class EduMiniRepository(
         return splitter.ingestBookPdf(uri)
     }
 
+    fun discardIngestedBookPdf(pdfInfo: PdfBookInfo) {
+        pdfBookSplitter?.discardIngestedBookPdf(pdfInfo)
+    }
+
     /**
      * Runs AI-assisted PDF index discovery through the same provider execution path
      * used by Content Studio and lesson preparation. The result is a draft only.
@@ -419,6 +423,8 @@ class EduMiniRepository(
         selectedProvider: ProviderType,
         selectedModelId: String,
         selectedProfileId: String,
+        catalogModels: List<com.example.data.ai.AiModelDefinition> = emptyList(),
+        extraInstructions: String = "",
         onProgress: (Int, String) -> Unit = { _, _ -> }
     ): GeneratedResult {
         require(pdfInfo.storedPdfPath.isNotBlank()) { "مسار ملف PDF غير محدد." }
@@ -451,16 +457,40 @@ class EduMiniRepository(
         }
 
         val schema = BookIndexPromptTemplate.responseSchemaJson
+        val catalogSource = catalogModels.ifEmpty { providerStorage.loadModelCatalog() }
+        val modelFallbackIds = catalogSource
+            .filter {
+                it.provider == selectedProvider &&
+                    it.modelId != selectedModelId &&
+                    it.isEnabled &&
+                    it.supportsGenerateContent &&
+                    it.lifecycleStatus != com.example.data.ai.AiModelDefinition.STATUS_DEPRECATED
+            }
+            .sortedWith(
+                compareBy<com.example.data.ai.AiModelDefinition> { !it.isDefault }
+                    .thenBy { it.modelId }
+                    .thenBy { it.displayName }
+            )
+            .map { it.modelId }
+            .distinct()
+
         val prompt = buildString {
             append(promptTemplate.trim())
-            append("\n\n## Source file metadata\n")
+            append("\n\n## Canonical curriculum keys\n")
+            append("Grades: ").append(com.example.data.workspace.BookMetadataMapper.allGrades().entries.joinToString { "${it.key}=${it.value}" }).append("\n")
+            append("Subjects: ").append(com.example.data.workspace.BookMetadataMapper.allSubjects().entries.joinToString { "${it.key}=${it.value}" }).append("\n")
+            append("Components: ").append(com.example.data.workspace.BookMetadataMapper.allComponents().entries.joinToString { "${it.key}=${it.value}" }).append("\n")
+            append("\n## Source file metadata\n")
             append("File name: ").append(pdfInfo.fileName).append("\n")
             append("Physical PDF page count: ").append(pdfInfo.totalPages).append("\n")
             append("Source SHA-256: ").append(pdfInfo.sha256).append("\n")
             append("Default printed-to-physical page offset: 1. The user may edit it.\n")
             append("If a physical PDF page is not directly verified, set pdfPageStart/pdfPageEnd to 0 and preserve printed page values separately.\n")
             append("Never mark the result approved. Keep uncertain source layout and unit part assignments in review.\n")
-            append("\n## Required JSON Schema\n").append(schema)
+            if (extraInstructions.isNotBlank()) {
+                append("\n## Reviewer Discovery Hint\n").append(extraInstructions.trim()).append("\n")
+            }
+            append("\n## Required JSON Schema (projected from Room database)\n").append(schema)
         }
         val schemaHash = sha256Full(schema)
         val requestFingerprint = sha256Full(
@@ -476,6 +506,7 @@ class EduMiniRepository(
                 selectedProvider = selectedProvider,
                 requestedModelId = selectedModelId,
                 requestedProfileId = selectedProfileId,
+                modelFallbackIds = modelFallbackIds,
                 pdfPageImagesBase64 = pageImages,
                 pdfDocumentBase64 = nativePdf?.base64,
                 responseSchemaJson = schema,
@@ -488,7 +519,239 @@ class EduMiniRepository(
             )
         )
         onProgress(92, "استلام مسودة الفهرس للتحقق والمراجعة")
-        return result.copy(sourcePdfHash = pdfInfo.sha256, responseSchemaJson = schema)
+        val issues = runCatching { TemplateOutputValidator.validateOutput(result.text, schema) }
+            .getOrElse { listOf(it.message ?: "تعذر التحقق من صيغة JSON") }
+        return result.copy(
+            sourcePdfHash = pdfInfo.sha256,
+            responseSchemaJson = schema,
+            validationIssues = issues
+        )
+    }
+
+    /**
+     * Stages 4 & 5:
+     * 1) Validates reviewer approval on [draft].
+     * 2) Persists the approved book, units, and lessons into Room FIRST.
+     * 3) Reads back the persisted Room records and serializes `index.json` (`edu.book_index.v2`)
+     *    and `book_manifest.json` (`edu.book_manifest.v2`) directly from Room.
+     * 4) Runs `PdfBookSplitter` against the approved Room-backed index (both `SINGLE_PART_FILE`
+     *    and `MERGED_PARTS_FILE`), updates Room with sliced paths/hashes, validates contracts,
+     *    and removes only the temporary staging PDF.
+     */
+    suspend fun approveBookIndexAndSplitWorkspace(
+        draft: com.example.data.workspace.BookIndexIntakeDraft,
+        pdfInfo: PdfBookInfo,
+        onProgress: (String, Int) -> Unit = { _, _ -> }
+    ): ImportedWorkspace = withContext(Dispatchers.IO) {
+        val splitter = pdfBookSplitter
+            ?: throw IllegalStateException("ميزة تقطيع الكتب من PDF غير مهيأة حالياً.")
+        val approved = draft.requireApproved()
+
+        onProgress("التحقق من هوية الكتاب ومساحة العمل", 10)
+        val identity = com.example.data.workspace.RoomBookIndexProjection.canonicalBookIdentity(
+            gradeKey = approved.gradeKey,
+            subjectKey = approved.subjectKey,
+            componentKey = approved.componentKey,
+            sourceLayout = approved.sourceLayout,
+            partKey = approved.partKey
+        )
+        val existingGradeWorkspaces = dao.observeAllWorkspaces().first()
+            .filter { it.gradeKey.equals(identity.gradeKey, ignoreCase = true) }
+        val reusableLocalWorkspace = existingGradeWorkspaces.firstOrNull {
+            !UriIO.isContentUri(it.rootPath)
+        }
+        val workspaceId = reusableLocalWorkspace?.workspaceId
+            ?: "local-${identity.gradeKey.lowercase()}-${UUID.randomUUID().toString().take(6)}"
+        val destDir = if (reusableLocalWorkspace != null && reusableLocalWorkspace.rootPath.isNotBlank()) {
+            File(reusableLocalWorkspace.rootPath).apply { mkdirs() }
+        } else {
+            splitter.managedWorkspaceDir(workspaceId)
+        }
+
+        val canonicalBookDir = File(destDir, identity.canonicalBookRel).apply { mkdirs() }
+        val bookRootDir = File(destDir, identity.bookRootRel).apply { mkdirs() }
+        val canonicalIndexRelPath = "${identity.canonicalBookRel}/index.json"
+        val canonicalManifestRelPath = "${identity.canonicalBookRel}/book_manifest.json"
+        val canonicalIndexFile = File(destDir, canonicalIndexRelPath)
+        val canonicalManifestFile = File(destDir, canonicalManifestRelPath)
+
+        // Step 1 (Stage 4a): Persist approved index (Workspace, Book, Units, Lessons) to Room FIRST.
+        onProgress("حفظ الفهرس المعتمد في قاعدة البيانات (Room)", 24)
+        val initialBundle = com.example.data.workspace.RoomBookIndexProjection.toApprovedRoomEntities(
+            draft = approved,
+            workspaceId = workspaceId,
+            rootPath = destDir.absolutePath,
+            indexUriOrPath = canonicalIndexFile.absolutePath
+        )
+        val gradeDisplay = com.example.data.workspace.BookMetadataMapper.gradeDisplayName(
+            identity.gradeKey,
+            approved.gradeName
+        ) ?: identity.gradeKey
+        val existingWarnings = reusableLocalWorkspace?.warningsJson?.let { raw ->
+            runCatching { json.decodeFromString<List<String>>(raw) }.getOrDefault(emptyList())
+        }.orEmpty()
+        val initialWorkspaceEntity = WorkspaceEntity(
+            workspaceId = workspaceId,
+            gradeKey = identity.gradeKey,
+            rootPath = destDir.absolutePath,
+            title = reusableLocalWorkspace?.title?.takeIf { it.isNotBlank() }
+                ?: "$gradeDisplay • ${approved.bookTitle.trim()}",
+            filesCount = reusableLocalWorkspace?.filesCount ?: 0,
+            warningsJson = json.encodeToString(existingWarnings),
+            importedAt = System.currentTimeMillis()
+        )
+        dao.upsertApprovedBookCatalog(
+            workspace = initialWorkspaceEntity,
+            book = initialBundle.book,
+            units = initialBundle.units,
+            lessons = initialBundle.lessons
+        )
+
+        // Step 2 (Stage 4b): Read back persisted records from Room and generate index.json + book_manifest.json FROM Room.
+        onProgress("توليد index.json و book_manifest.json من قاعدة البيانات", 40)
+        val persistedWorkspace = dao.getWorkspaceByIdSnapshot(workspaceId)
+            ?: throw IllegalStateException("تعذر استرجاع مساحة العمل من Room بعد الحفظ.")
+        val persistedBook = dao.getBookSnapshot(workspaceId, initialBundle.identity.bookKey)
+            ?: throw IllegalStateException("تعذر استرجاع بيانات الكتاب من Room بعد الحفظ.")
+        val persistedUnits = dao.getWorkspaceUnitsForBookSnapshot(workspaceId, initialBundle.identity.bookKey)
+        val persistedLessons = dao.getLessonsForBookSnapshot(workspaceId, initialBundle.identity.bookKey)
+
+        val sourcePdfFile = File(pdfInfo.storedPdfPath)
+        val coverFile = File(canonicalBookDir, "cover.png")
+        val coverSaved = splitter.renderBookCoverPng(sourcePdfFile, coverFile)
+
+        val canonicalIndexJson = com.example.data.workspace.RoomBookIndexProjection.serializeCanonicalIndexFromRoom(
+            workspace = persistedWorkspace,
+            book = persistedBook,
+            units = persistedUnits,
+            lessons = persistedLessons
+        )
+        canonicalIndexFile.parentFile?.mkdirs()
+        canonicalIndexFile.writeText(canonicalIndexJson, Charsets.UTF_8)
+        val canonicalIndexSha = sha256Full(canonicalIndexJson)
+
+        val partIndexHashes = linkedMapOf<String, String>()
+        val availableIndexHashes = linkedMapOf<String, String>()
+        availableIndexHashes[canonicalIndexRelPath.lowercase()] = canonicalIndexSha
+
+        if (approved.sourceLayout == com.example.data.workspace.IndexSourceLayout.MERGED_PARTS_FILE) {
+            val presentParts = persistedUnits.mapNotNull { it.partKey?.uppercase() }.distinct()
+                .filter { it == "P01" || it == "P02" }
+            for (part in presentParts) {
+                val partUnits = persistedUnits.filter { it.partKey.equals(part, ignoreCase = true) }
+                if (partUnits.isEmpty()) continue
+                val partIndexJson = com.example.data.workspace.RoomBookIndexProjection.serializeCanonicalIndexFromRoom(
+                    workspace = persistedWorkspace,
+                    book = persistedBook,
+                    units = persistedUnits,
+                    lessons = persistedLessons,
+                    filterPartKey = part
+                )
+                val partIndexFile = File(bookRootDir, "$part/index.json").apply { parentFile?.mkdirs() }
+                partIndexFile.writeText(partIndexJson, Charsets.UTF_8)
+                val partSha = sha256Full(partIndexJson)
+                partIndexHashes["$part/index.json"] = partSha
+                availableIndexHashes["${identity.bookRootRel}/$part/index.json".lowercase()] = partSha
+            }
+        }
+
+        val manifestCanonicalPath = if (approved.sourceLayout == com.example.data.workspace.IndexSourceLayout.SINGLE_PART_FILE) {
+            "${persistedBook.partKey}/index.json"
+        } else {
+            "index.json"
+        }
+        val canonicalManifestJson = com.example.data.workspace.RoomBookIndexProjection.serializeCanonicalManifestFromRoom(
+            workspace = persistedWorkspace,
+            book = persistedBook,
+            canonicalIndexPath = manifestCanonicalPath,
+            canonicalIndexSha256 = canonicalIndexSha,
+            partIndexSha256ByRelativePath = partIndexHashes,
+            coverRelativePath = if (coverSaved) "cover.png" else null
+        )
+        canonicalManifestFile.parentFile?.mkdirs()
+        canonicalManifestFile.writeText(canonicalManifestJson, Charsets.UTF_8)
+        val canonicalManifestSha = sha256Full(canonicalManifestJson)
+
+        val indexRecord = WorkspaceIndexEntity(
+            workspaceId = workspaceId,
+            bookKey = persistedBook.bookKey,
+            indexUri = canonicalIndexFile.absolutePath,
+            indexRelativePath = canonicalIndexRelPath,
+            manifestUri = canonicalManifestFile.absolutePath,
+            manifestRelativePath = canonicalManifestRelPath,
+            indexSha256 = canonicalIndexSha,
+            manifestSha256 = canonicalManifestSha,
+            sourceSha256 = persistedBook.sourceSha256,
+            indexSchemaVersion = "edu.book_index.v2",
+            manifestVersion = "edu.book_manifest.v2",
+            lastSyncedAt = System.currentTimeMillis()
+        )
+        dao.insertWorkspaceIndexes(listOf(indexRecord))
+
+        // Step 3 (Stage 5): Run PdfBookSplitter from the Room-backed approved records.
+        val splitResult = splitter.splitApprovedBookFromDatabase(
+            workspace = persistedWorkspace,
+            book = persistedBook,
+            units = persistedUnits,
+            lessons = persistedLessons,
+            pdfInfo = pdfInfo,
+            destDir = destDir,
+            onProgress = onProgress
+        )
+
+        onProgress("التحقق النهائي وتحديث مسارات الدروس في Room", 95)
+        val availableRelativePaths = destDir.walkTopDown()
+            .filter { it.isFile }
+            .map { destDir.toPath().relativize(it.toPath()).toString().replace('\\', '/') }
+            .toSet()
+        val contractCheck = com.example.data.workspace.WorkspaceContractValidator.validate(
+            indexRaw = canonicalIndexJson,
+            manifestRaw = canonicalManifestJson,
+            expectedGrade = identity.gradeKey,
+            expectedSubject = identity.subjectKey,
+            bookRelativePath = identity.canonicalBookRel,
+            availableRelativePaths = availableRelativePaths,
+            availableIndexSha256 = availableIndexHashes
+        )
+        val mergedWarnings = (splitResult.warnings + contractCheck.warnings + contractCheck.errors + contractCheck.reviewRequiredErrors).distinct()
+        val totalBookFiles = (reusableLocalWorkspace?.filesCount ?: 0) +
+            splitResult.filesCount + 2 + partIndexHashes.size
+        val finalizedBookCount = (dao.getBooksForWorkspaceSnapshot(workspaceId).map { it.bookKey } + splitResult.updatedBook.bookKey)
+            .distinct().size
+        val finalizedWorkspace = persistedWorkspace.copy(
+            title = if (finalizedBookCount > 1) "$gradeDisplay • $finalizedBookCount كتاب" else "$gradeDisplay • ${splitResult.updatedBook.title}",
+            filesCount = totalBookFiles,
+            warningsJson = json.encodeToString(mergedWarnings),
+            importedAt = System.currentTimeMillis()
+        )
+        dao.upsertApprovedBookCatalog(
+            workspace = finalizedWorkspace,
+            book = splitResult.updatedBook,
+            units = persistedUnits,
+            lessons = splitResult.updatedLessons,
+            indexEntity = indexRecord
+        )
+
+        // Remove only the temporary staging PDF copy after slicing finishes.
+        splitter.discardIngestedBookPdf(pdfInfo)
+        onProgress("تم اعتماد الفهرس وتقطيع الكتاب بنجاح", 100)
+
+        val savedBooks = dao.getBooksForWorkspaceSnapshot(workspaceId).map { it.toModel() }
+        val savedLessons = dao.getLessonsForWorkspaceSnapshot(workspaceId).map { it.toModel(workspaceId) }
+        val savedUnits = persistedUnits.map { it.toModel() }
+        ImportedWorkspace(
+            workspaceId = workspaceId,
+            gradeKey = finalizedWorkspace.gradeKey,
+            rootPath = finalizedWorkspace.rootPath,
+            title = finalizedWorkspace.title,
+            books = savedBooks,
+            lessons = savedLessons,
+            filesCount = finalizedWorkspace.filesCount,
+            warnings = mergedWarnings,
+            importedAt = finalizedWorkspace.importedAt,
+            indexRecords = listOf(indexRecord.toModel()),
+            units = savedUnits
+        )
     }
 
     fun generateAutoSplits(totalPages: Int, pagesPerLesson: Int): List<LessonSplitDraft> {
@@ -708,6 +971,7 @@ class EduMiniRepository(
         questionStyleHint: String = "",
         difficultyHint: String = "",
         template: PromptTemplateRecord? = null,
+        catalogModels: List<com.example.data.ai.AiModelDefinition> = emptyList(),
         onProgress: (percent: Int, stage: String) -> Unit = { _, _ -> }
     ): GeneratedResult {
         require(selectedModelId.isNotBlank()) { "يجب اختيار نموذج من قائمة مدير النظام." }
@@ -826,7 +1090,8 @@ class EduMiniRepository(
             effectiveExtra
         ).joinToString("|")
         val requestSeedHash = sha256Full(requestSeed)
-        val modelFallbackIds = providerStorage.loadModelCatalog()
+        val catalogSource = catalogModels.ifEmpty { providerStorage.loadModelCatalog() }
+        val modelFallbackIds = catalogSource
             .filter {
                 it.provider == selectedProvider &&
                     it.modelId != selectedModelId &&
@@ -834,7 +1099,11 @@ class EduMiniRepository(
                     it.supportsGenerateContent &&
                     it.lifecycleStatus != com.example.data.ai.AiModelDefinition.STATUS_DEPRECATED
             }
-            .sortedWith(compareBy<com.example.data.ai.AiModelDefinition> { !it.isDefault }.thenBy { it.displayName })
+            .sortedWith(
+                compareBy<com.example.data.ai.AiModelDefinition> { !it.isDefault }
+                    .thenBy { it.modelId }
+                    .thenBy { it.displayName }
+            )
             .map { it.modelId }
             .distinct()
         val startedMs = System.currentTimeMillis()

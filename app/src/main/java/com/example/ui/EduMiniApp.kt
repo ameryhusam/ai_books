@@ -10,6 +10,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -87,12 +88,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.credentials.CredentialManager
@@ -440,7 +444,7 @@ private fun AuthenticatedEduMiniContent(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         if (uri != null) {
-            viewModel.openLocalPdfUriPreview(uri)
+            viewModel.startBookPdfDiscoveryIntake(uri)
         }
     }
 
@@ -898,7 +902,9 @@ private fun AuthenticatedEduMiniContent(
                         selectedModelId = state.selectedGenerationModelId,
                         onSelectModel = viewModel::selectGenerationModel,
                         onConfirm = viewModel::confirmGenerationSelection,
-                        onDismiss = viewModel::dismissGenerationModelPicker
+                        onDismiss = viewModel::dismissGenerationModelPicker,
+                        canManageDefault = state.isCloudAuthenticated && state.authenticatedUserRole == UserRole.ADMIN && state.isSystemAdmin,
+                        onSetDefaultModel = viewModel::setDefaultAiModel
                     )
                 }
 
@@ -1003,6 +1009,27 @@ private fun AuthenticatedEduMiniContent(
                             viewModel.recordStandaloneQuestionAttempts(qs, ans, "reinforcement")
                         },
                         onDismiss = viewModel::dismissReinforcementQuiz
+                    )
+                }
+
+                state.bookIndexReview?.let { reviewState ->
+                    com.example.ui.components.BookIndexReviewDialog(
+                        state = reviewState,
+                        isBusy = state.isBusy,
+                        progressStage = state.workspaceOperation?.stage ?: state.generationStage,
+                        progressPercent = state.workspaceOperation?.percent ?: state.generationProgressPercent,
+                        onUpdateDraft = viewModel::updateBookIndexDraft,
+                        onRetryAiDiscovery = { viewModel.retryBookIndexAiDiscovery() },
+                        onPopulateStarterUnits = { viewModel.populateStarterUnitsForReview() },
+                        onPreviewPdf = {
+                            viewModel.openPdfPreview(
+                                path = reviewState.pdfInfo.storedPdfPath,
+                                title = reviewState.pdfInfo.fileName,
+                                subtitle = "${reviewState.pdfInfo.totalPages} صفحة • تحقق من الفهرس وOffset"
+                            )
+                        },
+                        onApproveAndSplit = viewModel::approveAndSplitBookIndex,
+                        onDismiss = viewModel::dismissBookIndexReview
                     )
                 }
 
@@ -1278,29 +1305,33 @@ private fun EduTopBar(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Surface(
-                modifier = Modifier.size(40.dp),
+                modifier = Modifier.size(42.dp),
                 shape = RoundedCornerShape(13.dp),
-                color = EduGreen
+                color = EduWhite,
+                border = BorderStroke(1.dp, EduLine)
             ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        text = "E",
-                        style = MaterialTheme.typography.headlineMedium,
-                        color = EduWhite
-                    )
-                }
+                Image(
+                    painter = painterResource(id = R.drawable.ic_edu_mini_logo),
+                    contentDescription = stringResource(R.string.cd_app_logo),
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
             }
             Spacer(modifier = Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = stringResource(R.string.app_name),
                     style = MaterialTheme.typography.titleLarge,
-                    color = EduInk
+                    color = EduInk,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = stringResource(R.string.brand_subtitle),
+                    text = if (isAdmin) stringResource(R.string.brand_subtitle) else "مسار المتعلّم الذكي",
                     style = MaterialTheme.typography.bodySmall,
-                    color = EduMuted
+                    color = EduMuted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
             Surface(
@@ -1330,7 +1361,9 @@ private fun EduTopBar(
                         text = learnerLabel ?: userRole.labelAr,
                         style = MaterialTheme.typography.labelMedium,
                         color = if (isAdmin) EduPurple else EduGreenDark,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }

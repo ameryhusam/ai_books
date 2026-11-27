@@ -1,25 +1,34 @@
 package com.example.ui.screens
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.data.repository.QuestionBankEngine
 import com.example.model.QuestionItem
@@ -34,6 +43,7 @@ import com.example.ui.theme.EduInk
 import com.example.ui.theme.EduMint
 import com.example.ui.theme.EduMuted
 import com.example.ui.theme.EduWhite
+import com.example.ui.theme.EduYellow
 
 /**
  * Focused remediation quiz for questions selected from weak-concept evidence.
@@ -61,6 +71,7 @@ fun ConceptReinforcementQuizDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = EduWhite,
+        shape = RoundedCornerShape(22.dp),
         title = {
             Text(
                 text = if (finished) "نتيجة جلسة التقوية" else "$title — سؤال ${index + 1} من ${questions.size}",
@@ -86,12 +97,17 @@ fun ConceptReinforcementQuizDialog(
                         style = MaterialTheme.typography.bodyMedium,
                         color = EduInk
                     )
-                    Surface(color = EduMint) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = EduMint,
+                        border = BorderStroke(1.dp, EduGreen.copy(alpha = 0.45f))
+                    ) {
                         Text(
                             text = "+${summary.earnedXp} XP",
                             style = MaterialTheme.typography.labelLarge,
                             color = EduGreenDark,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
+                            fontWeight = FontWeight.ExtraBold,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
                         )
                     }
                 }
@@ -101,13 +117,16 @@ fun ConceptReinforcementQuizDialog(
                     modifier = Modifier
                         .fillMaxWidth()
                         .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    androidx.compose.material3.LinearProgressIndicator(
+                    LinearProgressIndicator(
                         progress = { (index + 1).toFloat() / questions.size.coerceAtLeast(1) },
                         color = EduGreen,
                         trackColor = EduBg,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(7.dp)
+                            .clip(RoundedCornerShape(8.dp))
                     )
                     QuestionMasteryDiagnosticBanner(
                         stats = questionStats[current.id],
@@ -126,9 +145,14 @@ fun ConceptReinforcementQuizDialog(
                         onAnswerChange = { answers[current.id] = it }
                     )
                     if (checkedCurrent) {
-                        Surface(color = EduMint.copy(alpha = 0.5f)) {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = EduMint.copy(alpha = 0.6f),
+                            border = BorderStroke(1.dp, EduGreen.copy(alpha = 0.45f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
                             Column(
-                                modifier = Modifier.padding(10.dp),
+                                modifier = Modifier.padding(12.dp),
                                 verticalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
                                 Text(
@@ -151,16 +175,24 @@ fun ConceptReinforcementQuizDialog(
         },
         confirmButton = {
             when {
-                finished -> TextButton(onClick = onDismiss) {
-                    Text("إغلاق", color = EduGreenDark)
-                }
-                !checkedCurrent -> TextButton(
-                    enabled = current != null && answers[current.id].orEmpty().isNotBlank(),
-                    onClick = { checkedCurrent = true }
+                finished -> Button(
+                    onClick = onDismiss,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = EduGreen, contentColor = EduWhite),
+                    modifier = Modifier.minimumInteractiveComponentSize()
                 ) {
-                    Text("تحقق من الإجابة", color = EduGreenDark)
+                    Text("إغلاق", fontWeight = FontWeight.Bold)
                 }
-                else -> TextButton(
+                !checkedCurrent -> Button(
+                    enabled = current != null && answers[current.id].orEmpty().isNotBlank(),
+                    onClick = { checkedCurrent = true },
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = EduGreen, contentColor = EduWhite),
+                    modifier = Modifier.minimumInteractiveComponentSize()
+                ) {
+                    Text("تحقق من الإجابة", fontWeight = FontWeight.Bold)
+                }
+                else -> Button(
                     onClick = {
                         if (index < questions.lastIndex) {
                             index++
@@ -172,18 +204,24 @@ fun ConceptReinforcementQuizDialog(
                             }
                             finished = true
                         }
-                    }
+                    },
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = EduYellow, contentColor = EduInk),
+                    modifier = Modifier.minimumInteractiveComponentSize()
                 ) {
                     Text(
                         text = if (index < questions.lastIndex) "السؤال التالي" else "إنهاء جلسة التقوية",
-                        color = EduGreenDark
+                        fontWeight = FontWeight.ExtraBold
                     )
                 }
             }
         },
         dismissButton = {
             if (!finished) {
-                TextButton(onClick = onDismiss) {
+                TextButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.minimumInteractiveComponentSize()
+                ) {
                     Text("خروج", color = EduMuted)
                 }
             }

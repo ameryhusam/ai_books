@@ -2,17 +2,23 @@ package com.example.ui.components
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -45,9 +51,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -180,6 +188,8 @@ fun StudentStudyDialog(
         Surface(
             modifier = Modifier
                 .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
                 .padding(8.dp),
             shape = RoundedCornerShape(20.dp),
             color = EduBg
@@ -217,26 +227,71 @@ fun StudentStudyDialog(
                     }
                 }
 
-                // Quick Toggle Bar: الكتاب (PDF) <-> التفاعلي <-> الشرح <-> الاختبار
-                FlowRow(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(7.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                // Compact horizontal 4-step study bar: القراءة <-> التفاعلي <-> الشرح <-> الاختبار
+                val studySteps = listOf(
+                    Triple("الدرس و PDF", Icons.Rounded.PictureAsPdf, null),
+                    Triple("التفاعلي", Icons.Rounded.Code, if (hasInteractive) "متاح" else null),
+                    Triple("الشرح والملخص", Icons.Rounded.MenuBook, approvedDrafts.size.takeIf { it > 0 }?.toString()),
+                    Triple("الاختبار", Icons.Rounded.Quiz, lessonQuestions.size.takeIf { it > 0 }?.toString())
+                )
+                Surface(
+                    color = EduWhite,
+                    border = BorderStroke(1.dp, EduLine),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    listOf(
-                        "محتوى الدرس و PDF",
-                        "الدرس التفاعلي",
-                        "الشرح والملخص (${approvedDrafts.size})",
-                        "اختبار الدرس (${lessonQuestions.size})"
-                    ).forEachIndexed { idx, label ->
-                        EduPill(
-                            text = label,
-                            active = activeTab == idx,
-                            onClick = { activeTab = idx },
-                            testTag = "student_study_tab_$idx"
-                        )
+                    LazyRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        itemsIndexed(studySteps) { idx, (label, icon, badgeText) ->
+                            val selected = activeTab == idx
+                            val tabShape = RoundedCornerShape(14.dp)
+                            Surface(
+                                shape = tabShape,
+                                color = if (selected) EduGreen else EduBg,
+                                border = BorderStroke(1.dp, if (selected) EduGreen else EduLine),
+                                modifier = Modifier
+                                    .testTag("student_study_tab_$idx")
+                                    .minimumInteractiveComponentSize()
+                                    .clip(tabShape)
+                                    .clickable { activeTab = idx }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = icon,
+                                        contentDescription = null,
+                                        tint = if (selected) EduWhite else EduGreenDark,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Text(
+                                        text = label,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = if (selected) EduWhite else EduInk,
+                                        fontWeight = if (selected) FontWeight.ExtraBold else FontWeight.Bold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    if (!badgeText.isNullOrBlank()) {
+                                        Surface(
+                                            shape = RoundedCornerShape(8.dp),
+                                            color = if (selected) EduWhite.copy(alpha = 0.22f) else EduMint
+                                        ) {
+                                            Text(
+                                                text = badgeText,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = if (selected) EduWhite else EduGreenDark,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -267,28 +322,51 @@ fun StudentStudyDialog(
                                 verticalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
                                 if (hasPdf && hasText) {
-                                    FlowRow(
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                                    Surface(
+                                        shape = RoundedCornerShape(14.dp),
+                                        color = EduWhite,
+                                        border = BorderStroke(1.dp, EduLine),
+                                        modifier = Modifier.fillMaxWidth()
                                     ) {
-                                        EduPill(
-                                            text = "عرض المحتوى + PDF",
-                                            active = contentViewMode == 0,
-                                            onClick = { contentViewMode = 0 },
-                                            testTag = "study_content_mode_both"
-                                        )
-                                        EduPill(
-                                            text = "ملف PDF فقط",
-                                            active = contentViewMode == 1,
-                                            onClick = { contentViewMode = 1 },
-                                            testTag = "study_content_mode_pdf"
-                                        )
-                                        EduPill(
-                                            text = "نص الدرس فقط",
-                                            active = contentViewMode == 2,
-                                            onClick = { contentViewMode = 2 },
-                                            testTag = "study_content_mode_text"
-                                        )
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(4.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            listOf(
+                                                Triple(0, "الكل (PDF + نص)", "study_content_mode_both"),
+                                                Triple(1, "PDF فقط", "study_content_mode_pdf"),
+                                                Triple(2, "النص فقط", "study_content_mode_text")
+                                            ).forEach { (modeIdx, title, tag) ->
+                                                val isActive = contentViewMode == modeIdx
+                                                Surface(
+                                                    shape = RoundedCornerShape(10.dp),
+                                                    color = if (isActive) EduMint else EduWhite,
+                                                    modifier = Modifier
+                                                        .weight(1f)
+                                                        .testTag(tag)
+                                                        .minimumInteractiveComponentSize()
+                                                        .clip(RoundedCornerShape(10.dp))
+                                                        .clickable { contentViewMode = modeIdx }
+                                                ) {
+                                                    Row(
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 8.dp),
+                                                        horizontalArrangement = Arrangement.Center,
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        Text(
+                                                            text = title,
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            color = if (isActive) EduGreenDark else EduMuted,
+                                                            fontWeight = if (isActive) FontWeight.ExtraBold else FontWeight.SemiBold,
+                                                            maxLines = 1,
+                                                            overflow = TextOverflow.Ellipsis
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
                                     }
                                 }
 

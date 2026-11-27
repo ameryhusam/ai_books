@@ -16,6 +16,15 @@ import com.example.data.repository.InteractiveActivityParser
 import com.example.data.repository.LearningProgressAnalytics
 import com.example.data.repository.LessonSequenceGate
 import com.example.data.repository.QuestionBankEngine
+import com.example.data.workspace.BookIndexAiResponseParser
+import com.example.data.workspace.BookIndexIntakeDraft
+import com.example.data.workspace.BookIndexLessonDraft
+import com.example.data.workspace.BookIndexUnitDraft
+import com.example.data.workspace.IndexAssignmentSource
+import com.example.data.workspace.IndexAssignmentStatus
+import com.example.data.workspace.IndexDiscoveryMethod
+import com.example.data.workspace.IndexSourceLayout
+import com.example.data.workspace.RoomBookIndexProjection
 import com.example.model.AppPage
 import com.example.model.AssessmentAttemptRecord
 import com.example.model.AssessmentKind
@@ -1053,6 +1062,393 @@ class MainViewModel(
                 _uiState.update { it.copy(isBusy = false) }
             }
         }
+    }
+
+    /**
+     * Stage 1: Ingests the picked book PDF, invokes AI index discovery when a configured
+     * provider + catalog model are available, and opens the editable Review UI (`BookIndexReviewUiState`).
+     * Never silently approves or discards the PDF if AI fails; falls back to an editable manual draft.
+     */
+    fun startBookPdfDiscoveryIntake(uri: Uri) {
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isBusy = true,
+                    workspaceOperation = WorkspaceOperationProgress(
+                        title = "استيراد واكتشاف فهرس كتاب PDF",
+                        stage = "نسخ ملف PDF مؤقتاً وحساب البصمة...",
+                        percent = 8
+                    )
+                )
+            }
+            try {
+                val pdfInfo = repository.ingestBookPdf(uri)
+                val defaultReviewer = resolveReviewerIdentity()
+                val snapshot = _uiState.value
+                val resolvedAiTarget = resolveIndexDiscoveryAiTarget(snapshot)
+
+                if (resolvedAiTarget == null) {
+                    val manualDraft = buildEmptyManualDraft(pdfInfo, defaultReviewer)
+                    _uiState.update {
+                        it.copy(
+                            bookIndexReview = BookIndexReviewUiState(
+                                pdfInfo = pdfInfo,
+                                draft = manualDraft,
+                                discoveryError = "لا يوجد مزود AI ومفتاح API مفعّل حالياً؛ يمكنك إدخال بيانات الفهرس يدوياً أو إضافة مفتاح من الإعدادات ثم إعادة الاكتشاف."
+                            ),
+                            toastMessage = "تم استيراد ${pdfInfo.fileName} (${pdfInfo.totalPages} صفحة) للمراجعة اليدوية"
+                        )
+                    }
+                    return@launch
+                }
+
+                runDiscoveryAndOpenReview(
+                    pdfInfo = pdfInfo,
+                    providerType = resolvedAiTarget.first,
+                    modelId = resolvedAiTarget.second,
+                    profileId = resolvedAiTarget.third,
+                    defaultReviewer = defaultReviewer
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(alert = AlertMessage("تعذر استيراد كتاب PDF", e.message ?: "ملف PDF غير صالح"))
+                }
+            } finally {
+                _uiState.update { it.copy(isBusy = false, workspaceOperation = null) }
+            }
+        }
+    }
+
+    fun retryBookIndexAiDiscovery(extraInstructions: String = "") {
+        val current = _uiState.value.bookIndexReview ?: return
+        val snapshot = _uiState.value
+        val resolvedAiTarget = resolveIndexDiscoveryAiTarget(snapshot)
+        if (resolvedAiTarget == null) {
+            _uiState.update {
+                it.copy(
+                    bookIndexReview = current.copy(
+                        discoveryError = "لا يوجد مزود AI أو مفتاح API مفعّل لإعادة الاكتشاف. أضف مفتاحاً من الإعدادات أولاً."
+                    )
+                )
+            }
+            return
+        }
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isBusy = true,
+                    bookIndexReview = current.copy(isDiscovering = true, discoveryError = null),
+                    workspaceOperation = WorkspaceOperationProgress(
+                        title = "إعادة اكتشاف الفهرس بالذكاء الاصطناعي",
+                        stage = "إرسال صفحات الفهرس إلى ${resolvedAiTarget.second}...",
+                        percent = 25
+                    )
+                )
+            }
+            try {
+                runDiscoveryAndOpenReview(
+                    pdfInfo = current.pdfInfo,
+                    providerType = resolvedAiTarget.first,
+                    modelId = resolvedAiTarget.second,
+                    profileId = resolvedAiTarget.third,
+                    defaultReviewer = current.draft.reviewerId ?: resolveReviewerIdentity(),
+                    extraInstructions = extraInstructions
+                )
+            } finally {
+                _uiState.update { state ->
+                    state.copy(
+                        isBusy = false,
+                        workspaceOperation = null,
+                        bookIndexReview = state.bookIndexReview?.copy(isDiscovering = false)
+                    )
+                }
+            }
+        }
+    }
+
+    private suspend fun runDiscoveryAndOpenReview(
+        pdfInfo: PdfBookInfo,
+        providerType: ProviderType,
+        modelId: String,
+        profileId: String,
+        defaultReviewer: String,
+        extraInstructions: String = ""
+    ) {
+        val snapshot = _uiState.value
+        val discoveryOutcome = runCatching {
+            repository.discoverBookIndexFromPdf(
+                pdfInfo = pdfInfo,
+                providers = snapshot.providers,
+                selectedProvider = providerType,
+                selectedModelId = modelId,
+                selectedProfileId = profileId,
+                catalogModels = snapshot.aiModelCatalog,
+                extraInstructions = extraInstructions,
+                onProgress = { pct, stage ->
+                    _uiState.update { state ->
+                        state.copy(
+                            workspaceOperation = WorkspaceOperationProgress(
+                                title = "اكتشاف فهرس الكتاب (${pdfInfo.fileName})",
+                                stage = stage,
+                                percent = pct
+                            )
+                        )
+                    }
+                }
+            )
+        }
+        if (discoveryOutcome.isFailure) {
+            val errMsg = discoveryOutcome.exceptionOrNull()?.message ?: "تعذر إتمام الاكتشاف بالذكاء الاصطناعي"
+            val fallbackDraft = _uiState.value.bookIndexReview?.draft
+                ?: buildEmptyManualDraft(pdfInfo, defaultReviewer)
+            _uiState.update {
+                it.copy(
+                    bookIndexReview = BookIndexReviewUiState(
+                        pdfInfo = pdfInfo,
+                        draft = fallbackDraft,
+                        discoveryError = "تعذر الاكتشاف التلقائي: $errMsg — يمكنك تعديل الفهرس يدوياً والمراجعة قبل الاعتماد."
+                    )
+                )
+            }
+            return
+        }
+
+        val generated = discoveryOutcome.getOrThrow()
+        val parsed = runCatching {
+            BookIndexAiResponseParser.parse(generated.text, pdfInfo)
+        }.map { draft ->
+            draft.copy(
+                reviewerId = draft.reviewerId ?: defaultReviewer,
+                reviewerConfirmed = false
+            )
+        }
+
+        if (parsed.isSuccess) {
+            _uiState.update {
+                it.copy(
+                    providers = repository.loadProviders(),
+                    bookIndexReview = BookIndexReviewUiState(
+                        pdfInfo = pdfInfo,
+                        draft = parsed.getOrThrow(),
+                        aiProviderLabel = generated.providerLabel,
+                        aiModel = generated.model,
+                        discoveryValidationIssues = generated.validationIssues,
+                        discoveryError = null
+                    ),
+                    toastMessage = "تم استلام مسودة الفهرس للمراجعة"
+                )
+            }
+        } else {
+            val parseError = parsed.exceptionOrNull()?.message ?: "استجابة JSON غير مكتملة"
+            val fallbackDraft = _uiState.value.bookIndexReview?.draft
+                ?: buildEmptyManualDraft(pdfInfo, defaultReviewer)
+            _uiState.update {
+                it.copy(
+                    providers = repository.loadProviders(),
+                    bookIndexReview = BookIndexReviewUiState(
+                        pdfInfo = pdfInfo,
+                        draft = fallbackDraft.copy(
+                            reviewNotes = (fallbackDraft.reviewNotes + "\n" + generated.text.take(400)).trim()
+                        ),
+                        aiProviderLabel = generated.providerLabel,
+                        aiModel = generated.model,
+                        discoveryValidationIssues = generated.validationIssues,
+                        discoveryError = "تعذر تحليل مخرجات AI ($parseError)؛ أُنشئت مسودة قابلة للتحرير اليدوي."
+                    )
+                )
+            }
+        }
+    }
+
+    fun updateBookIndexDraft(transform: (BookIndexIntakeDraft) -> BookIndexIntakeDraft) {
+        _uiState.update { state ->
+            val current = state.bookIndexReview ?: return@update state
+            state.copy(bookIndexReview = current.copy(draft = transform(current.draft)))
+        }
+    }
+
+    fun populateStarterUnitsForReview(pagesPerLesson: Int = 5) {
+        val current = _uiState.value.bookIndexReview ?: return
+        val pdfInfo = current.pdfInfo
+        val splits = repository.generateAutoSplits(pdfInfo.totalPages, pagesPerLesson)
+        if (splits.isEmpty()) return
+        val effectivePart = when (current.draft.sourceLayout) {
+            IndexSourceLayout.SINGLE_PART_FILE -> current.draft.partKey ?: "P01"
+            IndexSourceLayout.MERGED_PARTS_FILE -> "P01"
+            IndexSourceLayout.UNKNOWN -> current.draft.partKey?.takeIf { it in setOf("P01", "P02") } ?: "P01"
+        }
+        val lessons = splits.mapIndexed { idx, s ->
+            BookIndexLessonDraft(
+                lessonKey = s.lessonKey,
+                title = s.title,
+                printedPageStart = null,
+                printedPageEnd = null,
+                pdfPageStart = s.startPage,
+                pdfPageEnd = s.endPage,
+                assignmentStatus = IndexAssignmentStatus.NEEDS_REVIEW,
+                assignmentSource = IndexAssignmentSource.DEFAULT_PROPOSAL,
+                assignmentEvidence = "تقسيم مبدئي (${s.startPage}–${s.endPage}) يحتاج تأكيد المراجع"
+            )
+        }
+        val starterUnit = BookIndexUnitDraft(
+            unitKey = "unit_01",
+            title = "الوحدة الأولى",
+            partKey = effectivePart,
+            proposedPartKey = effectivePart,
+            assignmentStatus = IndexAssignmentStatus.NEEDS_REVIEW,
+            assignmentSource = IndexAssignmentSource.DEFAULT_PROPOSAL,
+            assignmentEvidence = "وحدة مبدئية مقترحة بانتظار تأكيد المراجع",
+            lessons = lessons
+        )
+        updateBookIndexDraft { draft ->
+            draft.copy(
+                units = listOf(starterUnit),
+                reviewerConfirmed = false
+            )
+        }
+    }
+
+    fun dismissBookIndexReview() {
+        val review = _uiState.value.bookIndexReview
+        _uiState.update { it.copy(bookIndexReview = null) }
+        if (review != null) {
+            repository.discardIngestedBookPdf(review.pdfInfo)
+        }
+    }
+
+    fun approveAndSplitBookIndex() {
+        val review = _uiState.value.bookIndexReview ?: return
+        val reviewerId = review.draft.reviewerId?.takeIf { it.isNotBlank() } ?: resolveReviewerIdentity()
+        val draftToApprove = review.draft.copy(reviewerId = reviewerId)
+        val errors = draftToApprove.validationErrors()
+        if (errors.isNotEmpty()) {
+            _uiState.update {
+                it.copy(
+                    alert = AlertMessage(
+                        title = "لا يمكن الاعتماد قبل استكمال المراجعة",
+                        message = errors.joinToString("\n") { "• $it" }
+                    )
+                )
+            }
+            return
+        }
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isBusy = true,
+                    workspaceOperation = WorkspaceOperationProgress(
+                        title = "اعتماد الفهرس وتقطيع الكتاب",
+                        stage = "حفظ الفهرس المعتمد في Room...",
+                        percent = 12
+                    )
+                )
+            }
+            try {
+                val updatedWorkspace = repository.approveBookIndexAndSplitWorkspace(
+                    draft = draftToApprove,
+                    pdfInfo = review.pdfInfo,
+                    onProgress = { stage, pct ->
+                        _uiState.update { state ->
+                            state.copy(
+                                workspaceOperation = WorkspaceOperationProgress(
+                                    title = "اعتماد الفهرس وتقطيع ${draftToApprove.bookTitle}",
+                                    stage = stage,
+                                    percent = pct
+                                )
+                            )
+                        }
+                    }
+                )
+                val approvedBookKey = RoomBookIndexProjection.canonicalBookIdentity(
+                    gradeKey = draftToApprove.gradeKey,
+                    subjectKey = draftToApprove.subjectKey,
+                    componentKey = draftToApprove.componentKey,
+                    sourceLayout = draftToApprove.sourceLayout,
+                    partKey = draftToApprove.partKey
+                ).bookKey
+                val firstBookLesson = updatedWorkspace.lessons.firstOrNull { it.bookKey == approvedBookKey }
+                    ?: updatedWorkspace.lessons.firstOrNull()
+                _uiState.update {
+                    it.copy(
+                        bookIndexReview = null,
+                        selectedWorkspaceId = updatedWorkspace.workspaceId,
+                        selectedBookKey = approvedBookKey,
+                        selectedLesson = firstBookLesson,
+                        packageSourcePages = firstBookLesson?.pageRange.orEmpty(),
+                        toastMessage = "تم حفظ الفهرس المعتمد وتقطيع ${updatedWorkspace.lessons.count { l -> l.bookKey == approvedBookKey }} درساً بنجاح"
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        alert = AlertMessage(
+                            title = "تعذر اعتماد الفهرس وتقطيع الكتاب",
+                            message = e.message ?: "حدث خطأ غير متوقع أثناء الحفظ أو التقطيع"
+                        )
+                    )
+                }
+            } finally {
+                _uiState.update { it.copy(isBusy = false, workspaceOperation = null) }
+            }
+        }
+    }
+
+    private fun resolveReviewerIdentity(): String =
+        currentUserEmail?.takeIf { it.isNotBlank() }
+            ?: currentUserDisplayName?.takeIf { it.isNotBlank() }
+            ?: currentUserId.takeIf { it.isNotBlank() }
+            ?: "admin_reviewer"
+
+    private fun buildEmptyManualDraft(pdfInfo: PdfBookInfo, reviewerId: String): BookIndexIntakeDraft =
+        BookIndexIntakeDraft(
+            sourceFileName = pdfInfo.fileName,
+            sourceSha256 = pdfInfo.sha256,
+            totalPdfPages = pdfInfo.totalPages,
+            bookTitle = pdfInfo.fileName.removeSuffix(".pdf").removeSuffix(".PDF"),
+            gradeKey = _uiState.value.workspace?.gradeKey ?: "G04",
+            gradeName = com.example.data.workspace.BookMetadataMapper.gradeDisplayName(
+                _uiState.value.workspace?.gradeKey ?: "G04"
+            ).orEmpty(),
+            subjectKey = "ARAB",
+            subjectName = com.example.data.workspace.BookMetadataMapper.subjectDisplayName("ARAB").orEmpty(),
+            sourceLayout = IndexSourceLayout.SINGLE_PART_FILE,
+            sourceLayoutEvidence = "",
+            partKey = "P01",
+            offset = 1,
+            discoveryMethod = IndexDiscoveryMethod.MANUAL,
+            units = emptyList(),
+            reviewerConfirmed = false,
+            reviewerId = reviewerId
+        )
+
+    private fun resolveIndexDiscoveryAiTarget(snapshot: MainUiState): Triple<ProviderType, String, String>? {
+        val preferredProvider = snapshot.selectedProvider
+        val enabledProfile = snapshot.providers
+            .filter { it.provider == preferredProvider && it.enabled && it.apiKey.isNotBlank() }
+            .minWithOrNull(compareBy<ProviderConfig> { it.priority }.thenBy { it.createdAt })
+            ?: snapshot.providers
+                .filter { it.enabled && it.apiKey.isNotBlank() }
+                .minWithOrNull(compareBy<ProviderConfig> { it.priority }.thenBy { it.createdAt })
+            ?: return null
+        val targetProvider = enabledProfile.provider
+        val models = snapshot.aiModelCatalog.filter {
+            it.provider == targetProvider &&
+                it.isEnabled &&
+                it.supportsGenerateContent &&
+                it.lifecycleStatus != AiModelDefinition.STATUS_DEPRECATED
+        }
+        val selectedModelId = models.firstOrNull {
+            targetProvider == preferredProvider && it.modelId == snapshot.selectedGenerationModelId
+        }?.modelId
+            ?: models.firstOrNull { it.isDefault }?.modelId
+            ?: models.firstOrNull()?.modelId
+            ?: enabledProfile.model.takeIf { it.isNotBlank() }
+            ?: return null
+        return Triple(targetProvider, selectedModelId, enabledProfile.id)
     }
 
     fun dismissPdfPreview() {
@@ -3055,6 +3451,7 @@ class MainViewModel(
                     difficultyHint = if (snapshot.task == TaskType.QUESTIONS) snapshot.questionDifficulty.id else "",
                     template = promptTemplates.value.firstOrNull { it.id == snapshot.activePromptTemplateId }
                         ?: promptTemplates.value.firstOrNull { it.task == snapshot.task },
+                    catalogModels = snapshot.aiModelCatalog,
                     onProgress = { percent, stage ->
                         _uiState.update { it.copy(generationProgressPercent = percent, generationStage = stage) }
                     }

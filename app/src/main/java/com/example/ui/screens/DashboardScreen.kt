@@ -15,9 +15,11 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -269,7 +271,7 @@ fun DashboardScreen(
                 )
             }
 
-            if (summary.hasWorkspace) {
+            if (summary.hasWorkspace && !isLearner) {
                 item(key = "learning_progress_report") {
                     LearningProgressReportCard(
                         report = learningProgressReport,
@@ -424,12 +426,23 @@ fun DashboardScreen(
 
                 item(key = "badges_section") {
                     BadgesAndMilestonesSection(
-                        badges = summary.badges,
-                        unlockedCount = summary.unlockedBadgesCount,
+                        badges = displaySummary.badges,
+                        unlockedCount = displaySummary.unlockedBadgesCount,
                         selectedCategory = selectedCategory,
                         onSelectCategory = { selectedCategory = it },
                         onBadgeClick = { selectedBadge = it }
                     )
+                }
+
+                if (isLearner) {
+                    item(key = "learning_progress_report_learner") {
+                        LearningProgressReportCard(
+                            report = learningProgressReport,
+                            isLearner = true,
+                            learnerName = activeLearner.displayName,
+                            onExport = onExportLearningReport
+                        )
+                    }
                 }
 
                 if (!dashboardState.recentlyCompletedUnitTitle.isNullOrBlank()) {
@@ -1936,12 +1949,16 @@ private fun LearningPathNodeRow(
     }
 
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(IntrinsicSize.Min),
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.width(34.dp)
+            modifier = Modifier
+                .width(34.dp)
+                .fillMaxHeight()
         ) {
             Surface(
                 shape = CircleShape,
@@ -1970,7 +1987,9 @@ private fun LearningPathNodeRow(
                 Canvas(
                     modifier = Modifier
                         .width(3.dp)
-                        .height(92.dp)
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .padding(vertical = 4.dp)
                 ) {
                     drawLine(
                         color = if (node.isCompleted) EduGreen else EduLine,

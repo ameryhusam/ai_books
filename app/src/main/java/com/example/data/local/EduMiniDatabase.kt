@@ -542,6 +542,62 @@ interface EduMiniDao {
     @Query("SELECT * FROM workspace_units WHERE workspace_id = :workspaceId ORDER BY book_key, sort_order")
     fun observeWorkspaceUnits(workspaceId: String): Flow<List<WorkspaceUnitEntity>>
 
+    @Query("SELECT * FROM workspaces WHERE workspaceId = :workspaceId LIMIT 1")
+    suspend fun getWorkspaceByIdSnapshot(workspaceId: String): WorkspaceEntity?
+
+    @Query("SELECT * FROM books WHERE workspaceId = :workspaceId AND bookKey = :bookKey LIMIT 1")
+    suspend fun getBookSnapshot(workspaceId: String, bookKey: String): BookEntity?
+
+    @Query("SELECT * FROM workspace_units WHERE workspace_id = :workspaceId AND book_key = :bookKey ORDER BY sort_order ASC")
+    suspend fun getWorkspaceUnitsForBookSnapshot(workspaceId: String, bookKey: String): List<WorkspaceUnitEntity>
+
+    @Query("SELECT * FROM lessons WHERE workspaceId = :workspaceId AND bookKey = :bookKey ORDER BY sort_order ASC, rowId ASC")
+    suspend fun getLessonsForBookSnapshot(workspaceId: String, bookKey: String): List<LessonEntity>
+
+    @Query("DELETE FROM workspace_units WHERE workspace_id = :workspaceId AND book_key = :bookKey")
+    suspend fun deleteWorkspaceUnitsForBook(workspaceId: String, bookKey: String)
+
+    @Query("DELETE FROM lessons WHERE workspaceId = :workspaceId AND bookKey = :bookKey")
+    suspend fun deleteLessonsForBook(workspaceId: String, bookKey: String)
+
+    @Transaction
+    suspend fun upsertApprovedBookCatalog(
+        workspace: WorkspaceEntity,
+        book: BookEntity,
+        units: List<WorkspaceUnitEntity>,
+        lessons: List<LessonEntity>,
+        indexEntity: WorkspaceIndexEntity? = null
+    ) {
+        insertWorkspace(workspace)
+        val existingBook = getBookSnapshot(workspace.workspaceId, book.bookKey)
+        val bookToSave = if (existingBook != null && book.rowId == 0L) {
+            book.copy(rowId = existingBook.rowId)
+        } else {
+            book
+        }
+        insertBooks(listOf(bookToSave))
+
+        deleteWorkspaceUnitsForBook(workspace.workspaceId, book.bookKey)
+        if (units.isNotEmpty()) {
+            insertWorkspaceUnits(units)
+        }
+
+        val existingLessons = getLessonsForBookSnapshot(workspace.workspaceId, book.bookKey)
+            .associateBy { Triple(it.bookKey, it.unitKey, it.lessonKey) }
+        deleteLessonsForBook(workspace.workspaceId, book.bookKey)
+        if (lessons.isNotEmpty()) {
+            val stableLessons = lessons.map { incoming ->
+                val key = Triple(incoming.bookKey, incoming.unitKey, incoming.lessonKey)
+                existingLessons[key]?.let { incoming.copy(rowId = it.rowId) } ?: incoming
+            }
+            insertLessons(stableLessons)
+        }
+
+        if (indexEntity != null) {
+            insertWorkspaceIndexes(listOf(indexEntity))
+        }
+    }
+
     @Query(
         """
         SELECT * FROM lesson_texts

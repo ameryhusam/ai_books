@@ -963,7 +963,7 @@ class EduMiniCoreTest {
                 task = "questions",
                 title = "الدرس الأول",
                 provider = "Gemini",
-                model = "gemini-2.5-flash",
+                model = "gemini-3.5-flash",
                 createdAt = "2026-01-01T00:00:00Z",
                 content = "أسئلة",
                 status = "APPROVED"
@@ -1271,7 +1271,7 @@ class EduMiniCoreTest {
             lesson = lesson,
             task = TaskType.QUESTIONS,
             providerLabel = "Gemini",
-            model = "gemini-2.5-flash",
+            model = "gemini-3.5-flash",
             text = "1. كم عدد أركان الإسلام؟\nأ) 4\nب) 5\nالإجابة: ب",
             title = lesson.title,
             sourceText = "نص الدرس"
@@ -2653,7 +2653,7 @@ class EduMiniCoreTest {
             lesson = lesson,
             task = TaskType.QUESTIONS,
             providerLabel = "Gemini",
-            model = "gemini-2.5-flash",
+            model = "gemini-3.5-flash",
             text = generatedQuestionsText,
             title = lesson.title,
             sourceText = "حالات المادة ثلاث"
@@ -4293,7 +4293,7 @@ class EduMiniCoreTest {
             val generated = GeneratedResult(
                 text = "محتوى مولّد",
                 providerLabel = "Gemini",
-                model = "gemini-2.5-flash",
+                model = "gemini-3.5-flash",
                 createdAt = "2026-11-25T12:00:00Z",
                 templateId = "tpl-custom-1",
                 templateVersion = 4,
@@ -5323,7 +5323,7 @@ class EduMiniCoreTest {
                 lesson = lesson1,
                 task = TaskType.EXPLANATION,
                 providerLabel = "Gemini",
-                model = "gemini-2.5-flash",
+                model = "gemini-3.5-flash",
                 text = "شرح درس الجمع",
                 title = "شرح الجمع",
                 sourceText = "نص الدرس"
@@ -5458,7 +5458,7 @@ class EduMiniCoreTest {
 
 private val testKeyStoreMap = java.util.concurrent.ConcurrentHashMap<String, java.security.Key>()
 
-private fun ensureTestAndroidKeyStore() {
+internal fun ensureTestAndroidKeyStore() {
     if (java.security.Security.getProvider("AndroidKeyStore") != null) return
     val provider = object : java.security.Provider("AndroidKeyStore", 1.0, "Robolectric in-memory KeyStore") {
         init {

@@ -287,11 +287,29 @@ fun QuestionAnswerInputArea(
                             .clickable(enabled = !locked) { selectedLeft = idx }
                     ) {
                         Row(
-                            modifier = Modifier.padding(10.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Text(left, style = MaterialTheme.typography.bodySmall, color = EduInk)
-                            Text(pickedRight.ifBlank { "—" }, style = MaterialTheme.typography.labelSmall, color = EduGreenDark)
+                            Text(
+                                text = left,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = EduInk,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (pickedRight.isBlank()) EduWhite else EduMint
+                            ) {
+                                Text(
+                                    text = pickedRight.ifBlank { "اختر مطابقة" },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (pickedRight.isBlank()) EduMuted else EduGreenDark,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
                         }
                     }
                 }

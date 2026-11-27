@@ -163,63 +163,12 @@ data class BookIndexIntakeDraft(
 }
 
 
-/** Shared AI extraction contract. Both prompt and deterministic parsers must populate BookIndexIntakeDraft. */
+/** Shared AI extraction contract. Schema is projected directly from the Room database entities. */
 object BookIndexPromptTemplate {
     const val SOURCE_PATH = "prompts/book_indexing/book_index_discovery.prompt.md"
 
-    val responseSchemaJson: String = """
-        {
-          "type": "object",
-          "required": ["bookTitle", "gradeName", "gradeKey", "subjectName", "subjectKey", "sourceLayout", "sourceLayoutEvidence", "partKey", "offset", "units", "discoveryNotes"],
-          "properties": {
-            "bookTitle": {"type": "string"},
-            "gradeName": {"type": "string"},
-            "gradeKey": {"type": "string"},
-            "subjectName": {"type": "string"},
-            "subjectKey": {"type": "string"},
-            "componentKey": {"type": "string"},
-            "sourceLayout": {"type": "string", "enum": ["SINGLE_PART_FILE", "MERGED_PARTS_FILE", "UNKNOWN"]},
-            "sourceLayoutEvidence": {"type": "string"},
-            "partKey": {"type": "string", "enum": ["P01", "P02", "BOTH", "UNKNOWN"]},
-            "offset": {"type": "integer"},
-            "discoveryConfidence": {"type": "number"},
-            "units": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "required": ["unitKey", "title", "partKey", "proposedPartKey", "assignmentStatus", "assignmentSource", "assignmentEvidence", "lessons"],
-                "properties": {
-                  "unitKey": {"type": "string"},
-                  "title": {"type": "string"},
-                  "partKey": {"type": "string", "enum": ["P01", "P02", "UNKNOWN"]},
-                  "proposedPartKey": {"type": "string"},
-                  "assignmentStatus": {"type": "string", "enum": ["assigned", "need_review"]},
-                  "assignmentSource": {"type": "string", "enum": ["INDEX_EVIDENCE", "DEFAULT_PROPOSAL", "LEGACY_UNVERIFIED"]},
-                  "assignmentEvidence": {"type": "string"},
-                  "lessons": {
-                    "type": "array",
-                    "items": {
-                      "type": "object",
-                      "required": ["lessonKey", "title", "printedPageStart", "printedPageEnd", "pdfPageStart", "pdfPageEnd", "assignmentStatus", "assignmentEvidence"],
-                      "properties": {
-                        "lessonKey": {"type": "string"},
-                        "title": {"type": "string"},
-                        "printedPageStart": {"type": "integer"},
-                        "printedPageEnd": {"type": "integer"},
-                        "pdfPageStart": {"type": "integer"},
-                        "pdfPageEnd": {"type": "integer"},
-                        "assignmentStatus": {"type": "string", "enum": ["assigned", "need_review"]},
-                        "assignmentEvidence": {"type": "string"}
-                      }
-                    }
-                  }
-                }
-              }
-            },
-            "discoveryNotes": {"type": "array", "items": {"type": "string"}}
-          }
-        }
-    """.trimIndent()
+    val responseSchemaJson: String
+        get() = RoomBookIndexProjection.buildDiscoveryResponseSchemaJson()
 }
 
 /**
