@@ -157,11 +157,12 @@ class PdfBookSplitter(private val context: Context) {
             }
         }
 
-        val partKey = inferPartKeyFromFileName(pdfInfo.fileName)
-        val partAssignmentEvidence = if (partKey == "UNKNOWN") {
+        val proposedPartKey = inferPartKeyFromFileName(pdfInfo.fileName)
+        val partFolder = proposedPartKey.takeIf { it == "P01" || it == "P02" } ?: "REVIEW"
+        val partAssignmentEvidence = if (proposedPartKey == "UNKNOWN") {
             "No reliable P01/P02 marker found in source filename; manual review is required."
         } else {
-            "Filename suggests $partKey, but the part assignment is provisional and requires review."
+            "Filename suggests $proposedPartKey, but the part assignment is provisional and requires review."
         }
         val sourceCopy = File(bookDir, "source.pdf")
         sourcePdf.copyTo(sourceCopy, overwrite = true)
@@ -189,7 +190,8 @@ class PdfBookSplitter(private val context: Context) {
             put("sourcePdf", "source.pdf")
             put("sourceSha256", pdfInfo.sha256)
             put("totalPages", pdfInfo.totalPages)
-            put("partKey", partKey)
+            put("partKey", "UNKNOWN")
+            if (proposedPartKey != "UNKNOWN") put("proposedPartKey", proposedPartKey)
             put("assignmentStatus", "need_review")
             put("assignmentEvidence", partAssignmentEvidence)
             if (coverSaved) {
@@ -206,8 +208,10 @@ class PdfBookSplitter(private val context: Context) {
                 add(buildJsonObject {
                     put("unitKey", unitKey)
                     put("title", unitTitle)
-                    put("partKey", partKey)
+                    put("partKey", "unknown")
+                    if (proposedPartKey != "UNKNOWN") put("proposedPartKey", proposedPartKey)
                     put("assignmentStatus", "need_review")
+                    put("assignmentSource", if (proposedPartKey == "UNKNOWN") "LEGACY_UNVERIFIED" else "DEFAULT_PROPOSAL")
                     put("assignmentEvidence", partAssignmentEvidence)
                     put("lessons", buildJsonArray {
                         unitSplits.forEachIndexed { idx, split ->
@@ -225,7 +229,7 @@ class PdfBookSplitter(private val context: Context) {
                                 put("pdfPageStart", split.startPage)
                                 put("pdfPageEnd", split.endPage)
                                 val lessonNum = extractTrailingNumber(lessonKey, idx + 1)
-                                put("sourceTextPath", "$partKey/units/$unitKey/lesson_${lessonNum.toString().padStart(2, '0')}.txt")
+                                put("sourceTextPath", "$partFolder/units/$unitKey/lesson_${lessonNum.toString().padStart(2, '0')}.txt")
                             })
                         }
                     })
@@ -252,7 +256,7 @@ class PdfBookSplitter(private val context: Context) {
             sourcePdf = sourcePdf,
             bookDir = bookDir,
             groupedUnits = groupedUnits,
-            partKey = partKey
+            partKey = partFolder
         )
         warnings.addAll(splitFailureMessages)
 
@@ -263,7 +267,7 @@ class PdfBookSplitter(private val context: Context) {
                     "lesson_${(idx + 1).toString().padStart(2, '0')}"
                 }
                 val num = extractTrailingNumber(lessonKey, idx + 1)
-                val relPdf = "$partKey/units/$unitKey/lesson_${num.toString().padStart(2, '0')}.pdf"
+                val relPdf = "$partFolder/units/$unitKey/lesson_${num.toString().padStart(2, '0')}.pdf"
                 val lessonPdf = File(bookDir, relPdf)
                 val lessonBase = relPdf.removeSuffix(".pdf")
                 filesCount += listOf(
@@ -283,7 +287,7 @@ class PdfBookSplitter(private val context: Context) {
                         unitTitle = unitTitle,
                         lessonKey = lessonKey,
                         title = split.title.trim(),
-                        partKey = partKey.takeIf { it == "P01" || it == "P02" },
+                        partKey = null,
                         pageRange = "${split.startPage}–${split.endPage}",
                         pdfPath = lessonPdf.takeIf { it.exists() }?.absolutePath,
                         workspaceId = workspaceId
