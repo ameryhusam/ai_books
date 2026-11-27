@@ -1399,27 +1399,16 @@ class EduMiniRepository(
             return 0
         }
         if (task == TaskType.INTERACTIVE) {
-            val activity = InteractiveActivityParser.parse(draft.content, lessonRef.title) ?: return 0
-            val synced = questionBankService.syncInteractiveCheckpointsToQuestionBank(
+            val activity = InteractiveActivityParser.parse(draft.content, lessonRef.title)
+                ?: throw IllegalArgumentException("تعذر اعتماد النشاط: بنية النشاط التفاعلي غير صالحة.")
+            val publishedPackage = buildAndPublishInteractiveBundle(
                 workspaceId = draft.workspaceId,
                 lesson = lessonRef,
                 activity = activity,
-                draftId = draft.id,
-                templateId = draft.templateId,
-                promptUsed = draft.promptUsed,
-                responseSchemaJson = draft.responseSchemaJson,
-                sourceIndexSha256 = draft.sourceIndexSha256
-            )
-            runCatching {
-                buildAndPublishInteractiveBundle(
-                    workspaceId = draft.workspaceId,
-                    lesson = lessonRef,
-                    activity = activity,
-                    publishForStudents = true
-                )
-            }
+                publishForStudents = true
+            ) ?: throw IllegalStateException("تعذر إنشاء الحزمة التفاعلية؛ لم يتم اعتماد المسودة.")
             dao.updateDraftStatus(draftId, DraftStatus.APPROVED.id)
-            return synced.size
+            return activity.steps.size
         }
         val expectedBatch = QuestionResponseContract.expectedBatchFromPrompt(draft.promptUsed)
         val savedQuestions = saveQuestionsFromDraftText(
