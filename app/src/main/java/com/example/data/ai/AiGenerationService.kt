@@ -422,8 +422,8 @@ class AiGenerationService(
                             expectJson = expectJson
                         )
                         val durationMs = (System.currentTimeMillis() - callStart).coerceAtLeast(1L)
-                        onProviderStateChanged?.invoke(profile.id, "ACTIVE", 0L)
-                        onAttemptFinished?.invoke(profile.label, modelName, true, null)
+                        notifyProviderState(onProviderStateChanged, profile.id, "ACTIVE", 0L)
+                        notifyAttemptFinished(onAttemptFinished, profile.label, modelName, true, null)
                         return@withContext GeneratedResult(
                             text = outputText,
                             providerLabel = profile.label,
@@ -445,27 +445,27 @@ class AiGenerationService(
                     } catch (e: ProviderCallException) {
                         val reason = e.message?.takeIf { it.isNotBlank() } ?: "فشل"
                         errors.add("${profile.label}/$modelName (المحاولة ${attempt + 1}/3): $reason")
-                        onAttemptFinished?.invoke(profile.label, modelName, false, reason)
+                        notifyAttemptFinished(onAttemptFinished, profile.label, modelName, false, reason)
                         val failureStatus = classifyProviderFailure(e, reason, profile.provider)
                         eRetryAfterEpochMs = e.retryAfterEpochMs
 
                         when (failureStatus) {
                             "QUOTA_EXHAUSTED" -> {
                                 lastFailureKind = AiExecutionFailureKind.QUOTA_EXHAUSTED
-                                onProviderStateChanged?.invoke(profile.id, failureStatus, e.retryAfterEpochMs)
+                                notifyProviderState(onProviderStateChanged, profile.id, failureStatus, e.retryAfterEpochMs)
                                 errors.add("${profile.label}: تم استنفاد الحصة؛ سيتم تجربة ملف API آخر للمزود نفسه.")
                                 skipProfile = true
                                 break@modelLoop
                             }
                             "INVALID_KEY" -> {
                                 lastFailureKind = AiExecutionFailureKind.INVALID_CREDENTIALS
-                                onProviderStateChanged?.invoke(profile.id, failureStatus, 0L)
+                                notifyProviderState(onProviderStateChanged, profile.id, failureStatus, 0L)
                                 errors.add("${profile.label}: المفتاح غير صالح؛ سيتم تجربة ملف API آخر للمزود نفسه.")
                                 skipProfile = true
                                 break@modelLoop
                             }
                             "INVALID_REQUEST" -> {
-                                onProviderStateChanged?.invoke(profile.id, failureStatus, 0L)
+                                notifyProviderState(onProviderStateChanged, profile.id, failureStatus, 0L)
                                 lastFailureKind = AiExecutionFailureKind.INVALID_REQUEST
                                 throw AiExecutionException(
                                     lastFailureKind,
@@ -475,7 +475,7 @@ class AiGenerationService(
                             }
                             "MODEL_UNAVAILABLE" -> {
                                 lastFailureKind = AiExecutionFailureKind.MODEL_UNAVAILABLE
-                                onProviderStateChanged?.invoke(profile.id, failureStatus, 0L)
+                                notifyProviderState(onProviderStateChanged, profile.id, failureStatus, 0L)
                                 moveToNextModel = true
                             }
                             "RATE_LIMITED" -> {
@@ -485,21 +485,21 @@ class AiGenerationService(
                                     if (attempt == 2) {
                                         // Cool down this model only; do not block sibling Gemini models on the same key.
                                         geminiModelRouter.markCoolingDown(profile.id, modelName, e.retryAfterEpochMs)
-                                        onProviderStateChanged?.invoke(profile.id, "MODEL_RATE_LIMITED", e.retryAfterEpochMs)
+                                        notifyProviderState(onProviderStateChanged, profile.id, "MODEL_RATE_LIMITED", e.retryAfterEpochMs)
                                         moveToNextModel = true
                                     }
                                 } else if (attempt == 2) {
                                     // OpenAI-compatible profiles may represent separate projects/keys.
                                     val keyCooldownUntil = e.retryAfterEpochMs.takeIf { it > 0L }
                                         ?: (System.currentTimeMillis() + 60_000L)
-                                    onProviderStateChanged?.invoke(profile.id, failureStatus, keyCooldownUntil)
+                                    notifyProviderState(onProviderStateChanged, profile.id, failureStatus, keyCooldownUntil)
                                     skipProfile = true
                                     break@modelLoop
                                 }
                             }
                             else -> {
                                 if (!e.isTransient) {
-                                    onProviderStateChanged?.invoke(profile.id, failureStatus, e.retryAfterEpochMs)
+                                    notifyProviderState(onProviderStateChanged, profile.id, failureStatus, e.retryAfterEpochMs)
                                     lastFailureKind = if (failureStatus == "EMPTY_RESPONSE") {
                                         AiExecutionFailureKind.EMPTY_RESPONSE
                                     } else {
@@ -525,8 +525,8 @@ class AiGenerationService(
                     } catch (e: IOException) {
                         val reason = e.message?.takeIf { it.isNotBlank() } ?: "خطأ شبكة"
                         errors.add("${profile.label}/$modelName (المحاولة ${attempt + 1}/3): $reason")
-                        onAttemptFinished?.invoke(profile.label, modelName, false, reason)
-                        onProviderStateChanged?.invoke(profile.id, "NETWORK_ERROR", 0L)
+                        notifyAttemptFinished(onAttemptFinished, profile.label, modelName, false, reason)
+                        notifyProviderState(onProviderStateChanged, profile.id, "NETWORK_ERROR", 0L)
                         lastFailureKind = AiExecutionFailureKind.NETWORK_ERROR
                         profileHadRetryableFailure = true
                         if (attempt == 2) {
@@ -540,8 +540,8 @@ class AiGenerationService(
                     } catch (e: Exception) {
                         val reason = e.message?.takeIf { it.isNotBlank() } ?: "فشل"
                         errors.add("${profile.label}/$modelName: $reason")
-                        onAttemptFinished?.invoke(profile.label, modelName, false, reason)
-                        onProviderStateChanged?.invoke(profile.id, "ERROR", 0L)
+                        notifyAttemptFinished(onAttemptFinished, profile.label, modelName, false, reason)
+                        notifyProviderState(onProviderStateChanged, profile.id, "ERROR", 0L)
                         throw e
                     }
 
@@ -595,6 +595,41 @@ class AiGenerationService(
         )
         val elapsed = (System.currentTimeMillis() - started).coerceAtLeast(1L)
         "اتصال ناجح بـ ${profile.model} (${elapsed}ms): ${reply.trim().take(40)}"
+    }
+
+    /**
+     * Telemetry/state callbacks must never discard a provider response or interrupt
+     * same-provider failover. Cancellation is the only callback exception rethrown.
+     */
+    private suspend fun notifyProviderState(
+        callback: (suspend (providerId: String, status: String, retryAfterEpochMs: Long) -> Unit)?,
+        providerId: String,
+        status: String,
+        retryAfterEpochMs: Long
+    ) {
+        try {
+            callback?.invoke(providerId, status, retryAfterEpochMs)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            // Provider execution remains authoritative; diagnostic persistence is best-effort.
+        }
+    }
+
+    private suspend fun notifyAttemptFinished(
+        callback: (suspend (providerLabel: String, model: String, success: Boolean, error: String?) -> Unit)?,
+        providerLabel: String,
+        model: String,
+        success: Boolean,
+        error: String?
+    ) {
+        try {
+            callback?.invoke(providerLabel, model, success, error)
+        } catch (failure: CancellationException) {
+            throw failure
+        } catch (_: Exception) {
+            // A telemetry write failure must not hide the response returned by the provider.
+        }
     }
 
     private suspend fun callProvider(
