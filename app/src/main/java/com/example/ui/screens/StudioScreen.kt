@@ -1675,7 +1675,19 @@ private fun StudioWorkbench(
                                 }
                             }
                         }
-                        if (generatedResult.isNotBlank() && task == TaskType.LESSON_TEXT) {
+                        if (
+                            generatedResult.isNotBlank() &&
+                            task in setOf(
+                                TaskType.EXPLANATION,
+                                TaskType.SUMMARY,
+                                TaskType.OBJECTIVES,
+                                TaskType.VOCABULARY,
+                                TaskType.WORKED_EXAMPLES,
+                                TaskType.LESSON_REVIEW,
+                                TaskType.DIFFICULTY_ADAPTER,
+                                TaskType.LESSON_TEXT
+                            )
+                        ) {
                             EduPanel(modifier = Modifier.fillMaxWidth()) {
                                 Text("إدارة نص الدرس", style = MaterialTheme.typography.titleMedium, color = EduInk)
                                 Text(
