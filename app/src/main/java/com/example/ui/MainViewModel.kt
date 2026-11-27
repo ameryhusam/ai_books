@@ -2175,21 +2175,14 @@ class MainViewModel(
     fun updateProviderType(type: ProviderType) {
         _uiState.update { state ->
             val isNewProfile = state.providerForm.editingProviderId == null
-            val defaultLabel = if (type == ProviderType.GEMINI) "Gemini" else "OpenAI"
-            val updatedLabel = if (isNewProfile) defaultLabel else state.providerForm.label
             state.copy(
                 providerForm = state.providerForm.copy(
                     provider = type,
-                    label = updatedLabel,
                     model = if (isNewProfile) "" else state.providerForm.model,
                     fallbackModels = if (isNewProfile) "" else state.providerForm.fallbackModels
                 )
             )
         }
-    }
-
-    fun updateFormLabel(value: String) {
-        _uiState.update { it.copy(providerForm = it.providerForm.copy(label = value)) }
     }
 
     fun updateFormModel(value: String) {
@@ -2218,7 +2211,6 @@ class MainViewModel(
                 providerForm = ProviderFormState(
                     editingProviderId = profile.id,
                     provider = profile.provider,
-                    label = profile.label,
                     model = "",
                     fallbackModels = "",
                     strictModel = false,
@@ -3429,7 +3421,7 @@ class MainViewModel(
                     .filter { it.provider == form.provider }
                     .maxOfOrNull { it.priority + 1 } ?: 0
                 currentList + ProviderConfig(
-                    id = "api-key-$now",
+                    id = "api-key-${java.util.UUID.randomUUID()}",
                     provider = form.provider,
                     label = keyName,
                     model = "",
@@ -3445,7 +3437,7 @@ class MainViewModel(
                 )
             }
             repository.saveProviders(next)
-            val savedKeyName = next.firstOrNull { it.id == (existing?.id ?: "api-key-$now") }?.label.orEmpty()
+            val savedKeyName = next.firstOrNull { it.id == (existing?.id ?: next.last().id) }?.label.orEmpty()
             _uiState.update {
                 it.copy(
                     providers = next,
