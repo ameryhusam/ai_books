@@ -2,7 +2,7 @@
 
 ## 1. Contract overview
 
-Indexer2 produces a workspace package. Edu Mini consumes it without rerunning indexing or reconstructing the curriculum structure.
+ai_books owns indexing, approval, slicing, and Workspace production. Room on the administrator device is the canonical store for the approved index. Student devices receive a grade-scoped content package containing lesson files and binding metadata; they do not receive the administrator's full database.
 
 Logical book root:
 
@@ -82,7 +82,7 @@ A merged source remains merged even when the TOC does not identify unit parts. D
 
 ## 5. Book-level index fields
 
-The current TypeScript `IndexTemplate` declares:
+The current app-owned index contract declares:
 - identity/display: `templateId`, `templateName`, `title`, `displayName`, optional `gradeName`, `subjectName`, `componentName`;
 - canonical keys: `gradeKey`, `subjectKey`, optional `componentKey`;
 - source: `partKey`, `sourceLayout`, `sourceReviewStatus`, `sourceMetadata`;
@@ -104,7 +104,7 @@ A lesson contains source numbering, title, printed page range, optional physical
 
 `sliceFile.workspaceUri` is the preferred explicit path to the generated lesson PDF. It is workspace-relative and must resolve from the selected workspace root. The consumer must not prepend the part or unit path again when this URI is already present.
 
-The slicer currently calculates physical page ranges from `printedPageStart + offset` and `printedPageEnd + offset`. Optional `pdfPageStart` / `pdfPageEnd` fields must not be treated as slicer inputs unless the Indexer2 implementation is deliberately changed and tested.
+The slicer currently calculates physical page ranges from `printedPageStart + offset` and `printedPageEnd + offset`. Optional `pdfPageStart` / `pdfPageEnd` fields must not be conflated with printed page numbers or user-entered expected TOC pages. Apply page offset exactly once in the ai_books slicing pipeline and cover it with tests.
 
 ## 7. Manifest contract
 
@@ -137,3 +137,13 @@ Hashes are calculated from the exact serialized bytes written to each file. Neve
 6. Unresolved merged unit assignments block approval and slicing.
 7. Every lesson path must resolve safely and identify a readable PDF.
 8. The consumer must bind a merged root index once and ignore its derived indexes as independent books.
+
+## 10. Grade package distribution contract
+
+The package is a **content delivery artifact per grade**, not a database backup. It is generated from approved Room records and contains only the grade's published curriculum metadata, stable book/unit/lesson keys, lesson PDFs, required HTML/interactive resources, and a manifest with relative paths, sizes, hashes, package ID, and schema version. The canonical index remains in Room; the package metadata is a transport/binding projection and must not become a second editable index source.
+
+The student device imports the ZIP into app-managed local storage, validates it before activation, and creates/updates the local Room catalog using stable identities. Its lesson viewer resolves each lesson file from the imported package by lesson identity and validated relative path. No absolute path or content URI from the administrator device is portable.
+
+Do not include the administrator's full database, private AI drafts, provider credentials, unrelated grades, or learner performance records. Student attempts, scores, progress, and assessment history are learner data and travel in the opposite direction through a separately authenticated/synchronized data flow. Offline learning must continue when no network is available; pending performance events can be synchronized later.
+
+A package update must preserve learner progress for unchanged stable lesson identities. Removed or changed lessons must be handled by an explicit versioning/retention policy; never silently reset or orphan progress. The package importer must stage, validate hashes and required assets, and activate atomically.
