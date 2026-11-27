@@ -457,14 +457,14 @@ class AiGenerationService(
                             "QUOTA_EXHAUSTED" -> {
                                 lastFailureKind = AiExecutionFailureKind.QUOTA_EXHAUSTED
                                 notifyProviderState(onProviderStateChanged, profile.id, failureStatus, e.retryAfterEpochMs)
-                                errors.add("${profile.label}: تم استنفاد الحصة؛ سيتم تجربة ملف API آخر للمزود نفسه.")
+                                errors.add("${profile.label}: تم استنفاد الحصة؛ سيتم تجربة مفتاح API آخر للمزود نفسه.")
                                 skipProfile = true
                                 break@modelLoop
                             }
                             "INVALID_KEY" -> {
                                 lastFailureKind = AiExecutionFailureKind.INVALID_CREDENTIALS
                                 notifyProviderState(onProviderStateChanged, profile.id, failureStatus, 0L)
-                                errors.add("${profile.label}: المفتاح غير صالح؛ سيتم تجربة ملف API آخر للمزود نفسه.")
+                                errors.add("${profile.label}: المفتاح غير صالح؛ سيتم تجربة مفتاح API آخر للمزود نفسه.")
                                 skipProfile = true
                                 break@modelLoop
                             }
