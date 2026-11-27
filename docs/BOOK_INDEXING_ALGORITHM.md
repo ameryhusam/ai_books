@@ -201,6 +201,8 @@ For example, if the TOC says printed page 25 and that page is physical PDF page 
 
 The offset is a source-level calibration, not a per-lesson guess. Verify it against more than one visible printed-page marker where possible. If the difference is inconsistent, the source has inserted/unprinted pages or a non-constant mapping; do not force a single offset. Mark calibration for review and preserve explicit physical page positions where they can be established. Validate every mapped physical range against the actual original PDF page count. After slicing, keep local lesson-PDF page numbers separate from original PDF positions.
 
+**Implementation issue to resolve:** the current `BookIndexIntakeDraft.offset` is a non-null integer defaulting to `0`. That representation cannot distinguish a verified zero offset from an unknown offset. Before wiring AI discovery, change the draft contract to represent an unknown/unverified offset explicitly (nullable or an equivalent reviewed state). A printed-page range must not silently map using zero when calibration is unknown; explicit verified `pdfPageStart` / `pdfPageEnd` values may still be used without an offset.
+
 ### 11.4 Evidence and approval rules
 
 - AI or local discovery creates a draft, not an approved index.
