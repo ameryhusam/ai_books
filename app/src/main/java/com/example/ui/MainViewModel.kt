@@ -2174,23 +2174,8 @@ class MainViewModel(
 
     fun updateProviderType(type: ProviderType) {
         _uiState.update { state ->
-            val isNewProfile = state.providerForm.editingProviderId == null
-            state.copy(
-                providerForm = state.providerForm.copy(
-                    provider = type,
-                    model = if (isNewProfile) "" else state.providerForm.model,
-                    fallbackModels = if (isNewProfile) "" else state.providerForm.fallbackModels
-                )
-            )
+            state.copy(providerForm = state.providerForm.copy(provider = type))
         }
-    }
-
-    fun updateFormModel(value: String) {
-        _uiState.update { it.copy(providerForm = it.providerForm.copy(model = value)) }
-    }
-
-    fun updateFormFallbackModels(value: String) {
-        _uiState.update { it.copy(providerForm = it.providerForm.copy(fallbackModels = value)) }
     }
 
     fun updateFormBaseUrl(value: String) {
@@ -2201,19 +2186,12 @@ class MainViewModel(
         _uiState.update { it.copy(providerForm = it.providerForm.copy(apiKey = value)) }
     }
 
-    fun toggleFormStrictModel() {
-        _uiState.update { it.copy(providerForm = it.providerForm.copy(strictModel = !it.providerForm.strictModel)) }
-    }
-
     fun startEditProvider(profile: ProviderConfig) {
         _uiState.update {
             it.copy(
                 providerForm = ProviderFormState(
                     editingProviderId = profile.id,
                     provider = profile.provider,
-                    model = "",
-                    fallbackModels = "",
-                    strictModel = false,
                     baseUrl = profile.baseUrl.ifBlank { "https://api.openai.com/v1" },
                     apiKey = profile.apiKey,
                     dailyRequestLimit = profile.dailyRequestLimit.toString(),
@@ -2255,7 +2233,6 @@ class MainViewModel(
             label = state.providers.firstOrNull { it.id == form.editingProviderId && it.provider == form.provider }?.label
                 ?: ProviderApiKeyNames.nextName(form.provider, state.providers),
             model = selectedModel,
-            strictModel = form.strictModel,
             baseUrl = form.baseUrl.trim(),
             apiKey = form.apiKey.trim(),
             enabled = true,
