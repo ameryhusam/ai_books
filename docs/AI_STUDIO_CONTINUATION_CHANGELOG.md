@@ -381,14 +381,14 @@ The latest Android CI run observed during this pass is [run 45715165859](https:/
 ### Scope and design
 - Removed local dailyRequestLimit enforcement from ProviderStorage.reserveProviderKey. The legacy field remains serialized for backward compatibility, but it no longer prevents an outgoing request.
 - dailyRequestsUsed is retained as diagnostic attempt telemetry only; it is not compared with a local cap.
-- Provider-reported QUOTA_EXHAUSTED is retained as a diagnostic runtime status. It is not used as a local pre-request quota gate, and it is no longer automatically cleared merely because the device's local date changed.
+- Provider-reported QUOTA_EXHAUSTED blocks that API profile for the remainder of its configured quota day. It is cleared when that profile's quota timezone advances to the next day; the local dailyRequestLimit counter is still not used to infer provider quota.
 - A successful provider request clears the diagnostic error state back to ACTIVE.
 - Gemini error parsing now includes the API error status and structured details signals, rather than relying only on the human-readable message.
-- Added classification for explicit QUOTA_EXCEEDED and RATE_LIMIT_EXCEEDED signals. A confirmed Gemini quota-exhaustion response stops the current generation immediately; it does not cycle through additional Google profiles/models as a quota-bypass mechanism.
-- Retry-After now accepts both delta-seconds and RFC 1123 HTTP-date values. If the header is absent or invalid, the existing 60-second fallback remains.
+- Added provider failure classification for quota exhaustion, invalid credentials, model unavailability, rate limiting and invalid requests. A confirmed quota exhaustion skips the exhausted profile and attempts the next configured profile of the same provider; it never switches from Gemini to OpenAI. Google keys belonging to the same Cloud project may share quota, so profile rotation is not a guarantee of extra quota.
+- Retry-After accepts delta-seconds and RFC 1123 HTTP-date values. When absent/invalid, the retry loop uses bounded exponential backoff; model cooldown applies its own default duration.
 - Gemini and OpenAI-compatible request paths remain separate. Model-level cooldown behavior for Gemini rate limiting is retained.
-- Historical quota-policy note dated 2026-11-26: same-profile Gemini model fallback was described as a possible 429 handling path. The current 2026-11-27 generation source does not dispatch it; it uses only the exact selected model, as clarified below.
-- **Current runtime clarification (2026-11-27):** the current AiGenerationService.generate() path uses ProviderRoutingPolicy.exactModelCandidate(requestedModelId), so it sends only the exact model selected in the dialog. It does not dispatch configured fallbackModels. The preceding bullet records the earlier intended/observed quota-policy design and must not be read as proof that same-profile model fallback is active in the current generation path.
+- Current policy: Gemini attempts each configured model up to three times for transient overload/rate-limit/network/server failures, then advances to the next configured Gemini model. Confirmed quota exhaustion or invalid key skips the current API profile and tries the next same-provider profile.
+- **Current runtime clarification (2026-11-27):** `AiGenerationService.execute(AiExecutionRequest)` is the task-neutral provider execution entry point. The legacy `generate(lesson, task, ...)` wrapper prepares the lesson prompt then delegates to `execute`. OpenAI-compatible requests keep the selected model and retry transient failures up to three dispatches before trying another same-provider API profile/key; quota exhaustion and invalid credentials skip the current profile immediately.
 - SettingsScreen no longer exposes a local daily request cap or local quota-reset timezone; it explains provider-authoritative quota detection and shows the daily attempt count as diagnostic information only.
 
 ### Files changed
@@ -401,7 +401,7 @@ The latest Android CI run observed during this pass is [run 45715165859](https:/
 ### Validation
 - Source transformation checks confirmed the intended code sections were changed.
 - No Gradle compiler, unit-test, or Android assembly command was executed in this pass. Build and runtime behavior remain unverified.
-- The service still depends on the exact structured reason strings returned by Google; unknown HTTP 429 responses are conservatively classified as rate limiting, not quota exhaustion.
+- Provider error classification uses HTTP status, provider message and structured reason/code fields. Unknown HTTP 429 responses are treated as rate limiting; only explicit quota signals trigger quota-profile failover.
 
 ## 2026-11-26 — P2 continuation: analytics timezone consistency
 
