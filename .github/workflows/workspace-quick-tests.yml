@@ -1,10 +1,30 @@
 name: Workspace Quick Tests
 
 on:
+  push:
+    paths:
+      - 'app/src/main/java/com/example/data/workspace/**'
+      - 'app/src/main/java/com/example/data/repository/EduMiniRepository.kt'
+      - 'app/src/test/java/com/example/data/workspace/**'
+      - 'app/src/test/java/com/example/EduMiniCoreTest.kt'
+      - '.github/workflows/workspace-quick-tests.yml'
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'app/src/main/java/com/example/data/workspace/**'
+      - 'app/src/main/java/com/example/data/repository/EduMiniRepository.kt'
+      - 'app/src/test/java/com/example/data/workspace/**'
+      - 'app/src/test/java/com/example/EduMiniCoreTest.kt'
+      - '.github/workflows/workspace-quick-tests.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: workspace-quick-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   workspace-unit-tests:
