@@ -209,31 +209,7 @@ object WorkspaceContractValidator {
         val units = index["units"] as? JsonArray
         if (units.isNullOrEmpty()) {
             errors.add("[index.json → units] الفهرس لا يحتوي مصفوفة units صالحة أو أن المصفوفة فارغة.")
-            val reviewMarkers = listOf(
-            "sourceRequiresReview",
-            "partEvidence",
-            "sourceReviewStatus",
-            "approvalStatus",
-            "requiresReview",
-            "indexSha256",
-            "canonicalIndexSha256",
-            "assignmentSource",
-            "assignmentEvidence",
-            "assignmentStatus",
-            "provisionalAssignment",
-            "REVIEW_REQUIRED"
-        )
-        val reviewErrors = errors.filter { message ->
-            reviewMarkers.any { marker -> message.contains(marker, ignoreCase = true) } ||
-                (message.contains("partIndexes", ignoreCase = true) && message.contains("لا تطابق"))
-        }
-        val blockingErrors = errors.filterNot { it in reviewErrors }
-        return WorkspaceContractValidation(
-            canonicalContract = canonical,
-            errors = blockingErrors.distinct(),
-            warnings = warnings.distinct(),
-            reviewRequiredErrors = reviewErrors.distinct()
-        )
+            return WorkspaceContractValidation(canonical, errors.distinct(), warnings.distinct())
         }
         val available = availableRelativePaths.map { normalizePath(it) }.toSet()
         val seenUnitKeys = HashSet<String>()
@@ -355,7 +331,32 @@ object WorkspaceContractValidator {
             val suffix = if (missingAssignmentUnits.size > 3) " (+${missingAssignmentUnits.size - 3})" else ""
             warnings.add("حقل assignmentStatus غير موجود في ${missingAssignmentUnits.size} وحدة ($preview$suffix)؛ تم الاعتماد على partKey مع حالة مراجعة المصدر.")
         }
-        return WorkspaceContractValidation(canonical, errors.distinct(), warnings.distinct())
+        val reviewMarkers = listOf(
+            "sourceMetadata",
+            "sourceRequiresReview",
+            "partEvidence",
+            "sourceReviewStatus",
+            "approvalStatus",
+            "requiresReview",
+            "indexSha256",
+            "canonicalIndexSha256",
+            "assignmentSource",
+            "assignmentEvidence",
+            "assignmentStatus",
+            "provisionalAssignment",
+            "REVIEW_REQUIRED"
+        )
+        val reviewErrors = errors.filter { message ->
+            reviewMarkers.any { marker -> message.contains(marker, ignoreCase = true) } ||
+                (message.contains("partIndexes", ignoreCase = true) && message.contains("لا تطابق"))
+        }
+        val blockingErrors = errors.filterNot { it in reviewErrors }
+        return WorkspaceContractValidation(
+            canonicalContract = canonical,
+            errors = blockingErrors.distinct(),
+            warnings = warnings.distinct(),
+            reviewRequiredErrors = reviewErrors.distinct()
+        )
     }
 
     /**
