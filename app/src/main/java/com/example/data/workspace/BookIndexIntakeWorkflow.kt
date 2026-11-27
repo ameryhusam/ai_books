@@ -63,6 +63,7 @@ data class BookIndexIntakeDraft(
     val subjectName: String,
     val componentKey: String? = null,
     val sourceLayout: IndexSourceLayout = IndexSourceLayout.UNKNOWN,
+    val sourceLayoutEvidence: String = "",
     val partKey: String? = null,
     /** Physical PDF page = printed page + offset. Applied only if physical page is absent. */
     val offset: Int = 0,
@@ -92,6 +93,7 @@ data class BookIndexIntakeDraft(
         if (subjectKey.isBlank()) add("مفتاح المادة مطلوب")
         if (subjectName.isBlank()) add("اسم المادة مطلوب")
         if (sourceLayout == IndexSourceLayout.UNKNOWN) add("يجب تحديد بنية المصدر: جزء مستقل أم ملف مدمج")
+        if (sourceLayoutEvidence.isBlank()) add("دليل تحديد بنية ملف المصدر مطلوب")
         if (units.isEmpty()) add("يجب اكتشاف وحدة واحدة على الأقل أو إضافتها يدوياً")
 
         if (sourceLayout == IndexSourceLayout.SINGLE_PART_FILE && partKey !in setOf("P01", "P02")) {
@@ -164,6 +166,7 @@ object BookIndexPromptTemplate {
           "subjectKey": "SCI",
           "componentKey": null,
           "sourceLayout": "SINGLE_PART_FILE | MERGED_PARTS_FILE | UNKNOWN",
+          "sourceLayoutEvidence": "دليل من الغلاف أو صفحة العنوان أو محتوى الملف",
           "partKey": "P01 | P02 | BOTH | null",
           "offset": 4,
           "units": [
@@ -173,7 +176,7 @@ object BookIndexPromptTemplate {
               "partKey": "P01 | P02 | null",
               "proposedPartKey": null,
               "assignmentStatus": "assigned | need_review",
-              "assignmentSource": "INDEX_EVIDENCE | DEFAULT_PROPOSAL | LEGACY_UNVERIFIED",
+              "assignmentSource": "INDEX_EVIDENCE | DEFAULT_PROPOSAL",
               "assignmentEvidence": "الدليل النصي",
               "lessons": [
                 {
