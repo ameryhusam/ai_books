@@ -830,7 +830,7 @@ The source changes are in place, but behavior is not considered verified until t
 - Default model: `gemini-3.5-flash` (display: `Gemini 3.5 Flash`).
 - Other built-in Gemini models: `gemini-3.6-flash`, `gemini-3.7-flash`, and `gemini-3.8-flash` (display names retain the Gemini family/version).
 - The four built-in entries are enabled and user-manageable in the model catalog. The selected default is the first model used; fallback order is configured by the profile/runtime policy and must not be inferred from model display order.
-- A new Gemini API profile preselects the central default and orders the other enabled Gemini models as fallbacks. Existing profiles retain their saved explicit selection.
+- API connection creation does not ask the user to choose a Gemini model. On save, enabled Gemini catalogue entries are copied as ordered same-provider fallback candidates (default first); the generation-time picker chooses the primary model for each request.
 - The central Firestore collection is still authoritative. Missing built-in entries are merged into the central collection only for a user whose `system_admins/{uid}` record grants `manage_ai_models`; a normal teacher/admin role is not sufficient. Non-authorized users must not silently substitute a local catalogue for the central one.
 - Local SharedPreferences catalog migration restores missing built-in metadata for legacy installs without overwriting custom entries or API credentials.
 - The configured model IDs are `gemini-3.5-flash`, `gemini-3.6-flash`, `gemini-3.7-flash`, and `gemini-3.8-flash`; availability and access are determined by the user's Google API account. See the official [Gemini model list](https://ai.google.dev/gemini-api/docs/models) and [pricing/model IDs](https://ai.google.dev/gemini-api/docs/pricing).
@@ -846,7 +846,7 @@ The source changes are in place, but behavior is not considered verified until t
 
 ## Provider connection test in Settings
 
-The Settings screen uses the existing `testFormProvider` / `testSavedProvider` → repository → `AiGenerationService.testProviderConnection` path. It tests unsaved form values directly, allowing a user to verify a profile before saving it. The test sends one short text-only request to exactly the selected provider and model; it does not use lesson prompts, templates, PDF attachments, generation history, quota reservation, draft persistence, or cross-provider fallback.
+The Settings screen uses the existing `testFormProvider` / `testSavedProvider` → repository → `AiGenerationService.testProviderConnection` path. It tests unsaved form values directly, allowing a user to verify a profile before saving it. The test sends one short text-only request to the selected provider using that provider's enabled default catalogue model (or the first enabled supported model when no default exists). It does not use lesson prompts, templates, PDF attachments, generation history, quota reservation, draft persistence, or cross-provider fallback.
 
 A successful result displays provider, model, elapsed time, and the complete returned text. The result dialog is scrollable rather than truncating the response. The Settings button displays an in-progress state and prevents duplicate test requests.
 
