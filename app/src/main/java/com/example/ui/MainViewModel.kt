@@ -6,6 +6,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.firebase.AnalyticsTracker
 import com.example.data.ai.AiModelDefinition
+import com.example.data.ai.AiExecutionException
+import com.example.data.ai.AiExecutionFailureKind
 import com.example.data.firebase.FirestoreSyncRepository
 import com.example.data.repository.ConceptMasteryEngine
 import com.example.data.repository.EduMiniRepository
@@ -3127,10 +3129,21 @@ class MainViewModel(
                     lessonKey = lesson.lessonKey,
                     success = false
                 )
+                val failureTitle = when ((e as? AiExecutionException)?.kind) {
+                    AiExecutionFailureKind.QUOTA_EXHAUSTED -> "حصة API اليومية مستنفدة"
+                    AiExecutionFailureKind.RATE_LIMITED -> "النموذج مزدحم أو تجاوز حد المعدل"
+                    AiExecutionFailureKind.INVALID_CREDENTIALS -> "مفتاح API غير صالح"
+                    AiExecutionFailureKind.INVALID_REQUEST -> "رفض مزود AI الطلب"
+                    AiExecutionFailureKind.EMPTY_RESPONSE -> "لم يُرجع النموذج محتوى"
+                    AiExecutionFailureKind.NETWORK_ERROR -> "تعذر الاتصال بمزود AI"
+                    AiExecutionFailureKind.MODEL_UNAVAILABLE -> "النموذج غير متاح"
+                    AiExecutionFailureKind.PROVIDER_UNAVAILABLE -> "تعذر التوليد عبر مزود AI"
+                    null -> "تعذر التوليد"
+                }
                 _uiState.update {
                     it.copy(
                         alert = AlertMessage(
-                            title = "تعذر التوليد",
+                            title = failureTitle,
                             message = e.message ?: "حدث خطأ غير متوقع أثناء التوليد"
                         )
                     )
