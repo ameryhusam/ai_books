@@ -3547,72 +3547,24 @@ class MainViewModel(
                     success = true
                 )
                 _uiState.update { it.copy(providers = repository.loadProviders(), generationProgressPercent = 100, generationStage = "اكتمل التوليد والحفظ") }
-                val questionSaveResult = if (false && snapshot.task == TaskType.QUESTIONS) {
-                    runCatching {
-                        repository.saveQuestionsFromDraftText(
-                            workspaceId = wsId,
-                            lesson = lesson,
-                            rawText = out.text,
-                            draftId = persistedDraft.id,
-                            templateId = out.templateId,
-                            promptUsed = out.promptUsed,
-                            responseSchemaJson = out.responseSchemaJson,
-                            sourceIndexSha256 = persistedDraft.sourceIndexSha256,
-                            expectedQuestionCount = snapshot.questionCount,
-                            expectedQuestionTypeIds = snapshot.selectedQuestionTypeIds,
-                            expectedQuestionDifficultyId = snapshot.questionDifficulty.id
-                        )
-                    }
-                } else null
-                val syncedQuestionsCount = questionSaveResult?.getOrNull()?.size ?: 0
-                val questionSaveError = questionSaveResult?.exceptionOrNull()?.message
-                val lessonTextSaved = if (false && snapshot.task == TaskType.LESSON_TEXT) {
-                    val extracted = repository.extractLessonTextFromOutput(out.text)
-                    runCatching {
-                        repository.saveLessonText(
-                            workspaceId = wsId,
-                            lesson = lesson,
-                            content = extracted,
-                            extractionMethod = "ai_generated",
-                            sourcePdfHash = out.sourcePdfHash,
-                            templateId = out.templateId,
-                            promptUsed = out.promptUsed,
-                            responseSchemaJson = out.responseSchemaJson
-                        )
-                    }.getOrNull()
-                } else null
                 val interactiveParsed = if (snapshot.task == TaskType.INTERACTIVE) {
                     InteractiveActivityParser.parseStrictJson(out.text, lesson.title)
                 } else {
                     null
                 }
-                val publishedBundle = if (false && interactiveParsed != null) {
-                    runCatching {
-                        repository.buildAndPublishInteractiveBundle(
-                            workspaceId = wsId,
-                            lesson = lesson,
-                            activity = interactiveParsed,
-                            publishForStudents = true
-                        )
-                    }.getOrNull()
-                } else null
                 val resultSummary = when {
-                    snapshot.task == TaskType.QUESTIONS && questionSaveError != null ->
-                        "تم استلام الاستجابة من ${out.providerLabel} (${out.model}) وحفظ نصها كمسودة، لكن لم تُدرج الأسئلة في بنك الأسئلة: $questionSaveError"
-                    snapshot.task == TaskType.QUESTIONS && syncedQuestionsCount > 0 ->
-                        "تم التوليد عبر ${out.providerLabel} (${out.model})، وحُفظت المسودة وتم التحقق من العدد والأنواع قبل إضافة $syncedQuestionsCount سؤالاً إلى بنك الأسئلة واختبار الدرس."
                     snapshot.task == TaskType.QUESTIONS ->
                         "تم حفظ مسودة الأسئلة فقط. لن تُدرج في بنك الأسئلة أو اختبار الطالب قبل اعتمادها صراحةً."
-                    snapshot.task == TaskType.LESSON_TEXT && lessonTextSaved != null ->
-                        "تم استخراج وحفظ المحتوى النصي للدرس بنجاح في قاعدة البيانات وتحديث مصدر الاستوديو (v${lessonTextSaved.version})."
-                    snapshot.task == TaskType.INTERACTIVE && publishedBundle != null ->
-                        "تم التوليد عبر ${out.providerLabel} (${out.model}) وبناء حزمة HTML + JS + JSON (${interactiveParsed?.steps?.size ?: 0} محطة) ونشرها للطالب مع مزامنة المفاهيم."
+                    snapshot.task == TaskType.LESSON_TEXT ->
+                        "تم حفظ نص الدرس كمسودة. راجع النص واعتمده لحفظه في مصدر الدرس."
                     snapshot.task == TaskType.INTERACTIVE && interactiveParsed != null ->
                         "تم حفظ النشاط التفاعلي (${interactiveParsed.steps.size} محطة) كمسودة قابلة للمعاينة في الاستوديو؛ لن يُنشر للطالب قبل الاعتماد."
+                    snapshot.task == TaskType.INTERACTIVE ->
+                        "تم حفظ استجابة النشاط كمسودة، لكن بنيتها لا تجتاز التحقق الصارم بعد."
                     else ->
                         "تم استلام الاستجابة عبر ${out.providerLabel} (${out.model}) وحفظها كمسودة."
                 }
-                val reviewIssues = (out.validationIssues + listOfNotNull(questionSaveError, cloudSyncError))
+                val reviewIssues = (out.validationIssues + listOfNotNull(cloudSyncError))
                     .filter { it.isNotBlank() }
                     .distinct()
                 val resultMessage = if (reviewIssues.isEmpty()) {
