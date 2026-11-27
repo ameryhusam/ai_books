@@ -179,7 +179,7 @@ fun PreImportPreviewDialog(
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = preview.reviewFindings.joinToString("\\n"),
+                                text = preview.reviewFindings.joinToString("\n"),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = EduInk
                             )
