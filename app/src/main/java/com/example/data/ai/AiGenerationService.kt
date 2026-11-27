@@ -72,6 +72,7 @@ data class AiExecutionRequest(
     val selectedProvider: ProviderType,
     val requestedModelId: String,
     val requestedProfileId: String,
+    val modelFallbackIds: List<String> = emptyList(),
     val pdfPageImagesBase64: List<String> = emptyList(),
     val pdfDocumentBase64: String? = null,
     val responseSchemaJson: String = "",
@@ -283,7 +284,8 @@ class AiGenerationService(
         sourcePdfHash: String = "",
         onReserveProvider: (suspend (ProviderConfig) -> Boolean)? = null,
         onProviderStateChanged: (suspend (providerId: String, status: String, retryAfterEpochMs: Long) -> Unit)? = null,
-        onAttemptFinished: (suspend (providerLabel: String, model: String, success: Boolean, error: String?) -> Unit)? = null
+        onAttemptFinished: (suspend (providerLabel: String, model: String, success: Boolean, error: String?) -> Unit)? = null,
+        modelFallbackIds: List<String> = emptyList()
     ): GeneratedResult {
         val prompt = withContext(Dispatchers.IO) {
             buildPrompt(
@@ -308,6 +310,7 @@ class AiGenerationService(
                 selectedProvider = selectedProvider,
                 requestedModelId = requestedModelId,
                 requestedProfileId = requestedProfileId,
+                modelFallbackIds = modelFallbackIds,
                 pdfPageImagesBase64 = pdfPageImagesBase64,
                 pdfDocumentBase64 = pdfDocumentBase64,
                 responseSchemaJson = responseSchemaJson,
@@ -349,7 +352,7 @@ class AiGenerationService(
 
         require(prompt.isNotBlank()) { "يجب تجهيز البرومبت قبل تنفيذ طلب AI." }
         require(requestedModelId.isNotBlank()) { "يجب اختيار نموذج من كتالوج مدير النظام." }
-        require(requestedProfileId.isNotBlank()) { "يجب اختيار ملف اتصال API." }
+        require(requestedProfileId.isNotBlank()) { "يجب اختيار مفتاح API." }
 
         val active = ProviderRoutingPolicy.orderedProfiles(
             providers = providers,
@@ -357,7 +360,7 @@ class AiGenerationService(
             preferredProfileId = requestedProfileId
         )
         require(active.isNotEmpty()) {
-            "لا توجد ملفات API مفعّلة للمزود ${selectedProvider.displayName}."
+            "لا توجد مفاتيح API مفعّلة للمزود ${selectedProvider.displayName}."
         }
         val errors = mutableListOf<String>()
         var lastFailureKind = AiExecutionFailureKind.PROVIDER_UNAVAILABLE
@@ -365,11 +368,11 @@ class AiGenerationService(
 
         profileLoop@ for (profile in active) {
             val modelCandidates = when (profile.provider) {
-                ProviderType.GEMINI -> ProviderRoutingPolicy.modelCandidates(profile, requestedModelId)
+                ProviderType.GEMINI -> ProviderRoutingPolicy.modelCandidates(profile, requestedModelId, modelFallbackIds)
                 ProviderType.OPENAI_COMPATIBLE -> listOf(requestedModelId.trim())
             }.distinct()
             if (modelCandidates.isEmpty()) {
-                errors.add("${profile.label}: لا توجد نماذج مرشحة صالحة لهذا الملف.")
+                errors.add("${profile.label}: لا توجد نماذج مرشحة صالحة لهذا المفتاح.")
                 continue@profileLoop
             }
 
