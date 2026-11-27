@@ -15,14 +15,18 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -45,7 +49,7 @@ fun PreImportPreviewDialog(
     preview: StagedWorkspacePreview,
     isBusy: Boolean,
     existingGrades: Set<String> = emptySet(),
-    onConfirmImport: (List<String>) -> Unit,
+    onConfirmImport: (List<String>, Boolean) -> Unit,
     onDismiss: () -> Unit
 ) {
     val selectedGrades = remember(preview.stagingId) {
@@ -53,6 +57,7 @@ fun PreImportPreviewDialog(
             addAll(preview.grades.map { it.gradeKey })
         }
     }
+    var acceptReviewRisk by remember(preview.stagingId) { mutableStateOf(false) }
     val sizeMb = String.format("%.2f MB", preview.expandedBytes / (1024.0 * 1024.0))
 
     AlertDialog(
@@ -156,6 +161,44 @@ fun PreImportPreviewDialog(
                     }
                 }
 
+                if (preview.requiresReviewConfirmation) {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = EduOrange.copy(alpha = 0.16f),
+                        border = BorderStroke(1.dp, EduOrange.copy(alpha = 0.45f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(7.dp)
+                        ) {
+                            Text(
+                                text = "تحذير: توجد فهارس تحتاج إلى مراجعة أو بصمات index غير مطابقة.",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = EduInk,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = preview.reviewFindings.joinToString("\\n"),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = EduInk
+                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(
+                                    checked = acceptReviewRisk,
+                                    onCheckedChange = { acceptReviewRisk = it },
+                                    enabled = !isBusy
+                                )
+                                Text(
+                                    text = "أوافق على الاستيراد الاستثنائي رغم التحذيرات، وأتحمل مسؤولية مراجعة المحتوى قبل اعتماده.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = EduInk
+                                )
+                            }
+                        }
+                    }
+                }
+
                 if (preview.warnings.isNotEmpty()) {
                     Surface(
                         shape = RoundedCornerShape(10.dp),
@@ -185,8 +228,9 @@ fun PreImportPreviewDialog(
         },
         confirmButton = {
             TextButton(
-                enabled = !isBusy && selectedGrades.isNotEmpty(),
-                onClick = { onConfirmImport(selectedGrades.toList()) },
+                enabled = !isBusy && selectedGrades.isNotEmpty() &&
+                    (!preview.requiresReviewConfirmation || acceptReviewRisk),
+                onClick = { onConfirmImport(selectedGrades.toList(), acceptReviewRisk) },
                 modifier = Modifier.testTag("confirm_preimport_button")
             ) {
                 Text(
