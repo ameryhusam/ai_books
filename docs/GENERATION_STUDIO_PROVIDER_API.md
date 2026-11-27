@@ -766,45 +766,62 @@ The learning-assessment/recommendation feature processes this output. AiGenerati
 
 ### 19.1 User-confirmed Indexer2 behavior
 
-The user has confirmed that Indexer2 was manually tested by selecting a specific lesson and subject, requesting a question bank, receiving a JSON response and displaying the questions on the question-bank page using that page's normal UI. This confirms the tested Indexer2 lesson-question workflow end to end. It does not, by itself, prove that Indexer2's separate book-index extraction route was tested.
+The user confirmed a successful manual Indexer2 test: select a specific lesson and subject, request a question bank, receive JSON, and display the questions on the question-bank page using that page's normal UI. This proves the tested Indexer2 lesson-question workflow end to end. It does not prove that Indexer2's separate book-index extraction route was tested.
 
-### 19.2 Current ai_books question-generation path
+### 19.2 Current ai_books execution path
 
-The current Android source path is:
-1. MainViewModel.startGeneration() captures the selected lesson/task and calls EduMiniRepository.generateContent().
-2. EduMiniRepository prepares the source, selected PDF attachment, question prompt and QuestionResponseContract schema.
-3. AiGenerationService.generate() builds a lesson/task-specific prompt, dispatches to the selected provider and extracts text from the provider response.
-4. EduMiniRepository validates the JSON and calls QuestionBankEngine.parseGeneratedQuestions() before returning GeneratedResult.
-5. MainViewModel then persists the draft and calls saveQuestionsFromDraftText() to insert questions and update UI state.
+The current Android question-generation path is:
 
-The provider transport and feature response handling are currently chained inside one repository operation. The service is still coupled to LessonRef/TaskType, and the repository can throw after provider success but before MainViewModel receives GeneratedResult.
+1. MainViewModel captures the selected lesson/task and calls EduMiniRepository.generateContent().
+2. EduMiniRepository prepares the source, PDF attachment, prompt, and database-derived response contract.
+3. The compatibility method AiGenerationService.generate(lesson, task, ...) prepares the legacy lesson prompt and delegates to task-neutral AiGenerationService.execute(AiExecutionRequest).
+4. execute() performs same-provider routing/retries, dispatches the provider request, extracts provider content, and returns GeneratedResult. It does not parse questions, index data, student performance, or UI models.
+5. EduMiniRepository validates the returned content. Contract/domain findings are attached to GeneratedResult.validationIssues; they do not cause the raw response to be discarded.
+6. MainViewModel persists the returned text as a draft, attempts task-specific persistence separately, and updates generatedResult so the received content remains viewable.
 
-### 19.3 Concrete code-level failure points
+### 19.3 Failure categories and current behavior
 
-The source audit identifies these failure boundaries. Without the failed run's provider/model and error record, none should be claimed as the single proven runtime cause:
+Provider/request failures and response-validation failures are separate outcomes.
 
-- **Provider returned text, feature parser rejected it:** QuestionBankEngine.parseGeneratedQuestions() runs inside EduMiniRepository.generateContent() before the result is returned. It requires a JSON object with only the questions root key, the exact requested question count, the selected difficulty, the exact per-type distribution, known fields/types, non-empty question and answer text, valid options, answer-option consistency for MCQ/true-false, and no duplicate question fingerprints. Any mismatch throws out of generateContent(). MainViewModel then displays the exception under the generic title "تعذر التوليد". The raw response is not delivered to the normal Studio state and the draft is not persisted by that path. This is the strongest code-level explanation for a response that may have been received but appears not to have arrived.
-- **Request never reached the provider:** before dispatch, the repository reads and validates the selected lesson PDF. The native Gemini PDF path rejects files larger than 18 MiB, and unreadable/missing files fail during attachment preparation. The selected model/profile must also be valid and the selected Gemini model must not be in cooldown. These failures occur before a successful provider response and should be reported as source/pre-dispatch or selection/cooldown errors, not as an empty AI response.
-- **Gemini returned no extractable candidate text:** callGemini() reads text from candidates[0].content.parts[*].text. If the provider response contains no candidate text (for example, a blocked/safety response or another finish state), the method reduces it to the generic "استجابة فارغة" error. The current extraction path does not retain enough promptFeedback/finishReason details in the returned error for the feature to distinguish all such cases.
-- **OpenAI-compatible response content shape:** callOpenAiCompatible() currently reads choices[0].message.content only when it is a JSON primitive/string. Some compatible endpoints may return content as an array of text segments; that response shape would be treated as blank even though a message exists. This is a compatibility risk in source code, not proof that it caused the user's particular failure.
-- **Question insertion after the draft is saved:** in MainViewModel.startGeneration(), saveQuestionsFromDraftText() is wrapped separately after the draft is persisted. If this later insertion fails, the app can still show the generated draft and a specific "draft saved, questions not inserted" message. This differs from the earlier parser failure that prevents GeneratedResult from reaching MainViewModel.
+**Failures before a usable provider response**
+- Request preparation: missing/unreadable PDF, invalid attachment, invalid local input, or invalid response schema before dispatch.
+- Provider authentication/quota: invalid key, confirmed daily/project quota exhaustion, or disabled/unavailable profile.
+- Provider saturation: rate limiting, overload, 5xx or network failures after bounded retries.
+- Empty/blocked response: HTTP success without extractable text; the provider's finish/block reason is retained in the diagnostic when available.
 
-### 19.4 Required correction and diagnostic behavior
+These are execution failures. The request layer reports the provider/profile/model and the retry/failover path. It must not report them as JSON or Room validation failures.
 
-The implementation work following this documentation must:
-1. make AiGenerationService return a common raw-response envelope without task parsing;
-2. let the question-bank feature own JSON parsing, question validation, mapping and insertion;
-3. preserve the raw response and provider diagnostics when feature validation fails, so the user can distinguish "AI did not return content" from "AI returned content but it was rejected";
-4. report separate statuses for request preparation, HTTP/provider failure, empty provider content, JSON parse failure, schema failure, task validation failure, database insertion failure and UI delivery;
-5. parse supported provider response shapes safely, including Gemini candidate/finish metadata and OpenAI-compatible string or content-array forms;
-6. avoid logging API keys or full sensitive source material; retain only the minimum response/diagnostic information needed for review and troubleshooting;
-7. ensure a valid provider response is not discarded merely because a later task-specific parser or database insert fails.
+**Provider returned content, but the feature rejected it**
+- Malformed JSON or unexpected root structure.
+- Missing/extra fields, wrong field types, invalid enum values, or required-field violations.
+- Question count/type distribution/difficulty mismatch.
+- Empty question/answer text, invalid choices, answer not matching an option, or duplicate question fingerprints.
+- Mapping/adapter errors or Room insertion/transaction failures.
 
-### 19.5 Regression tests required
+These are feature/data-contract failures, not API transport failures. The raw response is retained in the GeneratedResult/draft, exposed through generatedResult, and accompanied by validationIssues and a review-required alert. The question-bank insertion attempt remains separate; an invalid batch is not inserted, but the received content remains available for review. No automatic mutation of the AI response is performed.
 
-- Gemini success with one or more text parts returns the complete concatenated response.
-- Gemini blocked/no-candidate/empty-parts responses produce a precise provider diagnostic rather than an unexplained generic empty response.
-- OpenAI-compatible string content and supported array-of-text-segments content are both extracted.
-- A provider-success response that fails question semantic validation is retained and surfaced as "response received; question batch rejected", not reported as a transport failure.
-- A valid question response reaches the question-bank feature, is mapped to Room entities, inserted transactionally and observed by the question-bank UI.
-- A later database insertion failure preserves the raw response/draft and reports the insertion error separately.
+### 19.4 Current code-level behavior after the correction
+
+- AiGenerationService.execute(AiExecutionRequest) is task-neutral and owns provider transport, same-provider retries/failover, response extraction and execution metadata.
+- Gemini transient overload/rate-limit/network/server failures receive up to three actual dispatches per configured model, then advance to the next configured Gemini model. Confirmed quota exhaustion or invalid credentials skip the current profile and try another enabled Gemini profile.
+- OpenAI-compatible requests keep the selected model. Transient failures receive up to three actual dispatches before the next enabled OpenAI-compatible profile/key is tried; confirmed quota exhaustion or invalid credentials skip the current profile immediately.
+- Provider isolation remains strict: no Gemini-to-OpenAI or OpenAI-to-Gemini fallback.
+- ProviderStorage blocks a provider-confirmed quota-exhausted profile for the remainder of its configured quota day; the quota status resets when that profile's timezone advances to the next day. The local dailyRequestLimit value is not used to infer provider quota.
+- OpenAI-compatible message.content may be a string or an array of text segments. Gemini no-text responses include finishReason/blockReason where returned.
+- EduMiniRepository no longer throws away a successful provider response because TemplateOutputValidator or QuestionBankEngine reports content issues. It attaches the findings to GeneratedResult.validationIssues and records RESPONSE_REVIEW_REQUIRED.
+- MainViewModel saves the response draft and displays the content plus diagnostics. Question-bank insertion remains blocked when validation fails and its failure is shown separately.
+
+### 19.5 Remaining verification and regression tests
+
+The source changes are in place, but behavior is not considered verified until the Android test/CI run passes. Required tests include:
+
+- Gemini transient overload: exactly three requests for model A, then configured model B; no provider crossing.
+- Gemini confirmed quota exhaustion: skip current profile immediately and try the next enabled Gemini profile; no repeated calls on the exhausted profile.
+- Gemini invalid API key: skip current profile and try the next Gemini profile.
+- OpenAI confirmed quota exhaustion/invalid key: rotate to the next OpenAI-compatible profile/key without changing provider or model.
+- OpenAI transient failures: bounded three-dispatch retry before same-provider key failover.
+- Quota-exhausted profiles remain skipped during the same configured quota day and become eligible after that profile's quota-day rollover.
+- Gemini model cooldown does not block sibling models on the same profile.
+- A provider-success response with malformed JSON or a question-domain error is returned with raw text and validationIssues, saved as a reviewable draft, and not inserted into Room.
+- A valid question response reaches the question-bank feature, maps to Room entities, inserts transactionally and appears in the question-bank UI.
+- OpenAI string and content-array responses both extract correctly; Gemini finish/block diagnostics remain distinguishable from content-contract errors.
