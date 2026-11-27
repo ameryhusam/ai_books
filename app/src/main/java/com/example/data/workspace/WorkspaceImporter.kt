@@ -580,7 +580,11 @@ class WorkspaceImporter(private val context: Context) {
                         title = firstNonBlank(unit.str("title"), unit.str("unitTitle"), unit.str("name"), uk),
                         partKey = resolvedUnitPart,
                         sortOrder = unitOrder,
-                        sourceIndexPath = destIndexFile.absolutePath
+                        sourceIndexPath = destIndexFile.absolutePath,
+                        proposedPartKey = unit.str("proposedPartKey").ifBlank { null },
+                        assignmentStatus = unit.str("assignmentStatus").ifBlank { "need_review" },
+                        assignmentSource = unit.str("assignmentSource").ifBlank { "LEGACY_UNVERIFIED" },
+                        assignmentEvidence = unit.str("assignmentEvidence")
                     )
                 )
             }
