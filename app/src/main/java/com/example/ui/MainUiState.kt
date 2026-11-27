@@ -82,6 +82,7 @@ data class MainUiState(
     val generatedQuestionExpectedCount: Int? = null,
     val generatedQuestionExpectedTypeIds: List<String> = emptyList(),
     val generatedQuestionExpectedDifficultyId: String = "",
+    val activeDraftId: String = "",
     val activeDraftProvider: String = "تحرير يدوي",
     val activeDraftModel: String = "local",
     val activeDraftTemplateId: String = "",
