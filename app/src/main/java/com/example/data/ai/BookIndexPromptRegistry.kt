@@ -88,7 +88,7 @@ object BookIndexPromptRegistry {
             outputContract = "JSON صريح يحتوي schemaVersion, title, objective, steps[](conceptTag, checkpoint), ordering[], matching[]",
             schemaSnippet = """
                 {
-                  "schemaVersion": "edu.book_index.v2",
+                  "schemaVersion": 1,
                   "title": "عنوان النشاط التفاعلي",
                   "objective": "الهدف التعليمي للنشاط",
                   "steps": [
@@ -158,16 +158,29 @@ object BookIndexPromptRegistry {
                 {
                   "schemaVersion": "edu.book_index.v2",
                   "gradeKey": "G04",
+                  "gradeName": "الصف الرابع",
                   "subjectKey": "ARAB",
+                  "subjectName": "اللغة العربية",
+                  "title": "كتاب اللغة العربية",
+                  "sourceLayout": "SINGLE_PART_FILE",
+                  "partKey": "P01",
+                  "offset": 4,
+                  "approvalStatus": "APPROVED",
+                  "requiresReview": false,
                   "units": [
                     {
                       "unitKey": "unit_01",
                       "title": "الوحدة الأولى",
                       "partKey": "P01",
+                      "assignmentStatus": "ASSIGNED",
+                      "assignmentSource": "INDEX_EVIDENCE",
+                      "assignmentEvidence": "دليل واضح من فهرس المحتويات",
                       "lessons": [
                         {
                           "lessonKey": "lesson_01",
                           "title": "عنوان الدرس الأول",
+                          "printedPageStart": 1,
+                          "printedPageEnd": 6,
                           "pdfPageStart": 5,
                           "pdfPageEnd": 10
                         }
