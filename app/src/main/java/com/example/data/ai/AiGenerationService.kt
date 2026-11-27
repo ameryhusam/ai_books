@@ -49,6 +49,26 @@ import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
+data class AiExecutionRequest(
+    val prompt: String,
+    val providers: List<ProviderConfig>,
+    val selectedProvider: ProviderType,
+    val requestedModelId: String,
+    val requestedProfileId: String,
+    val pdfPageImagesBase64: List<String> = emptyList(),
+    val pdfDocumentBase64: String? = null,
+    val responseSchemaJson: String = "",
+    val responseFormat: String = "text",
+    val templateId: String = "",
+    val templateVersion: Int = 1,
+    val responseSchemaHash: String = "",
+    val requestFingerprint: String = "",
+    val sourcePdfHash: String = "",
+    val onReserveProvider: (suspend (ProviderConfig) -> Boolean)? = null,
+    val onProviderStateChanged: (suspend (providerId: String, status: String, retryAfterEpochMs: Long) -> Unit)? = null,
+    val onAttemptFinished: (suspend (providerLabel: String, model: String, success: Boolean, error: String?) -> Unit)? = null
+)
+
 data class PdfDocumentPayload(val base64: String, val sha256: String, val byteCount: Int)
 
 class AiGenerationService(
@@ -217,6 +237,10 @@ class AiGenerationService(
         )
     }
 
+    /**
+     * Compatibility adapter for lesson/task callers. New feature adapters should prepare
+     * their own prompt and call execute(AiExecutionRequest) directly.
+     */
     suspend fun generate(
         lesson: LessonRef,
         task: TaskType,
@@ -243,9 +267,73 @@ class AiGenerationService(
         onReserveProvider: (suspend (ProviderConfig) -> Boolean)? = null,
         onProviderStateChanged: (suspend (providerId: String, status: String, retryAfterEpochMs: Long) -> Unit)? = null,
         onAttemptFinished: (suspend (providerLabel: String, model: String, success: Boolean, error: String?) -> Unit)? = null
-    ): GeneratedResult = withContext(Dispatchers.IO) {
+    ): GeneratedResult {
+        val prompt = withContext(Dispatchers.IO) {
+            buildPrompt(
+                lesson = lesson,
+                task = task,
+                source = source,
+                extra = extra,
+                questionCount = questionCount,
+                questionTypeIds = questionTypeIds,
+                questionLanguage = questionLanguage,
+                attachedPdfPagesCount = if (!pdfDocumentBase64.isNullOrBlank()) 1 else pdfPageImagesBase64.size,
+                questionStyleHint = questionStyleHint,
+                difficultyHint = difficultyHint,
+                responseSchemaJson = responseSchemaJson,
+                responseFormat = responseFormat
+            )
+        }
+        return execute(
+            AiExecutionRequest(
+                prompt = prompt,
+                providers = providers,
+                selectedProvider = selectedProvider,
+                requestedModelId = requestedModelId,
+                requestedProfileId = requestedProfileId,
+                pdfPageImagesBase64 = pdfPageImagesBase64,
+                pdfDocumentBase64 = pdfDocumentBase64,
+                responseSchemaJson = responseSchemaJson,
+                responseFormat = responseFormat,
+                templateId = templateId,
+                templateVersion = templateVersion,
+                responseSchemaHash = responseSchemaHash,
+                requestFingerprint = requestFingerprint,
+                sourcePdfHash = sourcePdfHash,
+                onReserveProvider = onReserveProvider,
+                onProviderStateChanged = onProviderStateChanged,
+                onAttemptFinished = onAttemptFinished
+            )
+        )
+    }
+
+    /**
+     * Task-neutral provider execution. It does not know LessonRef, TaskType, Room entities,
+     * question parsing, index parsing, assessment interpretation or UI destinations.
+     */
+    suspend fun execute(request: AiExecutionRequest): GeneratedResult = withContext(Dispatchers.IO) {
+        val providers = request.providers
+        val selectedProvider = request.selectedProvider
+        val requestedModelId = request.requestedModelId
+        val requestedProfileId = request.requestedProfileId
+        val pdfPageImagesBase64 = request.pdfPageImagesBase64
+        val pdfDocumentBase64 = request.pdfDocumentBase64
+        val responseSchemaJson = request.responseSchemaJson
+        val responseFormat = request.responseFormat
+        val templateId = request.templateId
+        val templateVersion = request.templateVersion
+        val responseSchemaHash = request.responseSchemaHash
+        val requestFingerprint = request.requestFingerprint
+        val sourcePdfHash = request.sourcePdfHash
+        val onReserveProvider = request.onReserveProvider
+        val onProviderStateChanged = request.onProviderStateChanged
+        val onAttemptFinished = request.onAttemptFinished
+        val prompt = request.prompt
+
+        require(prompt.isNotBlank()) { "يجب تجهيز البرومبت قبل تنفيذ طلب AI." }
         require(requestedModelId.isNotBlank()) { "يجب اختيار نموذج من كتالوج مدير النظام." }
         require(requestedProfileId.isNotBlank()) { "يجب اختيار ملف اتصال API." }
+
         val active = ProviderRoutingPolicy.orderedProfiles(
             providers = providers,
             selectedProvider = selectedProvider,
