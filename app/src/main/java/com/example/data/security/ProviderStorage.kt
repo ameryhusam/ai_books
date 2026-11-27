@@ -24,11 +24,11 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
 /**
- * Encrypted provider profiles plus atomic request-attempt telemetry.
+ * Encrypted provider API-key records plus atomic request-attempt telemetry.
  *
  * Daily limit fields remain in ProviderConfig for backward compatibility, but the
  * app does not enforce provider quota locally. The provider response is authoritative.
- * The same process-wide instance serializes profile state updates.
+ * The same process-wide instance serializes API-key state updates.
  */
 class ProviderStorage(context: Context) {
 
@@ -390,7 +390,7 @@ class ProviderStorage(context: Context) {
         val profiles = try {
             json.decodeFromString<List<ProviderConfig>>(decrypted)
         } catch (e: Exception) {
-            throw IllegalStateException("تعذر قراءة إعدادات مزودي AI المحفوظة؛ لم يتم تجاهل البيانات أو استبدالها.", e)
+            throw IllegalStateException("تعذر قراءة مفاتيح API المحفوظة؛ لم يتم تجاهل البيانات أو استبدالها.", e)
         }
         if (raw.startsWith(PREFIX_PLAIN)) writeProfilesLocked(profiles)
         return profiles
@@ -400,7 +400,7 @@ class ProviderStorage(context: Context) {
         val serialized = json.encodeToString(items)
         val encrypted = encrypt(serialized)
         check(prefs.edit().putString(KEY_PROFILES, encrypted).commit()) {
-            "تعذر حفظ حالة مفاتيح API بأمان"
+            "تعذر حفظ مفاتيح API بأمان"
         }
     }
 
