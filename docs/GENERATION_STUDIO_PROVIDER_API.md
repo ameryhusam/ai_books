@@ -58,16 +58,15 @@ flowchart TD
     D --> E[Prepare lesson text and PDF source]
     E --> F[Select one provider and its profile/model]
     F --> G[Assemble prompt + response contract]
-    G --> H[Provider-specific request]
-    H --> I[Receive raw response]
-    I --> J{JSON contract?}
-    J -- Yes --> K[Validate schema and output]
-    J -- No --> L[Keep text response]
-    K --> M[Apply response field mapping]
-    L --> N[Create editable draft]
-    M --> N
-    N --> O[Review and edit]
-    O --> P[Save another draft version / approve]
+    G --> H[Shared AiGenerationService]
+    H --> I[Selected provider transport adapter]
+    I --> J[Return raw response + execution metadata]
+    J --> K[Calling feature parses and validates]
+    K --> L{Valid task result?}
+    L -- No --> M[Preserve diagnostics and show error]
+    L -- Yes --> N[Map to app and Room models]
+    N --> O[Save draft or task records]
+    O --> P[Review and display in feature UI]
     O --> Q[Task-specific action]
     Q --> R[Question bank or interactive package]
 ```
