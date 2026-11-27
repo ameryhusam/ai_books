@@ -221,8 +221,9 @@ class ProviderStorage(context: Context) {
      * dailyRequestLimit is intentionally not enforced: actual quota is determined
      * by the provider response, not by a locally estimated counter.
      *
-     * Returns false only for disabled/invalid profiles or an active rate-limit cooldown.
-     * A previously reported quota error is diagnostic state, not a locally enforced gate.
+     * Returns false for disabled/invalid profiles, active rate-limit cooldowns, or a
+     * provider-confirmed quota-exhausted profile. Quota state is cleared on the next
+     * configured quota day; it is not inferred from the local diagnostic request counter.
      */
     suspend fun reserveProviderKey(providerId: String, nowMillis: Long = System.currentTimeMillis()): Boolean =
         withContext(Dispatchers.IO) {
@@ -234,19 +235,16 @@ class ProviderStorage(context: Context) {
                     var profile = normalizeForCurrentDay(original, nowMillis)
                     val status = profile.runtimeStatus.uppercase()
                     if (!profile.enabled || status == STATUS_DISABLED || status == STATUS_INVALID_KEY ||
+                        status == STATUS_QUOTA_EXHAUSTED ||
                         (status == STATUS_RATE_LIMITED && profile.retryAfterEpochMs > nowMillis)
                     ) return@map profile
 
-                    // Diagnostic counter only. It must never act as a local quota gate.
+                    // Diagnostic counter only; the provider response remains authoritative.
                     val nextUsage = profile.dailyRequestsUsed + 1
                     profile = profile.copy(
                         dailyRequestsUsed = nextUsage,
                         lastUsedAtEpochMs = nowMillis,
-                        runtimeStatus = if (status == STATUS_QUOTA_EXHAUSTED) {
-                            STATUS_QUOTA_EXHAUSTED
-                        } else {
-                            STATUS_ACTIVE
-                        }
+                        runtimeStatus = STATUS_ACTIVE
                     )
                     reserved = true
                     profile
@@ -323,7 +321,7 @@ class ProviderStorage(context: Context) {
                 dailyRequestsUsed = 0,
                 quotaDate = today,
                 runtimeStatus = when (profile.runtimeStatus.uppercase()) {
-                    STATUS_ERROR -> STATUS_ACTIVE
+                    STATUS_ERROR, STATUS_QUOTA_EXHAUSTED -> STATUS_ACTIVE
                     STATUS_RATE_LIMITED -> if (profile.retryAfterEpochMs <= nowMillis) STATUS_ACTIVE else STATUS_RATE_LIMITED
                     else -> profile.runtimeStatus
                 },
