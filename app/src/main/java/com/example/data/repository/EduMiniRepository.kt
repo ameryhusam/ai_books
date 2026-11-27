@@ -1399,7 +1399,7 @@ class EduMiniRepository(
             return 0
         }
         if (task == TaskType.INTERACTIVE) {
-            val activity = InteractiveActivityParser.parse(draft.content, lessonRef.title)
+            val activity = InteractiveActivityParser.parseStrictJson(draft.content, lessonRef.title)
                 ?: throw IllegalArgumentException("تعذر اعتماد النشاط: بنية النشاط التفاعلي غير صالحة.")
             val publishedPackage = buildAndPublishInteractiveBundle(
                 workspaceId = draft.workspaceId,
