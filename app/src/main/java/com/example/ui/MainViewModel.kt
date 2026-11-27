@@ -2828,7 +2828,7 @@ class MainViewModel(
                 .onSuccess { count ->
                     _uiState.update {
                         it.copy(
-                            toastMessage = "تم اعتماد مسودة الأسئلة وإضافة $count سؤالاً إلى بنك الأسئلة.",
+                            toastMessage = "تم اعتماد المسودة. عدد الأسئلة التي تمت ترقيتها إلى البنك: $count.",
                             alert = null
                         )
                     }
