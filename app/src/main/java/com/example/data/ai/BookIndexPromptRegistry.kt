@@ -197,12 +197,26 @@ object BookIndexPromptRegistry {
             descriptionAr = "بيانات الكتاب المرجعية ومسار الغلاف cover.png ومصدر PDF الأصلي.",
             schemaJson = """
                 {
-                  "title": "اسم الكتاب المدرسي",
+                  "manifestVersion": "edu.book_manifest.v2",
                   "gradeKey": "G04",
                   "subjectKey": "ARAB",
-                  "cover": "cover.png",
+                  "componentKey": null,
+                  "partKey": "P01",
+                  "sourceLayout": "SINGLE_PART_FILE",
+                  "sourceReviewStatus": "VERIFIED",
+                  "sourceFileName": "science_part_1.pdf",
+                  "sourceSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "canonicalIndexPath": "P01/index.json",
+                  "canonicalIndexSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "indexSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "partIndexes": [],
                   "totalPages": 120,
-                  "createdAt": "2026-11-24T00:00:00Z"
+                  "offset": 4,
+                  "cover": "P01/cover.png",
+                  "sourceMetadata": {
+                    "sourceRequiresReview": false,
+                    "partEvidence": "The uploaded PDF explicitly identifies itself as the standalone first part."
+                  }
                 }
             """.trimIndent()
         ),
