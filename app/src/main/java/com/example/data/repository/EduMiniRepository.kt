@@ -2023,7 +2023,8 @@ class EduMiniRepository(
         val draftsByLesson = drafts.groupBy { Triple(it.bookKey, it.unitKey, it.lessonKey) }
         val pkgsByLesson = packages.groupBy { Triple(it.bookKey, it.unitKey, it.lessonKey) }
         val progressByLesson = progressRows.associateBy { Triple(it.bookKey, it.unitKey, it.lessonKey) }
-        val questionsByLesson = questions.groupBy { Triple(it.bookKey, it.unitKey, it.lessonKey) }
+        val officialQuestions = questions.filter { it.reviewed && !it.id.startsWith("q-int-") }
+        val questionsByLesson = officialQuestions.groupBy { Triple(it.bookKey, it.unitKey, it.lessonKey) }
         val attemptsByQuestionId = questionAttempts.groupBy { it.questionId }
 
         val nodes = workspace.lessons.map { lesson ->
@@ -2162,7 +2163,7 @@ class EduMiniRepository(
 
         val bookTitleByKey = workspace.books.associate { it.bookKey to it.title }
         val conceptSummaries = ConceptMasteryEngine.computeConceptSummaries(
-            questions = questions,
+            questions = officialQuestions,
             attempts = questionAttempts,
             bookTitleByKey = bookTitleByKey
         )
