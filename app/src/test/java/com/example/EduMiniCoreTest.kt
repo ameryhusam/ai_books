@@ -96,6 +96,9 @@ import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
+import java.io.BufferedInputStream
+import java.net.ServerSocket
+import java.net.Socket
 import java.time.LocalDate
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
@@ -3195,6 +3198,230 @@ class EduMiniCoreTest {
         assertFalse(router.isCoolingDown("key-a", "gemini-3.7-flash", now + 1_000L))
         assertFalse(router.isCoolingDown("key-b", "gemini-3.8-flash", now + 1_000L))
         assertFalse(router.isCoolingDown("key-a", "gemini-3.8-flash", now + 61_000L))
+    }
+
+    @Test
+    fun geminiRetriesThreeTimesThenUsesNextConfiguredModel() {
+        val server = ServerSocket(0)
+        val requestLines = java.util.Collections.synchronizedList(mutableListOf<String>())
+        val serverFailure = java.util.concurrent.atomic.AtomicReference<Throwable?>(null)
+        val successBody = """{"candidates":[{"content":{"parts":[{"text":"fallback model response"}]}}],"usageMetadata":{"totalTokenCount":3}}"""
+        val thread = Thread {
+            try {
+                repeat(4) { index ->
+                    server.accept().use { socket ->
+                        val request = readTestHttpRequest(socket)
+                        requestLines.add(request.lineSequence().firstOrNull().orEmpty())
+                        if (index < 3) {
+                            writeTestHttpResponse(socket, 503, """{"error":{"message":"Service unavailable","status":"UNAVAILABLE"}}""")
+                        } else {
+                            writeTestHttpResponse(socket, 200, successBody)
+                        }
+                    }
+                }
+            } catch (error: Throwable) {
+                serverFailure.set(error)
+            }
+        }
+        thread.start()
+        try {
+            val profile = ProviderConfig(
+                id = "gemini-retry-profile",
+                provider = ProviderType.GEMINI,
+                label = "Gemini retry profile",
+                model = "gemini-primary",
+                baseUrl = "",
+                apiKey = "gemini-retry-key",
+                enabled = true,
+                createdAt = 1L,
+                fallbackModels = listOf("gemini-fallback")
+            )
+            val generated = runBlocking {
+                AiGenerationService(
+                    geminiEndpointBase = "http://127.0.0.1:${server.localPort}/v1beta/models"
+                ).execute(
+                    com.example.data.ai.AiExecutionRequest(
+                        prompt = "Return a short response",
+                        providers = listOf(profile),
+                        selectedProvider = ProviderType.GEMINI,
+                        requestedModelId = "gemini-primary",
+                        requestedProfileId = profile.id
+                    )
+                )
+            }
+            thread.join(5_000L)
+            assertEquals("fallback model response", generated.text)
+            assertEquals("gemini-fallback", generated.model)
+            assertEquals(4, requestLines.size)
+            assertEquals(
+                listOf(
+                    "POST /v1beta/models/gemini-primary:generateContent HTTP/1.1",
+                    "POST /v1beta/models/gemini-primary:generateContent HTTP/1.1",
+                    "POST /v1beta/models/gemini-primary:generateContent HTTP/1.1",
+                    "POST /v1beta/models/gemini-fallback:generateContent HTTP/1.1"
+                ),
+                requestLines.toList()
+            )
+            assertNull(serverFailure.get())
+        } finally {
+            runCatching { server.close() }
+            thread.join(2_000L)
+        }
+    }
+
+    @Test
+    fun geminiQuotaExhaustionMovesDirectlyToNextSameProviderProfile() {
+        val server = ServerSocket(0)
+        val requests = java.util.Collections.synchronizedList(mutableListOf<String>())
+        val statuses = java.util.Collections.synchronizedList(mutableListOf<String>())
+        val thread = Thread {
+            repeat(2) { index ->
+                server.accept().use { socket ->
+                    requests.add(readTestHttpRequest(socket))
+                    if (index == 0) {
+                        writeTestHttpResponse(
+                            socket,
+                            429,
+                            """{"error":{"message":"You have exceeded your daily quota","status":"RESOURCE_EXHAUSTED"}}"""
+                        )
+                    } else {
+                        writeTestHttpResponse(
+                            socket,
+                            200,
+                            """{"candidates":[{"content":{"parts":[{"text":"second key success"}]}}]}"""
+                        )
+                    }
+                }
+            }
+        }
+        thread.start()
+        try {
+            val profiles = listOf(
+                ProviderConfig("gemini-a", ProviderType.GEMINI, "Gemini A", "gemini-primary", "", "key-a", true, 1L),
+                ProviderConfig("gemini-b", ProviderType.GEMINI, "Gemini B", "gemini-primary", "", "key-b", true, 2L)
+            )
+            val generated = runBlocking {
+                AiGenerationService(
+                    geminiEndpointBase = "http://127.0.0.1:${server.localPort}/v1beta/models"
+                ).execute(
+                    com.example.data.ai.AiExecutionRequest(
+                        prompt = "Return a short response",
+                        providers = profiles,
+                        selectedProvider = ProviderType.GEMINI,
+                        requestedModelId = "gemini-primary",
+                        requestedProfileId = "gemini-a",
+                        onProviderStateChanged = { _, status, _ -> statuses.add(status) }
+                    )
+                )
+            }
+            thread.join(5_000L)
+            assertEquals("second key success", generated.text)
+            assertEquals("Gemini B", generated.providerLabel)
+            assertEquals(2, requests.size)
+            assertTrue(requests[0].contains("x-goog-api-key: key-a", ignoreCase = true))
+            assertTrue(requests[1].contains("x-goog-api-key: key-b", ignoreCase = true))
+            assertTrue(statuses.contains("QUOTA_EXHAUSTED"))
+        } finally {
+            runCatching { server.close() }
+            thread.join(2_000L)
+        }
+    }
+
+    @Test
+    fun openAiQuotaExhaustionMovesToNextOpenAiKeyWithoutChangingProvider() {
+        val server = ServerSocket(0)
+        val requests = java.util.Collections.synchronizedList(mutableListOf<String>())
+        val thread = Thread {
+            repeat(2) { index ->
+                server.accept().use { socket ->
+                    requests.add(readTestHttpRequest(socket))
+                    if (index == 0) {
+                        writeTestHttpResponse(
+                            socket,
+                            429,
+                            """{"error":{"message":"You exceeded your current quota","type":"insufficient_quota","code":"insufficient_quota"}}"""
+                        )
+                    } else {
+                        writeTestHttpResponse(
+                            socket,
+                            200,
+                            """{"choices":[{"message":{"content":"openai second key success"}}]}"""
+                        )
+                    }
+                }
+            }
+        }
+        thread.start()
+        try {
+            val baseUrl = "http://127.0.0.1:${server.localPort}/v1"
+            val profiles = listOf(
+                ProviderConfig("openai-a", ProviderType.OPENAI_COMPATIBLE, "OpenAI A", "gpt-test", baseUrl, "key-a", true, 1L),
+                ProviderConfig("openai-b", ProviderType.OPENAI_COMPATIBLE, "OpenAI B", "gpt-test", baseUrl, "key-b", true, 2L)
+            )
+            val generated = runBlocking {
+                AiGenerationService().execute(
+                    com.example.data.ai.AiExecutionRequest(
+                        prompt = "Return a short response",
+                        providers = profiles,
+                        selectedProvider = ProviderType.OPENAI_COMPATIBLE,
+                        requestedModelId = "gpt-test",
+                        requestedProfileId = "openai-a"
+                    )
+                )
+            }
+            thread.join(5_000L)
+            assertEquals("openai second key success", generated.text)
+            assertEquals("OpenAI B", generated.providerLabel)
+            assertEquals(2, requests.size)
+            assertTrue(requests[0].contains("Authorization: Bearer key-a", ignoreCase = true))
+            assertTrue(requests[1].contains("Authorization: Bearer key-b", ignoreCase = true))
+        } finally {
+            runCatching { server.close() }
+            thread.join(2_000L)
+        }
+    }
+
+    private fun readTestHttpRequest(socket: Socket): String {
+        val input = BufferedInputStream(socket.getInputStream())
+        val headers = ByteArrayOutputStream()
+        var matched = 0
+        while (matched < 4) {
+            val value = input.read()
+            if (value < 0) break
+            headers.write(value)
+            matched = when {
+                matched == 0 && value == 13 -> 1
+                matched == 1 && value == 10 -> 2
+                matched == 2 && value == 13 -> 3
+                matched == 3 && value == 10 -> 4
+                value == 13 -> 1
+                else -> 0
+            }
+        }
+        val headerText = headers.toString(Charsets.US_ASCII.name())
+        val contentLength = Regex("Content-Length:\\s*(\\d+)", RegexOption.IGNORE_CASE)
+            .find(headerText)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 0
+        var remaining = contentLength
+        val buffer = ByteArray(8 * 1024)
+        while (remaining > 0) {
+            val count = input.read(buffer, 0, minOf(buffer.size, remaining))
+            if (count <= 0) break
+            remaining -= count
+        }
+        return headerText
+    }
+
+    private fun writeTestHttpResponse(socket: Socket, status: Int, body: String) {
+        val bytes = body.toByteArray(Charsets.UTF_8)
+        val reason = if (status == 200) "OK" else if (status == 429) "Too Many Requests" else "Service Unavailable"
+        val headers = "HTTP/1.1 $status $reason\\r\\n" +
+            "Content-Type: application/json\\r\\n" +
+            "Content-Length: ${bytes.size}\\r\\n" +
+            "Connection: close\\r\\n\\r\\n"
+        val output = socket.getOutputStream()
+        output.write(headers.toByteArray(Charsets.US_ASCII))
+        output.write(bytes)
+        output.flush()
     }
 
     @Test
