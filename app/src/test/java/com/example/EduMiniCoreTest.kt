@@ -1609,6 +1609,53 @@ class EduMiniCoreTest {
     }
 
     @Test
+    fun directFolderBindingUpdatesExistingGradeFromAnotherSourceFolder() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val db = Room.inMemoryDatabaseBuilder(context, EduMiniDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        val repo = EduMiniRepository(
+            dao = db.eduMiniDao(),
+            providerStorage = ProviderStorage(context),
+            workspaceImporter = WorkspaceImporter(context),
+            aiGenerationService = AiGenerationService(context),
+            interactivePackageImporter = InteractivePackageImporter(context),
+            directWorkspaceBinder = DirectWorkspaceBinder(context),
+            appContext = context
+        )
+        val firstRoot = File(context.cacheDir, "direct_grade_source_a_${System.currentTimeMillis()}").apply { mkdirs() }
+        val secondRoot = File(context.cacheDir, "direct_grade_source_b_${System.currentTimeMillis()}").apply { mkdirs() }
+        try {
+            val existing = repo.createClassroom("G04", "الصف الرابع")
+            fun createBook(root: File, subject: String, title: String) {
+                val bookDir = File(root, "workspace/G04/$subject").apply { mkdirs() }
+                File(bookDir, "book_manifest.json").writeText("""{"title":"$title"}""")
+                File(bookDir, "index.json").writeText(
+                    """{"units":[{"unitKey":"unit_01","title":"الوحدة الأولى","lessons":[{"lessonKey":"lesson_01","title":"الدرس الأول"}]}]}"""
+                )
+            }
+            createBook(firstRoot, "MATH", "الرياضيات - المصدر الأول")
+            val first = repo.bindDirectWorkspace(firstRoot.absolutePath, "G04")
+            assertEquals(existing.workspaceId, first.workspaceId)
+
+            createBook(secondRoot, "SCI", "العلوم - المصدر الثاني")
+            val second = repo.bindDirectWorkspace(secondRoot.absolutePath, "G04")
+            val saved = repo.allWorkspaces.first().filter { it.gradeKey == "G04" }
+            val observed = repo.observeWorkspace(existing.workspaceId).first()
+
+            assertEquals(1, saved.size)
+            assertEquals(existing.workspaceId, second.workspaceId)
+            assertNotNull(observed)
+            assertEquals("العلوم - المصدر الثاني", observed!!.books.single().title)
+            assertEquals(secondRoot.absolutePath, observed.rootPath)
+        } finally {
+            firstRoot.deleteRecursively()
+            secondRoot.deleteRecursively()
+            db.close()
+        }
+    }
+
+    @Test
     fun repositoryAssessmentsNotesTemplatesAndFullBackupRoundtrip() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val db = EduMiniDatabase.getInstance(context)
