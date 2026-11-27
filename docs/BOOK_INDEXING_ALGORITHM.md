@@ -257,16 +257,13 @@ The Android application already has the provider transport building blocks in `A
 - Provider/profile/model selection, request cancellation, transient HTTP retry, quota reservation, rate-limit cooldown and provider isolation are already owned by the shared service and provider policy.
 - The question path uses `QuestionResponseContract` as its provider-facing schema source, validates output, then parses into the app's question model.
 
-### 12.3 Index-discovery integration gaps that must be fixed
+### 12.3 Current integration state and remaining work
 
-The following are present but not connected to that shared path:
-
-- `BookIndexPromptTemplate.SOURCE_PATH` identifies the discovery prompt, but `AiGenerationService.buildPrompt()` currently loads prompt assets only through `BookIndexPromptRegistry.blueprintFor(TaskType)`.
-- The existing `generate()` entry point requires a `LessonRef` and a content `TaskType`; index intake happens before a lesson exists. Creating a fake `LessonRef` or routing index discovery through an unrelated content task would be an incorrect workaround.
+The task-neutral execution path is implemented; the remaining gaps concern UI integration, database-first contract generation and canonical persistence:
 - `BookIndexPromptTemplate.responseSchemaJson` is now a versioned JSON Schema with nested unit/lesson contracts. OpenAI-compatible endpoints still use JSON-object mode and rely on local parsing/domain validation.
 - `discoverBookIndexFromPdf()` now loads the discovery prompt, attaches the source PDF, and calls the shared task-neutral execution path. The PDF picker/UI is not yet wired to this repository method.
 - `BookIndexAiResponseParser` now maps raw provider JSON into `BookIndexIntakeDraft`; the result remains unapproved. The interactive review gate is not yet connected to the PDF picker.
-- The current index discovery schema example and canonical `edu.book_index.v2` index example are different artifacts. Do not pass an example canonical index as if it were the extraction response schema.
+- The AI extraction schema is intentionally a projection for model-writable fields, not the canonical index file. It is currently maintained explicitly and has not yet been generated from the Room schema/approved persistence projection; this alignment remains required before canonical serialization.
 
 ### 12.4 Required shared-service correction
 
@@ -278,7 +275,7 @@ Shared execution boundary (implemented in the current branch):
 - Gemini receives the full PDF natively when it is at most 18 MiB. OpenAI-compatible requests receive rendered images of the first 20 pages; those same images are the fallback when the native Gemini payload is too large. A TOC beyond the first 20 pages may therefore require a later targeted-page selection step.
 - Preserve provider isolation and explicit selection. Gemini may advance through configured Gemini models after three transient attempts per model and may move to another Gemini API profile after confirmed quota exhaustion/invalid credentials. OpenAI-compatible requests may move to another OpenAI-compatible key/profile under its bounded retry/quota policy. Never switch providers. A key change does not guarantee new quota when profiles share the same provider project.
 - The index-intake feature parses and validates the raw response, maps it to the intake draft, runs deterministic domain checks, and leaves all inferred values unapproved until the user confirms them. AiGenerationService only returns raw response and execution metadata.
-- Save prompt/schema versions and hashes, source PDF hash, selected model/provider, raw response and validation report for reproducibility.
+- Persist prompt/schema versions and hashes, source PDF hash, selected model/provider, raw response and validation report for reproducibility. The current discovery method returns these values to its caller but does not yet persist an index-discovery draft record.
 
 The AI model extracts printed page numbers from the TOC. The application applies the default offset +1, allows the user to change it for special PDFs, checks the resulting ranges against the physical PDF page count, and requires approval. The model must not be asked to invent physical PDF positions from printed numbers.
 
