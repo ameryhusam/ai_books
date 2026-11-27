@@ -278,7 +278,11 @@ data class WorkspaceUnitRef(
     val title: String,
     val partKey: String? = null,
     val sortOrder: Int,
-    val sourceIndexPath: String
+    val sourceIndexPath: String,
+    val proposedPartKey: String? = null,
+    val assignmentStatus: String = "need_review",
+    val assignmentSource: String = "LEGACY_UNVERIFIED",
+    val assignmentEvidence: String = ""
 )
 
 data class ImportedWorkspace(
