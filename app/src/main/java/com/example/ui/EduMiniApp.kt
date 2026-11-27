@@ -841,6 +841,7 @@ private fun AuthenticatedEduMiniContent(
                     PreImportPreviewDialog(
                         preview = preview,
                         isBusy = state.isBusy,
+                        existingGrades = state.workspaces.map { it.gradeKey.uppercase() }.toSet(),
                         onConfirmImport = viewModel::confirmStagedImport,
                         onDismiss = viewModel::dismissStagedPreview
                     )
