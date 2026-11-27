@@ -3,6 +3,7 @@ package com.example.data.repository
 import android.content.Context
 import android.net.Uri
 import kotlinx.coroutines.CancellationException
+import com.example.data.ai.AiExecutionRequest
 import com.example.data.ai.AiGenerationService
 import com.example.data.ai.BookIndexPromptRegistry
 import com.example.data.ai.TemplateResponseAdapter
@@ -754,51 +755,43 @@ class EduMiniRepository(
             .distinct()
         val startedMs = System.currentTimeMillis()
         onProgress(42, "إرسال البرومبت والمرفق إلى مزود الذكاء الاصطناعي")
-        val result = aiGenerationService.generate(
-            lesson = lesson,
-            task = task,
-            source = effectiveSource,
-            extra = effectiveExtra,
-            providers = providers,
-            selectedProvider = selectedProvider,
-            requestedModelId = selectedModelId,
-            requestedProfileId = selectedProfileId,
-            questionCount = questionCount,
-            questionTypeIds = questionTypeIds,
-            questionLanguage = questionLanguage,
-            pdfPageImagesBase64 = pageImages,
-            pdfDocumentBase64 = pdfPayload?.base64,
-            responseSchemaJson = responseSchema,
-            responseFormat = responseFormat,
-            templateId = activeTemplate?.id.orEmpty(),
-            templateVersion = activeTemplate?.version ?: 1,
-            responseSchemaHash = schemaHash,
-            requestFingerprint = requestSeedHash,
-            sourcePdfHash = pdfHash,
-            onReserveProvider = { profile -> providerStorage.reserveProviderKey(profile.id) },
-            onProviderStateChanged = { providerId, status, retryAfter ->
-                providerStorage.updateProviderRuntimeState(providerId, status, retryAfter)
-            },
-            questionStyleHint = questionStyleHint,
-            difficultyHint = difficultyHint,
-            onAttemptFinished = { providerLabel, model, success, error ->
-                dao.insertGenerationRun(
-                    GenerationRunEntity(
-                        id = "run-${System.currentTimeMillis()}-${UUID.randomUUID().toString().take(6)}",
-                        workspaceId = workspaceId.ifBlank { lesson.rootPath },
-                        lessonKey = lesson.lessonKey,
-                        task = task.id,
-                        providerLabel = providerLabel,
-                        model = model,
-                        status = if (success) "SUCCESS" else "FAILED",
-                        errorSummary = error?.take(220),
-                        createdAt = Instant.now().toString(),
-                        durationMs = (System.currentTimeMillis() - startedMs).coerceAtLeast(1L),
-                        tokensUsed = 0
-                    )
-                )
-            },
-            modelFallbackIds = modelFallbackIds
+        val prompt = withContext(Dispatchers.IO) {
+            aiGenerationService.buildPrompt(
+                lesson = lesson,
+                task = task,
+                source = effectiveSource,
+                extra = effectiveExtra,
+                questionCount = questionCount,
+                questionTypeIds = questionTypeIds,
+                questionLanguage = questionLanguage,
+                attachedPdfPagesCount = if (pdfPayload != null) 1 else pageImages.size,
+                questionStyleHint = questionStyleHint,
+                difficultyHint = difficultyHint,
+                responseSchemaJson = responseSchema,
+                responseFormat = responseFormat
+            )
+        }
+        val result = executeAiTask(
+            workspaceId = workspaceId.ifBlank { lesson.workspaceId }.ifBlank { lesson.rootPath },
+            taskId = task.id,
+            lessonKey = lesson.lessonKey,
+            request = AiExecutionRequest(
+                prompt = prompt,
+                providers = providers,
+                selectedProvider = selectedProvider,
+                requestedModelId = selectedModelId,
+                requestedProfileId = selectedProfileId,
+                modelFallbackIds = modelFallbackIds,
+                pdfPageImagesBase64 = pageImages,
+                pdfDocumentBase64 = pdfPayload?.base64,
+                responseSchemaJson = responseSchema,
+                responseFormat = responseFormat,
+                templateId = activeTemplate?.id.orEmpty(),
+                templateVersion = activeTemplate?.version ?: 1,
+                responseSchemaHash = schemaHash,
+                requestFingerprint = requestSeedHash,
+                sourcePdfHash = pdfHash
+            )
         )
         onProgress(88, "فحص الاستجابة مع الاحتفاظ بالمحتوى المستلم")
         val responseIssues = mutableListOf<String>()
@@ -862,6 +855,62 @@ class EduMiniRepository(
             text = adaptedText,
             contentHash = sha256Full(adaptedText),
             validationIssues = responseIssues.toList()
+        )
+    }
+
+    /**
+     * The single application-owned provider execution path used by Content Studio,
+     * lesson preparation, book-index discovery and future AI features.
+     *
+     * Feature callers prepare prompts/contracts and attachments; this method owns
+     * provider-key reservation, runtime state updates, model fallback and run telemetry.
+     */
+    suspend fun executeAiTask(
+        workspaceId: String,
+        taskId: String,
+        lessonKey: String = "",
+        request: AiExecutionRequest
+    ): GeneratedResult {
+        require(taskId.isNotBlank()) { "معرّف مهمة AI مطلوب." }
+        val startedAt = System.currentTimeMillis()
+        val modelFallbackIds = request.modelFallbackIds.ifEmpty {
+            providerStorage.loadModelCatalog()
+                .filter {
+                    it.provider == request.selectedProvider &&
+                        it.modelId != request.requestedModelId &&
+                        it.isEnabled &&
+                        it.supportsGenerateContent &&
+                        it.lifecycleStatus != com.example.data.ai.AiModelDefinition.STATUS_DEPRECATED
+                }
+                .sortedWith(compareBy<com.example.data.ai.AiModelDefinition> { !it.isDefault }.thenBy { it.displayName })
+                .map { it.modelId }
+                .distinct()
+        }
+        return aiGenerationService.execute(
+            request.copy(
+                modelFallbackIds = modelFallbackIds,
+                onReserveProvider = { profile -> providerStorage.reserveProviderKey(profile.id) },
+                onProviderStateChanged = { providerId, status, retryAfter ->
+                    providerStorage.updateProviderRuntimeState(providerId, status, retryAfter)
+                },
+                onAttemptFinished = { providerLabel, model, success, error ->
+                    dao.insertGenerationRun(
+                        GenerationRunEntity(
+                            id = "run-${System.currentTimeMillis()}-${UUID.randomUUID().toString().take(6)}",
+                            workspaceId = workspaceId,
+                            lessonKey = lessonKey,
+                            task = taskId,
+                            providerLabel = providerLabel,
+                            model = model,
+                            status = if (success) "SUCCESS" else "FAILED",
+                            errorSummary = error?.take(220),
+                            createdAt = Instant.now().toString(),
+                            durationMs = (System.currentTimeMillis() - startedAt).coerceAtLeast(1L),
+                            tokensUsed = 0
+                        )
+                    )
+                }
+            )
         )
     }
 
