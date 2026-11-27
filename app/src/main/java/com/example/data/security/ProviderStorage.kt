@@ -198,7 +198,7 @@ class ProviderStorage(context: Context) {
             require(profiles.none { profile ->
                 profile.provider == model.provider &&
                     (profile.model == modelId || modelId in profile.fallbackModels)
-            }) { "لا يمكن حذف النموذج لأنه مستخدم في ملف اتصال API. عدّل ملف الاتصال أولاً." }
+            }) { "لا يمكن حذف النموذج لأنه مستخدم في إعداد قديم لمفتاح API. حدّث إعداد المفتاح أولاً." }
             writeModelCatalogLocked(current.filterNot { it.modelId == modelId })
         }
     }
