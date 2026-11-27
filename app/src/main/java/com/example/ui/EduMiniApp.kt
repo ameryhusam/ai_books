@@ -827,6 +827,44 @@ private fun AuthenticatedEduMiniContent(
                     }
                 }
 
+                state.workspaceOperation?.let { operation ->
+                    AlertDialog(
+                        onDismissRequest = {},
+                        containerColor = EduWhite,
+                        title = {
+                            Text(
+                                text = operation.title,
+                                style = MaterialTheme.typography.titleMedium,
+                                color = EduInk
+                            )
+                        },
+                        text = {
+                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Text(
+                                    text = operation.stage,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = EduInk
+                                )
+                                val percent = operation.percent
+                                if (percent == null) {
+                                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                                } else {
+                                    LinearProgressIndicator(
+                                        progress = { (percent / 100f).coerceIn(0f, 1f) },
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                    Text(
+                                        text = "$percent%",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = EduMuted
+                                    )
+                                }
+                            }
+                        },
+                        confirmButton = {}
+                    )
+                }
+
                 state.directInspection?.let { inspection ->
                     SingleGradePickerDialog(
                         inspection = inspection,
