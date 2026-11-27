@@ -317,7 +317,7 @@ object WorkspaceContractValidator {
         if (missingAssignmentUnits.isNotEmpty()) {
             val preview = missingAssignmentUnits.take(3).joinToString("، ")
             val suffix = if (missingAssignmentUnits.size > 3) " (+${missingAssignmentUnits.size - 3})" else ""
-            warnings.add("حقل assignmentStatus غير موجود في ${missingAssignmentUnits.size} وحدة ($preview$suffix)؛ تم الاعتماد على partKey مع حالة مراجعة المصدر.")
+            errors.add("[index.json → units.assignmentStatus] حقل assignmentStatus غير موجود في ${missingAssignmentUnits.size} وحدة ($preview$suffix)؛ يجب مراجعة إسناد الوحدات قبل الاعتماد.")
         }
         return WorkspaceContractValidation(canonical, errors.distinct(), warnings.distinct())
     }
