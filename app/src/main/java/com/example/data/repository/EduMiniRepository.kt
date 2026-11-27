@@ -3,7 +3,7 @@ package com.example.data.repository
 import android.content.Context
 import android.net.Uri
 import com.example.data.ai.AiGenerationService
-import com.example.data.ai.Indexer2PromptRegistry
+import com.example.data.ai.BookIndexPromptRegistry
 import com.example.data.ai.TemplateResponseAdapter
 import com.example.data.ai.QuestionResponseContract
 import com.example.data.ai.TemplateOutputValidator
@@ -2639,23 +2639,23 @@ class EduMiniRepository(
                 task = TaskType.EXPLANATION,
                 instructions = "قسّم الشرح إلى 3 خطوات واضحة، أضف مثالاً من الحياة اليومية، واختم بقاعدة ذهبية للحفظ.",
                 isBuiltIn = true,
-                responseSchemaJson = Indexer2PromptRegistry.blueprintFor(TaskType.EXPLANATION).schemaSnippet
+                responseSchemaJson = BookIndexPromptRegistry.blueprintFor(TaskType.EXPLANATION).schemaSnippet
             ),
             PromptTemplateRecord(
                 id = "builtin_summary",
                 title = "ملخص مركّز في نقاط سريعة",
                 task = TaskType.SUMMARY,
-                instructions = Indexer2PromptRegistry.blueprintFor(TaskType.SUMMARY).quickInstructions,
+                instructions = BookIndexPromptRegistry.blueprintFor(TaskType.SUMMARY).quickInstructions,
                 isBuiltIn = true,
-                responseSchemaJson = Indexer2PromptRegistry.blueprintFor(TaskType.SUMMARY).schemaSnippet
+                responseSchemaJson = BookIndexPromptRegistry.blueprintFor(TaskType.SUMMARY).schemaSnippet
             ),
             PromptTemplateRecord(
                 id = "builtin_objectives",
                 title = "الأهداف السلوكية والمفردات المفتاحية",
                 task = TaskType.OBJECTIVES,
-                instructions = Indexer2PromptRegistry.blueprintFor(TaskType.OBJECTIVES).quickInstructions,
+                instructions = BookIndexPromptRegistry.blueprintFor(TaskType.OBJECTIVES).quickInstructions,
                 isBuiltIn = true,
-                responseSchemaJson = Indexer2PromptRegistry.blueprintFor(TaskType.OBJECTIVES).schemaSnippet
+                responseSchemaJson = BookIndexPromptRegistry.blueprintFor(TaskType.OBJECTIVES).schemaSnippet
             ),
             PromptTemplateRecord(
                 id = "builtin_vocab_cards",
@@ -2663,31 +2663,31 @@ class EduMiniRepository(
                 task = TaskType.VOCABULARY,
                 instructions = "استخرج أهم المصطلحات في جدول منظم: المصطلح، المعنى المبسط، ومثال من سياق الدرس.",
                 isBuiltIn = true,
-                responseSchemaJson = Indexer2PromptRegistry.blueprintFor(TaskType.VOCABULARY).schemaSnippet
+                responseSchemaJson = BookIndexPromptRegistry.blueprintFor(TaskType.VOCABULARY).schemaSnippet
             ),
             PromptTemplateRecord(
                 id = "builtin_worked_examples",
                 title = "أمثلة محلولة خطوة بخطوة",
                 task = TaskType.WORKED_EXAMPLES,
-                instructions = Indexer2PromptRegistry.blueprintFor(TaskType.WORKED_EXAMPLES).quickInstructions,
+                instructions = BookIndexPromptRegistry.blueprintFor(TaskType.WORKED_EXAMPLES).quickInstructions,
                 isBuiltIn = true,
-                responseSchemaJson = Indexer2PromptRegistry.blueprintFor(TaskType.WORKED_EXAMPLES).schemaSnippet
+                responseSchemaJson = BookIndexPromptRegistry.blueprintFor(TaskType.WORKED_EXAMPLES).schemaSnippet
             ),
             PromptTemplateRecord(
                 id = "builtin_lesson_review",
                 title = "مراجعة شاملة وتصحيح المفاهيم",
                 task = TaskType.LESSON_REVIEW,
-                instructions = Indexer2PromptRegistry.blueprintFor(TaskType.LESSON_REVIEW).quickInstructions,
+                instructions = BookIndexPromptRegistry.blueprintFor(TaskType.LESSON_REVIEW).quickInstructions,
                 isBuiltIn = true,
-                responseSchemaJson = Indexer2PromptRegistry.blueprintFor(TaskType.LESSON_REVIEW).schemaSnippet
+                responseSchemaJson = BookIndexPromptRegistry.blueprintFor(TaskType.LESSON_REVIEW).schemaSnippet
             ),
             PromptTemplateRecord(
                 id = "builtin_difficulty_adapter",
                 title = "مواءمة المستويات (3 مسارات)",
                 task = TaskType.DIFFICULTY_ADAPTER,
-                instructions = Indexer2PromptRegistry.blueprintFor(TaskType.DIFFICULTY_ADAPTER).quickInstructions,
+                instructions = BookIndexPromptRegistry.blueprintFor(TaskType.DIFFICULTY_ADAPTER).quickInstructions,
                 isBuiltIn = true,
-                responseSchemaJson = Indexer2PromptRegistry.blueprintFor(TaskType.DIFFICULTY_ADAPTER).schemaSnippet
+                responseSchemaJson = BookIndexPromptRegistry.blueprintFor(TaskType.DIFFICULTY_ADAPTER).schemaSnippet
             ),
             PromptTemplateRecord(
                 id = "builtin_bloom_questions",
@@ -2755,7 +2755,7 @@ class EduMiniRepository(
                 id = "builtin_lesson_text",
                 title = "استخراج وحفظ المحتوى النصي للدرس",
                 task = TaskType.LESSON_TEXT,
-                instructions = Indexer2PromptRegistry.blueprintFor(TaskType.LESSON_TEXT).quickInstructions,
+                instructions = BookIndexPromptRegistry.blueprintFor(TaskType.LESSON_TEXT).quickInstructions,
                 isBuiltIn = true,
                 responseSchemaJson = """
                     {
