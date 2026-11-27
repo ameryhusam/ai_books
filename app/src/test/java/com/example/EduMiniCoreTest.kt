@@ -71,6 +71,7 @@ import com.example.model.SecuritySeverity
 import com.example.model.TaskType
 import com.example.model.ProviderConfig
 import com.example.model.ProviderType
+import com.example.model.ProviderApiKeyNames
 import com.example.model.UnitCompletionStatus
 import com.example.ui.components.LearningProgressCalculator
 import kotlinx.coroutines.flow.first
@@ -3152,6 +3153,14 @@ class EduMiniCoreTest {
             com.example.data.ai.ProviderRoutingPolicy.modelCandidates(credentialOnlyProfile, "gemini-selected")
         )
         assertEquals(
+            listOf("gemini-selected", "gemini-catalog-fallback", "gemini-primary", "gemini-fallback"),
+            com.example.data.ai.ProviderRoutingPolicy.modelCandidates(
+                credentialOnlyProfile,
+                "gemini-selected",
+                listOf("gemini-catalog-fallback")
+            )
+        )
+        assertEquals(
             listOf("gemini-key"),
             com.example.data.ai.ProviderRoutingPolicy.orderedProfiles(
                 profiles,
@@ -3163,6 +3172,51 @@ class EduMiniCoreTest {
             listOf("gpt-test", "gpt-fallback"),
             com.example.data.ai.ProviderRoutingPolicy.modelCandidates(openAiProfiles.single())
         )
+    }
+
+    @Test
+    fun providerApiKeyAliasesAreProviderScopedAndNumbered() {
+        val profiles = listOf(
+            ProviderConfig(
+                id = "gemini-old",
+                provider = ProviderType.GEMINI,
+                label = "Gemini",
+                model = "",
+                baseUrl = "",
+                apiKey = "gemini-secret",
+                enabled = true,
+                createdAt = 1L
+            ),
+            ProviderConfig(
+                id = "gemini-three",
+                provider = ProviderType.GEMINI,
+                label = "GEMINI_API_KEY_3",
+                model = "",
+                baseUrl = "",
+                apiKey = "gemini-secret-3",
+                enabled = true,
+                createdAt = 2L
+            ),
+            ProviderConfig(
+                id = "openai-old",
+                provider = ProviderType.OPENAI_COMPATIBLE,
+                label = "OpenAI",
+                model = "",
+                baseUrl = "https://api.openai.com/v1",
+                apiKey = "openai-secret",
+                enabled = true,
+                createdAt = 3L
+            )
+        )
+
+        assertEquals("GEMINI_API_KEY_4", ProviderApiKeyNames.nextName(ProviderType.GEMINI, profiles))
+        assertEquals("OPENAI_API_KEY_1", ProviderApiKeyNames.nextName(ProviderType.OPENAI_COMPATIBLE, profiles))
+
+        val normalized = ProviderApiKeyNames.normalizeLegacyNames(profiles)
+        assertEquals("GEMINI_API_KEY_1", normalized.first { it.id == "gemini-old" }.label)
+        assertEquals("GEMINI_API_KEY_3", normalized.first { it.id == "gemini-three" }.label)
+        assertEquals("OPENAI_API_KEY_1", normalized.first { it.id == "openai-old" }.label)
+        assertEquals("gemini-secret", normalized.first { it.id == "gemini-old" }.apiKey)
     }
 
     @Test
