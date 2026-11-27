@@ -3282,7 +3282,7 @@ class EduMiniCoreTest {
                         writeTestHttpResponse(
                             socket,
                             429,
-                            """{"error":{"message":"You have exceeded your daily quota","status":"RESOURCE_EXHAUSTED"}}"""
+                            """{"error":{"message":"Resource exhausted","status":"RESOURCE_EXHAUSTED","details":[{"metadata":{"quotaId":"GenerateRequestsPerDayPerProjectPerModel-FreeTier","quotaMetric":"generativelanguage.googleapis.com/generate_content_free_tier_requests"}}]}}"""
                         )
                     } else {
                         writeTestHttpResponse(
