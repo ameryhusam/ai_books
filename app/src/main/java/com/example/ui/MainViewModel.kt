@@ -1872,23 +1872,6 @@ class MainViewModel(
                     .getOrDefault(snapshot.providers)
                 _uiState.update { it.copy(providers = latestProviders, generationProgressPercent = 100, generationStage = "اكتمل التوليد والحفظ") }
 
-                val generatedQuestions = if (task == TaskType.QUESTIONS) {
-                    repository.saveQuestionsFromDraftText(workspace.workspaceId, lesson, output.text)
-                } else emptyList()
-                generatedQuestions.forEach { question ->
-                    repository.updateQuestion(
-                        questionId = question.id,
-                        type = question.type,
-                        prompt = question.prompt,
-                        options = question.options,
-                        correctAnswer = question.correctAnswer,
-                        rationale = question.rationale,
-                        difficulty = question.difficulty,
-                        conceptTag = conceptTitle,
-                        reviewed = false
-                    )
-                }
-
                 _uiState.update {
                     it.copy(
                         page = AppPage.STUDIO,
@@ -1897,16 +1880,20 @@ class MainViewModel(
                         sourceText = evidence,
                         extraInstructions = taskInstructions,
                         generatedResult = output.text,
+                        generatedDisplayResult = if (task == TaskType.LESSON_TEXT) repository.extractLessonTextFromOutput(output.text) else output.text,
+                        activeDraftId = draft.id,
                         activeDraftProvider = output.providerLabel,
                         activeDraftModel = output.model,
                         activeDraftTemplateId = output.templateId,
                         activeDraftTemplateVersion = output.templateVersion,
                         activeDraftResponseSchemaHash = output.responseSchemaHash,
+                        activeDraftPromptUsed = output.promptUsed,
+                        activeDraftResponseSchemaJson = output.responseSchemaJson,
                         activeDraftRequestFingerprint = output.requestFingerprint,
                         activeDraftContentHash = output.contentHash,
                         activeDraftSourcePdfHash = output.sourcePdfHash,
                         toastMessage = if (task == TaskType.QUESTIONS) {
-                            "تم إنشاء مسودة علاجية وإضافة ${generatedQuestions.size} سؤالاً تكيفياً للمفهوم: $conceptTitle"
+                            "تم إنشاء مسودة أسئلة علاجية للمفهوم «$conceptTitle»؛ ستُضاف إلى البنك بعد الاعتماد."
                         } else {
                             "تم إنشاء شرح تقوية للمفهوم وحفظه كمسودة للمراجعة والاعتماد."
                         }
