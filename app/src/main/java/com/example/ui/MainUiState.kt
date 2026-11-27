@@ -37,6 +37,12 @@ data class PdfSplitterUiState(
     val splits: List<LessonSplitDraft> = emptyList()
 )
 
+data class WorkspaceOperationProgress(
+    val title: String,
+    val stage: String,
+    val percent: Int? = null
+)
+
 data class MainUiState(
     val userRole: UserRole = UserRole.ENTRY,
     val isCloudAuthenticated: Boolean = false,
@@ -101,6 +107,7 @@ data class MainUiState(
     val isTestingProvider: Boolean = false,
     val generationProgressPercent: Int? = null,
     val generationStage: String? = null,
+    val workspaceOperation: WorkspaceOperationProgress? = null,
     val toastMessage: String? = null,
     val alert: AlertMessage? = null
 ) {
