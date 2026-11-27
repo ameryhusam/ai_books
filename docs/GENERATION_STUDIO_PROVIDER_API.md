@@ -382,14 +382,11 @@ The calling feature owns prompt construction, task/schema selection, JSON parsin
 
 ### 7.1 Configured candidate order
 
-A provider profile stores:
+A provider connection stores the provider identity, connection label, API credential, and (for OpenAI-compatible endpoints) its base URL. It is not a model-specific credential. The user selects the model independently in the generation-time model picker.
 
-- primary model;
-- ordered fallback model IDs;
-- `strictModel`.
+For backward-compatible routing, a saved connection may carry an automatically populated same-provider fallback-model list. This list is derived from enabled catalogue entries when the connection is saved; it is not a model selection required to create or save an API credential. The selected generation model is always attempted first, followed by the connection's same-provider fallback candidates. The selected API connection is attempted first, then other enabled connections belonging to the same provider are eligible according to provider-specific failover rules. OpenAI-compatible model selection remains explicit; its fallback path rotates API profiles/keys, not providers.
 
-Provider profiles retain an ordered primary model and fallbackModels list. SettingsScreen exposes the fallback model chips in the profile editor; their stored order is the execution order, and enabling strictModel disables model fallback. The active execution path now uses the UI-selected model first, followed by configured same-provider Gemini fallbacks. The selected API profile is attempted first, then other enabled profiles belonging to the same provider are eligible according to the provider-specific failover rules. OpenAI-compatible model selection remains fixed; its fallback path rotates API profiles/keys, not providers.
-The built-in Gemini catalogue seeds four selectable model IDs: `gemini-3.5-flash` (default), `gemini-3.6-flash`, `gemini-3.7-flash`, and `gemini-3.8-flash`. These are Google Gemini model IDs, not application-invented aliases. Keep the provider label as `Gemini`; display names such as `Gemini 3.5 Flash` are presentation labels while API dispatch uses the exact `modelId`. The central Firestore catalogue remains authoritative: an authorized system administrator may merge missing built-in seed entries into the central collection; existing definitions and custom entries are preserved. New Gemini API profiles preselect the central default model and include the other enabled Gemini models as ordered fallback candidates; an existing profile's explicit model/fallback choices must not be overwritten.
+The built-in Gemini catalogue seeds four selectable model IDs: `gemini-3.5-flash` (default), `gemini-3.6-flash`, `gemini-3.7-flash`, and `gemini-3.8-flash`. These are configured Google Gemini model IDs; availability and entitlement depend on the Google project/account associated with the API key. The central Firestore catalogue remains authoritative: an authorized system administrator may merge missing built-in seed entries into the central collection; existing definitions and custom entries are preserved.
 
 Current policy: keep provider selection explicit and isolated, but permit configured same-provider fallback. For Gemini, make up to three actual dispatch attempts per model on transient overload/rate-limit/network/server failures, then move to the next configured Gemini model. A confirmed daily/project quota exhaustion or invalid key skips the current API profile immediately and tries another enabled Gemini profile. OpenAI-compatible requests keep the selected model, retry transient failures up to three dispatches, then move to another enabled OpenAI-compatible profile/key; invalid key and confirmed quota exhaustion move to the next key immediately.
 
@@ -423,13 +420,13 @@ The current code already separates several of these cases, but its retry/backoff
 
 ## 8. Provider profiles, secrets and request telemetry
 
-Provider profiles are encrypted at rest using an Android Keystore-backed key and authenticated encryption. The profile contains the provider type, label, model, endpoint, API key, enabled state, priority, fallback model list, strict-model setting and runtime status.
+Provider connections are encrypted at rest using an Android Keystore-backed key and authenticated encryption. The connection contains the provider type, connection label, endpoint where applicable, API key, enabled state, priority, automatically derived same-provider fallback candidates, and runtime status. New connections do not require a primary model; the model is selected separately for each generation request.
 
 Rules:
 
 - Never include API keys in prompts, logs, draft provenance, backups or Firestore.
 - Mask secrets in the UI.
-- Test-connection must test only the selected provider profile and its configured model.
+- Test-connection must test only the selected provider connection and the enabled default model from that provider's catalogue (or the first enabled supported model if no default exists).
 - Runtime status and last-used information may be stored locally.
 - The application must not claim that encryption at rest makes an API key impossible to extract from a distributed APK. A public release should use a controlled backend for provider credentials and request dispatch.
 
