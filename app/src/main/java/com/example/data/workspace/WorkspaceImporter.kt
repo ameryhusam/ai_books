@@ -247,7 +247,10 @@ class WorkspaceImporter(private val context: Context) {
                         "لم يتم تحديد ملفات الكتب الصالحة للنسخ في الصف $gradeKey."
                     }
 
-                    validatedPreview.books.forEach { book ->
+                    validatedPreview.books.forEachIndexed { bookIndex, book ->
+                        val bookProgress = 20 + (idx * 70 / gradesToImport.size.coerceAtLeast(1)) +
+                            ((bookIndex + 1) * 45 / validatedPreview.books.size.coerceAtLeast(1) / gradesToImport.size.coerceAtLeast(1))
+                        onProgress("نسخ المادة ${book.title}", bookProgress.coerceAtMost(88))
                         val sourceBookDir = File(tempDir, book.relativePath)
                         val destinationBookDir = File(destDir, book.relativePath)
                         val sourceCanonical = sourceBookDir.canonicalPath
