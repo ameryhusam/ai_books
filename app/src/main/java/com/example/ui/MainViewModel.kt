@@ -336,15 +336,15 @@ class MainViewModel(
             // no model is offered for generation.
             _uiState.update { it.copy(aiModelCatalog = emptyList()) }
             if (isCloudAuthenticated) {
-                runCatching { firestoreSync.isSystemAdmin() }
-                    .onSuccess { allowed -> _uiState.update { it.copy(isSystemAdmin = allowed) } }
-                    .onFailure { _uiState.update { it.copy(isSystemAdmin = false) } }
+                val canManageCentralModels = runCatching { firestoreSync.isSystemAdmin() }
+                    .getOrDefault(false)
+                _uiState.update { it.copy(isSystemAdmin = canManageCentralModels) }
                 runCatching {
                     var catalog = firestoreSync.fetchAiModelCatalog()
                     // Bootstrap the central catalogue only for an explicitly
                     // authorized system administrator, and only when it is empty.
                     // Ordinary teachers/users never publish local defaults to Firestore.
-                    if (allowed && catalog.isEmpty()) {
+                    if (canManageCentralModels && catalog.isEmpty()) {
                         AiModelCatalogDefaults.entries.forEach { seed ->
                             firestoreSync.upsertAiModelDefinition(seed)
                         }
