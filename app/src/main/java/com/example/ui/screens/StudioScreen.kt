@@ -150,6 +150,7 @@ fun StudioScreen(
     sourceText: String,
     extraInstructions: String,
     generatedResult: String,
+    displayGeneratedResult: String = generatedResult,
     packageSourcePages: String,
     lessonDrafts: List<DraftRecord>,
     cloudDraftsState: SyncUiState<List<CloudDraft>> = SyncUiState.Loading,
@@ -263,6 +264,7 @@ fun StudioScreen(
                     sourceText = sourceText,
                     extraInstructions = extraInstructions,
                     generatedResult = generatedResult,
+                    displayGeneratedResult = displayGeneratedResult,
                     packageSourcePages = packageSourcePages,
                     lessonDrafts = lessonDrafts,
                     cloudDraftsState = cloudDraftsState,
@@ -333,6 +335,7 @@ fun StudioScreen(
                     sourceText = sourceText,
                     extraInstructions = extraInstructions,
                     generatedResult = generatedResult,
+                    displayGeneratedResult = displayGeneratedResult,
                     packageSourcePages = packageSourcePages,
                     lessonDrafts = lessonDrafts,
                     cloudDraftsState = cloudDraftsState,
@@ -418,6 +421,7 @@ private fun StudioWorkbench(
     sourceText: String,
     extraInstructions: String,
     generatedResult: String,
+    displayGeneratedResult: String,
     packageSourcePages: String,
     lessonDrafts: List<DraftRecord>,
     cloudDraftsState: SyncUiState<List<CloudDraft>>,
@@ -1159,7 +1163,7 @@ private fun StudioWorkbench(
                                             color = EduGreenDark
                                         )
                                         Text(
-                                            text = generatedResult.take(110).replace('\n', ' '),
+                                            text = displayGeneratedResult.take(110).replace('\n', ' '),
                                             style = MaterialTheme.typography.bodySmall,
                                             color = EduInk,
                                             maxLines = 2,
@@ -1273,7 +1277,7 @@ private fun StudioWorkbench(
                                     )
                                 } else {
                                     EduMarkdownReader(
-                                        text = generatedResult,
+                                        text = displayGeneratedResult,
                                         onSwitchToEdit = { rawEditorMode = true }
                                     )
                                 }
