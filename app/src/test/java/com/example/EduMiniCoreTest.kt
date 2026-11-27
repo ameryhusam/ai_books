@@ -1540,7 +1540,7 @@ class EduMiniCoreTest {
               "manifestVersion":"edu.book_manifest.v1",
               "gradeKey":"G05",
               "subjectKey":"SCI",
-              "partKey":"P01",
+              "partKey":"BOTH",
               "sourceLayout":"MERGED_PARTS_FILE",
               "sourceReviewStatus":"VERIFIED",
               "sourceSha256":"${"a".repeat(64)}",
