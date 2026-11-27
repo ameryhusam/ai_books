@@ -341,14 +341,19 @@ class MainViewModel(
                 _uiState.update { it.copy(isSystemAdmin = canManageCentralModels) }
                 runCatching {
                     var catalog = firestoreSync.fetchAiModelCatalog()
-                    // Bootstrap the central catalogue only for an explicitly
-                    // authorized system administrator, and only when it is empty.
-                    // Ordinary teachers/users never publish local defaults to Firestore.
-                    if (canManageCentralModels && catalog.isEmpty()) {
-                        AiModelCatalogDefaults.entries.forEach { seed ->
+                    // Seed missing built-in entries for an explicitly authorized
+                    // system administrator. Merge by provider + exact model ID so
+                    // existing central settings and custom entries are never overwritten.
+                    if (canManageCentralModels) {
+                        val missingSeeds = AiModelCatalogDefaults.entries.filter { seed ->
+                            catalog.none { it.provider == seed.provider && it.modelId == seed.modelId }
+                        }
+                        missingSeeds.forEach { seed ->
                             firestoreSync.upsertAiModelDefinition(seed)
                         }
-                        catalog = firestoreSync.fetchAiModelCatalog()
+                        if (missingSeeds.isNotEmpty()) {
+                            catalog = firestoreSync.fetchAiModelCatalog()
+                        }
                     }
                     catalog
                 }
