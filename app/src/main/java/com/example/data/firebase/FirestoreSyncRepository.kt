@@ -197,6 +197,9 @@ class FirestoreSyncRepository(
             val safeRequestFingerprint = normalizeSha256(draft.requestFingerprint, "requestFingerprint")
             val safeContentHash = normalizeSha256(draft.contentHash, "contentHash")
             val safeSourcePdfHash = normalizeSha256(draft.sourcePdfHash, "sourcePdfHash")
+            val safePromptUsed = draft.promptUsed.take(40_000)
+            val safeResponseSchemaJson = draft.responseSchemaJson.take(40_000)
+            val safeSourceIndexSha256 = normalizeSha256(draft.sourceIndexSha256, "sourceIndexSha256")
 
             val docRef = requireFirestore().collection("users")
                 .document(uid)
@@ -216,6 +219,9 @@ class FirestoreSyncRepository(
                         "requestFingerprint" to safeRequestFingerprint,
                         "contentHash" to safeContentHash,
                         "sourcePdfHash" to safeSourcePdfHash,
+                        "promptUsed" to safePromptUsed,
+                        "responseSchemaJson" to safeResponseSchemaJson,
+                        "sourceIndexSha256" to safeSourceIndexSha256,
                         "status" to safeStatus,
                         "version" to safeVersion,
                         "updatedAt" to FieldValue.serverTimestamp()
@@ -241,6 +247,9 @@ class FirestoreSyncRepository(
                         "requestFingerprint" to safeRequestFingerprint,
                         "contentHash" to safeContentHash,
                         "sourcePdfHash" to safeSourcePdfHash,
+                        "promptUsed" to safePromptUsed,
+                        "responseSchemaJson" to safeResponseSchemaJson,
+                        "sourceIndexSha256" to safeSourceIndexSha256,
                         "status" to safeStatus,
                         "version" to safeVersion,
                         "createdAt" to FieldValue.serverTimestamp(),
