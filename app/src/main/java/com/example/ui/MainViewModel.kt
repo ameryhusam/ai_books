@@ -3566,7 +3566,7 @@ class MainViewModel(
                         generatedQuestionExpectedCount = if (snapshot.task == TaskType.QUESTIONS) snapshot.questionCount else null,
                         generatedQuestionExpectedTypeIds = if (snapshot.task == TaskType.QUESTIONS) snapshot.selectedQuestionTypeIds else emptyList(),
                         generatedQuestionExpectedDifficultyId = if (snapshot.task == TaskType.QUESTIONS) snapshot.questionDifficulty.id else "",
-                        sourceText = if (snapshot.task == TaskType.LESSON_TEXT && lessonTextSaved != null) lessonTextSaved.content else it.sourceText,
+                        sourceText = it.sourceText,
                         activeDraftProvider = out.providerLabel,
                         activeDraftModel = out.model,
                         activeDraftTemplateId = out.templateId,
