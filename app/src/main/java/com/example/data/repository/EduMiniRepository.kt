@@ -26,6 +26,7 @@ import com.example.data.local.TeacherNoteEntity
 import com.example.data.local.WorkspaceEntity
 import com.example.data.local.WorkspaceIndexEntity
 import com.example.data.local.WorkspaceUnitEntity
+import com.example.data.local.WorkspaceCatalogGraph
 import com.example.data.packageimport.InteractiveBundleBuilder
 import com.example.data.packageimport.InteractivePackageImporter
 import com.example.model.InteractiveActivityModel
@@ -191,9 +192,42 @@ class EduMiniRepository(
         preview: StagedWorkspacePreview,
         selectedGrades: List<String>
     ): List<ImportedWorkspace> {
-        val committed = workspaceImporter.commitStagedGrades(preview, selectedGrades)
-        committed.forEach { saveImportedWorkspace(it) }
-        return committed
+        val grades = selectedGrades.map { it.trim().uppercase() }.filter { it.isNotBlank() }.distinct()
+        require(grades.isNotEmpty()) { "يجب اختيار صف واحد على الأقل." }
+
+        val existingByGrade = dao.observeAllWorkspaces().first()
+            .filter { it.gradeKey.trim().uppercase() in grades }
+            .groupBy { it.gradeKey.trim().uppercase() }
+        val ambiguousGrades = existingByGrade.filterValues { it.size > 1 }.keys
+        require(ambiguousGrades.isEmpty()) {
+            "توجد أكثر من مساحة عمل مسجلة للصفوف " + ambiguousGrades.sorted().joinToString("، ") +
+                "؛ لم يتم الاستيراد لتجنب تحديث مساحة غير مقصودة."
+        }
+
+        val staged = workspaceImporter.commitStagedGrades(preview, grades)
+        val replacements = staged.map { incoming ->
+            val existing = existingByGrade[incoming.gradeKey.trim().uppercase()]?.singleOrNull()
+            val targetWorkspaceId = existing?.workspaceId ?: incoming.workspaceId
+            incoming.copy(
+                workspaceId = targetWorkspaceId,
+                lessons = incoming.lessons.map { lesson -> lesson.copy(workspaceId = targetWorkspaceId) }
+            )
+        }
+
+        try {
+            dao.syncDirectWorkspaceCatalogBatch(replacements.map(::toWorkspaceCatalogGraph))
+        } catch (error: Exception) {
+            staged.forEach { deleteManagedWorkspaceDirectory(it.rootPath) }
+            throw error
+        }
+
+        staged.forEach { incoming ->
+            val old = existingByGrade[incoming.gradeKey.trim().uppercase()]?.singleOrNull()
+            if (old != null && old.rootPath != incoming.rootPath) {
+                deleteManagedWorkspaceDirectory(old.rootPath)
+            }
+        }
+        return replacements
     }
 
     fun discardStagedPreview(preview: StagedWorkspacePreview) {
@@ -355,6 +389,21 @@ class EduMiniRepository(
     }
 
     suspend fun saveImportedWorkspace(imported: ImportedWorkspace) {
+        val graph = toWorkspaceCatalogGraph(imported)
+        if (imported.indexRecords.isNotEmpty()) {
+            dao.syncDirectWorkspaceCatalog(
+                workspace = graph.workspace,
+                books = graph.books,
+                lessons = graph.lessons,
+                indexes = graph.indexes,
+                units = graph.units
+            )
+        } else {
+            dao.saveWorkspaceGraph(graph.workspace, graph.books, graph.lessons)
+        }
+    }
+
+    private fun toWorkspaceCatalogGraph(imported: ImportedWorkspace): WorkspaceCatalogGraph {
         val workspaceEntity = WorkspaceEntity(
             workspaceId = imported.workspaceId,
             gradeKey = imported.gradeKey,
@@ -399,43 +448,52 @@ class EduMiniRepository(
                 printedPageRange = lesson.printedPageRange
             )
         }
-        if (imported.indexRecords.isNotEmpty()) {
-            val indexEntities = imported.indexRecords.map { index ->
-                WorkspaceIndexEntity(
-                    workspaceId = imported.workspaceId,
-                    bookKey = index.bookKey,
-                    indexUri = index.indexUriOrPath,
-                    indexRelativePath = index.indexRelativePath,
-                    manifestUri = index.manifestUriOrPath,
-                    manifestRelativePath = index.manifestRelativePath,
-                    indexSha256 = index.indexSha256,
-                    manifestSha256 = index.manifestSha256,
-                    sourceSha256 = index.sourceSha256,
-                    indexSchemaVersion = index.indexSchemaVersion,
-                    manifestVersion = index.manifestVersion,
-                    lastSyncedAt = index.lastSyncedAt
-                )
-            }
-            val unitEntities = imported.units.map { unit ->
-                WorkspaceUnitEntity(
-                    workspaceId = imported.workspaceId,
-                    bookKey = unit.bookKey,
-                    unitKey = unit.unitKey,
-                    title = unit.title,
-                    partKey = unit.partKey,
-                    sortOrder = unit.sortOrder,
-                    sourceIndexPath = unit.sourceIndexPath
-                )
-            }
-            dao.syncDirectWorkspaceCatalog(
-                workspace = workspaceEntity,
-                books = bookEntities,
-                lessons = lessonEntities,
-                indexes = indexEntities,
-                units = unitEntities
+        val indexEntities = imported.indexRecords.map { index ->
+            WorkspaceIndexEntity(
+                workspaceId = imported.workspaceId,
+                bookKey = index.bookKey,
+                indexUri = index.indexUriOrPath,
+                indexRelativePath = index.indexRelativePath,
+                manifestUri = index.manifestUriOrPath,
+                manifestRelativePath = index.manifestRelativePath,
+                indexSha256 = index.indexSha256,
+                manifestSha256 = index.manifestSha256,
+                sourceSha256 = index.sourceSha256,
+                indexSchemaVersion = index.indexSchemaVersion,
+                manifestVersion = index.manifestVersion,
+                lastSyncedAt = index.lastSyncedAt
             )
-        } else {
-            dao.saveWorkspaceGraph(workspaceEntity, bookEntities, lessonEntities)
+        }
+        val unitEntities = imported.units.map { unit ->
+            WorkspaceUnitEntity(
+                workspaceId = imported.workspaceId,
+                bookKey = unit.bookKey,
+                unitKey = unit.unitKey,
+                title = unit.title,
+                partKey = unit.partKey,
+                sortOrder = unit.sortOrder,
+                sourceIndexPath = unit.sourceIndexPath
+            )
+        }
+        return WorkspaceCatalogGraph(
+            workspace = workspaceEntity,
+            books = bookEntities,
+            lessons = lessonEntities,
+            indexes = indexEntities,
+            units = unitEntities
+        )
+    }
+
+    private fun deleteManagedWorkspaceDirectory(rootPath: String) {
+        val context = appContext ?: return
+        if (rootPath.isBlank() || UriIO.isContentUri(rootPath)) return
+        runCatching {
+            val managedRoot = File(context.filesDir, "edumini/workspaces").canonicalFile
+            val candidate = File(rootPath).canonicalFile
+            val managedPrefix = managedRoot.path + File.separator
+            if (candidate.path.startsWith(managedPrefix)) {
+                candidate.deleteRecursively()
+            }
         }
     }
 
