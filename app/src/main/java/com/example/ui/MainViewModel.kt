@@ -2467,6 +2467,7 @@ class MainViewModel(
             it.copy(
                 task = cloudDraft.taskTypeOrDefault(),
                 generatedResult = cloudDraft.content,
+                activeDraftId = "",
                 activeDraftProvider = cloudDraft.provider,
                 activeDraftModel = cloudDraft.model,
                 activeDraftTemplateId = cloudDraft.templateId,
@@ -3446,7 +3447,7 @@ class MainViewModel(
         }
         generationJob?.cancel()
         generationJob = viewModelScope.launch {
-            _uiState.update { it.copy(isBusy = true, generationProgressPercent = 2, generationStage = "بدء تجهيز الطلب") }
+            _uiState.update { it.copy(isBusy = true, activeDraftId = "", generationProgressPercent = 2, generationStage = "بدء تجهيز الطلب") }
             try {
                 val out = repository.generateContent(
                     workspaceId = snapshot.workspace?.workspaceId.orEmpty(),
