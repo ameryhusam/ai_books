@@ -5,7 +5,7 @@ Offline-first Android educational content preparation app rewritten natively in 
 ## Features
 - **ZIP Workspace Import**: Uses Android Storage Access Framework (`OpenDocument`) with ZIP-slip protection, size/file limits, grade discovery (`workspace/Gxx/`), canonical root `index.json` parsing, and `book_manifest.json` metadata.
 - **Library & Lesson Navigation**: Browse imported grade stats, books/subjects, and lessons with part/page range and PDF presence indicators.
-- **Generation Studio**: Select lesson task (`شرح الدرس`, `درس تفاعلي`, `بنك الأسئلة`), enter source text and additional instructions, generate drafts via Gemini REST or OpenAI-compatible endpoints with sequential fallback and retry, and browse/load/delete saved drafts in Room SQLite.
+- **Generation Studio**: Select a lesson task (`شرح الدرس`, `درس تفاعلي`, `بنك الأسئلة`), prepare the source and prompt, and generate drafts through one shared AI execution service using the explicitly selected Gemini or OpenAI-compatible provider/profile/model. Provider-specific transport remains internal to the service; task-specific parsing, validation, persistence and presentation remain with the calling feature.
 - **AI Provider Settings**: Add, enable/disable, and delete Gemini and OpenAI-compatible profiles encrypted with Android Keystore AES-GCM.
 - **Cloud Sync (Firebase Auth & Firestore)**: Google Sign-In via Jetpack Credential Manager (`GetSignInWithGoogleOption`) and per-user Firebase Firestore synchronization (`users/{userId}/drafts` and `users/{userId}/progress`) protected by zero-trust `firestore.rules`.
 
