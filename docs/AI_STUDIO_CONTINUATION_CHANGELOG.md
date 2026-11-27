@@ -506,3 +506,12 @@ The latest Android CI run observed during this pass is [run 45715165859](https:/
 - Added tests for the 3.5 default, 3.6/3.8 entries, and migration from a persisted empty local catalog.
 - Official model IDs verified against Google documentation: https://ai.google.dev/gemini-api/docs/models and https://ai.google.dev/gemini-api/docs/pricing.
 - Verification is pending on the latest branch head; do not treat the UI/model catalogue correction as release-verified until CI passes.
+
+## 14. Four built-in Gemini models — 2026-11-27
+
+- Added `gemini-3.7-flash` to the built-in catalog; the four configured IDs are `gemini-3.5-flash`, `gemini-3.6-flash`, `gemini-3.7-flash`, and `gemini-3.8-flash`.
+- Kept `gemini-3.5-flash` as the default model.
+- Bumped the local model-catalog seed version from 2 to 3 so existing installations merge the missing 3.7 entry while preserving custom model definitions and API credentials.
+- Extended catalog and migration tests to assert all four Gemini entries and exactly one default.
+- No explanatory UI text or new provider-policy copy was added as part of this change.
+- Live API availability and the model-test UI behavior still require runtime verification with a newly rotated Google API key; no user-supplied key was committed.
