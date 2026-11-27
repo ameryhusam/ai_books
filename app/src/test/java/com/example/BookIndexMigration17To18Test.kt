@@ -9,7 +9,12 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
 class BookIndexMigration17To18Test {
     private val context = ApplicationProvider.getApplicationContext<Context>()
     private val databaseName = "book-index-migration-17-18-test.db"
