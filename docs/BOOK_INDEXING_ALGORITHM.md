@@ -199,9 +199,9 @@ original PDF page = printed book page + offset
 
 For example, if the TOC says printed page 25 and that page is physical PDF page 31, the offset is +6. The app applies this mapping only when the physical PDF position has not already been explicitly established. If `pdfPageStart` / `pdfPageEnd` already contain verified physical PDF positions, do not apply offset again.
 
-The offset is a source-level calibration, not a per-lesson guess. Verify it against more than one visible printed-page marker where possible. If the difference is inconsistent, the source has inserted/unprinted pages or a non-constant mapping; do not force a single offset. Mark calibration for review and preserve explicit physical page positions where they can be established. Validate every mapped physical range against the actual original PDF page count. After slicing, keep local lesson-PDF page numbers separate from original PDF positions.
+The default offset is +1. The user may change it when the uploaded PDF has a different relationship between printed book numbering and PDF page numbering. The app calculates original PDF page = printed book page + offset, displays the resulting PDF page ranges for review, and applies the selected offset once. If physical PDF page positions have already been entered or established, do not apply the offset again. Validate mapped ranges against the original PDF page count. After slicing, keep local lesson-PDF page numbers separate from original PDF positions.
 
-**Implementation issue to resolve:** the current `BookIndexIntakeDraft.offset` is a non-null integer defaulting to `0`. That representation cannot distinguish a verified zero offset from an unknown offset. Before wiring AI discovery, change the draft contract to represent an unknown/unverified offset explicitly (nullable or an equivalent reviewed state). A printed-page range must not silently map using zero when calibration is unknown; explicit verified `pdfPageStart` / `pdfPageEnd` values may still be used without an offset.
+**Required implementation value:** `BookIndexIntakeDraft.offset` must default to `1`, not `0`. The intake UI must allow the user to edit it for special PDFs. Do not introduce a separate automatic calibration workflow: the normal path is offset +1, user review/edit when necessary, and one-time application of the selected value. Explicit physical PDF page positions must never receive the offset a second time.
 
 ### 11.4 Evidence and approval rules
 
@@ -240,11 +240,11 @@ The reference implementation demonstrates this sequence:
 5. Attach the original lesson PDF to the prompt as `application/pdf` for Gemini. For OpenAI-compatible endpoints, render supported PDF pages to JPEG image inputs; do not claim native-PDF support for every compatible endpoint.
 6. Send prompt, source attachment and JSON response configuration in one provider request.
 7. Read the provider's response text and usage/model metadata.
-8. Parse JSON and validate it against the exact response schema; then apply task-specific semantic validation and mapping.
-9. Save the raw result as a reviewable draft/artifact with source hash, prompt/schema version and hashes, provider/model, validation report and request fingerprint.
-10. Persist approved content only after the user's explicit review/approval action.
+8. Return the raw response and execution metadata to the requesting feature. The shared AI execution service does not parse index JSON or apply indexing rules.
+9. The index-intake feature parses and validates the response against its database-derived intake contract, maps it to BookIndexIntakeDraft, and applies indexing-specific checks.
+10. Preserve raw response/provenance and show the editable draft. Persist the canonical index and slice the PDF only after explicit user approval.
 
-The existing reference flow uses one provider request boundary for both PDF-based index extraction and PDF-based lesson-question generation. The question-generation route proves the reusable pattern: resolve the lesson PDF, render the configured task prompt, load its schema, attach the PDF, receive JSON, validate it and save a review artifact. The index-extraction route follows the same request shape with a different prompt/schema and a bounded sample of the original book PDF.
+The user has confirmed a successful manual Indexer2 test: selecting a specific lesson and subject, requesting a question bank, receiving a JSON response, and displaying the returned questions in the question-bank page using that page's normal presentation. This is operational evidence for the tested Indexer2 question-generation path, not merely evidence that a route exists. The reusable pattern is: resolve the lesson PDF, render the configured task prompt, load its response contract, attach the PDF, receive JSON, validate it, and pass it to the question-bank feature. The separate Indexer2 index-extraction route exists in code, but its successful operation has not been confirmed by that question-bank test.
 
 ### 12.2 Current Android implementation
 
@@ -280,7 +280,7 @@ Refactor the existing service boundary, not duplicate it:
 - Parse and validate the raw response, map it to the intake draft, run the deterministic domain checks, and leave all inferred values unapproved until the user confirms them.
 - Save prompt/schema versions and hashes, source PDF hash, selected model/provider, raw response and validation report for reproducibility.
 
-The AI model may extract printed page numbers from the TOC and propose a constant offset only when visual evidence supports it. The application owns the page mapping, bounds checks and approval rules. The model must not be asked to invent physical page positions from printed numbers.
+The AI model extracts printed page numbers from the TOC. The application applies the default offset +1, allows the user to change it for special PDFs, checks the resulting ranges against the physical PDF page count, and requires approval. The model must not be asked to invent physical PDF positions from printed numbers.
 
 ### 12.5 Prompt design rules
 
@@ -294,4 +294,13 @@ Keep the discovery prompt short and task-focused. It should tell the model:
 
 Do not duplicate the full schema or long examples in the prompt when the selected provider supports structured JSON output. For providers that only support JSON-object mode, include a compact field/enum contract in the prompt and always apply local schema validation. Keep curriculum keys grounded in the app's curriculum catalogue; the model must not invent or derive keys from display names.
 
-The prompt is an instruction resource. The JSON Schema is a separate machine-readable contract. The intake model/domain validator is the final application-side safety boundary. These three roles must not be collapsed into one hard-coded prompt string.
+The prompt is an instruction resource. The JSON Schema is generated from the current Room/database schema's AI-writable projection through the database-first contract process documented in Generation Studio. The intake model/domain validator is owned by the index-intake feature and is the final application-side safety boundary. The AI execution service only transports the request and returns the raw response.
+
+
+## 13. Feature-owned response processing and database contract
+
+Book-index discovery uses the same task-neutral AiGenerationService execution method as question generation, lesson authoring and learner-analysis tasks. The index-intake feature prepares the original-book PDF sample, concise discovery prompt and database-derived response contract, then calls the shared service.
+
+After the response returns, the index-intake feature—not AiGenerationService—parses JSON, validates the response projection, maps it to BookIndexIntakeDraft, checks curriculum identity and page values, applies the selected offset, displays the draft and waits for user approval. The shared service must not know the meaning of printedPageStart, unit part assignments or index approval states.
+
+The response contract must be generated from the current database schema through the common database-first projection process. The model returns only discoverable book/index content. The application supplies internal IDs, workspace references, hashes, review/approval state and other application-owned metadata. The canonical index serializer remains an application-owned output step and must consume the approved intake model—not raw model JSON.
