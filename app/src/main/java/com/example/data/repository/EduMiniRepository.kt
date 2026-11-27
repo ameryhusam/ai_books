@@ -2,6 +2,7 @@ package com.example.data.repository
 
 import android.content.Context
 import android.net.Uri
+import kotlinx.coroutines.CancellationException
 import com.example.data.ai.AiGenerationService
 import com.example.data.ai.BookIndexPromptRegistry
 import com.example.data.ai.TemplateResponseAdapter
@@ -707,6 +708,7 @@ class EduMiniRepository(
                     )
                 )
             }.onFailure { error ->
+                if (error is CancellationException) throw error
                 responseIssues += "تعذر حفظ سجل تشخيص التحقق: ${error.message ?: "خطأ قاعدة بيانات غير محدد"}"
             }
         }
