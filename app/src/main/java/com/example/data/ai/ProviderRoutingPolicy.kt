@@ -5,7 +5,8 @@ import com.example.model.ProviderType
 
 /**
  * Keeps provider selection and candidate ordering deterministic and provider-scoped.
- * Fallback model names are read only from profiles belonging to the selected provider.
+ * API-key ordering is credential-scoped; model fallback candidates are supplied separately
+ * from the provider's model catalogue.
  */
 internal object ProviderRoutingPolicy {
     fun activeProfiles(
@@ -52,7 +53,23 @@ internal object ProviderRoutingPolicy {
             .distinct()
     }
 
-    /** The UI-selected model is always first; same-provider configured fallbacks follow. */
+    /** The selected model and provider-catalogue fallbacks are independent of API-key records. */
+    fun modelCandidates(
+        profile: ProviderConfig,
+        preferredModelId: String,
+        providerFallbackIds: List<String>
+    ): List<String> {
+        val preferred = preferredModelId.trim()
+        require(preferred.isNotBlank()) { "An explicit catalogue model ID is required." }
+        if (profile.strictModel) return listOf(preferred)
+        val legacyProfileCandidates = if (profile.model.isBlank()) emptyList() else modelCandidates(profile)
+        return (listOf(preferred) + providerFallbackIds + legacyProfileCandidates)
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+    }
+
+    /** Backward-compatible adapter for legacy profile-specific model settings. */
     fun modelCandidates(profile: ProviderConfig, preferredModelId: String): List<String> {
         val preferred = preferredModelId.trim()
         require(preferred.isNotBlank()) { "An explicit catalogue model ID is required." }
