@@ -3948,7 +3948,9 @@ class EduMiniCoreTest {
                         providers = listOf(profile),
                         selectedProvider = ProviderType.OPENAI_COMPATIBLE,
                         requestedModelId = "gpt-test",
-                        requestedProfileId = profile.id
+                        requestedProfileId = profile.id,
+                        onProviderStateChanged = { _, _, _ -> throw IllegalStateException("state store unavailable") },
+                        onAttemptFinished = { _, _, _, _ -> throw IllegalStateException("attempt log unavailable") }
                     )
                 )
             }
