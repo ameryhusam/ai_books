@@ -46,6 +46,7 @@ import com.example.model.PromptBlueprintSpec
 import com.example.model.PromptTemplateRecord
 import com.example.model.ProviderConfig
 import com.example.model.ProviderType
+import com.example.model.ProviderApiKeyNames
 import com.example.model.QuestionAttemptRecord
 import com.example.model.QuestionDifficulty
 import com.example.model.QuestionItem
@@ -2259,7 +2260,8 @@ class MainViewModel(
         val probe = ProviderConfig(
             id = form.editingProviderId ?: "probe",
             provider = form.provider,
-            label = form.label.trim().ifBlank { form.provider.displayName },
+            label = state.providers.firstOrNull { it.id == form.editingProviderId && it.provider == form.provider }?.label
+                ?: ProviderApiKeyNames.nextName(form.provider, state.providers),
             model = selectedModel,
             strictModel = form.strictModel,
             baseUrl = form.baseUrl.trim(),
@@ -3380,34 +3382,34 @@ class MainViewModel(
     fun addOrUpdateProvider() {
         val state = _uiState.value
         val form = state.providerForm
-        if (form.label.trim().isEmpty() || form.apiKey.trim().isEmpty()) {
+        if (form.apiKey.trim().isEmpty()) {
             _uiState.update {
-                it.copy(alert = AlertMessage("بيانات ناقصة", "أدخل اسم الاتصال ومفتاح API"))
+                it.copy(alert = AlertMessage("بيانات ناقصة", "أدخل مفتاح API أولاً."))
             }
             return
         }
-        // Keep credentials provider-scoped. Enabled models remain catalogue-owned and are
-        // supplied as same-provider fallback candidates, not chosen as part of API-key entry.
-        val fallbacks = state.aiModelCatalog
-            .filter {
-                it.provider == form.provider && it.isEnabled && it.supportsGenerateContent &&
-                    it.lifecycleStatus != AiModelDefinition.STATUS_DEPRECATED
-            }
-            .sortedWith(compareBy<AiModelDefinition> { !it.isDefault }.thenBy { it.displayName })
-            .map { it.modelId }
-            .distinct()
         viewModelScope.launch {
-            val existingId = form.editingProviderId
             val currentList = _uiState.value.providers
-            val next = if (existingId != null && currentList.any { it.id == existingId }) {
+            val existingId = form.editingProviderId
+            val existing = currentList.firstOrNull { it.id == existingId }
+            if (existing != null && existing.provider != form.provider) {
+                _uiState.update {
+                    it.copy(alert = AlertMessage(
+                        "لا يمكن تغيير المزوّد",
+                        "مفتاح API تابع للمزوّد الذي أُنشئ له. أضف مفتاحاً جديداً للمزوّد الآخر."
+                    ))
+                }
+                return@launch
+            }
+            val now = System.currentTimeMillis()
+            val next = if (existing != null) {
                 currentList.map { p ->
-                    if (p.id == existingId) {
+                    if (p.id == existing.id) {
                         val keyChanged = form.apiKey.trim() != p.apiKey
                         p.copy(
-                            provider = form.provider,
-                            label = form.label.trim(),
+                            label = p.label,
                             model = "",
-                            fallbackModels = fallbacks,
+                            fallbackModels = emptyList(),
                             strictModel = false,
                             baseUrl = form.baseUrl.trim(),
                             apiKey = form.apiKey.trim(),
@@ -3422,30 +3424,35 @@ class MainViewModel(
                     } else p
                 }
             } else {
+                val keyName = ProviderApiKeyNames.nextName(form.provider, currentList)
+                val providerPriority = currentList
+                    .filter { it.provider == form.provider }
+                    .maxOfOrNull { it.priority + 1 } ?: 0
                 currentList + ProviderConfig(
-                    id = System.currentTimeMillis().toString(),
+                    id = "api-key-$now",
                     provider = form.provider,
-                    label = form.label.trim(),
+                    label = keyName,
                     model = "",
-                    fallbackModels = fallbacks,
+                    fallbackModels = emptyList(),
                     strictModel = false,
                     baseUrl = form.baseUrl.trim(),
                     apiKey = form.apiKey.trim(),
                     enabled = true,
-                    createdAt = System.currentTimeMillis(),
-                    priority = currentList.size,
+                    createdAt = now,
+                    priority = providerPriority,
                     dailyRequestLimit = form.dailyRequestLimit.toIntOrNull()?.coerceAtLeast(0) ?: 0,
                     quotaTimeZone = form.quotaTimeZone.ifBlank { "Asia/Aden" }
                 )
             }
             repository.saveProviders(next)
+            val savedKeyName = next.firstOrNull { it.id == (existing?.id ?: "api-key-$now") }?.label.orEmpty()
             _uiState.update {
                 it.copy(
                     providers = next,
                     providerForm = ProviderFormState(),
                     alert = AlertMessage(
-                        if (existingId != null) "تم التحديث" else "حفظ",
-                        if (existingId != null) "تم حفظ تعديلات المزود محلياً." else "تم حفظ مفتاح المزود محلياً."
+                        if (existing != null) "تم التحديث" else "تمت إضافة المفتاح",
+                        if (existing != null) "تم حفظ تعديلات مفتاح API." else "تم حفظ $savedKeyName."
                     )
                 )
             }
@@ -3468,14 +3475,19 @@ class MainViewModel(
     }
 
     fun moveProviderPriority(id: String, delta: Int) {
-        val current = _uiState.value.providers.sortedBy { it.priority }.toMutableList()
-        val idx = current.indexOfFirst { it.id == id }
+        val all = _uiState.value.providers
+        val target = all.firstOrNull { it.id == id } ?: return
+        val scoped = all.filter { it.provider == target.provider }.sortedBy { it.priority }.toMutableList()
+        val idx = scoped.indexOfFirst { it.id == id }
         if (idx < 0) return
-        val targetIdx = (idx + delta).coerceIn(0, current.lastIndex)
+        val targetIdx = (idx + delta).coerceIn(0, scoped.lastIndex)
         if (idx == targetIdx) return
-        val item = current.removeAt(idx)
-        current.add(targetIdx, item)
-        val reindexed = current.mapIndexed { i, p -> p.copy(priority = i) }
+        val item = scoped.removeAt(idx)
+        scoped.add(targetIdx, item)
+        val priorities = scoped.mapIndexed { index, profile -> profile.id to index }.toMap()
+        val reindexed = all.map { profile ->
+            priorities[profile.id]?.let { profile.copy(priority = it) } ?: profile
+        }
         viewModelScope.launch {
             repository.saveProviders(reindexed)
             _uiState.update { it.copy(providers = reindexed) }
