@@ -472,7 +472,16 @@ class EduMiniRepository(
                 subjectName = book.subjectName,
                 approvalStatus = book.approvalStatus ?: "LEGACY_UNVERIFIED",
                 requiresReview = book.requiresReview,
-                sourceReviewStatus = book.sourceReviewStatus ?: "UNKNOWN"
+                sourceReviewStatus = book.sourceReviewStatus ?: "UNKNOWN",
+                schemaVersion = book.schemaVersion,
+                gradeName = book.gradeName,
+                sourceLayout = book.sourceLayout,
+                sourceLayoutEvidence = book.sourceLayoutEvidence,
+                partKey = book.partKey,
+                offset = book.offset,
+                totalPdfPages = book.totalPdfPages,
+                sourceFileName = book.sourceFileName,
+                sourceSha256 = book.sourceSha256
             )
         }
         val lessonEntities = imported.lessons.map { lesson ->
@@ -493,7 +502,12 @@ class EduMiniRepository(
                 pdfPath = lesson.pdfPath,
                 sourceTextPath = lesson.sourceTextPath,
                 interactivePath = lesson.interactivePath,
-                printedPageRange = lesson.printedPageRange
+                printedPageRange = lesson.printedPageRange,
+                printedPageStart = lesson.printedPageStart,
+                printedPageEnd = lesson.printedPageEnd,
+                pdfPageStart = lesson.pdfPageStart,
+                pdfPageEnd = lesson.pdfPageEnd,
+                sortOrder = lesson.sortOrder
             )
         }
         val indexEntities = imported.indexRecords.map { index ->
@@ -2712,7 +2726,16 @@ class EduMiniRepository(
         subjectName = subjectName,
         approvalStatus = approvalStatus,
         requiresReview = requiresReview,
-        sourceReviewStatus = sourceReviewStatus
+        sourceReviewStatus = sourceReviewStatus,
+        schemaVersion = schemaVersion,
+        gradeName = gradeName,
+        sourceLayout = sourceLayout,
+        sourceLayoutEvidence = sourceLayoutEvidence,
+        partKey = partKey,
+        offset = offset,
+        totalPdfPages = totalPdfPages,
+        sourceFileName = sourceFileName,
+        sourceSha256 = sourceSha256
     )
 
     private fun LessonEntity.toModel(wsId: String) = LessonRef(
@@ -2732,7 +2755,12 @@ class EduMiniRepository(
         workspaceId = wsId,
         sourceTextPath = sourceTextPath,
         interactivePath = interactivePath,
-        printedPageRange = printedPageRange
+        printedPageRange = printedPageRange,
+        printedPageStart = printedPageStart,
+        printedPageEnd = printedPageEnd,
+        pdfPageStart = pdfPageStart,
+        pdfPageEnd = pdfPageEnd,
+        sortOrder = sortOrder
     )
 
     fun openOutputStreamForUri(uri: Uri): OutputStream? {
