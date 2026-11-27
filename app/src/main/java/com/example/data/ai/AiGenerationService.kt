@@ -580,21 +580,71 @@ class AiGenerationService(
         )
     }
 
+    /**
+     * Sends a small, task-neutral request directly to the selected provider profile.
+     * This path intentionally bypasses generation routing, templates, PDF handling,
+     * usage tracking, draft persistence and cross-provider fallback.
+     */
     suspend fun testProviderConnection(profile: ProviderConfig): String = withContext(Dispatchers.IO) {
         if (profile.apiKey.isBlank() || profile.model.isBlank()) {
             throw IllegalArgumentException("أدخل النموذج ومفتاح API أولاً")
         }
         val started = System.currentTimeMillis()
-        val (reply, _) = callProvider(
-            profile = profile,
-            prompt = "أجب بكلمة واحدة فقط: جاهز",
-            pdfPageImagesBase64 = emptyList(),
-            pdfDocumentBase64 = null,
-            responseSchemaJson = "",
-            expectJson = false
-        )
+        val reply = try {
+            callProvider(
+                profile = profile,
+                prompt = "أجب بكلمة واحدة فقط: جاهز",
+                pdfPageImagesBase64 = emptyList(),
+                pdfDocumentBase64 = null,
+                responseSchemaJson = "",
+                expectJson = false
+            ).first
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: ProviderCallException) {
+            val failureCode = classifyProviderFailure(error, error.message.orEmpty(), profile.provider)
+            val kind = when (failureCode) {
+                "INVALID_KEY" -> AiExecutionFailureKind.INVALID_CREDENTIALS
+                "QUOTA_EXHAUSTED" -> AiExecutionFailureKind.QUOTA_EXHAUSTED
+                "RATE_LIMITED" -> AiExecutionFailureKind.RATE_LIMITED
+                "MODEL_UNAVAILABLE" -> AiExecutionFailureKind.MODEL_UNAVAILABLE
+                "INVALID_REQUEST" -> AiExecutionFailureKind.INVALID_REQUEST
+                "EMPTY_RESPONSE" -> AiExecutionFailureKind.EMPTY_RESPONSE
+                else -> AiExecutionFailureKind.PROVIDER_UNAVAILABLE
+            }
+            val safeDetail = error.message.orEmpty().replace(profile.apiKey, "[مفتاح مخفي]")
+            throw AiExecutionException(
+                kind,
+                "فشل اختبار ${profile.provider.displayName} / ${profile.model}: ${failureLabel(kind)}.\nالتفاصيل: ${safeDetail}",
+                error
+            )
+        } catch (error: IOException) {
+            throw AiExecutionException(
+                AiExecutionFailureKind.NETWORK_ERROR,
+                "فشل اختبار ${profile.provider.displayName} / ${profile.model}: تعذر الاتصال بالشبكة.\nالتفاصيل: ${error.message.orEmpty().replace(profile.apiKey, "[مفتاح مخفي]")}",
+                error
+            )
+        }
+        if (reply.isBlank()) {
+            throw AiExecutionException(
+                AiExecutionFailureKind.EMPTY_RESPONSE,
+                "فشل اختبار ${profile.provider.displayName} / ${profile.model}: أعاد النموذج استجابة فارغة."
+            )
+        }
         val elapsed = (System.currentTimeMillis() - started).coerceAtLeast(1L)
-        "اتصال ناجح بـ ${profile.model} (${elapsed}ms): ${reply.trim().take(40)}"
+        val safeReply = reply.replace(profile.apiKey, "[مفتاح مخفي]")
+        "نجح اختبار API\nالمزود: ${profile.provider.displayName} (${profile.label})\nالنموذج: ${profile.model}\nزمن الاستجابة: ${elapsed} ms\n\nاستجابة النموذج:\n${safeReply}"
+    }
+
+    private fun failureLabel(kind: AiExecutionFailureKind): String = when (kind) {
+        AiExecutionFailureKind.QUOTA_EXHAUSTED -> "حصة API مستنفدة"
+        AiExecutionFailureKind.RATE_LIMITED -> "تجاوز حد الطلبات أو النموذج مزدحم"
+        AiExecutionFailureKind.INVALID_CREDENTIALS -> "مفتاح API غير صالح أو غير مخول"
+        AiExecutionFailureKind.INVALID_REQUEST -> "إعدادات الطلب غير صالحة"
+        AiExecutionFailureKind.EMPTY_RESPONSE -> "لم يُرجع النموذج محتوى نصياً"
+        AiExecutionFailureKind.NETWORK_ERROR -> "تعذر الاتصال بالشبكة"
+        AiExecutionFailureKind.MODEL_UNAVAILABLE -> "النموذج غير متاح لهذا المزود أو المفتاح"
+        AiExecutionFailureKind.PROVIDER_UNAVAILABLE -> "المزود غير متاح أو رفض الطلب"
     }
 
     /**
@@ -934,13 +984,13 @@ class AiGenerationService(
     ): String {
         val signals = "${error.providerReason} $message".lowercase()
         return when {
+            Regex("quota_exceeded|quota exceeded|quota exhausted|daily quota|insufficient quota|insufficient_quota|billing limit|billing_hard_limit|exceeded your current quota|per.?day.*per.?project.*per.?model|generate.?requests.*per.?day.*per.?project.*per.?model|free.?tier.*requests.*per.?day")
+                .containsMatchIn(signals) -> "QUOTA_EXHAUSTED"
             error.httpCode == 401 || error.httpCode == 403 ||
                 Regex("invalid api.?key|api key not valid|unauthorized|authentication failed")
                     .containsMatchIn(signals) -> "INVALID_KEY"
-            Regex("quota_exceeded|quota exceeded|quota exhausted|daily quota|insufficient quota|insufficient_quota|billing limit|billing_hard_limit|exceeded your current quota|per.?day.*per.?project.*per.?model|generate.?requests.*per.?day.*per.?project.*per.?model|free.?tier.*requests.*per.?day")
-                .containsMatchIn(signals) -> "QUOTA_EXHAUSTED"
             error.httpCode == 404 ||
-                Regex("model[^ ]*(not found|does not exist)|model_not_found|unsupported model")
+                Regex("model.*(not found|does not exist)|model_not_found|unsupported model|unknown model")
                     .containsMatchIn(signals) -> "MODEL_UNAVAILABLE"
             Regex("لم يُرجع .* محتوى نصياً|استجابة فارغة|empty response")
                 .containsMatchIn(signals) -> "EMPTY_RESPONSE"
