@@ -1277,7 +1277,7 @@ class EduMiniCoreTest {
         assertTrue(current.first { it.id == savedFromDraft.first().id }.reviewed)
 
         val baos = ByteArrayOutputStream()
-        val receipt = repo.exportIndexer2Zip(baos, ws)
+        val receipt = repo.exportLegacyWorkspaceZip(baos, ws)
         assertTrue(receipt.entriesCount >= 4)
         assertEquals(1, receipt.draftsCount)
         assertEquals(2, receipt.questionsCount)
@@ -2215,7 +2215,7 @@ class EduMiniCoreTest {
                 warnings = emptyList()
             )
             val baos = ByteArrayOutputStream()
-            val receipt = WorkspaceExporter.exportIndexer2CompatibleZip(
+            val receipt = WorkspaceExporter.exportLegacyWorkspaceZip(
                 outputStream = baos,
                 workspace = workspace,
                 drafts = emptyList(),
