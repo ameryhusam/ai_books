@@ -44,6 +44,7 @@ import com.example.ui.theme.EduWhite
 fun PreImportPreviewDialog(
     preview: StagedWorkspacePreview,
     isBusy: Boolean,
+    existingGrades: Set<String> = emptySet(),
     onConfirmImport: (List<String>) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -132,9 +133,19 @@ fun PreImportPreviewDialog(
                             verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             Text(
-                                text = "${g.gradeKey} • ${g.booksCount} كتاب • ${g.lessonsCount} درس",
+                                text = "${g.gradeKey} • ${g.booksCount} مادة • ${g.lessonsCount} درس",
                                 style = MaterialTheme.typography.titleSmall,
                                 color = EduInk
+                            )
+                            Text(
+                                text = if (g.gradeKey.uppercase() in existingGrades) {
+                                    "الصف موجود مسبقاً — سيتم تحديث مواده وفهارسه مع الحفاظ على سجلات التعلم المرتبطة به."
+                                } else {
+                                    "صف جديد — ستتم إضافته مع مواده وفهارسه."
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (g.gradeKey.uppercase() in existingGrades) EduOrange else EduGreenDark,
+                                fontWeight = FontWeight.SemiBold
                             )
                             Text(
                                 text = g.bookTitles.joinToString(" • "),
