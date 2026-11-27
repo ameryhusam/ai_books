@@ -348,7 +348,11 @@ class DirectWorkspaceBinder(private val context: Context) {
                         title = firstNonBlank(unit.str("title"), unit.str("unitTitle"), unit.str("name"), unitKey),
                         partKey = resolvedUnitPart,
                         sortOrder = unitOrder,
-                        sourceIndexPath = slot.indexEntry.uriOrPath
+                        sourceIndexPath = slot.indexEntry.uriOrPath,
+                        proposedPartKey = unit.str("proposedPartKey").ifBlank { null },
+                        assignmentStatus = unit.str("assignmentStatus").ifBlank { "need_review" },
+                        assignmentSource = unit.str("assignmentSource").ifBlank { "LEGACY_UNVERIFIED" },
+                        assignmentEvidence = unit.str("assignmentEvidence")
                     )
                 )
             }
