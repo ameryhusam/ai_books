@@ -32,6 +32,7 @@ import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.NetworkCheck
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -94,6 +95,7 @@ fun SettingsScreen(
     form: ProviderFormState,
     providers: List<ProviderConfig>,
     selectedProvider: ProviderType,
+    isTestingProvider: Boolean = false,
     modelCatalog: List<AiModelDefinition> = emptyList(),
     canManageAiModels: Boolean = false,
     onAddAiModel: (AiModelDefinition) -> Unit = {},
@@ -658,6 +660,7 @@ fun SettingsScreen(
                     ) {
                         OutlinedButton(
                             onClick = onTestFormProvider,
+                            enabled = !isTestingProvider,
                             shape = RoundedCornerShape(12.dp),
                             border = BorderStroke(1.dp, EduGreen),
                             modifier = Modifier
@@ -665,9 +668,21 @@ fun SettingsScreen(
                                 .minimumInteractiveComponentSize()
                                 .testTag("test_form_provider_button")
                         ) {
-                            Icon(Icons.Rounded.NetworkCheck, contentDescription = null, tint = EduGreenDark, modifier = Modifier.size(18.dp))
+                            if (isTestingProvider) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    strokeWidth = 2.dp,
+                                    color = EduGreenDark
+                                )
+                            } else {
+                                Icon(Icons.Rounded.NetworkCheck, contentDescription = null, tint = EduGreenDark, modifier = Modifier.size(18.dp))
+                            }
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("اختبار الاتصال", color = EduGreenDark, style = MaterialTheme.typography.labelLarge)
+                            Text(
+                                if (isTestingProvider) "جارٍ اختبار النموذج..." else "اختبار الاتصال",
+                                color = EduGreenDark,
+                                style = MaterialTheme.typography.labelLarge
+                            )
                         }
                         if (form.editingProviderId != null) {
                             OutlinedButton(
@@ -744,13 +759,22 @@ fun SettingsScreen(
                         }
                         IconButton(
                             onClick = { onTestSavedProvider(profile) },
+                            enabled = !isTestingProvider,
                             modifier = Modifier.minimumInteractiveComponentSize()
                         ) {
-                            Icon(
-                                imageVector = Icons.Rounded.NetworkCheck,
-                                contentDescription = "اختبار الاتصال",
-                                tint = EduBlue
-                            )
+                            if (isTestingProvider) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    strokeWidth = 2.dp,
+                                    color = EduBlue
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Rounded.NetworkCheck,
+                                    contentDescription = "اختبار الاتصال",
+                                    tint = EduBlue
+                                )
+                            }
                         }
                         IconButton(
                             onClick = { onEditProvider(profile) },
