@@ -26,30 +26,27 @@ import com.example.model.ProviderType
 fun GenerationModelPickerDialog(
     provider: ProviderType,
     models: List<AiModelDefinition>,
-    profiles: List<ProviderConfig>,
+    apiKeys: List<ProviderConfig>,
     defaultModelId: String,
     selectedModelId: String,
-    selectedProfileId: String,
     onSelectModel: (String) -> Unit,
-    onSelectProfile: (String) -> Unit,
-    onConfirm: (modelId: String, profileId: String) -> Unit,
+    onConfirm: (modelId: String) -> Unit,
     onDismiss: () -> Unit
 ) {
     val availableModels = models.filter {
         it.provider == provider && it.isEnabled && it.supportsGenerateContent &&
             it.lifecycleStatus != AiModelDefinition.STATUS_DEPRECATED
     }
-    val availableProfiles = profiles.filter {
+    val availableApiKeys = apiKeys.filter {
         it.provider == provider && it.enabled && it.apiKey.isNotBlank()
     }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("اختيار نموذج وملف اتصال") },
+        title = { Text("اختيار النموذج") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("النموذج", style = MaterialTheme.typography.titleSmall)
-                LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 220.dp)) {
+                LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 280.dp)) {
                     items(availableModels, key = { it.modelId }) { model ->
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
@@ -70,41 +67,25 @@ fun GenerationModelPickerDialog(
                         }
                     }
                 }
-                Text("ملف اتصال API", style = MaterialTheme.typography.titleSmall)
-                LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 170.dp)) {
-                    items(availableProfiles, key = { it.id }) { profile ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            RadioButton(
-                                selected = selectedProfileId == profile.id,
-                                onClick = { onSelectProfile(profile.id) }
-                            )
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(profile.label, style = MaterialTheme.typography.bodyMedium)
-                                Text(
-                                    "المزود: ${profile.provider.displayName}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
+                if (availableApiKeys.isNotEmpty()) {
+                    Text(
+                        "مفاتيح API المفعّلة: ${availableApiKeys.size}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
                 if (availableModels.isEmpty()) {
                     Text("لا توجد نماذج مفعّلة لهذا المزود في قائمة مدير النظام.")
                 }
-                if (availableProfiles.isEmpty()) {
-                    Text("لا يوجد ملف اتصال API فعّال لهذا المزود.")
+                if (availableApiKeys.isEmpty()) {
+                    Text("لا يوجد مفتاح API فعّال لهذا المزود. أضف مفتاحاً من الإعدادات.")
                 }
             }
         },
         confirmButton = {
             Button(
-                enabled = availableModels.any { it.modelId == selectedModelId } &&
-                    availableProfiles.any { it.id == selectedProfileId },
-                onClick = { onConfirm(selectedModelId, selectedProfileId) }
+                enabled = availableModels.any { it.modelId == selectedModelId } && availableApiKeys.isNotEmpty(),
+                onClick = { onConfirm(selectedModelId) }
             ) { Text("متابعة التوليد") }
         },
         dismissButton = {
