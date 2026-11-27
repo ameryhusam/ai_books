@@ -3026,9 +3026,9 @@ class EduMiniCoreTest {
             assertEquals(8, sameDayReservations.count { it })
             assertEquals(8, storage.loadProviders().single { it.id == provider.id }.dailyRequestsUsed)
 
-            // Diagnostic QUOTA_EXHAUSTED does not act as a hard local block unless key is disabled/rate-limited/invalid.
+            // A provider-confirmed exhausted quota blocks this profile for the current quota day.
             storage.updateProviderRuntimeState(provider.id, ProviderStorage.STATUS_QUOTA_EXHAUSTED, 0L)
-            assertTrue(storage.reserveProviderKey(provider.id, dayOne + 30_000L))
+            assertFalse(storage.reserveProviderKey(provider.id, dayOne + 30_000L))
 
             // Active RATE_LIMITED blocks until retryAfterEpochMs expires.
             val cooldownEnd = dayOne + 120_000L
@@ -3036,10 +3036,12 @@ class EduMiniCoreTest {
             assertFalse(storage.reserveProviderKey(provider.id, dayOne + 60_000L))
             assertTrue(storage.reserveProviderKey(provider.id, cooldownEnd + 1_000L))
 
-            // INVALID_KEY and DISABLED remain blocked even across UTC day rollover.
-            storage.updateProviderRuntimeState(provider.id, ProviderStorage.STATUS_INVALID_KEY, 0L)
+            // Quota exhaustion clears at the next configured quota day; invalid keys do not.
+            storage.updateProviderRuntimeState(provider.id, ProviderStorage.STATUS_QUOTA_EXHAUSTED, 0L)
             val nextDay = todayUtc.plusDays(1).atTime(0, 1).toInstant(java.time.ZoneOffset.UTC).toEpochMilli()
-            assertFalse(storage.reserveProviderKey(provider.id, nextDay))
+            assertTrue(storage.reserveProviderKey(provider.id, nextDay))
+            storage.updateProviderRuntimeState(provider.id, ProviderStorage.STATUS_INVALID_KEY, 0L)
+            assertFalse(storage.reserveProviderKey(provider.id, nextDay + 60_000L))
         }
     }
 
@@ -3128,6 +3130,18 @@ class EduMiniCoreTest {
         assertEquals(
             listOf("gemini-primary", "gemini-fallback"),
             com.example.data.ai.ProviderRoutingPolicy.modelCandidates(geminiProfiles.single())
+        )
+        assertEquals(
+            listOf("gemini-selected", "gemini-primary", "gemini-fallback"),
+            com.example.data.ai.ProviderRoutingPolicy.modelCandidates(geminiProfiles.single(), "gemini-selected")
+        )
+        assertEquals(
+            listOf("gemini-key"),
+            com.example.data.ai.ProviderRoutingPolicy.orderedProfiles(
+                profiles,
+                ProviderType.GEMINI,
+                "gemini-key"
+            ).map { it.id }
         )
         assertEquals(
             listOf("gpt-test", "gpt-fallback"),
