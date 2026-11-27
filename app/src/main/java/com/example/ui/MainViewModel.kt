@@ -1020,6 +1020,7 @@ class MainViewModel(
                 selectedBookKey = lesson.bookKey,
                 packageSourcePages = lesson.pageRange.orEmpty(),
                 generatedResult = "",
+                generatedDisplayResult = "",
                 activeDraftId = "",
                 activeDraftProvider = "تحرير يدوي",
                 activeDraftModel = "local",
@@ -2117,6 +2118,7 @@ class MainViewModel(
                 task = draft.task,
                 activeDraftId = draft.id,
                 generatedResult = draft.content,
+                generatedDisplayResult = if (draft.task == TaskType.LESSON_TEXT) repository.extractLessonTextFromOutput(draft.content) else draft.content,
                 activeDraftProvider = draft.provider,
                 activeDraftModel = draft.model,
                 activeDraftTemplateId = draft.templateId,
@@ -2230,7 +2232,9 @@ class MainViewModel(
     }
 
     fun updateGeneratedResult(value: String) {
-        _uiState.update { it.copy(generatedResult = value) }
+        val snapshot = _uiState.value
+        val display = if (snapshot.task == TaskType.LESSON_TEXT) repository.extractLessonTextFromOutput(value) else value
+        _uiState.update { it.copy(generatedResult = value, generatedDisplayResult = display) }
     }
 
     fun updatePackageSourcePages(value: String) {
@@ -2290,7 +2294,7 @@ class MainViewModel(
                     sourcePdfHash = snapshot.activeDraftSourcePdfHash
                 )
             )
-            _uiState.update { it.copy(activeDraftId = savedDraft.id, activeDraftContentHash = savedDraft.contentHash) }
+            _uiState.update { it.copy(activeDraftId = savedDraft.id, activeDraftContentHash = savedDraft.contentHash, generatedDisplayResult = if (snapshot.task == TaskType.LESSON_TEXT) repository.extractLessonTextFromOutput(content) else content) }
             val cloudSyncResult = if (isCloudAuthenticated) {
                 firestoreSync.upsertDraft(currentUserId, savedDraft)
             } else {
@@ -3478,6 +3482,7 @@ class MainViewModel(
                 _uiState.update {
                     it.copy(
                         generatedResult = out.text,
+                        generatedDisplayResult = if (snapshot.task == TaskType.LESSON_TEXT) repository.extractLessonTextFromOutput(out.text) else out.text,
                         generatedQuestionExpectedCount = if (snapshot.task == TaskType.QUESTIONS) snapshot.questionCount else null,
                         generatedQuestionExpectedTypeIds = if (snapshot.task == TaskType.QUESTIONS) snapshot.selectedQuestionTypeIds else emptyList(),
                         generatedQuestionExpectedDifficultyId = if (snapshot.task == TaskType.QUESTIONS) snapshot.questionDifficulty.id else "",
