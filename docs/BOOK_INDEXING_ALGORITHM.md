@@ -132,12 +132,12 @@ The following end-to-end pieces are not yet implemented or verified and must not
 
 - The book upload UI is not yet wired to BookIndexIntakeWorkflow. The existing PDF splitter dialog is not the complete metadata-review experience.
 - Automatic extraction of grade, subject, table of contents, unit/lesson titles and page evidence is not yet connected to the intake screen.
-- The dedicated discovery prompt is not yet invoked with selected PDF pages through the AI provider pipeline.
+- The dedicated discovery prompt is now loaded by `EduMiniRepository.discoverBookIndexFromPdf()` and submitted through the shared repository AI execution path.
 - Built-in deterministic TOC parsing and AI-assisted extraction are not yet selectable from one integrated intake screen.
 - The approved intake model is not yet the sole input to the canonical v2 index serializer, manifest writer and final slicer.
 - No end-to-end Android build, instrumented test, or full upload → discover → edit → confirm → approve → slice test was run during this change.
 
-Therefore, the data contract and architectural ownership are now established, but the complete interactive discovery workflow remains the next implementation milestone.
+Therefore, the shared AI execution path and AI-to-review-draft backend are now implemented. The PDF picker, editable review UI, canonical Room/index serialization and approved slicing workflow remain incomplete and must be implemented before this feature is considered end-to-end.
 
 ## 9. Consumer requirements for Edu Mini
 
@@ -263,19 +263,19 @@ The following are present but not connected to that shared path:
 
 - `BookIndexPromptTemplate.SOURCE_PATH` identifies the discovery prompt, but `AiGenerationService.buildPrompt()` currently loads prompt assets only through `BookIndexPromptRegistry.blueprintFor(TaskType)`.
 - The existing `generate()` entry point requires a `LessonRef` and a content `TaskType`; index intake happens before a lesson exists. Creating a fake `LessonRef` or routing index discovery through an unrelated content task would be an incorrect workaround.
-- `BookIndexPromptTemplate.responseSchemaJson` is currently an example JSON object, not a JSON Schema. It cannot be passed as the provider's structured-output schema. The service will omit provider-level `responseSchema` because the object has no schema `type` and `properties`.
-- The discovery prompt is not loaded and submitted by the upload/intake flow. No current call connects the original book PDF to this prompt.
-- There is no completed parser mapping the model response into `BookIndexIntakeDraft`, and the semantic review gate is not connected to the provider response.
+- `BookIndexPromptTemplate.responseSchemaJson` is now a versioned JSON Schema with nested unit/lesson contracts. OpenAI-compatible endpoints still use JSON-object mode and rely on local parsing/domain validation.
+- `discoverBookIndexFromPdf()` now loads the discovery prompt, attaches the source PDF, and calls the shared task-neutral execution path. The PDF picker/UI is not yet wired to this repository method.
+- `BookIndexAiResponseParser` now maps raw provider JSON into `BookIndexIntakeDraft`; the result remains unapproved. The interactive review gate is not yet connected to the PDF picker.
 - The current index discovery schema example and canonical `edu.book_index.v2` index example are different artifacts. Do not pass an example canonical index as if it were the extraction response schema.
 
 ### 12.4 Required shared-service correction
 
-Refactor the existing service boundary, not duplicate it:
+Shared execution boundary (implemented in the current branch):
 
-- Introduce a task-neutral AI request value containing the fully assembled prompt, source attachments, response schema/format, selected provider/profile/model, and provenance metadata.
-- Move the current provider selection, quota reservation, `callProvider()`, cancellation, retry/cooldown, and response metadata logic behind one task-neutral execution method.
-- Keep the current lesson-generation API as a thin adapter that builds its prompt and attachment list, then calls the shared execution method. Do not regress its existing behavior.
-- Add an index-discovery adapter that loads the short discovery prompt and the real JSON Schema, prepares a bounded PDF sample from the original uploaded book, and calls the same execution method. It must not create a parallel HTTP client or provider retry loop.
+- `AiExecutionRequest` is the task-neutral request contract for prompt, attachments, schema/format, provider/profile/model and provenance metadata.
+- `EduMiniRepository.executeAiTask()` is the common feature entry point. Content Studio/lesson preparation now build their feature prompt and call this method; PDF index discovery calls the same method.
+- `AiGenerationService.execute()` owns the provider transport, provider/model/key fallback, cancellation, retry/cooldown and response metadata. No feature creates a second HTTP client or provider retry loop.
+- Gemini receives the full PDF natively when it is at most 18 MiB. OpenAI-compatible requests receive rendered images of the first 20 pages; those same images are the fallback when the native Gemini payload is too large. A TOC beyond the first 20 pages may therefore require a later targeted-page selection step.
 - Preserve provider isolation and explicit selection. Gemini may advance through configured Gemini models after three transient attempts per model and may move to another Gemini API profile after confirmed quota exhaustion/invalid credentials. OpenAI-compatible requests may move to another OpenAI-compatible key/profile under its bounded retry/quota policy. Never switch providers. A key change does not guarantee new quota when profiles share the same provider project.
 - The index-intake feature parses and validates the raw response, maps it to the intake draft, runs deterministic domain checks, and leaves all inferred values unapproved until the user confirms them. AiGenerationService only returns raw response and execution metadata.
 - Save prompt/schema versions and hashes, source PDF hash, selected model/provider, raw response and validation report for reproducibility.
