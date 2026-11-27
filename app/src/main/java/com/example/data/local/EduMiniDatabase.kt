@@ -836,6 +836,12 @@ interface EduMiniDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertQuestions(questions: List<QuestionEntity>)
 
+    @Query("SELECT COUNT(*) FROM questions WHERE draft_id = :draftId")
+    suspend fun countQuestionsForDraft(draftId: String): Int
+
+    @Query("UPDATE questions SET reviewed = 1 WHERE draft_id = :draftId")
+    suspend fun approveQuestionsForDraft(draftId: String): Int
+
     @Query("UPDATE questions SET reviewed = :reviewed WHERE id = :questionId")
     suspend fun updateQuestionReviewed(questionId: String, reviewed: Boolean)
 
