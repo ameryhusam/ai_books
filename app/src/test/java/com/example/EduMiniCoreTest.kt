@@ -1512,13 +1512,14 @@ class EduMiniCoreTest {
               "gradeKey":"G05",
               "subjectKey":"SCI",
               "partKey":"P01",
-              "sourceLayout":"SINGLE_PART_FILE",
+              "sourceLayout":"MERGED_PARTS_FILE",
               "approvalStatus":"NEEDS_REVIEW",
               "requiresReview":true,
               "units":[{
                 "unitKey":"unit_01",
                 "title":"الوحدة الأولى",
-                "partKey":"P01",
+                "partKey":"unknown",
+                "proposedPartKey":"P01",
                 "assignmentStatus":"need_review",
                 "assignmentSource":"DEFAULT_PROPOSAL",
                 "assignmentEvidence":"تحتاج إلى مراجعة المستخدم",
@@ -1538,7 +1539,7 @@ class EduMiniCoreTest {
               "gradeKey":"G05",
               "subjectKey":"SCI",
               "partKey":"P01",
-              "sourceLayout":"SINGLE_PART_FILE",
+              "sourceLayout":"MERGED_PARTS_FILE",
               "sourceReviewStatus":"VERIFIED",
               "sourceSha256":"${"a".repeat(64)}",
               "indexSha256":"${"b".repeat(64)}"
@@ -1546,9 +1547,9 @@ class EduMiniCoreTest {
         """.trimIndent()
         val zipBytes = createTestZip(
             mapOf(
-                "manifest.json" to """{"artifacts":[{"path":"workspace/G05/SCI/P01/index.json","sha256":"${"c".repeat(64)}"}]}""",
-                "workspace/G05/SCI/P01/book_manifest.json" to manifestRaw,
-                "workspace/G05/SCI/P01/index.json" to indexRaw,
+                "manifest.json" to """{"artifacts":[{"path":"workspace/G05/SCI/index.json","sha256":"${"c".repeat(64)}"}]}""",
+                "workspace/G05/SCI/book_manifest.json" to manifestRaw,
+                "workspace/G05/SCI/index.json" to indexRaw,
                 "workspace/G05/SCI/P01/units/unit_01/lesson_01.pdf" to "%PDF-1.4 lesson"
             )
         )
@@ -1569,6 +1570,9 @@ class EduMiniCoreTest {
         ).single()
         assertTrue(imported.books.single().requiresReview)
         assertEquals("NEEDS_REVIEW", imported.books.single().approvalStatus)
+        assertEquals("UNKNOWN", imported.units.single().partKey)
+        assertEquals("P01", imported.units.single().proposedPartKey)
+        assertEquals("need_review", imported.units.single().assignmentStatus)
         assertTrue(imported.warnings.any { it.contains("SHA-256") || it.contains("approvalStatus") })
     }
 
