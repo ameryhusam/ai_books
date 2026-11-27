@@ -587,7 +587,7 @@ class AiGenerationService(
      */
     suspend fun testProviderConnection(profile: ProviderConfig): String = withContext(Dispatchers.IO) {
         if (profile.apiKey.isBlank() || profile.model.isBlank()) {
-            throw IllegalArgumentException("أدخل النموذج ومفتاح API أولاً")
+            throw IllegalArgumentException("يلزم نموذج صالح للاختبار ومفتاح API للمزود")
         }
         val started = System.currentTimeMillis()
         val reply = try {
