@@ -49,7 +49,7 @@ The commit subjects also record fixes to PDF streaming/hash consistency, duplica
 - Includes question count, style/difficulty hints, source text, and PDF attachment context in the assembled prompt.
 - The commit history records removal of task-specific hard-coded response contracts and resolution of the generation contract from persisted templates.
 
-**Compatibility point:** the prompt asset is now the task guidance; the persisted template owns the output contract. Do not reintroduce a second hard-coded JSON schema in these asset files.
+**Compatibility point (updated 2026-11-27):** the prompt asset supplies task guidance. Persisted templates retain legacy schema/mapping fields for compatibility and explicitly permitted non-persistent outputs, but they are not authoritative for records written to Room. For database-backed tasks, the response schema and decoder must be generated from the current Room/database AI-writable projection. Do not reintroduce a second hard-coded JSON schema in prompt assets.
 
 ### 3.2 Provider generation and PDF transport
 
@@ -188,6 +188,7 @@ The following are the stable boundaries to preserve while continuing work with G
 - Confirm that template edits increment versions and that old generation drafts retain the exact template version used.
 - Add schema validation and canonical response validation as separate steps.
 - Do not silently replace a missing/blank template schema with code defaults.
+- This rule applies only to legacy/non-persistent template-defined output contracts. For database-backed tasks, resolve the response schema from the current Room/database AI-writable projection; do not use a missing template schema as a reason to invent a separate schema or bypass the database contract.
 
 ### 5.3 Educational tasks not completed by this PR
 The PR explicitly leaves these out of scope:
@@ -207,6 +208,11 @@ The following are future requirements, not completed features of this PR:
 - Trigger early warnings only from sufficient evidence, then assign a new remedial explanation and fresh questions for the same learning objective.
 - Do not treat repeated attempts at the same question as independent proof of mastery.
 - Keep AI as an explanation/recommendation layer, not the sole source of scores or dashboard metrics.
+- Use the shared task-neutral AI execution service for learner-performance interpretation, recommendations, and remedial lesson generation; keep analytics calculations deterministic and feature-owned.
+- Supply AI with compact evidence summaries (attempts, concept tags, recurring errors, assessment outcomes and intervention history), not an unfiltered learner database dump.
+- Ask AI to report evidence-backed strengths, support needs, possible misconceptions as hypotheses, teaching strategies, remediation outlines, uncertainty and measurable follow-up checks.
+- Do not let AI invent scores, infer unsupported cognitive/learning-style labels, or convert insufficient evidence into a weakness.
+- Record whether a recommendation was reviewed, accepted, assigned, opened/read/completed, and followed by a linked assessment so its usefulness can be evaluated.
 
 ### 5.5 Future cross-model review
 Not part of the current implementation. Later, an optional reviewer model may receive the original prompt, source, expected schema, and first model response to critique factual grounding, completeness, and schema compliance. Preserve both original outputs; do not treat the reviewer model as automatically correct. Keep human review for disputed or high-impact content.
@@ -220,7 +226,7 @@ Continue from the merged repository state and the contracts above. Before changi
 3. Classify every proposed change as: existing behavior, bug fix, additive feature, schema migration, or deferred requirement.
 4. Propose a short file-by-file plan and identify affected canonical fields/contracts before editing.
 5. Preserve the Gemini native-PDF path and the OpenAI-compatible rendered-image path.
-6. Preserve template-owned response schema/mapping and canonical app models.
+6. Preserve database-derived response contracts as the authority for persisted records; prompt templates own task instructions/version only. Keep the AI-writable projection and its mapping generated from the current Room schema, excluding application-managed IDs and provenance.
 7. Do not hard-code response JSON in prompts or code as a fallback to template configuration.
 8. Do not create duplicate tables or schema definitions before proving the required data is not already represented.
 9. Add or update focused tests with each behavior change. Run the local test/build commands and report exact results; do not claim success without output.
@@ -375,13 +381,14 @@ The latest Android CI run observed during this pass is [run 45715165859](https:/
 ### Scope and design
 - Removed local dailyRequestLimit enforcement from ProviderStorage.reserveProviderKey. The legacy field remains serialized for backward compatibility, but it no longer prevents an outgoing request.
 - dailyRequestsUsed is retained as diagnostic attempt telemetry only; it is not compared with a local cap.
-- Provider-reported QUOTA_EXHAUSTED is retained as a diagnostic runtime status. It is not used as a local pre-request quota gate, and it is no longer automatically cleared merely because the device's local date changed.
+- Provider-reported QUOTA_EXHAUSTED blocks that API profile for the remainder of its configured quota day. It is cleared when that profile's quota timezone advances to the next day; the local dailyRequestLimit counter is still not used to infer provider quota.
 - A successful provider request clears the diagnostic error state back to ACTIVE.
 - Gemini error parsing now includes the API error status and structured details signals, rather than relying only on the human-readable message.
-- Added classification for explicit QUOTA_EXCEEDED and RATE_LIMIT_EXCEEDED signals. A confirmed Gemini quota-exhaustion response stops the current generation immediately; it does not cycle through additional Google profiles/models as a quota-bypass mechanism.
-- Retry-After now accepts both delta-seconds and RFC 1123 HTTP-date values. If the header is absent or invalid, the existing 60-second fallback remains.
+- Added provider failure classification for quota exhaustion, invalid credentials, model unavailability, rate limiting and invalid requests. A confirmed quota exhaustion skips the exhausted profile and attempts the next configured profile of the same provider; it never switches from Gemini to OpenAI. Google keys belonging to the same Cloud project may share quota, so profile rotation is not a guarantee of extra quota.
+- Retry-After accepts delta-seconds and RFC 1123 HTTP-date values. When absent/invalid, the retry loop uses bounded exponential backoff; model cooldown applies its own default duration.
 - Gemini and OpenAI-compatible request paths remain separate. Model-level cooldown behavior for Gemini rate limiting is retained.
-- For Gemini HTTP 429, the router may try configured fallback models on the same API profile, but it stops before moving to another Google API profile. This avoids using key rotation to evade provider rate limits.
+- Current policy: Gemini attempts each configured model up to three times for transient overload/rate-limit/network/server failures, then advances to the next configured Gemini model. Confirmed quota exhaustion or invalid key skips the current API profile and tries the next same-provider profile.
+- **Current runtime clarification (2026-11-27):** `AiGenerationService.execute(AiExecutionRequest)` is the task-neutral provider execution entry point. The legacy `generate(lesson, task, ...)` wrapper prepares the lesson prompt then delegates to `execute`. OpenAI-compatible requests keep the selected model and retry transient failures up to three dispatches before trying another same-provider API profile/key; quota exhaustion and invalid credentials skip the current profile immediately.
 - SettingsScreen no longer exposes a local daily request cap or local quota-reset timezone; it explains provider-authoritative quota detection and shows the daily attempt count as diagnostic information only.
 
 ### Files changed
@@ -394,7 +401,7 @@ The latest Android CI run observed during this pass is [run 45715165859](https:/
 ### Validation
 - Source transformation checks confirmed the intended code sections were changed.
 - No Gradle compiler, unit-test, or Android assembly command was executed in this pass. Build and runtime behavior remain unverified.
-- The service still depends on the exact structured reason strings returned by Google; unknown HTTP 429 responses are conservatively classified as rate limiting, not quota exhaustion.
+- Provider error classification uses HTTP status, provider message and structured reason/code fields. Unknown HTTP 429 responses are treated as rate limiting; only explicit quota signals trigger quota-profile failover.
 
 ## 2026-11-26 — P2 continuation: analytics timezone consistency
 
@@ -461,3 +468,51 @@ The latest Android CI run observed during this pass is [run 45715165859](https:/
 ### Additional P2 guardrails
 - Added regression coverage for the existing Arabic `conceptTag` inference path, including explicit-tag preservation and lesson-title fallback. The inference implementation itself was already present; it was not duplicated.
 - Added a Studio notice beside the PDF attachment control explaining that attached PDFs/rendered images are sent to the selected provider and are not covered by text redaction. The user can disable attachment before generation.
+
+
+## 12. Task-neutral AI execution and response-review flow — 2026-11-27
+
+### Implemented source changes
+- Added `AiExecutionRequest` and task-neutral `AiGenerationService.execute()`. It accepts a prepared prompt, provider profiles, selected provider/model/profile, PDF/image attachments, response format/schema and provenance/callback metadata. It returns provider text and execution metadata without knowing lesson/question/index/student-assessment semantics.
+- Retained `generate(lesson, task, ...)` as a compatibility adapter; it prepares the existing lesson/task prompt and delegates to `execute()`.
+- Gemini: selected model first; up to three actual dispatch attempts for transient overload/rate-limit/server/network failures, then the next configured Gemini model. Confirmed quota exhaustion or invalid credentials skip the current profile and try another enabled Gemini profile.
+- OpenAI-compatible: selected model remains fixed; transient failures retry up to three actual dispatches before same-provider key/profile failover. Confirmed quota exhaustion or invalid credentials skip the current profile immediately.
+- No cross-provider fallback. Google/OpenAI keys belonging to the same project or organization may share quota; changing a key does not guarantee new quota.
+- Provider-confirmed quota exhaustion blocks that profile until its configured quota day rolls over. Local dailyRequestLimit is not used to infer quota.
+- Added typed `AiExecutionException` failure categories and distinct MainViewModel alert titles for quota, rate limiting, invalid credentials, invalid request, empty response, network, unavailable model and provider failure.
+- `EduMiniRepository` now preserves provider-returned content when JSON/task validation fails, adds findings to `GeneratedResult.validationIssues`, and records `RESPONSE_REVIEW_REQUIRED`. MainViewModel saves the raw content as a draft, displays it, and shows the issues that block database insertion.
+- OpenAI-compatible `message.content` string and text-segment array forms are extracted. Gemini no-text diagnostics retain finishReason/blockReason when present.
+- SettingsScreen explains retry/failover policy and exposes ordered fallback model selection; strict-model mode intentionally disables model fallback.
+
+### Regression coverage added
+- Gemini: three transient attempts on the primary model followed by the next configured model.
+- Gemini: confirmed quota exhaustion moves directly to the next same-provider API profile.
+- OpenAI-compatible: confirmed quota exhaustion moves to the next same-provider API key.
+- OpenAI-compatible: content array segments are concatenated.
+- Invalid question JSON/domain output is returned with validation findings rather than thrown away.
+- Provider quota state is blocked for the current configured quota day and resets on day rollover.
+
+### Validation status
+- First GitHub Actions run compiled the Android app and assembled the Debug APK successfully, but 1 of 91 unit tests failed because its assertion searched for wording different from the actual Arabic question-count diagnostic. The assertion was corrected; the rerun is pending.
+- Do not mark this work fully verified until the rerun passes both `:app:testDebugUnitTest` and `:app:assembleDebug`.
+
+## 13. Gemini model catalogue restoration — 2026-11-27
+
+- Corrected the built-in Google Gemini catalogue: `gemini-3.5-flash` is the default; `gemini-3.6-flash` and `gemini-3.8-flash` are available fallback candidates.
+- Kept provider identity (`Gemini`) separate from model display name and exact API model ID. The app sends the exact Google model ID; it does not invent model aliases.
+- Added a one-time local catalog migration for legacy installs that had persisted an empty/older catalog. It preserves custom entries and existing API credentials.
+- Added a guarded Firestore bootstrap: built-in catalog entries are published only when the central collection is empty and the signed-in account is authorized through `system_admins/{uid}` with `manage_ai_models`. A normal teacher/admin role does not bypass this authorization.
+- New Gemini API profiles preselect the central default model and include the other enabled Gemini models as ordered fallbacks. Existing profile selections are preserved.
+- Added tests for the 3.5 default, 3.6/3.8 entries, and migration from a persisted empty local catalog.
+- Official model IDs verified against Google documentation: https://ai.google.dev/gemini-api/docs/models and https://ai.google.dev/gemini-api/docs/pricing.
+- Verification is pending on the latest branch head; do not treat the UI/model catalogue correction as release-verified until CI passes.
+
+## 14. Four built-in Gemini models — 2026-11-27
+
+- Added `gemini-3.7-flash` to the built-in catalog; the four configured IDs are `gemini-3.5-flash`, `gemini-3.6-flash`, `gemini-3.7-flash`, and `gemini-3.8-flash`.
+- Kept `gemini-3.5-flash` as the default model.
+- Bumped the local model-catalog seed version from 2 to 3 so existing installations merge the missing 3.7 entry while preserving custom model definitions and API credentials.
+- Updated authorized central-catalog synchronization to merge missing built-in entries even when the Firestore catalog already contains older Gemini models; existing definitions and custom entries are not overwritten.
+- Extended catalog and migration tests to assert all four Gemini entries and exactly one default.
+- No explanatory UI text or new provider-policy copy was added as part of this change.
+- Live API availability and the model-test UI behavior still require runtime verification with a newly rotated Google API key; no user-supplied key was committed.

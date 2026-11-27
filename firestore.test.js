@@ -93,6 +93,57 @@ test("Unauthenticated user cannot read or write drafts or progress", async () =>
   );
 });
 
+test("AI model catalogue is readable by signed-in users and writable only by provisioned admins", async () => {
+  const unauthDb = testEnv.unauthenticatedContext().firestore();
+  await assertFails(unauthDb.collection("ai_model_catalog").get());
+
+  const studentDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  await assertSucceeds(studentDb.collection("ai_model_catalog").get());
+  const modelPayload = {
+    modelId: "gemini-managed-flash",
+    displayName: "Gemini Managed Flash",
+    provider: "gemini",
+    lifecycleStatus: "AVAILABLE",
+    isDefault: false,
+    isEnabled: true,
+    supportsGenerateContent: true,
+    source: "SYSTEM_ADMIN",
+    updatedAt: new Date(Date.now() - 1000),
+  };
+  await assertFails(studentDb.collection("ai_model_catalog").doc(modelPayload.modelId).set(modelPayload));
+
+  // An application admin/teacher is not automatically a system administrator.
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await context.firestore().collection("users").doc(ALICE_UID).set({
+      userId: ALICE_UID,
+      role: "admin",
+      createdAt: new Date(Date.now() - 3000),
+      updatedAt: new Date(Date.now() - 2000),
+    });
+    await context.firestore().collection("users").doc(BOB_UID).set({
+      userId: BOB_UID,
+      role: "admin",
+      createdAt: new Date(Date.now() - 2000),
+      updatedAt: new Date(Date.now() - 1000),
+    });
+    await context.firestore().collection("system_admins").doc(BOB_UID).set({
+      enabled: true,
+      permissions: ["manage_ai_models"],
+    });
+  });
+  await assertFails(studentDb.collection("ai_model_catalog").doc(modelPayload.modelId).set(modelPayload));
+  const adminDb = testEnv.authenticatedContext(BOB_UID).firestore();
+  await assertFails(adminDb.collection("system_admins").doc(BOB_UID).update({ enabled: false }));
+  await assertSucceeds(adminDb.collection("ai_model_catalog").doc(modelPayload.modelId).set(modelPayload));
+  await assertSucceeds(studentDb.collection("ai_model_catalog").doc(modelPayload.modelId).get());
+  await assertFails(studentDb.collection("ai_model_catalog").doc(modelPayload.modelId).update({ displayName: "Student changed this" }));
+
+  const defaultPayload = { ...modelPayload, modelId: "gemini-default", isDefault: true };
+  await assertSucceeds(adminDb.collection("ai_model_catalog").doc(defaultPayload.modelId).set(defaultPayload));
+  await assertFails(adminDb.collection("ai_model_catalog").doc(defaultPayload.modelId).delete());
+  await assertSucceeds(adminDb.collection("ai_model_catalog").doc(modelPayload.modelId).delete());
+});
+
 test("Authenticated owner: valid Kotlin draft CRUD, partial update, and @DocumentId exclusion", async () => {
   const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
   const draftsRef = aliceDb.collection(`users/${ALICE_UID}/drafts`);

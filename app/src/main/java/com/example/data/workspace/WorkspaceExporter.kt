@@ -235,7 +235,7 @@ object WorkspaceExporter {
         val sha256: String
     )
 
-    fun exportIndexer2CompatibleZip(
+    fun exportLegacyWorkspaceZip(
         outputStream: OutputStream,
         workspace: ImportedWorkspace,
         drafts: List<DraftEntity>,

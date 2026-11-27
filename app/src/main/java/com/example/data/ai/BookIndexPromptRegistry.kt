@@ -1,11 +1,11 @@
 package com.example.data.ai
 
-import com.example.model.Indexer2SchemaSpec
+import com.example.model.BookIndexSchemaSpec
 import com.example.model.LessonRef
 import com.example.model.PromptBlueprintSpec
 import com.example.model.TaskType
 
-object Indexer2PromptRegistry {
+object BookIndexPromptRegistry {
 
     val blueprints: List<PromptBlueprintSpec> = listOf(
         PromptBlueprintSpec(
@@ -13,7 +13,7 @@ object Indexer2PromptRegistry {
             task = TaskType.EXPLANATION,
             titleAr = "مخطط شرح الدرس المنهجي",
             subtitleAr = "تهيئة المفاهيم، خطوات الشرح، أمثلة محلولة، وملخص ختامي مرتبط بالصفحات",
-            sourcePath = "prompts/indexer2/lesson_explanation.prompt.md",
+            sourcePath = "prompts/book_indexing/lesson_explanation.prompt.md",
             roleInstruction = "شرح مبسط ومنظم مع أمثلة محلولة وملخص ختامي",
             outputContract = "عناوين رئيسية واضحة + خطوات مرقمة + مثال تطبيقي + قاعدة ذهبية في الختام",
             quickInstructions = "قسّم الشرح إلى 3 خطوات متدرجة، وأضف مثالاً من الحياة اليومية مع خلاصة مركزة في النهاية."
@@ -23,7 +23,7 @@ object Indexer2PromptRegistry {
             task = TaskType.SUMMARY,
             titleAr = "مخطط التلخيص المركّز",
             subtitleAr = "تقطير المفاهيم والقوانين الأساسية في نقاط منظمة وسريعة المراجعة",
-            sourcePath = "prompts/indexer2/lesson_summary.prompt.md",
+            sourcePath = "prompts/book_indexing/lesson_summary.prompt.md",
             roleInstruction = "ملخص مركز ومنظم لأهم أفكار ومفاهيم الدرس في نقاط واضحة",
             outputContract = "الفكرة المحورية + 4 إلى 6 نقاط مركزة + تذكير بصري/مقارنة سريعة",
             quickInstructions = "اعرض الفكرة الرئيسية أولاً ثم لخّص المفاهيم الأساسية في نقاط قصيرة مع جدول مقارنة إن أمكن."
@@ -33,7 +33,7 @@ object Indexer2PromptRegistry {
             task = TaskType.OBJECTIVES,
             titleAr = "مخطط الأهداف السلوكية ومؤشرات الأداء",
             subtitleAr = "صياغة أهداف قابلة للقياس ومؤشرات تحقق ومفردات مفتاحية",
-            sourcePath = "prompts/indexer2/learning_objectives.prompt.md",
+            sourcePath = "prompts/book_indexing/learning_objectives.prompt.md",
             roleInstruction = "أهداف تعلم سلوكية قابلة للقياس ومفردات مفتاحية مع تعريفاتها",
             outputContract = "أهداف بصيغة (أن + فعل مضارع قابل للقياس) + قائمة مفردات مفتاحية",
             quickInstructions = "صُغ 4 أهداف سلوكية تغطي الفهم والتطبيق، متبوعة بقائمة المصطلحات المفتاحية في الدرس."
@@ -43,7 +43,7 @@ object Indexer2PromptRegistry {
             task = TaskType.VOCABULARY,
             titleAr = "مخطط باني المفردات السياقي",
             subtitleAr = "استخراج المصطلحات والمفاهيم مع التعريف الميسر والمثال النصي",
-            sourcePath = "prompts/indexer2/vocabulary_builder.prompt.md",
+            sourcePath = "prompts/book_indexing/vocabulary_builder.prompt.md",
             roleInstruction = "مسرد مفردات ومصطلحات الدرس الأساسية مع التعريف المبسط ومثال سياقي لكل مصطلح",
             outputContract = "المصطلح • المعنى المبسط • مثال سياقي من الدرس • تنبيه لعدم الخلط",
             quickInstructions = "استخرج 6 مصطلحات رئيسية من الدرس، وعرّف كل منها بلغة مبسطة مع مثال سياقي دقيق."
@@ -53,7 +53,7 @@ object Indexer2PromptRegistry {
             task = TaskType.WORKED_EXAMPLES,
             titleAr = "مخطط الأمثلة المحلولة خطوة بخطوة",
             subtitleAr = "حل نموذجي مشروح السبب لكل خطوة مع تمرين تحقّق فوري",
-            sourcePath = "prompts/indexer2/worked_examples.prompt.md",
+            sourcePath = "prompts/book_indexing/worked_examples.prompt.md",
             roleInstruction = "سلسلة أمثلة محلولة خطوة بخطوة مع توضيح سبب كل خطوة وتدريب مماثل للطالب",
             outputContract = "المعطيات -> الخطوة 1 (مع التعليل) -> النتيجة النهائية -> تدريب تطبيقي مماثل",
             quickInstructions = "قدّم مثالين محلولين بتسلسل الخطوات مع تعليل كل خطوة، واختم بتمرين موجّه للطالب."
@@ -63,7 +63,7 @@ object Indexer2PromptRegistry {
             task = TaskType.LESSON_REVIEW,
             titleAr = "مخطط المراجعة الشاملة وتصحيح المفاهيم",
             subtitleAr = "خريطة أفكار، الأخطاء الشائعة وتصحيحها، وقائمة استذكار نهائية",
-            sourcePath = "prompts/indexer2/lesson_review.prompt.md",
+            sourcePath = "prompts/book_indexing/lesson_review.prompt.md",
             roleInstruction = "مراجعة شاملة مركزة للدرس تشمل خريطة الأفكار وأبرز الأخطاء الشائعة ونقاط الاستذكار السريع",
             outputContract = "ملخص هرمي + 3 أخطاء شائعة وتصويبها + قائمة تحقق قبل الاختبار",
             quickInstructions = "اجمع نقاط الدرس في خريطة ذهنية نصية وحدد أبرز 3 أخطاء يقع فيها الطلاب مع تصحيحها."
@@ -73,7 +73,7 @@ object Indexer2PromptRegistry {
             task = TaskType.DIFFICULTY_ADAPTER,
             titleAr = "مخطط مواءمة المستويات (3 مسارات)",
             subtitleAr = "تفريق المحتوى إلى: ميسر للمبتدئ، قياسي، وإثرائي للمتقدم",
-            sourcePath = "prompts/indexer2/difficulty_adapter.prompt.md",
+            sourcePath = "prompts/book_indexing/difficulty_adapter.prompt.md",
             roleInstruction = "إعادة صياغة متدرجة لمحتوى الدرس في ثلاثة مستويات (مبسط للمبتدئ، قياسي، وإثرائي للمتقدم)",
             outputContract = "مسار تأسيسي ميسر + مسار صفي قياسي + تحدٍّ إثرائي متعمق",
             quickInstructions = "أعد صياغة المفهوم الرئيسي في ثلاثة مستويات متدرجة مع نشاط قصير لكل مستوى."
@@ -83,7 +83,7 @@ object Indexer2PromptRegistry {
             task = TaskType.INTERACTIVE,
             titleAr = "مخطط الدرس التفاعلي المترابط (JSON + JS + HTML)",
             subtitleAr = "محطات تعلم تفاعلية + conceptTag + نقاط تحقق مرتبطة ببنك الأسئلة ومشغل HTML/JS",
-            sourcePath = "prompts/indexer2/interactive_activity.prompt.md",
+            sourcePath = "prompts/book_indexing/interactive_activity.prompt.md",
             roleInstruction = "نشاطاً تعليمياً تفاعلياً منظماً بصيغة JSON آمنة تتضمن خطوات تفاعلية، وconceptTag لكل محطة، ونقاط تحقق مرتبطة ببنك الأسئلة، ومهمة ترتيب أو توصيل ليتم تصديره وتشغيله عبر JSON + JS + HTML",
             outputContract = "JSON صريح يحتوي schemaVersion, title, objective, steps[](conceptTag, checkpoint), ordering[], matching[]",
             schemaSnippet = """
@@ -115,27 +115,12 @@ object Indexer2PromptRegistry {
         PromptBlueprintSpec(
             id = "prompt_questions",
             task = TaskType.QUESTIONS,
-            titleAr = "مخطط بنك الأسئلة القياسي (indexer2)",
+            titleAr = "مخطط بنك الأسئلة القياسي",
             subtitleAr = "أسئلة متعددة الأنماط مع الإجابة والتفسير والصعوبة وربط الصفحة المرجعية",
-            sourcePath = "prompts/indexer2/question_bank.prompt.md",
+            sourcePath = "prompts/book_indexing/question_bank.prompt.md",
             roleInstruction = "بنك أسئلة مع الخيارات والإجابة الصحيحة والتفسير ومستوى الصعوبة وربط كل سؤال بالصفحة المرجعية",
             outputContract = "رقم السؤال + الخيارات أو صيغة التوصيل/الترتيب + الإجابة: + التفسير: + الصعوبة: أو مصفوفة JSON",
-            schemaSnippet = """
-                {
-                  "questions": [
-                    {
-                      "type": "mcq",
-                      "conceptTag": "المفهوم الأساسي في الدرس",
-                      "prompt": "نص السؤال المرتبط بصفحات الدرس",
-                      "options": ["أ", "ب", "ج", "د"],
-                      "correctAnswer": "أ",
-                      "rationale": "تعليل الإجابة استناداً إلى الدرس",
-                      "difficulty": "medium",
-                      "sourcePages": "5–8"
-                    }
-                  ]
-                }
-            """.trimIndent(),
+            schemaSnippet = QuestionResponseContract.schemaJson,
             quickInstructions = "نوّع الأسئلة بين اختيار من متعدد، صح أم خطأ، إكمال الفراغ، وترتيب مع تحديد conceptTag لكل سؤال."
         ),
         PromptBlueprintSpec(
@@ -143,7 +128,7 @@ object Indexer2PromptRegistry {
             task = TaskType.LESSON_TEXT,
             titleAr = "مخطط استخراج وحفظ المحتوى النصي للدرس",
             subtitleAr = "استخراج أمين لنص الدرس من ملف PDF وحفظه في قاعدة البيانات مرتبطاً بالفهرس",
-            sourcePath = "prompts/indexer2/lesson_text.prompt.md",
+            sourcePath = "prompts/book_indexing/lesson_text.prompt.md",
             roleInstruction = "استخراج المحتوى النصي الكامل للدرس من نسخة ملف PDF المرفقة بأمانة وتنظيمه في أقسام واضحة لحفظه كمرجع للدرس",
             outputContract = "JSON يحتوي title, sourcePages, sections[](heading, body), plainText",
             schemaSnippet = """
@@ -163,26 +148,40 @@ object Indexer2PromptRegistry {
         )
     )
 
-    val schemas: List<Indexer2SchemaSpec> = listOf(
-        Indexer2SchemaSpec(
+    val schemas: List<BookIndexSchemaSpec> = listOf(
+        BookIndexSchemaSpec(
             id = "schema_index",
             fileName = "workspace/Gxx/<SUBJECT>/index.json",
             titleAr = "مخطط الفهرس المرجعي للكتاب (index.json)",
-            descriptionAr = "المخطط المعتمد في indexer2 لتعريف الوحدات والدروس وأرقام الصفحات في الكتاب المدرسي.",
+            descriptionAr = "مخطط الفهرس المعتمد داخل التطبيق لتعريف الوحدات والدروس وأرقام الصفحات في الكتاب المدرسي.",
             schemaJson = """
                 {
-                  "schemaVersion": 1,
+                  "schemaVersion": "edu.book_index.v2",
                   "gradeKey": "G04",
+                  "gradeName": "الصف الرابع",
                   "subjectKey": "ARAB",
+                  "subjectName": "اللغة العربية",
+                  "title": "كتاب اللغة العربية",
+                  "sourceLayout": "SINGLE_PART_FILE",
+                  "sourceLayoutEvidence": "الغلاف يحدد الكتاب باعتباره الجزء الأول",
+                  "partKey": "P01",
+                  "offset": 4,
+                  "approvalStatus": "APPROVED",
+                  "requiresReview": false,
                   "units": [
                     {
                       "unitKey": "unit_01",
                       "title": "الوحدة الأولى",
                       "partKey": "P01",
+                      "assignmentStatus": "assigned",
+                      "assignmentSource": "INDEX_EVIDENCE",
+                      "assignmentEvidence": "دليل واضح من فهرس المحتويات",
                       "lessons": [
                         {
                           "lessonKey": "lesson_01",
                           "title": "عنوان الدرس الأول",
+                          "printedPageStart": 1,
+                          "printedPageEnd": 6,
                           "pdfPageStart": 5,
                           "pdfPageEnd": 10
                         }
@@ -192,66 +191,51 @@ object Indexer2PromptRegistry {
                 }
             """.trimIndent()
         ),
-        Indexer2SchemaSpec(
+        BookIndexSchemaSpec(
             id = "schema_manifest",
             fileName = "workspace/Gxx/<SUBJECT>/book_manifest.json",
             titleAr = "مخطط بطاقة الكتاب والغلاف (book_manifest.json)",
             descriptionAr = "بيانات الكتاب المرجعية ومسار الغلاف cover.png ومصدر PDF الأصلي.",
             schemaJson = """
                 {
-                  "title": "اسم الكتاب المدرسي",
+                  "manifestVersion": "edu.book_manifest.v2",
                   "gradeKey": "G04",
                   "subjectKey": "ARAB",
-                  "cover": "cover.png",
+                  "componentKey": null,
+                  "partKey": "P01",
+                  "sourceLayout": "SINGLE_PART_FILE",
+                  "sourceReviewStatus": "VERIFIED",
+                  "sourceFileName": "science_part_1.pdf",
+                  "sourceSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "canonicalIndexPath": "P01/index.json",
+                  "canonicalIndexSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "indexSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "partIndexes": [],
                   "totalPages": 120,
-                  "createdAt": "2026-11-24T00:00:00Z"
+                  "offset": 4,
+                  "cover": "P01/cover.png",
+                  "sourceMetadata": {
+                    "sourceRequiresReview": false,
+                    "partEvidence": "The uploaded PDF explicitly identifies itself as the standalone first part."
+                  }
                 }
             """.trimIndent()
         ),
-        Indexer2SchemaSpec(
+        BookIndexSchemaSpec(
             id = "schema_questions",
             fileName = "questions/<unit>/<lesson>/ai_generated.json",
             titleAr = "مخطط بنك الأسئلة التفاعلي (questions.json)",
             descriptionAr = "يدعم 6 أنماط: mcq, true_false, fill_blank, ordering, matching, short_answer مع تصنيف المفهوم conceptTag.",
-            schemaJson = """
-                {
-                  "questions": [
-                    {
-                      "type": "mcq",
-                      "conceptTag": "استخلاص الفكرة الرئيسة",
-                      "prompt": "ما الفكرة الرئيسة في الفقرة الأولى؟",
-                      "options": ["الخيار الأول", "الخيار الثاني", "الخيار الثالث", "الخيار الرابع"],
-                      "correctAnswer": "الخيار الأول",
-                      "rationale": "ورد ذلك في الصفحة 6 من الكتاب.",
-                      "difficulty": "easy"
-                    },
-                    {
-                      "type": "fill_blank",
-                      "conceptTag": "تركيب الماء الكيميائي",
-                      "prompt": "يتكون الماء من ذرتي ___ وذرة أكسجين.",
-                      "correctAnswer": "هيدروجين",
-                      "difficulty": "medium"
-                    },
-                    {
-                      "type": "ordering",
-                      "conceptTag": "خطوات المنهج العلمي",
-                      "prompt": "رتب مراحل التجربة:",
-                      "options": ["الملاحظة", "الفرضية", "التجربة", "الاستنتاج"],
-                      "correctAnswer": "الملاحظة | الفرضية | التجربة | الاستنتاج",
-                      "difficulty": "hard"
-                    }
-                  ]
-                }
-            """.trimIndent()
+            schemaJson = QuestionResponseContract.schemaJson
         ),
-        Indexer2SchemaSpec(
+        BookIndexSchemaSpec(
             id = "schema_interactive",
             fileName = "edu_mini_generated/<unit>/<lesson>/lesson.interactive.json",
             titleAr = "مخطط النشاط التفاعلي الأصيل (lesson.interactive.json)",
             descriptionAr = "مخطط JSON تصريحي مزوّد بـ conceptTag يشغّله مشغّل الأنشطة المدمج وباني حزمة JS+HTML.",
             schemaJson = blueprints.first { it.task == TaskType.INTERACTIVE }.schemaSnippet
         ),
-        Indexer2SchemaSpec(
+        BookIndexSchemaSpec(
             id = "schema_interactive_bundle",
             fileName = "interactive/<book>/<unit>/<lesson>/{index.html, interactive-engine.js, lesson.interactive.json}",
             titleAr = "مخطط تخزين حزمة الدرس التفاعلي المتكاملة (HTML + JS + JSON + Room DB)",
@@ -277,11 +261,11 @@ object Indexer2PromptRegistry {
                 }
             """.trimIndent()
         ),
-        Indexer2SchemaSpec(
+        BookIndexSchemaSpec(
             id = "schema_export_manifest",
             fileName = "manifest.json",
-            titleAr = "مخطط حزمة التصدير الموثّقة (indexer2 Export)",
-            descriptionAr = "يحتوي بصمات SHA-256 لكل ملف مدمج في الحزمة مع المسودات والأسئلة والتقييمات.",
+            titleAr = "مخطط حزمة التصدير القديمة",
+            descriptionAr = "صيغة توافق قديمة لحزمة مساحة العمل؛ تحتوي بصمات SHA-256 للملفات المصدّرة.",
             schemaJson = """
                 {
                   "format": "edu-mini-indexer2-1.0",
@@ -309,6 +293,8 @@ object Indexer2PromptRegistry {
         source: String,
         extra: String,
         questionCount: Int = 5,
+        questionTypeIds: List<String> = emptyList(),
+        questionLanguage: String = "ar",
         attachedPdfPagesCount: Int = 0,
         questionStyleHint: String = "",
         difficultyHint: String = "",
@@ -319,7 +305,17 @@ object Indexer2PromptRegistry {
         val safeCount = questionCount.coerceIn(1, 30)
         val blueprint = blueprintFor(task)
         val taskInstruction = task.labelAr
-
+        val requestedQuestionTypes = QuestionResponseContract.effectiveTypes(questionTypeIds)
+        val typeDistribution = if (task == TaskType.QUESTIONS) {
+            QuestionResponseContract.expectedDistribution(safeCount, questionTypeIds)
+        } else {
+            emptyMap()
+        }
+        val languageInstruction = when (questionLanguage.trim().lowercase()) {
+            "en" -> "English"
+            "ar_en" -> "Arabic and English (bilingual question and answer text)"
+            else -> "Arabic"
+        }
         return buildString {
             append("أنت مساعد إعداد محتوى تعليمي. أنشئ ")
             append(taskInstruction)
@@ -338,15 +334,22 @@ object Indexer2PromptRegistry {
             }
             append(".\n")
             append("التزم بالمصدر ولا تخترع معلومات أو صفحات. اجعل المحتوى منظمًا وقابلاً للتحرير.\n")
-            append("المخطط المرجعي (indexer2): ${blueprint.sourcePath}\n")
+            append("مخطط المهمة المرجعي: ${blueprint.sourcePath}\n")
             if (blueprint.outputContract.isNotBlank()) {
                 append("مخطط الخرج المتوقع: ${blueprint.outputContract}\n")
             }
-            if (task == TaskType.QUESTIONS || task == TaskType.INTERACTIVE) {
-                append("العدد المطلوب من العناصر: $safeCount.\n")
+            if (task == TaskType.QUESTIONS) {
+                append("العدد الإجمالي المطلوب من الأسئلة: $safeCount، وليس العدد لكل نوع.\n")
+            } else if (task == TaskType.INTERACTIVE) {
+                append("العدد المطلوب من العناصر التفاعلية: $safeCount.\n")
+            }
+            if (task == TaskType.QUESTIONS) {
+                append("لغة نص السؤال والخيارات والإجابة والتفسير: $languageInstruction.\n")
+                append("أنواع الأسئلة المسموح بها حصراً: ${requestedQuestionTypes.joinToString(", ") { "${it.id} (${it.labelAr})" }}. لا تنتج أي نوع خارج هذه القائمة.\n")
+                append("التوزيع المطلوب للعدد الإجمالي حسب النوع: ${typeDistribution.entries.joinToString(", ") { "${it.key}=${it.value}" }}. التزم بالأعداد المحددة لكل نوع.\n")
             }
             if (questionStyleHint.isNotBlank()) append("تنسيق/تنويع العناصر المطلوب: $questionStyleHint.\n")
-            if (difficultyHint.isNotBlank()) append("مستوى الصعوبة المطلوب: $difficultyHint.\n")
+            if (difficultyHint.isNotBlank()) append("مستوى الصعوبة المطلوب (قيمة difficulty في JSON): $difficultyHint. استخدم هذه القيمة المعيارية كما هي.\n")
             if (promptTemplate.isNotBlank()) {
                 append("\nتعليمات المهمة المرجعية من ملف ${blueprint.sourcePath}:\n")
                 append(promptTemplate.trim())

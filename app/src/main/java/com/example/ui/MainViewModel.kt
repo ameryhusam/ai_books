@@ -5,6 +5,10 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.firebase.AnalyticsTracker
+import com.example.data.ai.AiModelDefinition
+import com.example.data.ai.AiModelCatalogDefaults
+import com.example.data.ai.AiExecutionException
+import com.example.data.ai.AiExecutionFailureKind
 import com.example.data.firebase.FirestoreSyncRepository
 import com.example.data.repository.ConceptMasteryEngine
 import com.example.data.repository.EduMiniRepository
@@ -65,6 +69,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
@@ -76,100 +81,6 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.util.UUID
-
-data class AlertMessage(
-    val title: String,
-    val message: String
-)
-
-data class PdfPreviewPayload(
-    val path: String,
-    val title: String,
-    val subtitle: String? = null
-)
-
-data class ProviderFormState(
-    val editingProviderId: String? = null,
-    val provider: ProviderType = ProviderType.GEMINI,
-    val label: String = "Gemini",
-    val model: String = "gemini-2.5-flash",
-    val fallbackModels: String = "",
-    val strictModel: Boolean = false,
-    val baseUrl: String = "https://api.openai.com/v1",
-    val apiKey: String = "",
-    val dailyRequestLimit: String = "0",
-    val quotaTimeZone: String = "Asia/Aden"
-)
-
-data class PdfSplitterUiState(
-    val pdfInfo: PdfBookInfo,
-    val gradeKey: String = "G04",
-    val subjectKey: String = "BOOK",
-    val bookTitle: String = pdfInfo.fileName.removeSuffix(".pdf"),
-    val pagesPerLesson: Int = 5,
-    val splits: List<LessonSplitDraft> = emptyList()
-)
-
-data class MainUiState(
-    val userRole: UserRole = UserRole.ENTRY,
-    val isCloudAuthenticated: Boolean = false,
-    val authenticatedUserRole: UserRole? = null,
-    val authRoleCheckState: AuthRoleCheckState = AuthRoleCheckState.Idle,
-    val availableLearners: List<LearnerProfile> = listOf(LearnerProfile.DEFAULT),
-    val activeLearner: LearnerProfile = LearnerProfile.DEFAULT,
-    val page: AppPage = AppPage.DASHBOARD,
-    val selectedWorkspaceId: String? = null,
-    val workspace: ImportedWorkspace? = null,
-    val workspaces: List<WorkspaceSummary> = emptyList(),
-    val activeWorkspaceDiskBytes: Long = 0L,
-    val selectedBookKey: String = "",
-    val selectedLesson: LessonRef? = null,
-    val task: TaskType = TaskType.QUESTIONS,
-    val activePromptTemplateId: String = "",
-    val questionCount: Int = 5,
-    val questionStyle: String = "متنوعة",
-    val questionDifficulty: QuestionDifficulty = QuestionDifficulty.MEDIUM,
-    val attachPdfPages: Boolean = true,
-    val sourceText: String = "",
-    val extraInstructions: String = "",
-    val generatedResult: String = "",
-    val activeDraftProvider: String = "تحرير يدوي",
-    val activeDraftModel: String = "local",
-    val activeDraftTemplateId: String = "",
-    val activeDraftTemplateVersion: Int = 1,
-    val activeDraftResponseSchemaHash: String = "",
-    val activeDraftRequestFingerprint: String = "",
-    val activeDraftContentHash: String = "",
-    val activeDraftSourcePdfHash: String = "",
-    val packageSourcePages: String = "",
-    val previewingPackage: InteractivePackageRecord? = null,
-    val studentPreviewMode: Boolean = false,
-    val activeInteractiveActivity: InteractiveActivityModel? = null,
-    val activeInteractiveLesson: LessonRef? = null,
-    val studentStudyLesson: LessonRef? = null,
-    val lastLessonQuizResult: LessonQuizCompletionResult? = null,
-    val reinforcementConceptTitle: String? = null,
-    val reinforcementQuestions: List<QuestionItem> = emptyList(),
-    val directInspection: DirectWorkspaceInspection? = null,
-    val previewingPdf: PdfPreviewPayload? = null,
-    val previewingBookCover: BookRef? = null,
-    val promptSourcesOpen: Boolean = false,
-    val stagedPreview: StagedWorkspacePreview? = null,
-    val globalSearchOpen: Boolean = false,
-    val pendingExportAssessment: AssessmentRecord? = null,
-    val providers: List<ProviderConfig> = emptyList(),
-    val selectedProvider: ProviderType = ProviderType.GEMINI,
-    val providerForm: ProviderFormState = ProviderFormState(),
-    val recentRuns: List<GenerationRunRecord> = emptyList(),
-    val isBusy: Boolean = false,
-    val generationProgressPercent: Int? = null,
-    val generationStage: String? = null,
-    val toastMessage: String? = null,
-    val alert: AlertMessage? = null
-) {
-    val availableBoundGrades: List<String>
-        get() = workspaces.map { it.gradeKey.uppercase() }.distinct().sorted()
-}
 
 class MainViewModel(
     private val repository: EduMiniRepository,
@@ -419,6 +330,62 @@ class MainViewModel(
 
     init {
         loadLearnerProfiles()
+        viewModelScope.launch {
+            // A local seed is not an authority for a system-managed catalogue.
+            // Without an authenticated account and a readable Firestore catalogue,
+            // no model is offered for generation.
+            _uiState.update { it.copy(aiModelCatalog = emptyList()) }
+            if (isCloudAuthenticated) {
+                val canManageCentralModels = runCatching { firestoreSync.isSystemAdmin() }
+                    .getOrDefault(false)
+                _uiState.update { it.copy(isSystemAdmin = canManageCentralModels) }
+                runCatching {
+                    var catalog = firestoreSync.fetchAiModelCatalog()
+                    // Seed missing built-in entries for an explicitly authorized
+                    // system administrator. Merge by provider + exact model ID so
+                    // existing central settings and custom entries are never overwritten.
+                    if (canManageCentralModels) {
+                        val missingSeeds = AiModelCatalogDefaults.entries.filter { seed ->
+                            catalog.none { it.provider == seed.provider && it.modelId == seed.modelId }
+                        }
+                        missingSeeds.forEach { seed ->
+                            firestoreSync.upsertAiModelDefinition(seed)
+                        }
+                        if (missingSeeds.isNotEmpty()) {
+                            catalog = firestoreSync.fetchAiModelCatalog()
+                        }
+                    }
+                    catalog
+                }
+                    .onSuccess { catalog -> _uiState.update { it.copy(aiModelCatalog = catalog) } }
+                    .onFailure { error ->
+                        _uiState.update {
+                            it.copy(
+                                aiModelCatalog = emptyList(),
+                                alert = AlertMessage(
+                                    "تعذر تحميل قائمة النماذج المركزية",
+                                    error.message ?: "تحقق من الاتصال أو صلاحية قراءة الكتالوج."
+                                )
+                            )
+                        }
+                    }
+                runCatching {
+                    firestoreSync.observeAiModelCatalog().collect { catalog ->
+                        _uiState.update { it.copy(aiModelCatalog = catalog) }
+                    }
+                }.onFailure { error ->
+                    _uiState.update {
+                        it.copy(
+                            aiModelCatalog = emptyList(),
+                            alert = AlertMessage(
+                                "توقف تحديث قائمة النماذج",
+                                error.message ?: "تعذر متابعة مزامنة النماذج المركزية."
+                            )
+                        )
+                    }
+                }
+            }
+        }
         viewModelScope.launch {
             runCatching { repository.ensureDefaultPromptTemplates() }
             runCatching { repository.loadProviders() }
@@ -1079,7 +1046,7 @@ class MainViewModel(
         _uiState.update { it.copy(promptSourcesOpen = false) }
     }
 
-    fun applyIndexer2Blueprint(spec: PromptBlueprintSpec) {
+    fun applyBookIndexBlueprint(spec: PromptBlueprintSpec) {
         _uiState.update { state ->
             state.copy(
                 task = spec.task,
@@ -1095,7 +1062,10 @@ class MainViewModel(
             state.copy(
                 task = task,
                 generatedResult = sample,
-                activeDraftProvider = "indexer2 Schema",
+                generatedQuestionExpectedCount = null,
+                generatedQuestionExpectedTypeIds = emptyList(),
+                generatedQuestionExpectedDifficultyId = "",
+                activeDraftProvider = "Book index schema",
                 activeDraftModel = "template",
                 promptSourcesOpen = false,
                 page = AppPage.STUDIO,
@@ -1369,6 +1339,29 @@ class MainViewModel(
             """.trimIndent()
         }
 
+        val selectedModel = snapshot.aiModelCatalog.firstOrNull {
+            it.provider == snapshot.selectedProvider && it.isDefault && it.isEnabled &&
+                it.supportsGenerateContent && it.lifecycleStatus != AiModelDefinition.STATUS_DEPRECATED
+        } ?: snapshot.aiModelCatalog.firstOrNull {
+            it.provider == snapshot.selectedProvider && it.isEnabled &&
+                it.supportsGenerateContent && it.lifecycleStatus != AiModelDefinition.STATUS_DEPRECATED
+        }
+        val selectedProfile = snapshot.providers.firstOrNull {
+            it.id == snapshot.selectedGenerationProfileId && it.provider == snapshot.selectedProvider &&
+                it.enabled && it.apiKey.isNotBlank()
+        } ?: snapshot.providers.firstOrNull {
+            it.provider == snapshot.selectedProvider && it.enabled && it.apiKey.isNotBlank()
+        }
+        if (selectedModel == null || selectedProfile == null) {
+            _uiState.update {
+                it.copy(alert = AlertMessage(
+                    "تعذر بدء التقوية",
+                    "تأكد من وجود نموذج مفعّل أضافه مدير النظام وملف اتصال API صالح."
+                ))
+            }
+            return
+        }
+
         generationJob?.cancel()
         generationJob = viewModelScope.launch {
             _uiState.update { it.copy(isBusy = true, alert = null) }
@@ -1381,6 +1374,8 @@ class MainViewModel(
                     extra = taskInstructions,
                     providers = snapshot.providers,
                     selectedProvider = snapshot.selectedProvider,
+                    selectedModelId = selectedModel.modelId,
+                    selectedProfileId = selectedProfile.id,
                     questionCount = 5,
                     attachPdfPages = true,
                     questionStyleHint = if (task == TaskType.QUESTIONS) "أسئلة تشخيصية تكيفية ومشتتات قائمة على الخطأ" else "",
@@ -1411,7 +1406,10 @@ class MainViewModel(
                     taskType = task.id,
                     success = true
                 )
-                _uiState.update { it.copy(providers = repository.loadProviders(), generationProgressPercent = 100, generationStage = "اكتمل التوليد والحفظ") }
+                val latestProviders = runCatching { repository.loadProviders() }
+                    .onFailure { if (it is CancellationException) throw it }
+                    .getOrDefault(snapshot.providers)
+                _uiState.update { it.copy(providers = latestProviders, generationProgressPercent = 100, generationStage = "اكتمل التوليد والحفظ") }
 
                 val generatedQuestions = if (task == TaskType.QUESTIONS) {
                     repository.saveQuestionsFromDraftText(workspace.workspaceId, lesson, output.text)
@@ -1714,6 +1712,20 @@ class MainViewModel(
 
     fun updateQuestionCount(count: Int) {
         _uiState.update { it.copy(questionCount = count.coerceIn(1, 30)) }
+    }
+
+    fun updateQuestionTypes(typeIds: List<String>) {
+        val allowed = com.example.model.QuestionType.entries.map { it.id }.toSet()
+        val normalized = typeIds.map { it.trim() }.filter { it in allowed }.distinct()
+        if (normalized.isNotEmpty()) {
+            _uiState.update { it.copy(selectedQuestionTypeIds = normalized) }
+        }
+    }
+
+    fun updateQuestionLanguage(language: String) {
+        if (language in setOf("ar", "en", "ar_en")) {
+            _uiState.update { it.copy(questionLanguage = language) }
+        }
     }
 
     fun updateQuestionStyle(style: String) {
@@ -2075,6 +2087,71 @@ class MainViewModel(
         }
     }
 
+    private fun canManageSystemAiModels(): Boolean =
+        isCloudAuthenticated && _uiState.value.authenticatedUserRole == UserRole.ADMIN && _uiState.value.isSystemAdmin
+
+    fun addAiModel(model: AiModelDefinition) {
+        if (!canManageSystemAiModels()) {
+            _uiState.update { it.copy(alert = AlertMessage("صلاحية غير كافية", "إدارة كتالوج النماذج متاحة لمدير النظام فقط.")) }
+            return
+        }
+        viewModelScope.launch {
+            runCatching { firestoreSync.upsertAiModelDefinition(model) }
+                .onSuccess {
+                    val catalog = runCatching { firestoreSync.fetchAiModelCatalog() }.getOrDefault(_uiState.value.aiModelCatalog)
+                    _uiState.update { it.copy(aiModelCatalog = catalog, toastMessage = "تمت إضافة النموذج إلى القائمة المركزية.") }
+                }
+                .onFailure { error -> _uiState.update { it.copy(alert = AlertMessage("تعذر إضافة النموذج", error.message ?: "تحقق من صلاحيات مدير النظام.")) } }
+        }
+    }
+
+    fun updateAiModel(originalModelId: String, model: AiModelDefinition) {
+        if (!canManageSystemAiModels()) {
+            _uiState.update { it.copy(alert = AlertMessage("صلاحية غير كافية", "إدارة كتالوج النماذج متاحة لمدير النظام فقط.")) }
+            return
+        }
+        viewModelScope.launch {
+            runCatching {
+                firestoreSync.renameAiModelDefinition(originalModelId, model)
+            }.onSuccess {
+                val catalog = runCatching { firestoreSync.fetchAiModelCatalog() }.getOrDefault(_uiState.value.aiModelCatalog)
+                _uiState.update { it.copy(aiModelCatalog = catalog, toastMessage = "تم تحديث النموذج المركزي.") }
+            }.onFailure { error ->
+                _uiState.update { it.copy(alert = AlertMessage("تعذر تعديل النموذج", error.message ?: "تحقق من بيانات النموذج.")) }
+            }
+        }
+    }
+
+    fun deleteAiModel(modelId: String) {
+        if (!canManageSystemAiModels()) {
+            _uiState.update { it.copy(alert = AlertMessage("صلاحية غير كافية", "إدارة كتالوج النماذج متاحة لمدير النظام فقط.")) }
+            return
+        }
+        viewModelScope.launch {
+            runCatching { firestoreSync.deleteAiModelDefinition(modelId) }
+                .onSuccess {
+                    val catalog = runCatching { firestoreSync.fetchAiModelCatalog() }.getOrDefault(_uiState.value.aiModelCatalog)
+                    _uiState.update { it.copy(aiModelCatalog = catalog, toastMessage = "تم حذف النموذج من القائمة المركزية.") }
+                }
+                .onFailure { error -> _uiState.update { it.copy(alert = AlertMessage("تعذر حذف النموذج", error.message ?: "قد يكون النموذج افتراضياً.")) } }
+        }
+    }
+
+    fun setDefaultAiModel(provider: ProviderType, modelId: String) {
+        if (!canManageSystemAiModels()) {
+            _uiState.update { it.copy(alert = AlertMessage("صلاحية غير كافية", "تحديد النموذج الافتراضي متاح لمدير النظام فقط.")) }
+            return
+        }
+        viewModelScope.launch {
+            runCatching { firestoreSync.setDefaultAiModel(provider, modelId) }
+                .onSuccess {
+                    val catalog = runCatching { firestoreSync.fetchAiModelCatalog() }.getOrDefault(_uiState.value.aiModelCatalog)
+                    _uiState.update { it.copy(aiModelCatalog = catalog, toastMessage = "تم تغيير النموذج الافتراضي المركزي.") }
+                }
+                .onFailure { error -> _uiState.update { it.copy(alert = AlertMessage("تعذر تغيير النموذج الافتراضي", error.message ?: "النموذج غير متاح.")) } }
+        }
+    }
+
     fun selectDefaultAiProvider(type: ProviderType) {
         viewModelScope.launch {
             runCatching { repository.saveSelectedProviderType(type) }
@@ -2096,12 +2173,23 @@ class MainViewModel(
 
     fun updateProviderType(type: ProviderType) {
         _uiState.update { state ->
+            val isNewProfile = state.providerForm.editingProviderId == null
             val defaultLabel = if (type == ProviderType.GEMINI) "Gemini" else "OpenAI"
-            val updatedLabel = if (state.providerForm.editingProviderId == null) defaultLabel else state.providerForm.label
+            val updatedLabel = if (isNewProfile) defaultLabel else state.providerForm.label
+            val providerModels = state.aiModelCatalog
+                .filter { it.provider == type && it.isEnabled && it.supportsGenerateContent &&
+                    it.lifecycleStatus != AiModelDefinition.STATUS_DEPRECATED }
+            val defaultModel = providerModels.firstOrNull { it.isDefault } ?: providerModels.firstOrNull()
+            val fallbacks = providerModels
+                .filter { it.modelId != defaultModel?.modelId }
+                .sortedBy { it.displayName }
+                .map { it.modelId }
             state.copy(
                 providerForm = state.providerForm.copy(
                     provider = type,
-                    label = updatedLabel
+                    label = updatedLabel,
+                    model = if (isNewProfile) defaultModel?.modelId.orEmpty() else state.providerForm.model,
+                    fallbackModels = if (isNewProfile) fallbacks.joinToString(", ") else state.providerForm.fallbackModels
                 )
             )
         }
@@ -2211,9 +2299,9 @@ class MainViewModel(
                     title = title,
                     task = task,
                     instructions = instructions,
-                    responseSchemaJson = responseSchemaJson,
-                    responseMappingJson = responseMappingJson,
-                    responseFormat = if (responseSchemaJson.isBlank()) "text" else "json",
+                    responseSchemaJson = if (task == TaskType.QUESTIONS) "" else responseSchemaJson,
+                    responseMappingJson = if (task == TaskType.QUESTIONS) "" else responseMappingJson,
+                    responseFormat = if (task == TaskType.QUESTIONS || responseSchemaJson.isNotBlank()) "json" else "text",
                     templateId = templateId
                 )
                 _uiState.update {
@@ -2254,24 +2342,46 @@ class MainViewModel(
             return
         }
         val canonicalWs = snapshot.workspace?.workspaceId.orEmpty().ifBlank { lesson.workspaceId }.ifBlank { lesson.rootPath }
-        val parsed = QuestionBankEngine.parseQuestionsFromText(text, canonicalWs, lesson)
-        if (parsed.isEmpty()) {
+        val expectedQuestionCount = snapshot.generatedQuestionExpectedCount ?: snapshot.questionCount
+        val expectedQuestionTypeIds = snapshot.generatedQuestionExpectedTypeIds.ifEmpty { snapshot.selectedQuestionTypeIds }
+        val expectedQuestionDifficultyId = snapshot.generatedQuestionExpectedDifficultyId.ifBlank { snapshot.questionDifficulty.id }
+        val parsedResult = runCatching {
+            QuestionBankEngine.parseGeneratedQuestions(
+                rawText = text,
+                workspaceId = canonicalWs,
+                lesson = lesson,
+                expectedCount = expectedQuestionCount,
+                selectedTypeIds = expectedQuestionTypeIds,
+                expectedDifficultyId = expectedQuestionDifficultyId
+            )
+        }
+        if (parsedResult.isFailure) {
             _uiState.update {
-                it.copy(
-                    alert = AlertMessage(
-                        "تعذر استخراج الأسئلة",
-                        "تأكد من ترقيم الأسئلة (1. ... أو JSON) مع كتابة «الإجابة: ...» ثم أعد المحاولة."
-                    )
-                )
+                it.copy(alert = AlertMessage(
+                    "لم تُحفظ الأسئلة",
+                    parsedResult.exceptionOrNull()?.message ?: "استجابة الأسئلة لا تطابق عقد بنك الأسئلة."
+                ))
             }
             return
         }
+        val parsed = parsedResult.getOrThrow()
         viewModelScope.launch {
-            val saved = repository.saveQuestionsFromDraftText(
-                workspaceId = canonicalWs,
-                lesson = lesson,
-                rawText = text
-            )
+            val savedResult = runCatching {
+                repository.saveQuestionsFromDraftText(
+                    workspaceId = canonicalWs,
+                    lesson = lesson,
+                    rawText = text,
+                    expectedQuestionCount = expectedQuestionCount,
+                    expectedQuestionTypeIds = expectedQuestionTypeIds,
+                    expectedQuestionDifficultyId = expectedQuestionDifficultyId
+                )
+            }
+            val saved = savedResult.getOrElse { error ->
+                _uiState.update {
+                    it.copy(alert = AlertMessage("لم تُحفظ الأسئلة", error.message ?: "تعذر إدراج دفعة الأسئلة."))
+                }
+                return@launch
+            }
             if (saved.isEmpty()) {
                 _uiState.update {
                     it.copy(
@@ -2550,7 +2660,7 @@ class MainViewModel(
         }
     }
 
-    fun exportIndexer2Zip(uri: Uri) {
+    fun exportLegacyWorkspaceZip(uri: Uri) {
         val workspace = _uiState.value.workspace ?: return
         viewModelScope.launch {
             _uiState.update { it.copy(isBusy = true) }
@@ -2559,7 +2669,7 @@ class MainViewModel(
                     ?: throw IllegalStateException("تعذر فتح ملف الحفظ المختار")
                 val snapshot = _uiState.value
                 val receipt = out.use { stream ->
-                    repository.exportIndexer2Zip(
+                    repository.exportLegacyWorkspaceZip(
                         stream,
                         workspace,
                         learnerProfiles = snapshot.availableLearners,
@@ -2570,7 +2680,7 @@ class MainViewModel(
                     it.copy(
                         alert = AlertMessage(
                             "تم تصدير الحزمة",
-                            "تم إنشاء ملف ZIP متوافق مع indexer2 ويحتوي على ${receipt.entriesCount} ملف (${receipt.draftsCount} مسودة، ${receipt.questionsCount} سؤال) مع التحقق SHA-256."
+                            "تم إنشاء ملف ZIP بصيغة التوافق القديمة ويحتوي على ${receipt.entriesCount} ملف (${receipt.draftsCount} مسودة، ${receipt.questionsCount} سؤال) مع التحقق SHA-256."
                         )
                     )
                 }
@@ -2788,24 +2898,103 @@ class MainViewModel(
         val snapshot = _uiState.value
         val lesson = snapshot.selectedLesson
         if (lesson == null) {
-            _uiState.update {
-                it.copy(alert = AlertMessage("حدد الدرس", "اختر درساً من المكتبة أولاً."))
-            }
+            _uiState.update { it.copy(alert = AlertMessage("حدد الدرس", "اختر درساً من المكتبة أولاً.")) }
             return
         }
         val hasPdfSource = snapshot.attachPdfPages && !lesson.pdfPath.isNullOrBlank()
         if (snapshot.sourceText.trim().isEmpty() && !hasPdfSource) {
             _uiState.update {
-                it.copy(
-                    alert = AlertMessage(
-                        "أدخل نص المصدر",
-                        "اكتب مقتطف الدرس أو فعّل إرفاق صفحات PDF للدرس."
-                    )
-                )
+                it.copy(alert = AlertMessage("أدخل نص المصدر", "اكتب مقتطف الدرس أو فعّل إرفاق صفحات PDF للدرس."))
             }
             return
         }
+        val availableModels = snapshot.aiModelCatalog.filter {
+            it.provider == snapshot.selectedProvider && it.isEnabled &&
+                it.supportsGenerateContent && it.lifecycleStatus != AiModelDefinition.STATUS_DEPRECATED
+        }
+        if (availableModels.isEmpty()) {
+            _uiState.update {
+                it.copy(alert = AlertMessage(
+                    "لا توجد نماذج متاحة",
+                    "لم يضف مدير النظام نموذجاً مفعّلاً لمزود ${snapshot.selectedProvider.displayName}."
+                ))
+            }
+            return
+        }
+        val availableProfiles = snapshot.providers.filter {
+            it.provider == snapshot.selectedProvider && it.enabled && it.apiKey.isNotBlank()
+        }
+        if (availableProfiles.isEmpty()) {
+            _uiState.update {
+                it.copy(alert = AlertMessage("لا يوجد اتصال API", "أضف أو فعّل ملف اتصال لهذا المزود في الإعدادات."))
+            }
+            return
+        }
+        val defaultModel = availableModels.firstOrNull { it.isDefault } ?: availableModels.first()
+        val selectedProfile = availableProfiles.firstOrNull { it.id == snapshot.selectedGenerationProfileId }
+            ?: availableProfiles.first()
+        _uiState.update {
+            it.copy(
+                isGenerationModelPickerOpen = true,
+                selectedGenerationModelId = availableModels.firstOrNull {
+                    it.modelId == snapshot.selectedGenerationModelId
+                }?.modelId ?: defaultModel.modelId,
+                selectedGenerationProfileId = selectedProfile.id
+            )
+        }
+    }
 
+    fun selectGenerationModel(modelId: String) {
+        _uiState.update { it.copy(selectedGenerationModelId = modelId) }
+    }
+
+    fun selectGenerationProfile(profileId: String) {
+        _uiState.update { it.copy(selectedGenerationProfileId = profileId) }
+    }
+
+    fun dismissGenerationModelPicker() {
+        _uiState.update { it.copy(isGenerationModelPickerOpen = false) }
+    }
+
+    fun confirmGenerationSelection(modelId: String, profileId: String) {
+        val snapshot = _uiState.value
+        val model = snapshot.aiModelCatalog.firstOrNull {
+            it.modelId == modelId && it.provider == snapshot.selectedProvider &&
+                it.isEnabled && it.supportsGenerateContent &&
+                it.lifecycleStatus != AiModelDefinition.STATUS_DEPRECATED
+        }
+        val profile = snapshot.providers.firstOrNull {
+            it.id == profileId && it.provider == snapshot.selectedProvider &&
+                it.enabled && it.apiKey.isNotBlank()
+        }
+        if (model == null || profile == null) {
+            _uiState.update {
+                it.copy(alert = AlertMessage(
+                    "اختيار غير صالح",
+                    "النموذج أو ملف الاتصال لم يعد متاحاً. حدّث القائمة ثم أعد الاختيار."
+                ))
+            }
+            return
+        }
+        _uiState.update {
+            it.copy(
+                isGenerationModelPickerOpen = false,
+                selectedGenerationModelId = modelId,
+                selectedGenerationProfileId = profileId
+            )
+        }
+        startGeneration(snapshot, modelId, profileId)
+    }
+
+    private fun startGeneration(
+        snapshot: MainUiState,
+        selectedModelId: String,
+        selectedProfileId: String
+    ) {
+        val lesson = snapshot.selectedLesson ?: run {
+            _uiState.update { it.copy(alert = AlertMessage("حدد الدرس", "اختر درساً من المكتبة أولاً.")) }
+            return
+        }
         generationJob?.cancel()
         generationJob = viewModelScope.launch {
             _uiState.update { it.copy(isBusy = true, generationProgressPercent = 2, generationStage = "بدء تجهيز الطلب") }
@@ -2818,10 +3007,14 @@ class MainViewModel(
                     extra = snapshot.extraInstructions,
                     providers = snapshot.providers,
                     selectedProvider = snapshot.selectedProvider,
+                    selectedModelId = selectedModelId,
+                    selectedProfileId = selectedProfileId,
                     questionCount = snapshot.questionCount,
+                    questionTypeIds = snapshot.selectedQuestionTypeIds,
+                    questionLanguage = snapshot.questionLanguage,
                     attachPdfPages = snapshot.attachPdfPages,
                     questionStyleHint = snapshot.questionStyle.takeIf { snapshot.task == TaskType.QUESTIONS && it != "متنوعة" }.orEmpty(),
-                    difficultyHint = if (snapshot.task == TaskType.QUESTIONS) snapshot.questionDifficulty.labelAr else "",
+                    difficultyHint = if (snapshot.task == TaskType.QUESTIONS) snapshot.questionDifficulty.id else "",
                     template = promptTemplates.value.firstOrNull { it.id == snapshot.activePromptTemplateId }
                         ?: promptTemplates.value.firstOrNull { it.task == snapshot.task },
                     onProgress = { percent, stage ->
@@ -2829,22 +3022,61 @@ class MainViewModel(
                     }
                 )
                 val wsId = snapshot.workspace?.workspaceId.orEmpty()
-                val persistedDraft = repository.persistDraft(
-                    workspaceId = wsId,
-                    lesson = lesson,
-                    task = snapshot.task,
-                    providerLabel = out.providerLabel,
-                    model = out.model,
-                    text = out.text,
-                    title = lesson.title,
-                    sourceText = snapshot.sourceText,
-                    status = DraftStatus.DRAFT,
-                    generation = out
-                )
-                _uiState.update { it.copy(generationProgressPercent = 98, generationStage = "حفظ المسودة وبصمة المحتوى") }
-                if (isCloudAuthenticated) {
-                    firestoreSync.upsertDraft(currentUserId, persistedDraft)
+                // Surface the provider response immediately. Draft persistence and later
+                // task/database validation must not hide content that the provider returned.
+                _uiState.update {
+                    it.copy(
+                        generatedResult = out.text,
+                        generatedQuestionExpectedCount = if (snapshot.task == TaskType.QUESTIONS) snapshot.questionCount else null,
+                        generatedQuestionExpectedTypeIds = if (snapshot.task == TaskType.QUESTIONS) snapshot.selectedQuestionTypeIds else emptyList(),
+                        generatedQuestionExpectedDifficultyId = if (snapshot.task == TaskType.QUESTIONS) snapshot.questionDifficulty.id else "",
+                        activeDraftProvider = out.providerLabel,
+                        activeDraftModel = out.model,
+                        activeDraftTemplateId = out.templateId,
+                        activeDraftTemplateVersion = out.templateVersion,
+                        activeDraftResponseSchemaHash = out.responseSchemaHash,
+                        activeDraftRequestFingerprint = out.requestFingerprint,
+                        activeDraftContentHash = out.contentHash,
+                        activeDraftSourcePdfHash = out.sourcePdfHash,
+                        generationProgressPercent = 94,
+                        generationStage = "تم استلام المحتوى؛ جارٍ حفظ المسودة والتحقق"
+                    )
                 }
+                val draftSaveResult = runCatching {
+                    repository.persistDraft(
+                        workspaceId = wsId,
+                        lesson = lesson,
+                        task = snapshot.task,
+                        providerLabel = out.providerLabel,
+                        model = out.model,
+                        text = out.text,
+                        title = lesson.title,
+                        sourceText = snapshot.sourceText,
+                        status = DraftStatus.DRAFT,
+                        generation = out
+                    )
+                }.onFailure { if (it is CancellationException) throw it }
+                val persistedDraft = draftSaveResult.getOrNull()
+                if (persistedDraft == null) {
+                    val saveError = draftSaveResult.exceptionOrNull()?.message ?: "خطأ غير محدد أثناء حفظ المسودة"
+                    val diagnostics = (out.validationIssues + saveError).distinct()
+                    _uiState.update {
+                        it.copy(
+                            alert = AlertMessage(
+                                title = "تم استلام المحتوى لكن تعذر حفظ المسودة",
+                                message = "الاستجابة الخام ما زالت معروضة ويمكن نسخها أو مراجعتها. لم يتم إدراجها في قاعدة البيانات.\n\n" +
+                                    diagnostics.joinToString("\n") { "• $it" }
+                            )
+                        )
+                    }
+                    return@launch
+                }
+                _uiState.update { it.copy(generationProgressPercent = 98, generationStage = "حفظ المسودة وبصمة المحتوى") }
+                val cloudSyncError = if (isCloudAuthenticated) {
+                    runCatching { firestoreSync.upsertDraft(currentUserId, persistedDraft) }
+                        .onFailure { if (it is CancellationException) throw it }
+                        .exceptionOrNull()?.message
+                } else null
                 analyticsTracker?.trackAiExplanationGenerated(
                     providerId = out.providerLabel,
                     taskType = snapshot.task.id,
@@ -2857,15 +3089,25 @@ class MainViewModel(
                     success = true
                 )
                 _uiState.update { it.copy(providers = repository.loadProviders(), generationProgressPercent = 100, generationStage = "اكتمل التوليد والحفظ") }
-                val syncedQuestionsCount = if (snapshot.task == TaskType.QUESTIONS) {
-                    repository.saveQuestionsFromDraftText(
-                        workspaceId = wsId,
-                        lesson = lesson,
-                        rawText = out.text
-                    ).size
-                } else {
-                    0
-                }
+                val questionSaveResult = if (snapshot.task == TaskType.QUESTIONS) {
+                    runCatching {
+                        repository.saveQuestionsFromDraftText(
+                            workspaceId = wsId,
+                            lesson = lesson,
+                            rawText = out.text,
+                            draftId = persistedDraft.id,
+                            templateId = out.templateId,
+                            promptUsed = out.promptUsed,
+                            responseSchemaJson = out.responseSchemaJson,
+                            sourceIndexSha256 = persistedDraft.sourceIndexSha256,
+                            expectedQuestionCount = snapshot.questionCount,
+                            expectedQuestionTypeIds = snapshot.selectedQuestionTypeIds,
+                            expectedQuestionDifficultyId = snapshot.questionDifficulty.id
+                        )
+                    }
+                } else null
+                val syncedQuestionsCount = questionSaveResult?.getOrNull()?.size ?: 0
+                val questionSaveError = questionSaveResult?.exceptionOrNull()?.message
                 val lessonTextSaved = if (snapshot.task == TaskType.LESSON_TEXT) {
                     val extracted = repository.extractLessonTextFromOutput(out.text)
                     runCatching {
@@ -2896,9 +3138,13 @@ class MainViewModel(
                         )
                     }.getOrNull()
                 } else null
-                val resultMessage = when {
+                val resultSummary = when {
+                    snapshot.task == TaskType.QUESTIONS && questionSaveError != null ->
+                        "تم استلام الاستجابة من ${out.providerLabel} (${out.model}) وحفظ نصها كمسودة، لكن لم تُدرج الأسئلة في بنك الأسئلة: $questionSaveError"
                     snapshot.task == TaskType.QUESTIONS && syncedQuestionsCount > 0 ->
-                        "تم التوليد عبر ${out.providerLabel} (${out.model})، وحُفظت المسودة وأُضيفت $syncedQuestionsCount أسئلة تلقائياً لبنك الأسئلة واختبار الدرس."
+                        "تم التوليد عبر ${out.providerLabel} (${out.model})، وحُفظت المسودة وتم التحقق من العدد والأنواع قبل إضافة $syncedQuestionsCount سؤالاً إلى بنك الأسئلة واختبار الدرس."
+                    snapshot.task == TaskType.QUESTIONS ->
+                        "تم حفظ المسودة. الأسئلة المطابقة موجودة مسبقاً في بنك أسئلة الدرس، لذلك لم تُضف نسخ مكررة."
                     snapshot.task == TaskType.LESSON_TEXT && lessonTextSaved != null ->
                         "تم استخراج وحفظ المحتوى النصي للدرس بنجاح في قاعدة البيانات وتحديث مصدر الاستوديو (v${lessonTextSaved.version})."
                     snapshot.task == TaskType.INTERACTIVE && publishedBundle != null ->
@@ -2906,11 +3152,23 @@ class MainViewModel(
                     snapshot.task == TaskType.INTERACTIVE && interactiveParsed != null ->
                         "تم التوليد عبر ${out.providerLabel} (${out.model}) وأصبح النشاط التفاعلي (${interactiveParsed.steps.size} محطة) جاهزاً للتشغيل في شاشة المتعلم والاستوديو."
                     else ->
-                        "تم التوليد عبر ${out.providerLabel} (${out.model}) وحفظ النسخة وربطها بمسار الدرس."
+                        "تم استلام الاستجابة عبر ${out.providerLabel} (${out.model}) وحفظها كمسودة."
+                }
+                val reviewIssues = (out.validationIssues + listOfNotNull(questionSaveError, cloudSyncError))
+                    .filter { it.isNotBlank() }
+                    .distinct()
+                val resultMessage = if (reviewIssues.isEmpty()) {
+                    resultSummary
+                } else {
+                    resultSummary + "\n\nالمحتوى المستلم محفوظ ويمكن مراجعته، لكن توجد مشكلات تمنع اعتماده أو إدراجه في قاعدة البيانات:\n" +
+                        reviewIssues.joinToString("\n") { "• $it" }
                 }
                 _uiState.update {
                     it.copy(
                         generatedResult = out.text,
+                        generatedQuestionExpectedCount = if (snapshot.task == TaskType.QUESTIONS) snapshot.questionCount else null,
+                        generatedQuestionExpectedTypeIds = if (snapshot.task == TaskType.QUESTIONS) snapshot.selectedQuestionTypeIds else emptyList(),
+                        generatedQuestionExpectedDifficultyId = if (snapshot.task == TaskType.QUESTIONS) snapshot.questionDifficulty.id else "",
                         sourceText = if (snapshot.task == TaskType.LESSON_TEXT && lessonTextSaved != null) lessonTextSaved.content else it.sourceText,
                         activeDraftProvider = out.providerLabel,
                         activeDraftModel = out.model,
@@ -2921,7 +3179,7 @@ class MainViewModel(
                         activeDraftContentHash = out.contentHash,
                         activeDraftSourcePdfHash = out.sourcePdfHash,
                         alert = AlertMessage(
-                            title = "تم الحفظ والربط",
+                            title = if (reviewIssues.isEmpty()) "تم الحفظ والربط" else "تم استلام المحتوى - يحتاج مراجعة",
                             message = resultMessage
                         )
                     )
@@ -2942,10 +3200,21 @@ class MainViewModel(
                     lessonKey = lesson.lessonKey,
                     success = false
                 )
+                val failureTitle = when ((e as? AiExecutionException)?.kind) {
+                    AiExecutionFailureKind.QUOTA_EXHAUSTED -> "حصة API اليومية مستنفدة"
+                    AiExecutionFailureKind.RATE_LIMITED -> "النموذج مزدحم أو تجاوز حد المعدل"
+                    AiExecutionFailureKind.INVALID_CREDENTIALS -> "مفتاح API غير صالح"
+                    AiExecutionFailureKind.INVALID_REQUEST -> "رفض مزود AI الطلب"
+                    AiExecutionFailureKind.EMPTY_RESPONSE -> "لم يُرجع النموذج محتوى"
+                    AiExecutionFailureKind.NETWORK_ERROR -> "تعذر الاتصال بمزود AI"
+                    AiExecutionFailureKind.MODEL_UNAVAILABLE -> "النموذج غير متاح"
+                    AiExecutionFailureKind.PROVIDER_UNAVAILABLE -> "تعذر التوليد عبر مزود AI"
+                    null -> "تعذر التوليد"
+                }
                 _uiState.update {
                     it.copy(
                         alert = AlertMessage(
-                            title = "تعذر التوليد",
+                            title = failureTitle,
                             message = e.message ?: "حدث خطأ غير متوقع أثناء التوليد"
                         )
                     )

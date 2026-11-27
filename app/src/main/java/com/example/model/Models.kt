@@ -1,6 +1,7 @@
 package com.example.model
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerialInfo
 import kotlinx.serialization.json.Json
 
 @Serializable
@@ -291,7 +292,9 @@ data class GeneratedResult(
     val contentHash: String = "",
     val sourcePdfHash: String = "",
     val promptUsed: String = "",
-    val responseSchemaJson: String = ""
+    val responseSchemaJson: String = "",
+    /** Feature-owned contract/domain validation findings; raw text remains reviewable. */
+    val validationIssues: List<String> = emptyList()
 )
 
 data class DraftRecord(
@@ -483,12 +486,12 @@ enum class PdfSplitTemplate(
     UNIT_GROUPED(
         id = "unit_grouped",
         labelAr = "قالب وحدات ودروس قياسي",
-        descriptionAr = "تجميع الدروس في وحدات منظمة (4 دروس/وحدة) متوافقة مع indexer2"
+        descriptionAr = "تجميع الدروس في وحدات منظمة (4 دروس/وحدة) متوافقة مع مخطط الفهرس المعتمد"
     ),
     AI_TOC_SCHEMA(
         id = "ai_toc_schema",
         labelAr = "تجزئة ذكية بالبرومبت ومخطط الفهرس",
-        descriptionAr = "تحليل فهرس الكتاب بالذكاء الاصطناعي وفق مخطط index.json المعتمد"
+        descriptionAr = "تحليل فهرس الكتاب بالذكاء الاصطناعي وفق مخطط index.json المعتمد داخل التطبيق"
     )
 }
 
@@ -641,6 +644,8 @@ enum class QuestionType(val id: String, val labelAr: String) {
     SHORT_ANSWER("short_answer", "إجابة قصيرة");
 
     companion object {
+        val DEFAULT_GENERATION_IDS: List<String> = listOf(MCQ.id, TRUE_FALSE.id, SHORT_ANSWER.id)
+
         fun fromId(id: String): QuestionType = entries.firstOrNull {
             it.id.equals(id.trim(), ignoreCase = true)
         } ?: MCQ
@@ -658,6 +663,23 @@ enum class QuestionDifficulty(val id: String, val labelAr: String) {
         } ?: MEDIUM
     }
 }
+
+@SerialInfo
+@Target(AnnotationTarget.PROPERTY)
+@Retention(AnnotationRetention.RUNTIME)
+annotation class QuestionRequiredField
+
+@Serializable
+data class QuestionContentPayload(
+    @QuestionRequiredField val type: String,
+    @QuestionRequiredField val prompt: String,
+    @QuestionRequiredField val options: List<String>,
+    @QuestionRequiredField val correctAnswer: String,
+    @QuestionRequiredField val difficulty: String,
+    val conceptTag: String = "",
+    val rationale: String = "",
+    val sourcePages: String = ""
+)
 
 data class QuestionItem(
     val id: String,
@@ -871,7 +893,7 @@ data class PromptBlueprintSpec(
     val quickInstructions: String = ""
 )
 
-data class Indexer2SchemaSpec(
+data class BookIndexSchemaSpec(
     val id: String,
     val fileName: String,
     val titleAr: String,

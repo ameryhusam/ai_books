@@ -174,7 +174,8 @@ class QuestionBankService(
         templateId: String = "",
         promptUsed: String = "",
         responseSchemaJson: String = "",
-        sourceIndexSha256: String = ""
+        sourceIndexSha256: String = "",
+        requireAllNew: Boolean = false
     ): List<QuestionItem> {
         val canonicalWs = workspaceId.ifBlank { lesson.workspaceId }.ifBlank { lesson.rootPath }
         if (canonicalWs.isBlank() || parsedQuestions.isEmpty()) return emptyList()
@@ -210,6 +211,15 @@ class QuestionBankService(
                 promptUsed = item.promptUsed.ifBlank { promptUsed },
                 responseSchemaJson = item.responseSchemaJson.ifBlank { responseSchemaJson },
                 sourceIndexSha256 = item.sourceIndexSha256.ifBlank { resolvedIndexSha }
+            )
+        }
+        if (requireAllNew && newItems.isEmpty()) {
+            return emptyList()
+        }
+        if (requireAllNew && newItems.size != parsedQuestions.size) {
+            val duplicateCount = parsedQuestions.size - newItems.size
+            throw IllegalStateException(
+                "لم تُحفظ الدفعة: يوجد $duplicateCount سؤال مكرر في بنك هذا الدرس. لم يتم إدراج أي سؤال من هذه الدفعة."
             )
         }
         if (newItems.isNotEmpty()) {

@@ -50,7 +50,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import com.example.data.ai.Indexer2PromptRegistry
+import com.example.data.ai.BookIndexPromptRegistry
 import com.example.model.LessonRef
 import com.example.model.PromptBlueprintSpec
 import com.example.model.TaskType
@@ -80,17 +80,17 @@ fun PromptSourcesAndSchemasDialog(
     onShowFeedback: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
-    var activeTab by remember { mutableIntStateOf(0) } // 0: Prompt Sources, 1: indexer2 Schemas, 2: Live Prompt
+    var activeTab by remember { mutableIntStateOf(0) } // 0: Prompt Sources, 1: مخططات الفهرس, 2: Live Prompt
     val clipboard = LocalClipboardManager.current
     val context = androidx.compose.ui.platform.LocalContext.current
 
     val livePrompt = remember(selectedLesson, activeTask, questionCount, sourceText, extraInstructions) {
-        val bp = Indexer2PromptRegistry.blueprintFor(activeTask)
+        val bp = BookIndexPromptRegistry.blueprintFor(activeTask)
         val templateText = runCatching {
             context.assets.open(bp.sourcePath).bufferedReader(Charsets.UTF_8).use { it.readText() }
         }.getOrDefault("")
         if (selectedLesson != null) {
-            Indexer2PromptRegistry.assemblePrompt(
+            BookIndexPromptRegistry.assemblePrompt(
                 lesson = selectedLesson,
                 task = activeTask,
                 source = sourceText,
@@ -127,7 +127,7 @@ fun PromptSourcesAndSchemasDialog(
                         Icon(Icons.Rounded.Terminal, contentDescription = null, tint = EduWhite)
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "مصادر البرومبت والمخططات (indexer2)",
+                                text = "مصادر البرومبت ومخططات البيانات",
                                 style = MaterialTheme.typography.titleMedium,
                                 color = EduWhite
                             )
@@ -156,13 +156,13 @@ fun PromptSourcesAndSchemasDialog(
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     EduPill(
-                        text = "مصادر البرومبت (${Indexer2PromptRegistry.blueprints.size})",
+                        text = "مصادر البرومبت (${BookIndexPromptRegistry.blueprints.size})",
                         active = activeTab == 0,
                         onClick = { activeTab = 0 },
                         testTag = "prompt_sources_tab_blueprints"
                     )
                     EduPill(
-                        text = "مخططات indexer2 (${Indexer2PromptRegistry.schemas.size})",
+                        text = "مخططات الفهرس (${BookIndexPromptRegistry.schemas.size})",
                         active = activeTab == 1,
                         onClick = { activeTab = 1 },
                         testTag = "prompt_sources_tab_schemas"
@@ -185,7 +185,7 @@ fun PromptSourcesAndSchemasDialog(
                             contentPadding = PaddingValues(12.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            items(Indexer2PromptRegistry.blueprints, key = { it.id }) { bp ->
+                            items(BookIndexPromptRegistry.blueprints, key = { it.id }) { bp ->
                                 EduPanel(
                                     modifier = Modifier.fillMaxWidth(),
                                     borderColor = if (bp.task == activeTask) EduGreen else EduLine,
@@ -280,7 +280,7 @@ fun PromptSourcesAndSchemasDialog(
                             contentPadding = PaddingValues(12.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            items(Indexer2PromptRegistry.schemas, key = { it.id }) { schema ->
+                            items(BookIndexPromptRegistry.schemas, key = { it.id }) { schema ->
                                 EduPanel(modifier = Modifier.fillMaxWidth()) {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),

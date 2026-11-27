@@ -2,9 +2,11 @@ package com.example.data.repository
 
 import android.content.Context
 import android.net.Uri
+import kotlinx.coroutines.CancellationException
 import com.example.data.ai.AiGenerationService
-import com.example.data.ai.Indexer2PromptRegistry
+import com.example.data.ai.BookIndexPromptRegistry
 import com.example.data.ai.TemplateResponseAdapter
+import com.example.data.ai.QuestionResponseContract
 import com.example.data.ai.TemplateOutputValidator
 import com.example.data.local.AssessmentAttemptEntity
 import com.example.data.local.AssessmentEntity
@@ -439,6 +441,21 @@ class EduMiniRepository(
 
     suspend fun loadProviders(): List<ProviderConfig> = providerStorage.loadProviders()
 
+    suspend fun loadAiModelCatalog(): List<com.example.data.ai.AiModelDefinition> =
+        providerStorage.loadModelCatalog()
+
+    suspend fun addAiModel(model: com.example.data.ai.AiModelDefinition) =
+        providerStorage.addModelDefinition(model)
+
+    suspend fun updateAiModel(originalModelId: String, model: com.example.data.ai.AiModelDefinition) =
+        providerStorage.updateModelDefinition(originalModelId, model)
+
+    suspend fun deleteAiModel(modelId: String) =
+        providerStorage.deleteModelDefinition(modelId)
+
+    suspend fun setDefaultAiModel(provider: ProviderType, modelId: String) =
+        providerStorage.setDefaultModel(provider, modelId)
+
     suspend fun loadSelectedProviderType(): ProviderType = providerStorage.loadSelectedProviderType()
 
     suspend fun saveSelectedProviderType(type: ProviderType) = providerStorage.saveSelectedProviderType(type)
@@ -473,15 +490,35 @@ class EduMiniRepository(
         extra: String,
         providers: List<ProviderConfig>,
         selectedProvider: ProviderType,
+        selectedModelId: String,
+        selectedProfileId: String,
         questionCount: Int,
         attachPdfPages: Boolean,
+        questionTypeIds: List<String> = emptyList(),
+        questionLanguage: String = "ar",
         questionStyleHint: String = "",
         difficultyHint: String = "",
         template: PromptTemplateRecord? = null,
         onProgress: (percent: Int, stage: String) -> Unit = { _, _ -> }
     ): GeneratedResult {
-        if (providers.none { it.provider == selectedProvider && it.enabled && it.apiKey.isNotBlank() && it.model.isNotBlank() }) {
-            throw IllegalStateException("لا يوجد ملف ${selectedProvider.displayName} مفعّل بمفتاح ونموذج صالحين. اختر مزوداً آخر أو أضف إعداداته.")
+        require(selectedModelId.isNotBlank()) { "يجب اختيار نموذج من قائمة مدير النظام." }
+        require(providers.any { it.id == selectedProfileId && it.provider == selectedProvider }) {
+            "ملف API المحدد غير موجود أو لا ينتمي إلى المزود المختار."
+        }
+        if (providers.none { it.provider == selectedProvider && it.enabled && it.apiKey.isNotBlank() }) {
+            throw IllegalStateException("لا يوجد أي ملف API مفعّل بمفتاح صالح للمزود ${selectedProvider.displayName}.")
+        }
+        require(questionLanguage in setOf("ar", "en", "ar_en")) { "لغة الأسئلة المحددة غير مدعومة." }
+        if (task == TaskType.QUESTIONS) {
+            require(questionCount in 1..30) { "عدد الأسئلة يجب أن يكون بين 1 و30." }
+            val allowedTypeIds = com.example.model.QuestionType.entries.map { it.id }.toSet()
+            require(questionTypeIds.distinct().size == questionTypeIds.size && questionTypeIds.all { it in allowedTypeIds }) {
+                "تتضمن قائمة أنواع الأسئلة قيمة غير مدعومة أو مكررة."
+            }
+            val effectiveTypeCount = if (questionTypeIds.isEmpty()) 3 else questionTypeIds.size
+            require(effectiveTypeCount in 1..questionCount.coerceIn(1, 30)) {
+                "عدد أنواع الأسئلة المختارة أكبر من عدد الأسئلة المطلوب."
+            }
         }
         onProgress(8, "قراءة بيانات الدرس وتجهيز المصدر")
         val effectiveSource = source.trim()
@@ -525,9 +562,18 @@ class EduMiniRepository(
         require(effectiveSource.isNotBlank() || pdfPayload != null || pageImages.isNotEmpty()) {
             "لم يتم تجهيز نص أو ملف PDF صالح؛ تحقق من مسار ملف الدرس ثم أعد المحاولة."
         }
-        val responseSchema = activeTemplate?.responseSchemaJson.orEmpty()
-        val responseFormat = activeTemplate?.responseFormat
-            ?: if (responseSchema.isNotBlank()) "json" else "text"
+        // Question JSON is derived from the canonical question-content contract, not a second editable template schema.
+        val responseSchema = if (task == TaskType.QUESTIONS) {
+            QuestionResponseContract.schemaFor(questionTypeIds, difficultyHint)
+        } else {
+            activeTemplate?.responseSchemaJson.orEmpty()
+        }
+        val responseMapping = if (task == TaskType.QUESTIONS) "" else activeTemplate?.responseMappingJson.orEmpty()
+        val responseFormat = if (task == TaskType.QUESTIONS) {
+            "json"
+        } else {
+            activeTemplate?.responseFormat ?: if (responseSchema.isNotBlank()) "json" else "text"
+        }
         if (responseFormat.equals("json", ignoreCase = true)) {
             val schemaIssues = TemplateOutputValidator.validateSchema(responseSchema)
             if (schemaIssues.isNotEmpty()) {
@@ -544,7 +590,7 @@ class EduMiniRepository(
             listOf(templateInstructions, extra.trim()).filter { it.isNotBlank() }.distinct().joinToString("\n\n")
         }
         val schemaHash = sha256Full(responseSchema)
-        val mappingHash = sha256Full(activeTemplate?.responseMappingJson.orEmpty())
+        val mappingHash = sha256Full(responseMapping)
         val pdfHash = pdfPayload?.sha256 ?: if (shouldAttachSource && !lesson.pdfPath.isNullOrBlank()) {
             aiGenerationService.sha256LessonPdf(lesson.pdfPath)
         } else ""
@@ -561,6 +607,11 @@ class EduMiniRepository(
             schemaHash,
             mappingHash,
             responseFormat,
+            questionCount.toString(),
+            questionTypeIds.sorted().joinToString(","),
+            questionLanguage,
+            questionStyleHint,
+            difficultyHint,
             pdfHash,
             effectiveSource,
             effectiveExtra
@@ -575,7 +626,11 @@ class EduMiniRepository(
             extra = effectiveExtra,
             providers = providers,
             selectedProvider = selectedProvider,
+            requestedModelId = selectedModelId,
+            requestedProfileId = selectedProfileId,
             questionCount = questionCount,
+            questionTypeIds = questionTypeIds,
+            questionLanguage = questionLanguage,
             pdfPageImagesBase64 = pageImages,
             pdfDocumentBase64 = pdfPayload?.base64,
             responseSchemaJson = responseSchema,
@@ -609,10 +664,34 @@ class EduMiniRepository(
                 )
             }
         )
-        onProgress(88, "التحقق من الاستجابة ومواءمة الحقول مع نموذج التطبيق")
+        onProgress(88, "فحص الاستجابة مع الاحتفاظ بالمحتوى المستلم")
+        val responseIssues = mutableListOf<String>()
         if (responseFormat.equals("json", ignoreCase = true)) {
-            val outputIssues = TemplateOutputValidator.validateOutput(result.text, responseSchema)
-            if (outputIssues.isNotEmpty()) {
+            val outputIssues = runCatching {
+                TemplateOutputValidator.validateOutput(result.text, responseSchema)
+            }.getOrElse { error ->
+                listOf("تعذر تنفيذ فحص عقد JSON: ${error.message ?: "خطأ تحقق غير محدد"}")
+            }
+            responseIssues += outputIssues
+        }
+        if (task == TaskType.QUESTIONS) {
+            val questionValidation = runCatching {
+                QuestionBankEngine.parseGeneratedQuestions(
+                    rawText = result.text,
+                    workspaceId = workspaceId.ifBlank { lesson.workspaceId }.ifBlank { lesson.rootPath },
+                    lesson = lesson,
+                    expectedCount = questionCount,
+                    selectedTypeIds = questionTypeIds,
+                    expectedDifficultyId = difficultyHint
+                )
+            }
+            questionValidation.exceptionOrNull()?.message?.let { message ->
+                responseIssues += message
+            }
+        }
+
+        if (responseIssues.isNotEmpty()) {
+            runCatching {
                 dao.insertGenerationRun(
                     GenerationRunEntity(
                         id = "run-validation-" + System.currentTimeMillis() + "-" + UUID.randomUUID().toString().take(6),
@@ -621,24 +700,32 @@ class EduMiniRepository(
                         task = task.id,
                         providerLabel = result.providerLabel,
                         model = result.model,
-                        status = "VALIDATION_FAILED",
-                        errorSummary = outputIssues.joinToString("; ").take(220),
+                        status = "RESPONSE_REVIEW_REQUIRED",
+                        errorSummary = responseIssues.joinToString("; ").take(220),
                         createdAt = Instant.now().toString(),
                         durationMs = result.durationMs.coerceAtLeast(1L),
                         tokensUsed = result.tokensUsed
                     )
                 )
-                throw TemplateOutputValidator.ValidationException(
-                    TemplateOutputValidator.FailureCode.INVALID_AI_OUTPUT,
-                    outputIssues
-                )
+            }.onFailure { error ->
+                if (error is CancellationException) throw error
+                responseIssues += "تعذر حفظ سجل تشخيص التحقق: ${error.message ?: "خطأ قاعدة بيانات غير محدد"}"
             }
         }
-        val adaptedText = TemplateResponseAdapter.adapt(result.text, activeTemplate?.responseMappingJson.orEmpty())
-        onProgress(96, "حساب بصمات المصدر والقالب والمحتوى")
-        return if (adaptedText == result.text) result else result.copy(
+
+        // Never transform a response that failed its contract: preserve exactly what the
+        // provider returned so the feature UI can display and review it.
+        val adaptedText = if (responseIssues.isEmpty()) {
+            runCatching { TemplateResponseAdapter.adapt(result.text, responseMapping) }
+                .onFailure { responseIssues += "فشل تحويل الحقول إلى نموذج التطبيق: ${it.message ?: "خطأ غير محدد"}" }
+                .getOrDefault(result.text)
+        } else result.text
+
+        onProgress(96, "حفظ الاستجابة وبصماتها مع حالة التحقق")
+        return result.copy(
             text = adaptedText,
-            contentHash = sha256Full(adaptedText)
+            contentHash = sha256Full(adaptedText),
+            validationIssues = responseIssues.toList()
         )
     }
 
@@ -730,7 +817,6 @@ class EduMiniRepository(
     }
 
     suspend fun approveDraft(draftId: String): Int {
-        dao.updateDraftStatus(draftId, DraftStatus.APPROVED.id)
         val draft = dao.getDraftById(draftId) ?: return 0
         val task = TaskType.fromId(draft.task)
         val lessonRef = dao.getLessonsForWorkspaceSnapshot(draft.workspaceId)
@@ -766,9 +852,13 @@ class EduMiniRepository(
                     responseSchemaJson = draft.responseSchemaJson
                 )
             }
+            dao.updateDraftStatus(draftId, DraftStatus.APPROVED.id)
             return 0
         }
-        if (task != TaskType.QUESTIONS && task != TaskType.INTERACTIVE) return 0
+        if (task != TaskType.QUESTIONS && task != TaskType.INTERACTIVE) {
+            dao.updateDraftStatus(draftId, DraftStatus.APPROVED.id)
+            return 0
+        }
         if (task == TaskType.INTERACTIVE) {
             val activity = InteractiveActivityParser.parse(draft.content, lessonRef.title) ?: return 0
             val synced = questionBankService.syncInteractiveCheckpointsToQuestionBank(
@@ -789,9 +879,11 @@ class EduMiniRepository(
                     publishForStudents = true
                 )
             }
+            dao.updateDraftStatus(draftId, DraftStatus.APPROVED.id)
             return synced.size
         }
-        return saveQuestionsFromDraftText(
+        val expectedBatch = QuestionResponseContract.expectedBatchFromPrompt(draft.promptUsed)
+        val savedQuestions = saveQuestionsFromDraftText(
             workspaceId = draft.workspaceId,
             lesson = lessonRef,
             rawText = draft.content,
@@ -799,8 +891,13 @@ class EduMiniRepository(
             templateId = draft.templateId,
             promptUsed = draft.promptUsed,
             responseSchemaJson = draft.responseSchemaJson,
-            sourceIndexSha256 = draft.sourceIndexSha256
-        ).size
+            sourceIndexSha256 = draft.sourceIndexSha256,
+            expectedQuestionCount = expectedBatch?.count,
+            expectedQuestionTypeIds = expectedBatch?.typeIds.orEmpty(),
+            expectedQuestionDifficultyId = expectedBatch?.difficultyId
+        )
+        dao.updateDraftStatus(draftId, DraftStatus.APPROVED.id)
+        return savedQuestions.size
     }
 
     suspend fun buildAndPublishInteractiveBundle(
@@ -1610,10 +1707,24 @@ class EduMiniRepository(
         templateId: String = "",
         promptUsed: String = "",
         responseSchemaJson: String = "",
-        sourceIndexSha256: String = ""
+        sourceIndexSha256: String = "",
+        expectedQuestionCount: Int? = null,
+        expectedQuestionTypeIds: List<String> = emptyList(),
+        expectedQuestionDifficultyId: String? = null
     ): List<QuestionItem> {
         val canonicalWs = workspaceId.ifBlank { lesson.workspaceId }.ifBlank { lesson.rootPath }
-        val parsed = QuestionBankEngine.parseQuestionsFromText(rawText, canonicalWs, lesson)
+        val parsed = if (expectedQuestionCount != null) {
+            QuestionBankEngine.parseGeneratedQuestions(
+                rawText = rawText,
+                workspaceId = canonicalWs,
+                lesson = lesson,
+                expectedCount = expectedQuestionCount,
+                selectedTypeIds = expectedQuestionTypeIds,
+                expectedDifficultyId = expectedQuestionDifficultyId
+            )
+        } else {
+            QuestionBankEngine.parseQuestionsFromText(rawText, canonicalWs, lesson)
+        }
         if (parsed.isEmpty()) return emptyList()
         val effectiveIndexSha = sourceIndexSha256.ifBlank {
             dao.getWorkspaceIndexForBook(canonicalWs, lesson.bookKey)?.indexSha256.orEmpty()
@@ -1626,7 +1737,8 @@ class EduMiniRepository(
             templateId = templateId,
             promptUsed = promptUsed,
             responseSchemaJson = responseSchemaJson,
-            sourceIndexSha256 = effectiveIndexSha
+            sourceIndexSha256 = effectiveIndexSha,
+            requireAllNew = expectedQuestionCount != null
         )
     }
 
@@ -1701,7 +1813,7 @@ class EduMiniRepository(
         dao.deleteQuestionById(questionId)
     }
 
-    suspend fun exportIndexer2Zip(
+    suspend fun exportLegacyWorkspaceZip(
         outputStream: OutputStream,
         workspace: ImportedWorkspace,
         learnerProfiles: List<LearnerProfile> = emptyList(),
@@ -1733,7 +1845,7 @@ class EduMiniRepository(
             activeLearnerId = activeLearnerId,
             lessonTexts = lessonTexts
         )
-        WorkspaceExporter.exportIndexer2CompatibleZip(
+        WorkspaceExporter.exportLegacyWorkspaceZip(
             outputStream = outputStream,
             workspace = workspace,
             drafts = drafts,
@@ -2550,23 +2662,23 @@ class EduMiniRepository(
                 task = TaskType.EXPLANATION,
                 instructions = "قسّم الشرح إلى 3 خطوات واضحة، أضف مثالاً من الحياة اليومية، واختم بقاعدة ذهبية للحفظ.",
                 isBuiltIn = true,
-                responseSchemaJson = Indexer2PromptRegistry.blueprintFor(TaskType.EXPLANATION).schemaSnippet
+                responseSchemaJson = BookIndexPromptRegistry.blueprintFor(TaskType.EXPLANATION).schemaSnippet
             ),
             PromptTemplateRecord(
                 id = "builtin_summary",
                 title = "ملخص مركّز في نقاط سريعة",
                 task = TaskType.SUMMARY,
-                instructions = Indexer2PromptRegistry.blueprintFor(TaskType.SUMMARY).quickInstructions,
+                instructions = BookIndexPromptRegistry.blueprintFor(TaskType.SUMMARY).quickInstructions,
                 isBuiltIn = true,
-                responseSchemaJson = Indexer2PromptRegistry.blueprintFor(TaskType.SUMMARY).schemaSnippet
+                responseSchemaJson = BookIndexPromptRegistry.blueprintFor(TaskType.SUMMARY).schemaSnippet
             ),
             PromptTemplateRecord(
                 id = "builtin_objectives",
                 title = "الأهداف السلوكية والمفردات المفتاحية",
                 task = TaskType.OBJECTIVES,
-                instructions = Indexer2PromptRegistry.blueprintFor(TaskType.OBJECTIVES).quickInstructions,
+                instructions = BookIndexPromptRegistry.blueprintFor(TaskType.OBJECTIVES).quickInstructions,
                 isBuiltIn = true,
-                responseSchemaJson = Indexer2PromptRegistry.blueprintFor(TaskType.OBJECTIVES).schemaSnippet
+                responseSchemaJson = BookIndexPromptRegistry.blueprintFor(TaskType.OBJECTIVES).schemaSnippet
             ),
             PromptTemplateRecord(
                 id = "builtin_vocab_cards",
@@ -2574,31 +2686,31 @@ class EduMiniRepository(
                 task = TaskType.VOCABULARY,
                 instructions = "استخرج أهم المصطلحات في جدول منظم: المصطلح، المعنى المبسط، ومثال من سياق الدرس.",
                 isBuiltIn = true,
-                responseSchemaJson = Indexer2PromptRegistry.blueprintFor(TaskType.VOCABULARY).schemaSnippet
+                responseSchemaJson = BookIndexPromptRegistry.blueprintFor(TaskType.VOCABULARY).schemaSnippet
             ),
             PromptTemplateRecord(
                 id = "builtin_worked_examples",
                 title = "أمثلة محلولة خطوة بخطوة",
                 task = TaskType.WORKED_EXAMPLES,
-                instructions = Indexer2PromptRegistry.blueprintFor(TaskType.WORKED_EXAMPLES).quickInstructions,
+                instructions = BookIndexPromptRegistry.blueprintFor(TaskType.WORKED_EXAMPLES).quickInstructions,
                 isBuiltIn = true,
-                responseSchemaJson = Indexer2PromptRegistry.blueprintFor(TaskType.WORKED_EXAMPLES).schemaSnippet
+                responseSchemaJson = BookIndexPromptRegistry.blueprintFor(TaskType.WORKED_EXAMPLES).schemaSnippet
             ),
             PromptTemplateRecord(
                 id = "builtin_lesson_review",
                 title = "مراجعة شاملة وتصحيح المفاهيم",
                 task = TaskType.LESSON_REVIEW,
-                instructions = Indexer2PromptRegistry.blueprintFor(TaskType.LESSON_REVIEW).quickInstructions,
+                instructions = BookIndexPromptRegistry.blueprintFor(TaskType.LESSON_REVIEW).quickInstructions,
                 isBuiltIn = true,
-                responseSchemaJson = Indexer2PromptRegistry.blueprintFor(TaskType.LESSON_REVIEW).schemaSnippet
+                responseSchemaJson = BookIndexPromptRegistry.blueprintFor(TaskType.LESSON_REVIEW).schemaSnippet
             ),
             PromptTemplateRecord(
                 id = "builtin_difficulty_adapter",
                 title = "مواءمة المستويات (3 مسارات)",
                 task = TaskType.DIFFICULTY_ADAPTER,
-                instructions = Indexer2PromptRegistry.blueprintFor(TaskType.DIFFICULTY_ADAPTER).quickInstructions,
+                instructions = BookIndexPromptRegistry.blueprintFor(TaskType.DIFFICULTY_ADAPTER).quickInstructions,
                 isBuiltIn = true,
-                responseSchemaJson = Indexer2PromptRegistry.blueprintFor(TaskType.DIFFICULTY_ADAPTER).schemaSnippet
+                responseSchemaJson = BookIndexPromptRegistry.blueprintFor(TaskType.DIFFICULTY_ADAPTER).schemaSnippet
             ),
             PromptTemplateRecord(
                 id = "builtin_bloom_questions",
@@ -2606,31 +2718,7 @@ class EduMiniRepository(
                 task = TaskType.QUESTIONS,
                 instructions = "وزّع الأسئلة بين مستويات بلوم: سؤال تذكر مباشر، سؤال فهم واستنتاج، وسؤال تطبيقي مع الإجابة والتفسير.",
                 isBuiltIn = true,
-                responseSchemaJson = """
-                    {
-                      "type": "OBJECT",
-                      "properties": {
-                        "questions": {
-                          "type": "ARRAY",
-                          "items": {
-                            "type": "OBJECT",
-                            "properties": {
-                              "type": { "type": "STRING" },
-                              "conceptTag": { "type": "STRING" },
-                              "prompt": { "type": "STRING" },
-                              "options": { "type": "ARRAY", "items": { "type": "STRING" } },
-                              "correctAnswer": { "type": "STRING" },
-                              "rationale": { "type": "STRING" },
-                              "difficulty": { "type": "STRING" },
-                              "sourcePages": { "type": "STRING" }
-                            },
-                            "required": ["type", "prompt", "correctAnswer", "difficulty"]
-                          }
-                        }
-                      },
-                      "required": ["questions"]
-                    }
-                """.trimIndent(),
+                responseSchemaJson = "",
                 responseFormat = "json"
             ),
             PromptTemplateRecord(
@@ -2690,7 +2778,7 @@ class EduMiniRepository(
                 id = "builtin_lesson_text",
                 title = "استخراج وحفظ المحتوى النصي للدرس",
                 task = TaskType.LESSON_TEXT,
-                instructions = Indexer2PromptRegistry.blueprintFor(TaskType.LESSON_TEXT).quickInstructions,
+                instructions = BookIndexPromptRegistry.blueprintFor(TaskType.LESSON_TEXT).quickInstructions,
                 isBuiltIn = true,
                 responseSchemaJson = """
                     {

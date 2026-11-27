@@ -464,7 +464,7 @@ fun LibraryScreen(
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "تصدير حزمة متوافقة مع indexer2 (ZIP)",
+                                text = "تصدير حزمة مساحة العمل القديمة (ZIP)",
                                 color = EduGreenDark,
                                 style = MaterialTheme.typography.labelLarge
                             )

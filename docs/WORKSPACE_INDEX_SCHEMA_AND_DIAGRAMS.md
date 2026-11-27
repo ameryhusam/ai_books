@@ -2,7 +2,7 @@
 
 ## 1. Contract overview
 
-Indexer2 produces a workspace package. Edu Mini consumes it without rerunning indexing or reconstructing the curriculum structure.
+ai_books owns indexing, approval, slicing, and Workspace production. Room on the administrator device is the canonical store for the approved index. Student devices receive a grade-scoped content package containing lesson files and binding metadata; they do not receive the administrator's full database.
 
 Logical book root:
 
@@ -82,7 +82,7 @@ A merged source remains merged even when the TOC does not identify unit parts. D
 
 ## 5. Book-level index fields
 
-The current TypeScript `IndexTemplate` declares:
+The current app-owned index contract declares:
 - identity/display: `templateId`, `templateName`, `title`, `displayName`, optional `gradeName`, `subjectName`, `componentName`;
 - canonical keys: `gradeKey`, `subjectKey`, optional `componentKey`;
 - source: `partKey`, `sourceLayout`, `sourceReviewStatus`, `sourceMetadata`;
@@ -96,7 +96,7 @@ The current `Unit` type includes:
 - `assignmentSource`: `INDEX_EVIDENCE`, `REVIEWER`, `DEFAULT_PROPOSAL`, or `LEGACY_UNVERIFIED`;
 - `assignmentEvidence`: provenance/evidence description.
 
-The extraction schema accepts these fields. The intake UI creates a P01 proposal for unresolved units in a merged source but keeps `partKey=unknown` and `assignmentStatus=need_review` until a reviewer confirms P01 or selects P02.
+The extraction schema accepts these fields. The target intake UI must create any P01 proposal only for unresolved units in a source already confirmed as merged, display it as unconfirmed, and keep `partKey=unknown` and `assignmentStatus=need_review` until the user confirms P01 or selects P02.
 
 ## 6. Lesson fields and file references
 
@@ -104,11 +104,11 @@ A lesson contains source numbering, title, printed page range, optional physical
 
 `sliceFile.workspaceUri` is the preferred explicit path to the generated lesson PDF. It is workspace-relative and must resolve from the selected workspace root. The consumer must not prepend the part or unit path again when this URI is already present.
 
-The slicer currently calculates physical page ranges from `printedPageStart + offset` and `printedPageEnd + offset`. Optional `pdfPageStart` / `pdfPageEnd` fields must not be treated as slicer inputs unless the Indexer2 implementation is deliberately changed and tested.
+The canonical slicing rule is: physical PDF page = printed page + offset when physical page values are not already known. Explicit pdfPageStart / pdfPageEnd values are physical positions and must not receive offset again. Keep printed and physical page values separate, apply offset exactly once, and cover the mapping with tests. The current fixed-page splitter does not yet implement this complete mapping.
 
 ## 7. Manifest contract
 
-The TypeScript exporter now writes `edu.book_manifest.v2` with:
+The canonical manifest writer must emit `edu.book_manifest.v2` with:
 - `manifestVersion`, `gradeKey`, `subjectKey`, `componentKey`, `partKey`, `sourceLayout`, `sourceReviewStatus`;
 - `sourceFileName` and `sourceSha256`;
 - `canonicalIndexPath` and `canonicalIndexSha256`;
@@ -119,6 +119,35 @@ The TypeScript exporter now writes `edu.book_manifest.v2` with:
 For an independent source, the canonical index path is `P01/index.json` or `P02/index.json`, and the manifest is beside that index. For a merged source, the canonical index path is root `index.json`; derived part indexes are optional filtered views.
 
 Hashes are calculated from the exact serialized bytes written to each file. Never compare one index file against another file's hash.
+### 7.1 Book manifest versus student package manifest
+
+These manifests have separate scopes and must not be merged:
+
+- `book_manifest.json` is the companion provenance/validation manifest for one canonical book index and its source PDF. It describes the book source layout, source identity, canonical index location, and hashes. Its current version identifier is `edu.book_manifest.v2`.
+- `package_manifest.json` belongs to a grade-scoped student distribution ZIP. It describes the package identity/version, included books and lesson assets, package-relative paths, sizes, and hashes. It is not a replacement for the book manifest and is not the administrator's full backup.
+
+The `sourceFileName` and `sourceSha256` in a book manifest describe the source PDF used to create the index/slices. They do not require the original source PDF to be included in a student package. The student package carries the approved lesson PDFs and required learner assets.
+
+### 7.2 Manifest v2 validation baseline
+
+The current Android `WorkspaceContractValidator` confirms these implementation requirements for a canonical v2 source:
+
+- `manifestVersion` equals `edu.book_manifest.v2`;
+- `gradeKey` and `subjectKey` agree with the canonical index and selected curriculum location;
+- `sourceLayout` is `SINGLE_PART_FILE` or `MERGED_PARTS_FILE`, and agrees between manifest and index;
+- `sourceReviewStatus` is `VERIFIED`, while the index has `approvalStatus=APPROVED` and does not require review;
+- `sourceSha256` and `indexSha256` are valid 64-character hexadecimal SHA-256 values; `indexSha256` is checked against the exact current index bytes;
+- when canonical index metadata is supplied, `canonicalIndexPath` and `canonicalIndexSha256` must describe the correct root/part index and its bytes;
+- each optional `partIndexes[]` item has a safe relative `path` and its own `sha256`, and the referenced file must exist and match;
+- strict v2 source metadata requires `sourceMetadata.sourceRequiresReview=false` and non-empty `sourceMetadata.partEvidence`;
+- units and lessons must have stable keys, confirmed part assignments, and valid physical PDF page ranges; unresolved assignments block canonical validation.
+
+For a standalone source, `partKey` must agree between manifest and index (`P01` or `P02`), and the canonical index is part-local. For a merged source, the source-level `partKey` is `BOTH`, the canonical index is the root `index.json`, and P01/P02 indexes are derived views.
+
+Compatibility note: the validator still accepts older manifests in a warning/legacy path. Do not silently upgrade a legacy manifest to v2 by filling guessed provenance. Generate v2 only when the source evidence and hashes are available.
+
+The validator currently enforces a subset of the documented manifest fields; this is an implementation contract, not yet a standalone machine-readable JSON Schema. Before treating the format as frozen, add a versioned JSON Schema and golden fixtures for both standalone and merged layouts, then verify the Android writer, validator and importer against the same fixtures.
+
 ## 8. Identity and key rules
 
 - Canonical identity keys are grade, subject and optional component.
@@ -137,3 +166,31 @@ Hashes are calculated from the exact serialized bytes written to each file. Neve
 6. Unresolved merged unit assignments block approval and slicing.
 7. Every lesson path must resolve safely and identify a readable PDF.
 8. The consumer must bind a merged root index once and ignore its derived indexes as independent books.
+
+## 10. Grade package distribution contract
+
+The package is a **content delivery artifact per grade**, not a database backup. It is generated from approved Room records and contains only the grade's published curriculum metadata, stable book/unit/lesson keys, lesson PDFs, required HTML/interactive resources, and a manifest with relative paths, sizes, hashes, package ID, and schema version. The canonical index remains in Room; the package metadata is a transport/binding projection and must not become a second editable index source.
+
+The student device imports the ZIP into app-managed local storage, validates it before activation, and creates/updates the local Room catalog using stable identities. Its lesson viewer resolves each lesson file from the imported package by lesson identity and validated relative path. No absolute path or content URI from the administrator device is portable.
+
+Do not include the administrator's full database, private AI drafts, provider credentials, unrelated grades, or learner performance records. Student attempts, scores, progress, and assessment history are learner data and travel in the opposite direction through a separately authenticated/synchronized data flow. Offline learning must continue when no network is available; pending performance events can be synchronized later.
+
+A package update must preserve learner progress for unchanged stable lesson identities. Removed or changed lessons must be handled by an explicit versioning/retention policy; never silently reset or orphan progress. The package importer must stage, validate hashes and required assets, and activate atomically.
+
+
+## 11. Book upload, discovery and reviewer approval
+
+The book upload workflow is part of the Android application and reuses the existing index algorithm principles. It is not a separate external indexing dependency.
+
+The upload review model is BookIndexIntakeDraft (app-owned Kotlin contract). It carries grade/subject names and stable keys, book title, source hash/page count/layout/part, selected template, discovery method, offset, units, lessons, printed and physical PDF pages, assignment provenance, and explicit reviewer confirmation.
+
+The user-facing sequence is: select PDF → inspect metadata and TOC → propose grade/subject/template → extract units and lessons → display all fields for direct editing → confirm source layout and unit-part assignment → explicitly confirm the complete draft → approve canonical index → slice lessons → validate and write the v2 manifest. AI extraction and built-in parsing both populate the same draft; neither can bypass reviewer confirmation.
+
+Offset is applied once only when deriving physical PDF pages from printed page numbers. Explicit pdfPageStart / pdfPageEnd values are already physical PDF positions and must not be offset again. A unit's partKey is not inferred from unit order alone. Unresolved assignment or source layout blocks approval and slicing.
+
+
+## 11. Intake implementation status
+
+The Android project now has a shared BookIndexIntakeDraft contract and validation rules in BookIndexIntakeWorkflow.kt. It captures grade/subject display names and stable keys, source layout and part, selected template and discovery method, offset, unit/lesson names, printed and physical page values, assignment evidence and reviewer confirmation. The current PDF splitter emits provisional draft artifacts and no longer assigns P01 to every lesson. Reusable prompt resources are stored under app/src/main/assets/prompts/book_indexing and referenced through BookIndexPromptRegistry.
+
+The upload screen is not yet wired to this contract. Automatic TOC/grade/subject extraction, AI PDF-page attachment, deterministic parser selection, editing/confirmation UI, and the canonical v2 serializer/manifest/slicing path remain to be integrated. The workflow described in this document is the target contract; those UI and end-to-end steps are not claimed as complete.

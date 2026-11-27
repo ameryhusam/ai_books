@@ -57,6 +57,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.example.R
+import com.example.data.ai.AiModelDefinition
 import com.example.model.CloudDraft
 import com.example.model.GenerationRunRecord
 import com.example.model.LessonProgress
@@ -93,6 +94,12 @@ fun SettingsScreen(
     form: ProviderFormState,
     providers: List<ProviderConfig>,
     selectedProvider: ProviderType,
+    modelCatalog: List<AiModelDefinition> = emptyList(),
+    canManageAiModels: Boolean = false,
+    onAddAiModel: (AiModelDefinition) -> Unit = {},
+    onUpdateAiModel: (String, AiModelDefinition) -> Unit = { _, _ -> },
+    onDeleteAiModel: (String) -> Unit = {},
+    onSetDefaultAiModel: (ProviderType, String) -> Unit = { _, _ -> },
     onSelectDefaultProvider: (ProviderType) -> Unit,
     recentRuns: List<GenerationRunRecord>,
     promptTemplates: List<PromptTemplateRecord> = emptyList(),
@@ -135,6 +142,11 @@ fun SettingsScreen(
     var newTplMapping by remember { mutableStateOf("") }
     var editingTemplateId by remember { mutableStateOf<String?>(null) }
     var templateValidationError by remember { mutableStateOf<String?>(null) }
+    var modelIdInput by remember { mutableStateOf("") }
+    var modelNameInput by remember { mutableStateOf("") }
+    var editingModelId by remember { mutableStateOf<String?>(null) }
+    var modelLifecycleStatus by remember { mutableStateOf(AiModelDefinition.STATUS_AVAILABLE) }
+    var catalogProvider by remember { mutableStateOf(ProviderType.GEMINI) }
 
     Box(
         modifier = modifier.fillMaxSize(),
@@ -318,6 +330,139 @@ fun SettingsScreen(
                 }
             }
 
+            item(key = "ai_model_catalog") {
+                EduPanel(modifier = Modifier.fillMaxWidth()) {
+                    Text("كتالوج نماذج الذكاء الاصطناعي", style = MaterialTheme.typography.titleSmall, color = EduInk)
+                    Text(
+                        "هذه قائمة النماذج المركزية التي يديرها مدير النظام. اختيار النموذج هنا لا يغيّر ملف اتصال API.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = EduMuted
+                    )
+                    if (modelCatalog.isEmpty()) {
+                        Text("لا توجد نماذج منشورة حالياً. يضيف مدير النظام النماذج إلى القائمة المركزية.", color = EduMuted, style = MaterialTheme.typography.bodySmall)
+                    }
+                    modelCatalog.forEach { model ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(model.displayName, color = EduInk, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    "${model.modelId} • ${model.provider.displayName} • ${model.lifecycleStatus}",
+                                    color = EduMuted,
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                                if (model.isDefault) Text("النموذج الافتراضي", color = EduGreenDark, style = MaterialTheme.typography.labelSmall)
+                                if (!model.isEnabled) Text("معطّل", color = EduRed, style = MaterialTheme.typography.labelSmall)
+                            }
+                            if (canManageAiModels) TextButton(
+                                enabled = model.isEnabled && model.supportsGenerateContent && model.lifecycleStatus != AiModelDefinition.STATUS_DEPRECATED,
+                                onClick = { onSetDefaultAiModel(model.provider, model.modelId) }
+                            ) {
+                                Text(if (model.isDefault) "افتراضي" else "تعيين")
+                            }
+                            if (canManageAiModels) TextButton(onClick = {
+                                editingModelId = model.modelId
+                                modelIdInput = model.modelId
+                                modelNameInput = model.displayName
+                                modelLifecycleStatus = model.lifecycleStatus
+                                catalogProvider = model.provider
+                            }) { Text("تعديل") }
+                            if (canManageAiModels) TextButton(
+                                enabled = !model.isDefault,
+                                onClick = { onUpdateAiModel(model.modelId, model.copy(isEnabled = !model.isEnabled)) }
+                            ) {
+                                Text(if (model.isEnabled) "تعطيل" else "تفعيل")
+                            }
+                            if (canManageAiModels) TextButton(enabled = !model.isDefault, onClick = { onDeleteAiModel(model.modelId) }) { Text("حذف", color = EduRed) }
+                        }
+                    }
+                    if (canManageAiModels) {
+                        Text(
+                            if (editingModelId == null) "إضافة نموذج إلى الكتالوج المركزي" else "تعديل النموذج المحدد",
+                            color = EduInk,
+                            style = MaterialTheme.typography.labelMedium
+                        )
+                        if (editingModelId == null) {
+                            Text("مزود النموذج", color = EduInk, style = MaterialTheme.typography.labelSmall)
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                ProviderType.entries.forEach { type ->
+                                    EduPill(
+                                        text = type.displayName,
+                                        active = catalogProvider == type,
+                                        onClick = { catalogProvider = type }
+                                    )
+                                }
+                            }
+                        }
+                        Text("معرّف النموذج وإصداره كما يحدده مزود الخدمة", color = EduInk, style = MaterialTheme.typography.labelSmall)
+                        SettingsField(
+                            value = modelIdInput,
+                            onValueChange = { modelIdInput = it },
+                            testTag = "ai_model_id_input"
+                        )
+                        Text("اسم العرض في قائمة المستخدم", color = EduInk, style = MaterialTheme.typography.labelSmall)
+                        SettingsField(
+                            value = modelNameInput,
+                            onValueChange = { modelNameInput = it },
+                            testTag = "ai_model_name_input"
+                        )
+                        Text("حالة دورة حياة النموذج", color = EduInk, style = MaterialTheme.typography.labelSmall)
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            listOf(
+                                AiModelDefinition.STATUS_AVAILABLE,
+                                AiModelDefinition.STATUS_PREVIEW,
+                                AiModelDefinition.STATUS_ROUTED,
+                                AiModelDefinition.STATUS_DEPRECATED
+                            ).forEach { status ->
+                                EduPill(
+                                    text = status,
+                                    active = modelLifecycleStatus == status,
+                                    onClick = { modelLifecycleStatus = status }
+                                )
+                            }
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(
+                                onClick = {
+                                    val current = modelCatalog.firstOrNull { it.modelId == editingModelId }
+                                    val entry = (current ?: AiModelDefinition(
+                                        modelId = modelIdInput.trim(),
+                                        displayName = modelNameInput.trim(),
+                                        provider = catalogProvider
+                                    )).copy(
+                                        modelId = modelIdInput.trim(),
+                                        displayName = modelNameInput.trim(),
+                                        lifecycleStatus = modelLifecycleStatus,
+                                        source = if (editingModelId == null) {
+                                            AiModelDefinition.SOURCE_SYSTEM_ADMIN
+                                        } else {
+                                            current?.source ?: AiModelDefinition.SOURCE_SYSTEM_ADMIN
+                                        }
+                                    )
+                                    if (editingModelId == null) onAddAiModel(entry)
+                                    else onUpdateAiModel(editingModelId!!, entry)
+                                    modelIdInput = ""
+                                    modelNameInput = ""
+                                    editingModelId = null
+                                },
+                                enabled = modelIdInput.isNotBlank() && modelNameInput.isNotBlank()
+                            ) {
+                                Text(if (editingModelId == null) "إضافة النموذج" else "حفظ التعديل")
+                            }
+                            TextButton(onClick = {
+                                modelIdInput = ""
+                                modelNameInput = ""
+                                editingModelId = null
+                            }) { Text("إلغاء") }
+                        }
+    
+                    }
+                }
+            }
+
             item(key = "provider_form") {
                 EduPanel(modifier = Modifier.fillMaxWidth()) {
                     Text(
@@ -357,40 +502,61 @@ fun SettingsScreen(
                         color = EduInk,
                         modifier = Modifier.padding(top = 6.dp)
                     )
-                    SettingsField(
-                        value = form.model,
-                        onValueChange = onModelChange,
-                        testTag = "provider_model_input"
+                    Text(
+                        text = form.model.ifBlank { "لم يتم تحديد نموذج" },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = EduMuted,
+                        modifier = Modifier.padding(vertical = 4.dp)
                     )
                     FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        val presets = if (form.provider == ProviderType.GEMINI) {
-                            listOf("gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite")
-                        } else {
-                            listOf("gpt-4o-mini", "gpt-4.1-mini", "deepseek-chat")
-                        }
-                        presets.forEach { preset ->
+                        modelCatalog.filter { it.provider == form.provider && it.isEnabled && it.supportsGenerateContent && it.lifecycleStatus != AiModelDefinition.STATUS_DEPRECATED }.forEach { model ->
                             EduPill(
-                                text = preset,
-                                active = form.model == preset,
-                                onClick = { onModelChange(preset) }
+                                text = model.displayName,
+                                active = form.model == model.modelId,
+                                onClick = { onModelChange(model.modelId) }
                             )
                         }
                     }
 
                     Text(
-                        text = "النماذج الاحتياطية (Fallback مفصولة بفاصلة)",
+                        text = "النماذج الاحتياطية (تُجرّب بالترتيب بعد النموذج الأساسي)",
                         style = MaterialTheme.typography.labelMedium,
                         color = EduInk,
                         modifier = Modifier.padding(top = 6.dp)
                     )
-                    SettingsField(
-                        value = form.fallbackModels,
-                        onValueChange = onFallbackModelsChange,
-                        testTag = "provider_fallback_input"
+                    Text(
+                        text = "اختر النماذج التي تريد استخدامها كبدائل. ترتيب الاختيار هو ترتيب التجربة؛ إذا لم تحدد بديلاً أو فعّلت الالتزام الصارم فلن ينتقل Gemini إلى نموذج آخر.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = EduMuted
                     )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        val selectedFallbacks = form.fallbackModels
+                            .split(",", "،", "\n")
+                            .map { it.trim() }
+                            .filter { it.isNotBlank() }
+                            .toSet()
+                        modelCatalog.filter { it.provider == form.provider && it.isEnabled && it.supportsGenerateContent && it.lifecycleStatus != AiModelDefinition.STATUS_DEPRECATED && it.modelId != form.model }
+                            .forEach { model ->
+                                EduPill(
+                                    text = model.displayName,
+                                    active = model.modelId in selectedFallbacks,
+                                    onClick = {
+                                        val updated = if (model.modelId in selectedFallbacks) {
+                                            selectedFallbacks - model.modelId
+                                        } else {
+                                            selectedFallbacks + model.modelId
+                                        }
+                                        onFallbackModelsChange(updated.joinToString(", "))
+                                    }
+                                )
+                            }
+                    }
 
                     if (form.provider == ProviderType.OPENAI_COMPATIBLE) {
                         Text(
@@ -411,6 +577,12 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = EduMuted,
                         modifier = Modifier.padding(top = 8.dp)
+                    )
+                    Text(
+                        text = "سياسة المحاولات: Gemini يحاول النموذج حتى 3 مرات عند الازدحام ثم ينتقل إلى النموذج الاحتياطي التالي. عند نفاد الحصة أو عدم صلاحية المفتاح ينتقل فوراً إلى ملف Gemini API آخر. OpenAI-compatible يعيد المحاولة حتى 3 مرات عند الازدحام ثم ينتقل إلى المفتاح التالي؛ وعند نفاد الحصة أو عدم صلاحية المفتاح ينتقل فوراً. لا يحدث انتقال تلقائي بين Gemini وOpenAI. قد تتشارك المفاتيح التابعة للمشروع نفسه الحصة.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = EduMuted,
+                        modifier = Modifier.padding(top = 4.dp)
                     )
                     Text(
                         text = stringResource(R.string.settings_api_key_label),
@@ -656,7 +828,13 @@ fun SettingsScreen(
                             EduPill(
                                 text = t.labelAr,
                                 active = newTplTask == t,
-                                onClick = { newTplTask = t }
+                                onClick = {
+                                    newTplTask = t
+                                    if (t == TaskType.QUESTIONS) {
+                                        newTplSchema = ""
+                                        newTplMapping = ""
+                                    }
+                                }
                             )
                         }
                     }
@@ -681,54 +859,65 @@ fun SettingsScreen(
                             .fillMaxWidth()
                             .testTag("new_template_instructions_input")
                     )
-                    Text(
-                        text = "مخطط الاستجابة (JSON Schema أو مثال JSON تعاقدي)",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = EduInk,
-                        modifier = Modifier.padding(top = 6.dp)
-                    )
-                    OutlinedTextField(
-                        value = newTplSchema,
-                        onValueChange = { newTplSchema = it },
-                        placeholder = { Text("ضع هنا مخطط الاستجابة الذي يجب أن يلتزم به النموذج...") },
-                        minLines = 4,
-                        shape = RoundedCornerShape(12.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = EduFieldBg,
-                            unfocusedContainerColor = EduFieldBg,
-                            focusedBorderColor = EduGreen,
-                            unfocusedBorderColor = EduLine
-                        ),
-                        modifier = Modifier.fillMaxWidth().testTag("new_template_response_schema_input")
-                    )
-                    Text(
-                        text = "خريطة توافق الحقول (اختيارية)",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = EduInk,
-                        modifier = Modifier.padding(top = 6.dp)
-                    )
-                    OutlinedTextField(
-                        value = newTplMapping,
-                        onValueChange = { newTplMapping = it },
-                        placeholder = { Text("""{"rootArray":"items","fields":{"prompt":"stem","options":"choices","correctAnswer":"answer"}}""") },
-                        minLines = 3,
-                        shape = RoundedCornerShape(12.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = EduFieldBg,
-                            unfocusedContainerColor = EduFieldBg,
-                            focusedBorderColor = EduGreen,
-                            unfocusedBorderColor = EduLine
-                        ),
-                        modifier = Modifier.fillMaxWidth().testTag("new_template_response_mapping_input")
-                    )
-                    templateValidationError?.let { error ->
-                        Text(error, style = MaterialTheme.typography.bodySmall, color = EduRed)
+                    if (newTplTask == TaskType.QUESTIONS) {
+                        Text(
+                            text = "مخطط الأسئلة يُشتق تلقائياً من عقد بنك الأسئلة وحقول التخزين المعتمدة. لا يوجد مخطط أو تحويل حقول مستقل لهذا النوع.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = EduGreenDark,
+                            modifier = Modifier.padding(vertical = 8.dp)
+                        )
+                    } else {
+                        Text(
+                            text = "مخطط الاستجابة (JSON Schema أو مثال JSON تعاقدي)",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = EduInk,
+                            modifier = Modifier.padding(top = 6.dp)
+                        )
+                        OutlinedTextField(
+                            value = newTplSchema,
+                            onValueChange = { newTplSchema = it },
+                            placeholder = { Text("ضع هنا مخطط الاستجابة الذي يجب أن يلتزم به النموذج...") },
+                            minLines = 4,
+                            shape = RoundedCornerShape(12.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedContainerColor = EduFieldBg,
+                                unfocusedContainerColor = EduFieldBg,
+                                focusedBorderColor = EduGreen,
+                                unfocusedBorderColor = EduLine
+                            ),
+                            modifier = Modifier.fillMaxWidth().testTag("new_template_response_schema_input")
+                        )
+                        Text(
+                            text = "خريطة توافق الحقول (اختيارية)",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = EduInk,
+                            modifier = Modifier.padding(top = 6.dp)
+                        )
+                        OutlinedTextField(
+                            value = newTplMapping,
+                            onValueChange = { newTplMapping = it },
+                            placeholder = { Text("""{"rootArray":"items","fields":{"prompt":"stem","options":"choices","correctAnswer":"answer"}}""") },
+                            minLines = 3,
+                            shape = RoundedCornerShape(12.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedContainerColor = EduFieldBg,
+                                unfocusedContainerColor = EduFieldBg,
+                                focusedBorderColor = EduGreen,
+                                unfocusedBorderColor = EduLine
+                            ),
+                            modifier = Modifier.fillMaxWidth().testTag("new_template_response_mapping_input")
+                        )
+                        templateValidationError?.let { error ->
+                            Text(error, style = MaterialTheme.typography.bodySmall, color = EduRed)
+                        }
+                        Text(
+                            text = "يُحفظ المخطط مع القالب ويُرسل ضمن البرومبت. اتركه فارغاً للمخرجات النصية.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = EduMuted
+                        )
+    
                     }
-                    Text(
-                        text = "يُحفظ المخطط مع القالب ويُرسل ضمن البرومبت. اتركه فارغاً للمخرجات النصية.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = EduMuted
-                    )
+
                     OutlinedButton(
                         onClick = {
                             if (newTplTitle.isNotBlank() && newTplInstructions.isNotBlank()) {
@@ -783,8 +972,8 @@ fun SettingsScreen(
                                 newTplTitle = tpl.title
                                 newTplTask = tpl.task
                                 newTplInstructions = tpl.instructions
-                                newTplSchema = tpl.responseSchemaJson
-                                newTplMapping = tpl.responseMappingJson
+                                newTplSchema = if (tpl.task == TaskType.QUESTIONS) "" else tpl.responseSchemaJson
+                                newTplMapping = if (tpl.task == TaskType.QUESTIONS) "" else tpl.responseMappingJson
                             }) {
                                 Text("تعديل", color = EduBlue)
                             }

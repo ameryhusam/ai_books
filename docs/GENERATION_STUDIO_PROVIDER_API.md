@@ -1,7 +1,7 @@
 # Edu Mini Generation Studio — Functional, Template and Provider Contract
 
 **Document status:** corrected against the current Android implementation and the accepted design decisions  
-**Scope:** Generation Studio, reusable prompt templates, source PDF attachment, response contracts, provider isolation, model fallback, draft persistence and future work.
+**Scope:** Generation Studio, reusable prompt templates, source PDF attachment, database-derived response contracts, shared AI execution, provider isolation, exact model selection/retry policy, draft persistence and future work.
 
 This document distinguishes three states throughout:
 
@@ -17,7 +17,7 @@ Primary implementation references:
 - `app/src/main/java/com/example/data/ai/AiGenerationService.kt`
 - `app/src/main/java/com/example/data/ai/ProviderRoutingPolicy.kt`
 - `app/src/main/java/com/example/data/ai/GeminiModelRouter.kt`
-- `app/src/main/java/com/example/data/ai/Indexer2PromptRegistry.kt`
+- `app/src/main/java/com/example/data/ai/BookIndexPromptRegistry.kt`
 - `app/src/main/java/com/example/data/ai/TemplateResponseAdapter.kt`
 - `app/src/main/java/com/example/data/ai/TemplateOutputValidator.kt`
 - `app/src/main/java/com/example/data/security/ProviderStorage.kt`
@@ -30,17 +30,11 @@ Primary implementation references:
 
 Generation Studio is the lesson-aware authoring workspace. It receives an already identified lesson from the imported workspace and generates editable educational content against that lesson's source material.
 
-The Studio is responsible for:
+The lesson-generation feature owns task orchestration. The reusable AI execution service owns provider transport only.
 
-1. selecting the workspace lesson and generation task;
-2. selecting and applying a reusable prompt template;
-3. preparing the lesson source text and/or PDF attachment;
-4. selecting one AI provider and one of that provider's configured profiles/models;
-5. assembling the prompt and the template response contract;
-6. submitting the request through the selected provider path;
-7. validating and adapting the response;
-8. saving an editable draft with provenance;
-9. exposing task-specific follow-up actions, such as saving questions or building an interactive package.
+The calling feature (through its ViewModel/repository or a focused use case—not inside a Compose screen) selects the lesson/task, prepares source attachments and context, resolves the database-derived response contract, assembles the prompt, selects provider/profile/model, calls the shared service, parses and validates the returned data, maps it to application/database models, decides persistence/review actions, and presents feature state.
+
+AiGenerationService must not know about LessonRef, task-specific business rules, question parsing, index semantics, learner analytics, recommendations, Room entities or Compose screens. It accepts a fully prepared request, executes it through the selected provider API, and returns raw provider response with execution metadata.
 
 The Studio is **not** responsible for re-indexing the source book, changing the workspace's canonical index, or creating a permanent lesson JSON snapshot.
 
@@ -48,8 +42,9 @@ The Studio is **not** responsible for re-indexing the source book, changing the 
 
 - Workspace `index.json` and `book_manifest.json` remain authoritative for book, unit, lesson, part and page identity.
 - The selected lesson PDF remains the primary document source for generation when attached.
-- Prompt templates define reusable generation instructions and output contracts.
-- The provider response is untrusted until validated and adapted.
+- Prompt templates define reusable task instructions and prompt metadata; they do not override the authoritative database response contract.
+- Room/database schema is the source of truth for persisted data. A task-specific AI-writable projection is derived from it; application-owned IDs, relationships and audit fields are added locally.
+- The provider response is untrusted until the calling feature parses and validates it.
 - A generated draft is application-owned content; it does not overwrite the imported workspace.
 - A future persistent lesson text/JSON snapshot is a separate, deferred feature. It must not be silently introduced as a side effect of generation.
 
@@ -63,16 +58,15 @@ flowchart TD
     D --> E[Prepare lesson text and PDF source]
     E --> F[Select one provider and its profile/model]
     F --> G[Assemble prompt + response contract]
-    G --> H[Provider-specific request]
-    H --> I[Receive raw response]
-    I --> J{JSON contract?}
-    J -- Yes --> K[Validate schema and output]
-    J -- No --> L[Keep text response]
-    K --> M[Apply response field mapping]
-    L --> N[Create editable draft]
-    M --> N
-    N --> O[Review and edit]
-    O --> P[Save another draft version / approve]
+    G --> H[Shared AiGenerationService]
+    H --> I[Selected provider transport adapter]
+    I --> J[Return raw response + execution metadata]
+    J --> K[Calling feature parses and validates]
+    K --> L{Valid task result?}
+    L -- No --> M[Preserve diagnostics and show error]
+    L -- Yes --> N[Map to app and Room models]
+    N --> O[Save draft or task records]
+    O --> P[Review and display in feature UI]
     O --> Q[Task-specific action]
     Q --> R[Question bank or interactive package]
 ```
@@ -247,15 +241,17 @@ A reusable prompt template is more than a prompt string. The Room `prompt_templa
 | `title` | User-facing template name |
 | `task` | Generation task to which the template applies |
 | `instructions` | Reusable task instructions |
-| `response_schema_json` | Provider-facing output schema/structure |
-| `response_mapping_json` | Mapping from provider field names to application canonical fields |
+| `response_schema_json` | Legacy provider-facing schema field retained for compatibility and permitted non-persistent outputs; not authoritative for database-backed tasks |
+| `response_mapping_json` | Legacy field mapping retained for compatibility; database-backed tasks use the mapping generated with the database-derived response projection |
 | `response_format` | `text` or `json` |
 | `source_attachment_mode` | Source attachment policy, currently defaulting to `pdf_native` |
 | `version` | Template version, incremented when an existing template is edited |
 
-The schema and mapping belong to the template. They must not be duplicated as task-specific hardcoded response bodies inside `AiGenerationService`, `MainViewModel`, or parsers.
+The prompt instructions and template version belong to the template. The authoritative response contract for persisted records is derived from the current Room/database schema through section 16. A user-editable template must not redefine database columns, required fields, enum values, relationships or persistence metadata.
 
-The selected template is resolved by its explicit ID first, with a task-compatible template as fallback. The request uses the selected template's instructions, schema, mapping and version.
+Legacy response_schema_json and response_mapping_json fields remain for compatibility and explicitly permitted non-persistent outputs. They are not authoritative for database-backed tasks such as question insertion, index intake or learner-assessment records.
+
+The selected template is resolved by its explicit ID first, with a task-compatible template as fallback. The request uses the selected template's instructions and version; the feature independently resolves the matching database-derived response contract.
 
 ### 4.2 Built-in and custom templates
 
@@ -283,16 +279,11 @@ The registry contains task blueprints for these task types. The repository curre
 
 ### 4.3 Required template behavior
 
-A template must carry its complete response contract alongside its instructions. For structured output, the contract consists of:
+A template carries reusable task instructions, task identity and version. For structured output, the calling feature resolves the response format, JSON Schema generated from the current database schema's AI-writable projection, deterministic mapping into the canonical application/Room model, and prompt/template/source provenance.
 
-1. response format;
-2. JSON Schema;
-3. response field mapping;
-4. template version.
+The AI response is generated dynamically according to the resolved task contract. Do not hardcode a fixed response paragraph or duplicate a database schema in the provider service. The service receives the already resolved schema as request data and does not interpret it.
 
-The AI response must be generated dynamically according to the selected template contract. Do not hardcode a fixed response paragraph, fixed question object, or task-specific JSON body in the provider service.
-
-Changing the lesson, task, prompt instructions, schema, mapping, attachment mode, provider or model must be reflected in request provenance.
+Changing the lesson, task, prompt instructions, database-derived schema version/hash, attachment mode, provider or model must be reflected in request provenance.
 
 ### 4.4 Template validation
 
@@ -300,7 +291,7 @@ Changing the lesson, task, prompt instructions, schema, mapping, attachment mode
 
 - The save path checks that schema and mapping inputs parse as JSON objects.
 - Before a JSON generation request, `TemplateOutputValidator` checks the schema structure.
-- After the provider responds, the raw JSON is validated against the stored schema before response mapping and draft persistence.
+- For legacy non-persistent template outputs, the response may be validated against the template schema. For database-backed tasks, validation must use the schema generated from the current Room/database AI-writable projection; a template-stored schema must not override it.
 - An invalid provider output is recorded as a validation failure and is not saved as a normal draft.
 - The supported validator subset includes object, array, string, number, integer, boolean and null types, object properties/required fields, array items, enum and boolean `additionalProperties`.
 
@@ -315,7 +306,7 @@ Before expanding template editing, validate the complete schema and mapping cont
 
 ## 5. Response mapping and canonical application payload
 
-The provider-facing schema and application-facing data model are separate contracts.
+The provider-facing schema is a generated view of the canonical database contract, not a separately maintained source of truth. It contains only fields that the model is allowed to author. Application-managed persistence fields are added by the calling feature after validation.
 
 Example mapping:
 
@@ -379,18 +370,13 @@ If OpenAI-compatible is selected:
 
 A user who wants to try the other provider must explicitly change the selected provider and start a new request. Provider switching is not an automatic retry policy.
 
-### 6.3 Current code versus desired separation
+### 6.3 One shared execution service with private provider adapters
 
-The current implementation has provider-specific request functions (`callGemini` and `callOpenAiCompatible`) behind a shared `AiGenerationService.generate` dispatcher and a provider-scoped routing policy.
+The application exposes one task-neutral request entry point through AiGenerationService. The service contains private provider-specific transport adapters such as callGemini and callOpenAiCompatible, but callers do not invoke separate public generation engines.
 
-The required architectural direction is to keep the public generation paths explicitly separated as well, for example:
+The shared service owns dispatch to the explicitly selected provider/profile/model, provider-specific HTTP payload construction and attachment encoding, cancellation, bounded transport retries, provider error classification, rate-limit/cooldown handling, usage metadata, raw response extraction and a common result envelope.
 
-- `generateWithGemini(...)`
-- `generateWithOpenAiCompatible(...)`
-
-Each path must own its own profile validation, request assembly, model fallback, retry/error classification, connection test and provider telemetry. Shared code may be limited to provider-neutral preparation such as lesson context, prompt assembly, response validation, mapping and provenance.
-
-This separation is a design requirement; the current shared dispatcher should not be described as two fully independent generation services already implemented.
+The calling feature owns prompt construction, task/schema selection, JSON parsing, schema/domain validation, response interpretation, field mapping, database writes, review state and UI presentation. The service must not run QuestionBankEngine, map index JSON into intake drafts, calculate learner scores or interpret student mistakes. Provider-specific methods remain private transport adapters under the same service; do not create separate public AI services.
 
 ## 7. Model fallback and overload handling
 
@@ -402,26 +388,16 @@ A provider profile stores:
 - ordered fallback model IDs;
 - `strictModel`.
 
-When strict mode is enabled, only the primary model is attempted. Otherwise the primary model is followed by the configured fallback list, with blank and duplicate entries removed.
+Provider profiles retain an ordered primary model and fallbackModels list. SettingsScreen exposes the fallback model chips in the profile editor; their stored order is the execution order, and enabling strictModel disables model fallback. The active execution path now uses the UI-selected model first, followed by configured same-provider Gemini fallbacks. The selected API profile is attempted first, then other enabled profiles belonging to the same provider are eligible according to the provider-specific failover rules. OpenAI-compatible model selection remains fixed; its fallback path rotates API profiles/keys, not providers.
+The built-in Gemini catalogue seeds four selectable model IDs: `gemini-3.5-flash` (default), `gemini-3.6-flash`, `gemini-3.7-flash`, and `gemini-3.8-flash`. These are Google Gemini model IDs, not application-invented aliases. Keep the provider label as `Gemini`; display names such as `Gemini 3.5 Flash` are presentation labels while API dispatch uses the exact `modelId`. The central Firestore catalogue remains authoritative: an authorized system administrator may merge missing built-in seed entries into the central collection; existing definitions and custom entries are preserved. New Gemini API profiles preselect the central default model and include the other enabled Gemini models as ordered fallback candidates; an existing profile's explicit model/fallback choices must not be overwritten.
 
-Model IDs are configuration, not permanent constants. Examples such as moving from a 3.8 model to 3.7, 3.6 or 3.5 describe a possible user-configured order only. The application must not assume that those model IDs exist, are enabled for a particular key/project, or are still offered by the provider.
-
-The fallback list must remain provider-specific. A Gemini model ID must never be sent to OpenAI-compatible endpoints.
+Current policy: keep provider selection explicit and isolated, but permit configured same-provider fallback. For Gemini, make up to three actual dispatch attempts per model on transient overload/rate-limit/network/server failures, then move to the next configured Gemini model. A confirmed daily/project quota exhaustion or invalid key skips the current API profile immediately and tries another enabled Gemini profile. OpenAI-compatible requests keep the selected model, retry transient failures up to three dispatches, then move to another enabled OpenAI-compatible profile/key; invalid key and confirmed quota exhaustion move to the next key immediately.
 
 ### 7.2 Current Gemini behavior
 
-The current implementation:
+The current generation path filters profiles by the selected provider and orders the selected profile first. Gemini retries a saturated model up to three times, marks only that profile/model pair cooling down, and then tries the next configured model. It moves to another Gemini API profile only when the current profile is quota-exhausted, invalid, or otherwise unavailable. OpenAI-compatible requests retain the chosen model and can move to another same-provider API key after three transient failures, or immediately for confirmed quota exhaustion/invalid credentials. No cross-provider fallback occurs.
 
-1. orders eligible profiles belonging to the selected provider;
-2. iterates the primary Gemini model and configured Gemini fallback models;
-3. skips Gemini models that are in the process-local cooldown;
-4. on HTTP 429, records the affected profile/model cooldown using the provider's `Retry-After` value when available, with a 60-second minimum/default;
-5. tries the other configured models on that same Gemini profile;
-6. after observing Gemini 429, stops the generation request rather than automatically rotating to another Google key/profile;
-7. treats a confirmed quota-exhaustion response differently and stops additional model/profile attempts for that generation;
-8. retries transient non-429 failures within a bounded per-candidate retry loop.
-
-The Gemini model cooldown is currently process-local and is lost when the application process restarts. It is model-scoped (profile + model), not a global Gemini cooldown.
+The active task-neutral AiGenerationService.execute(AiExecutionRequest) dispatch path uses ProviderRoutingPolicy.orderedProfiles() and modelCandidates(profile, requestedModelId). The older generate(lesson, task, ...) method is now a compatibility adapter that prepares the lesson prompt and delegates to execute().
 
 ### 7.3 Current OpenAI-compatible behavior
 
@@ -462,6 +438,42 @@ Rules:
 The current `dailyRequestLimit` and `dailyRequestsUsed` fields are not an authoritative local quota gate. `ProviderStorage` explicitly treats the counter as diagnostic telemetry and relies on the provider response for actual quota status. Do not promise that the app enforces a daily request cap until that behavior is deliberately implemented and tested.
 
 Quota date normalization uses each profile's configured timezone. Provider runtime status and `Retry-After` timestamps are retained separately from the prompt-template data.
+### 8.2 Central system-admin model catalogue
+
+Model metadata and model identifiers are defined by
+`app/src/main/java/com/example/data/ai/AiModelCatalog.kt`. Runtime request
+methods must not embed model IDs or maintain independent model preset lists.
+
+The authoritative catalogue is the global Firestore collection
+`ai_model_catalog/{modelId}`. Every authenticated app user may read the
+catalogue. Only a user with both the pre-provisioned `users/{uid}.role = admin` role and
+an explicit `system_admins/{uid}` grant containing `enabled: true` and
+`permissions: ["manage_ai_models"]` may create, edit, rename, enable/disable,
+set defaults, or delete entries. Provision this grant through Firebase Console
+or a trusted Admin SDK process; client rules deny all writes to `system_admins`.
+The Firestore rules are the security boundary; hiding controls in Compose or
+checking the local UI role is not sufficient authorization.
+
+The local SharedPreferences key `edu_mini_ai_model_catalog_v1` is retained
+only as a legacy/offline seed/cache. It is not authoritative for authenticated
+users and does not grant model-management rights. API credentials remain
+separately encrypted in `edu_mini_ai_profiles_v1`.
+
+The generation dialog presents two independent selections:
+- a model that is enabled and supports generation in the central catalogue;
+- an enabled API profile for the selected provider.
+
+The selected model ID and profile ID are required parameters throughout
+`EduMiniRepository.generateContent` and `AiGenerationService.generate`.
+The request uses the exact selected model ID and exact selected profile; it
+does not silently substitute a profile fallback model or another API profile.
+The default model is only the initial selection in the dialog. Concept
+remediation uses the system default model and an available profile.
+
+Model IDs are the provider-facing version identifiers. Renaming an ID creates
+the new catalogue document and retires the old document; a default entry is
+transferred before the old document is deleted. A disabled or deprecated
+model cannot be selected for generation or made the default.
 
 ## 9. Output persistence, editing and task-specific actions
 
@@ -485,7 +497,9 @@ Full local backup includes the template contract and draft provenance fields. Cl
 
 - **Questions:** the generated output is saved as a draft and parsed into the question bank when the question task succeeds. Concept tags are retained or inferred by the existing question parsing path where applicable.
 - **Interactive lesson:** the output is parsed into the interactive activity model. A valid activity can be built into a student-facing HTML/JS/JSON package. Checkpoint answers should be routed through the interactive question-attempt callback so learning analytics can record them.
-- **Other tasks:** the generated result remains an editable lesson draft until the user chooses an available follow-up action.
+- **Other tasks:** the generated result remains an editable lesson draft until the owning feature applies its task-specific parser and follow-up policy.
+
+These parsers and post-processors belong to the calling feature/use case (question bank, interactive lesson, book-index intake or learner assessment), not to AiGenerationService. The Compose screen displays feature state; it does not implement parsing or persistence logic.
 
 An interactive package is a task-specific deliverable. It is not the deferred persistent lesson JSON snapshot and must not be conflated with one.
 
@@ -523,7 +537,9 @@ On failure:
 - allow the user to retry after correcting the cause or explicitly selecting another provider;
 - never report success before validation and draft persistence complete.
 
-Progress indicators represent real pipeline stages (source preparation, attachment preparation, request dispatch, response validation/adaptation and persistence). They must not imply token-by-token progress when the HTTP provider does not expose it.
+Progress indicators represent real pipeline stages (feature preparation, attachment preparation, provider dispatch, raw-response receipt, feature-side parsing/validation and persistence). They must not imply that response interpretation is performed by the transport service or token-by-token progress when the HTTP provider does not expose it.
+
+A failure must identify its stage: request preparation, local attachment read/render, HTTP/network, provider rejection, provider returned no usable text, JSON parse, schema validation, task/domain validation, database mapping/insertion or UI-state delivery. Provider success followed by feature-parser failure is not an API transport failure.
 
 ## 12. Database and migration contract
 
@@ -561,7 +577,8 @@ Template changes must not erase existing drafts or source workspace records.
 - JSON response is validated before adaptation and draft persistence.
 - Invalid AI output is recorded as validation failure and is not persisted as a normal draft.
 - Field mapping preserves original provider fields while adding canonical aliases.
-- Different tasks can use different schemas/mappings without task-specific hardcoded response bodies.
+- Legacy non-persistent tasks can use explicitly permitted template schemas/mappings without hardcoded response bodies.
+- Database-backed tasks derive their response schema/decoder/mapping from the current Room schema and fail tests if that contract drifts.
 
 ### PDF and source
 - Gemini receives the original PDF bytes as `application/pdf` with the prompt.
@@ -576,7 +593,7 @@ Template changes must not erase existing drafts or source workspace records.
 - OpenAI-compatible failure never dispatches Gemini.
 - Candidate model order follows the selected profile configuration.
 - Strict model mode attempts only the primary model.
-- Gemini 429 cooldown affects the relevant model/profile and does not silently rotate Google keys.
+- Gemini 429 cooldown is model-scoped. After three attempts, the next configured Gemini model is tried; another API profile is selected for quota exhaustion or invalid/unavailable credentials, not as a way to bypass a model's ordinary rate limit.
 - Confirmed quota exhaustion stops prohibited retries.
 - OpenAI-compatible model candidates are independent of Gemini models and cooldown state.
 - Provider switching affects new requests only.
@@ -604,3 +621,227 @@ The following must not be silently folded into the current Generation Studio con
 - claiming that a configured model preset is available for every API key/project;
 - treating an interactive student package as the canonical lesson source.
 
+
+
+## Canonical question response contract (2026-11-27)
+
+Question generation is intentionally different from general prompt templates:
+
+- `QuestionContentPayload` is the canonical serializable question-content model. `QuestionResponseContract` generates the provider JSON Schema from its Kotlin serialization descriptor, while allowed type/difficulty enums are derived from `QuestionType` and `QuestionDifficulty`.
+- The contract contains only model-authored question content: `type`, `conceptTag`, `prompt`, `options`, `correctAnswer`, `rationale`, `difficulty`, and optional `sourcePages`. The provider schema narrows `type` to the selected types and `difficulty` to the selected level for each request.
+- Application-owned persistence metadata (workspace/grade/book/unit/lesson IDs, generated question ID, fingerprint, timestamps, review state, draft/template provenance and index hash) is never requested from the model.
+- The strict parser decodes JSON into `QuestionContentPayload`, maps it to the app-owned `QuestionItem`, and `QuestionBankService` maps that model into `QuestionEntity`; `options` is encoded into the Room `options_json` column. The database remains the persistence authority.
+- For `TaskType.QUESTIONS`, the runtime ignores template-level `responseSchemaJson` and `responseMappingJson`. Template instructions remain editable, but the schema and field mapping are application-owned and cannot drift independently.
+- The prompt preview, Indexer2 question schema reference, built-in question template, provider request and strict parser all use QuestionResponseContract.schemaJson.
+- Current limitation: QuestionResponseContract generates the schema from QuestionContentPayload.serializer().descriptor. The payload mirrors model-authored fields persisted by QuestionEntity, but it is not directly derived from Room's exported database schema. This is an interim single-contract implementation, not completion of the database-first requirement.
+- Required target: derive the AI-writable question projection, JSON Schema and decoder/mapping from the current Room schema/model metadata through section 16. Exclude IDs, workspace/lesson foreign keys, fingerprints, timestamps, review flags and provenance.
+- Before insertion, the feature validates JSON shape, supported enums, non-empty prompt/answer, option/answer consistency, exact requested count, exact per-type distribution, selected difficulty and within-batch duplicates. Invalid batches are rejected; invalid rows are not silently dropped.
+- The original count, type distribution and difficulty are recovered from the saved generation prompt when a teacher later approves a question draft, so approval does not rely on the current Studio controls.
+- Before insertion, the service also rejects a batch containing questions already stored for the same lesson. This avoids partial writes and misleading "requested count vs saved count" results.
+
+No Room entity, column, database version, or migration was changed by this contract consolidation. This confirms that the current schema is generated from the serializable payload descriptor, not directly from Room's exported schema. Until the database-derived projection generator is implemented, changes to persisted question fields must be reconciled with QuestionContentPayload, QuestionResponseContract, the parser and QuestionEntity; tests must detect drift. Storage-only metadata remains application-managed and does not enter the model response.
+
+
+## 15. One reusable AI request pipeline for content generation and book-index discovery
+
+Book-index discovery is a different task, not a different AI integration. It must use the same request execution and provider transport already used by lesson-question generation.
+
+### 15.1 Proven request sequence to reuse
+
+The existing PDF lesson-question flow establishes the provider request sequence. The feature resolves the lesson PDF, prepares prompt and database-derived response contract, and calls the shared service. The service dispatches the request and returns raw response text with provider/usage metadata. The question-bank feature then parses and validates the response, maps it to application models, retains provenance and persists a reviewable draft or question batch. Semantic validation and persistence are not responsibilities of the provider transport service.
+
+The earlier reference workflow uses the same pattern for index discovery: it supplies a sampled original-book PDF rather than a lesson PDF, and changes only the prompt, schema and task context. The important reusable behavior is the request/response contract—not the older service's key/model fallback policy.
+
+### 15.2 Current shared Android transport
+
+`AiGenerationService.kt` already owns:
+- Gemini PDF-native attachment and Gemini structured JSON response configuration;
+- OpenAI-compatible rendered-page image transport and JSON-object response mode;
+- provider-specific request construction and response extraction;
+- selected provider/profile/model enforcement;
+- cancellation, bounded transient retries, quota reservation and rate-limit cooldown;
+- provider/model and request provenance returned with `GeneratedResult`.
+
+`EduMiniRepository.generateContent()` prepares the question task's prompt/schema/source, calls `AiGenerationService.generate()`, validates the output and invokes the question parser. It invokes `QuestionBankEngine.parseGeneratedQuestions()` before returning `GeneratedResult` to `MainViewModel`. Therefore a task-parser/semantic-validation failure can prevent the caller from receiving a response that the provider already returned. This is a feature-pipeline failure, not necessarily an API transport failure. The current question schema is centralized in `QuestionResponseContract`, but its direct Room-schema derivation remains outstanding.
+
+### 15.3 Why index discovery is not connected yet
+
+The current AiGenerationService.generate() entry point is lesson-specific: it requires LessonRef and TaskType, builds the prompt through BookIndexPromptRegistry and couples transport execution to lesson-generation context. Book intake runs before a lesson exists, and learner-assessment/recommendation requests may not have a LessonRef either. A task-neutral request boundary is therefore required.
+
+The new `BookIndexPromptTemplate.SOURCE_PATH` and prompt asset are not currently loaded by the service. In addition, `BookIndexPromptTemplate.responseSchemaJson` is presently an example JSON object, not a JSON Schema. It is suitable only as an illustrative shape; it must not be passed to Gemini's `responseSchema` or the local schema validator.
+
+### 15.4 Required correction without duplicate AI code
+
+Create one task-neutral request/execution boundary inside `AiGenerationService`. It should accept:
+- the fully assembled prompt;
+- source attachments (native PDF payloads and/or rendered page images);
+- response format and a real versioned JSON Schema;
+- provider, selected/actual profile, actual model, attempt count and failover reason;
+- prompt/schema versions and hashes, source hash and request fingerprint.
+
+Move provider routing, quota reservation, cancellation, provider call, retry/cooldown and raw response extraction into one task-neutral execution method. It receives a fully assembled prompt, attachments, response format/schema, selected provider/profile/model and provenance; it does not require LessonRef or TaskType. Keep the current lesson-generation API as a compatibility adapter while moving prompt preparation out of the service. Add book-index, learner-assessment, recommendation and remediation task adapters; each prepares its own inputs and calls the same execution method. Do not add another OkHttp client, Gemini HTTP implementation or provider retry loop.
+
+The shared service returns raw provider text and an execution envelope. It does not parse question arrays, map index JSON into intake drafts, calculate learner scores, interpret mistakes or write Room records. Those operations belong to the requesting feature's use case/repository. The UI receives the feature's resulting state, not a direct provider callback.
+
+Preserve provider isolation while using the configured same-provider fallback policy: Gemini model fallback and quota-triggered Gemini profile failover; OpenAI-compatible key/profile failover. Do not switch between Gemini and OpenAI. Keep retry counts, cooldowns, profile changes and provider errors observable.
+
+### 15.5 Response handling for index discovery
+
+The index-intake feature receives an untrusted discovery response from the shared service. The feature—not AiGenerationService—must parse one JSON object, validate it against the database-derived index-intake projection, convert it into BookIndexIntakeDraft, run index-specific domain checks, retain the raw response and diagnostics, display extracted values and uncertainty, and require explicit user confirmation before canonical index/manifest writing or slicing.
+
+A schema-valid response is not necessarily semantically correct. In particular, the model cannot approve its own part assignments or source-layout inference.
+
+### 15.6 Printed-page coordinate contract
+
+For book indexing, printed pages are the page numbers printed in the textbook and referenced by its original table of contents. They are not PDF viewer page numbers.
+
+Keep:
+- printed book page numbers;
+- physical page positions in the original uploaded PDF;
+- local page numbers inside a sliced lesson PDF;
+
+as separate coordinates. The app applies `originalPdfPage = printedBookPage + offset`, with offset defaulting to +1 and editable by the user for special PDFs. Apply it once only; if physical PDF positions are already set, do not apply it again.
+
+### 15.7 Prompt/schema separation
+
+The discovery prompt must be concise, clear and focused on visible evidence, exact TOC titles/page numbers, grade/subject identity, unit-to-part evidence and explicit uncertainty. It should request JSON only.
+
+Keep the prompt instructions separate from the JSON Schema. Gemini can receive the schema through structured-output configuration; OpenAI-compatible endpoints currently receive JSON-object mode and require strict local schema validation. Do not paste a long schema into the prompt when the provider can receive it separately. Do not pass a sample JSON object as if it were a schema.
+
+The final index serializer is a later application-owned step. The model's discovery JSON must not be treated as an approved canonical index or manifest.
+
+
+## 16. Database-first response contract generation
+
+The Room database schema is the authoritative source of truth for every AI response that will be imported into persisted application records. A prompt template, sample JSON object or independent response DTO must not become a competing schema authority.
+
+The deterministic process is:
+1. Read the current Room entity definitions and exported Room schema version.
+2. For each task, derive an AI-writable projection containing only fields the model is allowed to author. This is a deliberate projection of the database contract, not a request to expose every database column.
+3. Exclude application-owned fields such as primary keys, workspace/book/unit/lesson foreign keys, generated IDs, timestamps, fingerprints, review/publication flags, status, synchronization metadata, template provenance and audit fields. The calling feature supplies these after receiving the response.
+4. Generate the provider JSON Schema and local decoder/validator from the same projection. Required/optional fields, nullability, primitive types, arrays, enums and constraints must derive from canonical database/model definitions, not be retyped independently.
+5. Send the generated schema separately from the short prompt when structured output is supported. Where the provider supports JSON-object mode only, validate locally against the same generated schema.
+6. The calling feature parses and validates the raw response, applies domain rules, adds application-owned metadata, maps it to Room entities and inserts transactionally.
+7. A Room schema change affecting an AI-writable field regenerates the response contract. Tests must detect drift in fields, enums, nullability and required constraints.
+
+For questions, the model returns question content only. The application adds workspace/lesson identity, IDs, fingerprints, timestamps, review state and provenance, then checks duplicate and consistency rules before insertion.
+
+Current status: QuestionResponseContract is generated from QuestionContentPayload.serializer().descriptor. The payload mirrors content fields in QuestionEntity, but is not generated directly from Room's exported schema. This is an interim implementation, not completion of the database-first requirement. No Room migration is implied by changing a generated provider schema; only actual persisted-schema changes require a Room migration.
+
+## 17. Shared AI execution and feature ownership
+
+All AI feature families use the same task-neutral execution service. Each feature owns its prompt/task adapter, database-derived response projection, domain validation, interpretation, persistence and UI state.
+
+| Feature | Input to AI | Feature-owned processing |
+|---|---|---|
+| Book index intake | Selected original-book PDF pages, curriculum context and discovery prompt | Parse index JSON, validate titles/pages/part evidence, create editable intake draft, apply offset and request approval |
+| Question bank | Selected lesson source, requested count/types/difficulty and question prompt | Validate count/type/difficulty/answers, map question content, add app metadata, detect duplicates, save and render the bank |
+| Lesson authoring | Lesson source and explanation/summary/objective/activity prompt | Validate source grounding and task structure, save draft or publish reviewed activity |
+| Student performance assessment | Aggregated attempts, assessment outcomes, concept indicators and relevant learner context | Interpret evidence, identify strengths/support needs, qualify uncertainty and present an adult-reviewable assessment |
+| Learning recommendations | Deterministic progress summary, recurring errors, concept coverage and prior intervention outcomes | Prioritize next steps, explain evidence, recommend teaching approaches and define measurable follow-up |
+| Remedial lesson generation | Targeted concept gaps, prerequisites, lesson source and learner level | Validate explanation/lesson structure, create a remediation draft and link follow-up practice |
+
+These are architectural use cases, not a claim that every feature is already implemented.
+
+## 18. AI-assisted student analysis and recommendations
+
+AI may interpret a prepared learning-evidence summary and recommend support. It must not replace deterministic assessment calculations or claim certainty beyond recorded evidence.
+
+The feature prepares a compact, task-specific input from locally recorded data: first-attempt/latest accuracy, delayed recall when sample size permits, assessment outcomes, question attempts, concept tags, recurring wrong choices, response timing/hint use when reliably recorded, lesson completion, prior remediation exposure/completion and relevant curriculum prerequisites.
+
+The AI response may include observed strengths and their supporting evidence; concepts needing reinforcement and their evidence; possible misconceptions stated as hypotheses, not diagnoses; recommended strategies such as worked examples, visual explanations, guided practice, step-by-step scaffolding, retrieval practice, spaced review or interleaved practice; a targeted remedial lesson outline and follow-up activities/questions; priority, confidence/uncertainty and a measurable follow-up check.
+
+Safeguards:
+- deterministic code remains responsible for scores, counts, thresholds, mastery status and eligibility;
+- AI must not invent attempts, scores, learner history or curriculum facts;
+- insufficient evidence must be explicit, not converted into a fabricated weakness or strength;
+- do not infer fixed cognitive ability or unsupported learning-style labels;
+- recommendations must be traceable to supplied evidence and reviewed by the parent/teacher before materially changing a learner plan;
+- record whether a recommendation was accepted, assigned, opened/read/completed and followed by which assessment/attempts;
+- send only the minimum learner data required and avoid unnecessary direct identifiers.
+
+The learning-assessment/recommendation feature processes this output. AiGenerationService only transports the request and returns raw response plus execution metadata.
+
+
+## 19. Indexer2 versus ai_books: verified behavior and response-delivery diagnosis
+
+### 19.1 User-confirmed Indexer2 behavior
+
+The user confirmed a successful manual Indexer2 test: select a specific lesson and subject, request a question bank, receive JSON, and display the questions on the question-bank page using that page's normal UI. This proves the tested Indexer2 lesson-question workflow end to end. It does not prove that Indexer2's separate book-index extraction route was tested.
+
+### 19.2 Current ai_books execution path
+
+The current Android question-generation path is:
+
+1. MainViewModel captures the selected lesson/task and calls EduMiniRepository.generateContent().
+2. EduMiniRepository prepares the source, PDF attachment, prompt, and database-derived response contract.
+3. The compatibility method AiGenerationService.generate(lesson, task, ...) prepares the legacy lesson prompt and delegates to task-neutral AiGenerationService.execute(AiExecutionRequest).
+4. execute() performs same-provider routing/retries, dispatches the provider request, extracts provider content, and returns GeneratedResult. It does not parse questions, index data, student performance, or UI models.
+5. EduMiniRepository validates the returned content. Contract/domain findings are attached to GeneratedResult.validationIssues; they do not cause the raw response to be discarded.
+6. MainViewModel persists the returned text as a draft, attempts task-specific persistence separately, and updates generatedResult so the received content remains viewable.
+
+### 19.3 Failure categories and current behavior
+
+Provider/request failures and response-validation failures are separate outcomes.
+
+**Failures before a usable provider response**
+- Request preparation: missing/unreadable PDF, invalid attachment, invalid local input, or invalid response schema before dispatch.
+- Provider authentication/quota: invalid key, confirmed daily/project quota exhaustion, or disabled/unavailable profile.
+- Provider saturation: rate limiting, overload, 5xx or network failures after bounded retries.
+- Empty/blocked response: HTTP success without extractable text; the provider's finish/block reason is retained in the diagnostic when available.
+
+These are execution failures. `AiExecutionException` exposes a typed failure kind (quota exhausted, rate limited, invalid credentials, invalid request, empty response, network error, model unavailable, or provider unavailable). MainViewModel gives these failures distinct alert titles and shows the provider/profile/model/retry/failover details. They are not reported as JSON or Room validation failures.
+
+**Provider returned content, but the feature rejected it**
+- Malformed JSON or unexpected root structure.
+- Missing/extra fields, wrong field types, invalid enum values, or required-field violations.
+- Question count/type distribution/difficulty mismatch.
+- Empty question/answer text, invalid choices, answer not matching an option, or duplicate question fingerprints.
+- Mapping/adapter errors or Room insertion/transaction failures.
+
+These are feature/data-contract failures, not API transport failures. The raw response is retained in the GeneratedResult/draft, exposed through generatedResult, and accompanied by validationIssues and a review-required alert. The question-bank insertion attempt remains separate; an invalid batch is not inserted, but the received content remains available for review. No automatic mutation of the AI response is performed.
+
+### 19.4 Current code-level behavior after the correction
+
+- AiGenerationService.execute(AiExecutionRequest) is task-neutral and owns provider transport, same-provider retries/failover, response extraction and execution metadata.
+- Gemini transient overload/rate-limit/network/server failures receive up to three actual dispatches per configured model, then advance to the next configured Gemini model. Confirmed quota exhaustion or invalid credentials skip the current profile and try another enabled Gemini profile.
+- OpenAI-compatible requests keep the selected model. Transient failures receive up to three actual dispatches before the next enabled OpenAI-compatible profile/key is tried; confirmed quota exhaustion or invalid credentials skip the current profile immediately.
+- Provider isolation remains strict: no Gemini-to-OpenAI or OpenAI-to-Gemini fallback.
+- ProviderStorage blocks a provider-confirmed quota-exhausted profile for the remainder of its configured quota day; the quota status resets when that profile's timezone advances to the next day. The local dailyRequestLimit value is not used to infer provider quota. OpenAI-compatible rate-limited keys also receive a bounded cooldown after their three attempts; an explicit Retry-After header is honored.
+- OpenAI-compatible message.content may be a string or an array of text segments. Gemini no-text responses include finishReason/blockReason where returned.
+- EduMiniRepository no longer throws away a successful provider response because TemplateOutputValidator or QuestionBankEngine reports content issues. It attaches the findings to GeneratedResult.validationIssues and records RESPONSE_REVIEW_REQUIRED.
+- MainViewModel saves the response draft and displays the content plus diagnostics. Question-bank insertion remains blocked when validation fails and its failure is shown separately.
+
+### 19.5 Remaining verification and regression tests
+
+The source changes are in place, but behavior is not considered verified until the Android test/CI run passes. Required tests include:
+
+- Gemini transient overload: exactly three requests for model A, then configured model B; no provider crossing.
+- Gemini confirmed quota exhaustion: skip current profile immediately and try the next enabled Gemini profile; no repeated calls on the exhausted profile.
+- Gemini invalid API key: skip current profile and try the next Gemini profile.
+- OpenAI confirmed quota exhaustion/invalid key: rotate to the next OpenAI-compatible profile/key without changing provider or model.
+- OpenAI transient failures: bounded three-dispatch retry before same-provider key failover.
+- Quota-exhausted profiles remain skipped during the same configured quota day and become eligible after that profile's quota-day rollover.
+- Gemini model cooldown does not block sibling models on the same profile.
+- A provider-success response with malformed JSON or a question-domain error is returned with raw text and validationIssues, saved as a reviewable draft, and not inserted into Room.
+- A valid question response reaches the question-bank feature, maps to Room entities, inserts transactionally and appears in the question-bank UI.
+- OpenAI string and content-array responses both extract correctly; Gemini finish/block diagnostics remain distinguishable from content-contract errors.
+
+### 8.2.1 Gemini model catalogue correction — 2026-11-27
+
+- Provider identity is `Gemini`; model identity is a separate exact Google model ID.
+- Default model: `gemini-3.5-flash` (display: `Gemini 3.5 Flash`).
+- Other built-in Gemini models: `gemini-3.6-flash`, `gemini-3.7-flash`, and `gemini-3.8-flash` (display names retain the Gemini family/version).
+- The four built-in entries are enabled and user-manageable in the model catalog. The selected default is the first model used; fallback order is configured by the profile/runtime policy and must not be inferred from model display order.
+- A new Gemini API profile preselects the central default and orders the other enabled Gemini models as fallbacks. Existing profiles retain their saved explicit selection.
+- The central Firestore collection is still authoritative. Missing built-in entries are merged into the central collection only for a user whose `system_admins/{uid}` record grants `manage_ai_models`; a normal teacher/admin role is not sufficient. Non-authorized users must not silently substitute a local catalogue for the central one.
+- Local SharedPreferences catalog migration restores missing built-in metadata for legacy installs without overwriting custom entries or API credentials.
+- The configured model IDs are `gemini-3.5-flash`, `gemini-3.6-flash`, `gemini-3.7-flash`, and `gemini-3.8-flash`; availability and access are determined by the user's Google API account. See the official [Gemini model list](https://ai.google.dev/gemini-api/docs/models) and [pricing/model IDs](https://ai.google.dev/gemini-api/docs/pricing).
+
+### 8.2.2 Four built-in Gemini models — 2026-11-27
+
+- Seed exactly these four model IDs in the editable catalog: `gemini-3.5-flash`, `gemini-3.6-flash`, `gemini-3.7-flash`, `gemini-3.8-flash`.
+- Keep `gemini-3.5-flash` as the initial default to match the configured rollout order requested for this application.
+- Do not hardcode explanations or provider policy paragraphs into the UI as part of this catalog change. The model test controls and default-model selection remain concise UI elements.
+- Increment the local catalog seed version so existing installations receive the newly added 3.7 entry without clearing custom models or API credentials.
+- These entries are configured candidates; successful use depends on model availability and permissions for the user's Google API key. Do not claim that every account can invoke every candidate without a live API test.

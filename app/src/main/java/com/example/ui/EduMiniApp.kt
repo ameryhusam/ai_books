@@ -116,6 +116,7 @@ import com.example.ui.auth.AuthScreen
 import com.example.ui.auth.authStateFlow
 import com.example.ui.auth.safeFirebaseAuth
 import com.example.ui.auth.signOutFromFirebase
+import com.example.ui.components.GenerationModelPickerDialog
 import com.example.ui.components.BookCoverPreviewDialog
 import com.example.ui.components.GlobalSearchDialog
 import com.example.ui.components.InteractiveJsonActivityDialog
@@ -356,7 +357,7 @@ private fun AuthenticatedEduMiniContent(
         contract = ActivityResultContracts.CreateDocument("application/zip")
     ) { uri: Uri? ->
         if (uri != null) {
-            viewModel.exportIndexer2Zip(uri)
+            viewModel.exportLegacyWorkspaceZip(uri)
         }
     }
 
@@ -665,7 +666,7 @@ private fun AuthenticatedEduMiniContent(
                                             onOpenGlobalSearch = viewModel::openGlobalSearch,
                                             onExportWorkspace = {
                                                 val grade = state.workspace?.gradeKey ?: "workspace"
-                                                exportZipLauncher.launch("edu-mini-$grade-indexer2.zip")
+                                                exportZipLauncher.launch("edu-mini-$grade-legacy.zip")
                                             },
                                             onExportBackupJson = {
                                                 val grade = state.workspace?.gradeKey ?: "workspace"
@@ -682,6 +683,8 @@ private fun AuthenticatedEduMiniContent(
                                             workspaceLessons = state.workspace?.lessons.orEmpty(),
                                             task = state.task,
                                             questionCount = state.questionCount,
+                                            selectedQuestionTypeIds = state.selectedQuestionTypeIds,
+                                            questionLanguage = state.questionLanguage,
                                             questionStyle = state.questionStyle,
                                             questionDifficulty = state.questionDifficulty,
                                             attachPdfPages = state.attachPdfPages,
@@ -694,6 +697,7 @@ private fun AuthenticatedEduMiniContent(
                                             lessonPackages = lessonPackages,
                                             teacherNote = currentTeacherNote,
                                             promptTemplates = promptTemplates,
+                                            activePromptTemplateId = state.activePromptTemplateId,
                                             isBusy = state.isBusy,
                                             onBackToLibrary = { viewModel.navigateTo(AppPage.LIBRARY) },
                                             onSelectLesson = viewModel::selectLessonInStudio,
@@ -702,6 +706,8 @@ private fun AuthenticatedEduMiniContent(
                                             onShowFeedback = viewModel::showToast,
                                             onSelectTask = viewModel::selectTask,
                                             onQuestionCountChange = viewModel::updateQuestionCount,
+                                            onQuestionTypesChange = viewModel::updateQuestionTypes,
+                                            onQuestionLanguageChange = viewModel::updateQuestionLanguage,
                                             onQuestionStyleChange = viewModel::updateQuestionStyle,
                                             onQuestionDifficultyChange = viewModel::updateQuestionDifficulty,
                                             onToggleAttachPdfPages = viewModel::toggleAttachPdfPages,
@@ -775,6 +781,12 @@ private fun AuthenticatedEduMiniContent(
                                             form = state.providerForm,
                                             providers = state.providers,
                                             selectedProvider = state.selectedProvider,
+                                            modelCatalog = state.aiModelCatalog,
+                                            canManageAiModels = state.isCloudAuthenticated && state.authenticatedUserRole == UserRole.ADMIN && state.isSystemAdmin,
+                                            onAddAiModel = viewModel::addAiModel,
+                                            onUpdateAiModel = viewModel::updateAiModel,
+                                            onDeleteAiModel = viewModel::deleteAiModel,
+                                            onSetDefaultAiModel = viewModel::setDefaultAiModel,
                                             onSelectDefaultProvider = viewModel::selectDefaultAiProvider,
                                             recentRuns = state.recentRuns,
                                             promptTemplates = promptTemplates,
@@ -831,6 +843,23 @@ private fun AuthenticatedEduMiniContent(
                         isBusy = state.isBusy,
                         onConfirmImport = viewModel::confirmStagedImport,
                         onDismiss = viewModel::dismissStagedPreview
+                    )
+                }
+
+                if (state.isGenerationModelPickerOpen) {
+                    GenerationModelPickerDialog(
+                        provider = state.selectedProvider,
+                        models = state.aiModelCatalog,
+                        profiles = state.providers,
+                        defaultModelId = state.aiModelCatalog.firstOrNull {
+                            it.provider == state.selectedProvider && it.isDefault
+                        }?.modelId.orEmpty(),
+                        selectedModelId = state.selectedGenerationModelId,
+                        selectedProfileId = state.selectedGenerationProfileId,
+                        onSelectModel = viewModel::selectGenerationModel,
+                        onSelectProfile = viewModel::selectGenerationProfile,
+                        onConfirm = viewModel::confirmGenerationSelection,
+                        onDismiss = viewModel::dismissGenerationModelPicker
                     )
                 }
 
@@ -969,7 +998,7 @@ private fun AuthenticatedEduMiniContent(
                         questionCount = state.questionCount,
                         sourceText = state.sourceText,
                         extraInstructions = state.extraInstructions,
-                        onApplyBlueprint = viewModel::applyIndexer2Blueprint,
+                        onApplyBlueprint = viewModel::applyBookIndexBlueprint,
                         onLoadSampleIntoEditor = viewModel::loadSchemaSampleIntoEditor,
                         onShowFeedback = viewModel::showToast,
                         onDismiss = viewModel::dismissPromptSourcesDialog

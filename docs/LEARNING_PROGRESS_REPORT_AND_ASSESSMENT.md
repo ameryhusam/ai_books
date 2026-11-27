@@ -1,11 +1,11 @@
 # Learning Progress Report and Assessment Design
 
-Date: 2026-11-25
-Branch: `main`
+Date: 2026-11-27
+Branch: `refactor/extract-ui-state-models`
 
 ## Product intent
 
-The product should measure durable learning, not merely lesson completion or a single test score. The learner-facing experience is intentionally encouraging and concise. The adult-facing view (current `ADMIN` role) contains diagnostic evidence needed to decide what to teach, review, or assign next.
+The product should measure durable learning, not merely lesson completion or a single test score. The administrator device is used by the parent/teacher to prepare content, distribute grade packages, and review each child's progress. Each child uses the Android app on their own Android tablet, imports the package for their grade, studies lessons offline, and records attempts locally. Learner-facing screens remain concise; adult-facing reports provide diagnostic evidence for teaching decisions.
 
 ## Indicators currently implemented
 
@@ -83,7 +83,7 @@ The current `ADMIN` dashboard sees:
 - observed change after reinforcement practice;
 - an exportable Markdown report.
 
-There is currently one adult role (`ADMIN`); separate parent-only and administrator permissions have not yet been implemented.
+There is currently one adult role (`ADMIN`); separate parent-only and administrator permissions have not yet been implemented. The intended deployment has one or more identified learner profiles/devices linked to a responsible adult. A local role switch alone is not an authorization boundary. Before multi-device cloud reporting, enforce authenticated parent/learner identity and server-side authorization.
 
 ## Lesson progression and rewards
 
@@ -101,6 +101,31 @@ The current gate is based on the canonical order of lessons in the Workspace ind
 
 AI-generated adaptive questions remain `reviewed = false`. They are not included in learner reinforcement selection, bank practice, flashcards, or newly created assessments until an adult reviews and approves them. Existing timed assessments are blocked if one of their questions is no longer approved.
 
+## Device distribution and performance synchronization
+
+The content and performance flows are deliberately separate:
+- **Administrator → student devices:** distribute a grade-scoped ZIP containing published lesson PDFs and required assets plus stable binding metadata. It is not a full Room database export.
+- **Student device → administrator/reporting service:** send learner progress, question attempts, assessment scores, and completion events under the authenticated learner identity. These events are collected locally first and must remain usable offline.
+- **Room on each device:** stores the local curriculum projection and learner records needed for offline operation. The canonical authoring index remains on the administrator device; imported package metadata binds student-side Room records to the published content version.
+- **Future/online service:** may synchronize learner records and package/version metadata. It must not be required to open downloaded lesson PDFs or continue learning.
+
+A package update must not overwrite learner attempts or reset progress for unchanged lesson IDs. Content version and learner performance synchronization require separate conflict policies.
+
+## Offline database behavior and update semantics
+
+The learner experience should use Room as its local operational store:
+
+- Catalog screens observe local `workspaces`, `books`, `lessons`, and `workspace_units` records.
+- Lesson text is read from `lesson_texts`; lesson PDFs and interactive resources are opened from validated app-managed local files referenced by Room metadata.
+- Practice and quizzes query the local `questions` bank, excluding questions that are not reviewed/approved.
+- Assessments query local `assessments` and their referenced question IDs. An assessment must not be offered unless all required questions are installed and approved.
+- Learner actions write to `lesson_progress`, `question_attempts`, `assessment_attempts`, and `study_days`, scoped by the active local learner ID.
+- DAO `Flow` observations refresh the UI after local Room writes. They do not themselves fetch changed content from another device or server.
+
+Content updates arrive through a separately imported grade package. The importer must verify the package manifest, relative paths, sizes and hashes; stage changed files; reconcile catalog/content rows by stable IDs; and activate the new package atomically. It must not overwrite learner attempt history or reset progress for unchanged lesson identities. Pending learner records remain local until the separate performance-sync channel is available.
+
+The current schema has a publication signal for interactive packages (`published_for_students`) and a review signal for questions (`reviewed`). The assessment entity does not currently expose a matching publication/approval field. The package-export policy must therefore define how an assessment becomes publishable before assessment distribution is implemented; do not infer publication from its mere presence in Room.
+
 ## Important limitations / next design work
 
 1. **Assigned support plans are not yet a complete workflow.** The current app generates explanation drafts and adaptive questions, and records reinforcement practice, but does not yet create a unified assignment containing explanation + questions, record that the learner read the explanation, and close the assignment after a follow-up test.
@@ -108,7 +133,7 @@ AI-generated adaptive questions remain `reviewed = false`. They are not included
 3. **Question equivalence:** delayed recall should ultimately use equivalent but not identical questions, with concept and difficulty metadata. Reusing the exact same question can introduce answer-memory effects.
 4. **Misconception taxonomy:** exact repeated distractors are observable, but semantic misconception categories require teacher-authored tags or a reviewed classification step.
 5. **Weekly assessment schedule:** the current report groups existing attempts; a scheduled weekly assessment and reminders remain future work.
-6. **Parent-specific role and authorization:** the app currently has LEARNER and ADMIN roles; ADMIN combines parent/teacher/admin detail access and authoring. Role selection is currently a local UI choice, not a server-enforced permission boundary. Hiding diagnostics from the learner is a presentation rule, not a security guarantee. Before storing sensitive child-performance records in a shared or networked environment, add a parent-only read permission and enforce adult access with authenticated account roles (for example, Firebase custom claims) or a carefully designed local parent lock.
+6. **Parent/child identity and authorization:** the app currently has LEARNER and ADMIN roles, and local learner IDs are used for progress separation. The target flow requires each Android-tablet learner session to be associated with the correct child identity and parent account. A local role choice is not sufficient security. Any online performance sync must authenticate the learner/device, authorize the parent to read only linked children, and prevent cross-child data leakage.
 7. **PDF report:** the current export is Markdown. A polished RTL PDF/HTML report can be added after the content and metrics stabilize.
 8. **Calibration:** thresholds (3 questions, 2 days, 80%, 7 days) are initial operational rules and should be configurable and validated against real student usage.
 
@@ -125,3 +150,40 @@ New tests cover:
 - preservation of lesson completion after an unsuccessful review retake.
 
 Gradle unit tests and Android assembly have not been run in the GitHub editing environment. Follow `docs/LOCAL_ANDROID_TESTING.md` before release.
+
+
+## AI-assisted learner interpretation and recommendations
+
+The deterministic analytics in this document remain the source of truth for recorded scores, attempt counts, accuracy, mastery thresholds, delayed recall, recurring errors and assessment outcomes. AI is an optional interpretation and teaching-support layer; it must not recalculate authoritative metrics or replace the deterministic evidence rules.
+
+### Inputs prepared by the learning feature
+
+The learning-assessment feature may send a compact, task-specific summary containing:
+- first-attempt and latest accuracy, delayed recall and sample sizes where eligible;
+- question/assessment attempts, concept tags, repeated wrong answers and recurring distractors;
+- lesson completion and prerequisite coverage;
+- hint/assistance use and response timing only when reliably recorded;
+- previous support assignments and whether each was opened, read, completed and followed by a new attempt/assessment;
+- relevant lesson/source excerpts needed to ground a recommendation.
+
+Use aggregate or pseudonymous learner context where possible. Do not send unnecessary names, account identifiers or unrelated personal records.
+
+### Permitted AI outputs
+
+AI may produce an adult-reviewable interpretation containing:
+- strengths supported by observed evidence;
+- concepts that need reinforcement, with the attempts/questions supporting the conclusion;
+- possible misconceptions as hypotheses rather than diagnoses;
+- recommendations for how to explain or teach the concept, such as visual explanation, worked examples, guided practice, step-by-step scaffolding, retrieval practice, spaced review or interleaved practice;
+- a proposed remedial explanation/lesson, examples and follow-up questions;
+- priority, uncertainty and the evidence needed to confirm improvement.
+
+An absence of evidence must not be described as a weakness. AI must return an explicit insufficient-evidence result when the sample is too small or unreliable. Do not infer fixed intelligence, cognitive ability or unsupported learning-style labels.
+
+### Ownership and feedback loop
+
+The learning-assessment/recommendation feature owns preparing the evidence summary, sending the task request, parsing and validating the response, checking recommendations against the learner's curriculum, saving the recommendation, presenting it to the parent/teacher and recording acceptance or rejection. AiGenerationService only sends the prepared request to the selected provider and returns the raw response with execution metadata.
+
+A recommendation is not an assigned intervention until the parent/teacher accepts it. To evaluate usefulness, record assignment, open/read/complete events and link the follow-up practice or assessment to the intervention. Compare subsequent performance using adequate and preferably equivalent-but-not-identical questions; do not attribute improvement to a lesson merely because a score increased afterward.
+
+These AI-assisted capabilities are architectural requirements and are not all implemented by the current analytics/reporting code.

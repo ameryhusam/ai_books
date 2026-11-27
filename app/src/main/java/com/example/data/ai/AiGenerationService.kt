@@ -49,6 +49,43 @@ import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
+enum class AiExecutionFailureKind {
+    QUOTA_EXHAUSTED,
+    RATE_LIMITED,
+    INVALID_CREDENTIALS,
+    INVALID_REQUEST,
+    EMPTY_RESPONSE,
+    NETWORK_ERROR,
+    MODEL_UNAVAILABLE,
+    PROVIDER_UNAVAILABLE
+}
+
+class AiExecutionException(
+    val kind: AiExecutionFailureKind,
+    message: String,
+    cause: Throwable? = null
+) : IllegalStateException(message, cause)
+
+data class AiExecutionRequest(
+    val prompt: String,
+    val providers: List<ProviderConfig>,
+    val selectedProvider: ProviderType,
+    val requestedModelId: String,
+    val requestedProfileId: String,
+    val pdfPageImagesBase64: List<String> = emptyList(),
+    val pdfDocumentBase64: String? = null,
+    val responseSchemaJson: String = "",
+    val responseFormat: String = "text",
+    val templateId: String = "",
+    val templateVersion: Int = 1,
+    val responseSchemaHash: String = "",
+    val requestFingerprint: String = "",
+    val sourcePdfHash: String = "",
+    val onReserveProvider: (suspend (ProviderConfig) -> Boolean)? = null,
+    val onProviderStateChanged: (suspend (providerId: String, status: String, retryAfterEpochMs: Long) -> Unit)? = null,
+    val onAttemptFinished: (suspend (providerLabel: String, model: String, success: Boolean, error: String?) -> Unit)? = null
+)
+
 data class PdfDocumentPayload(val base64: String, val sha256: String, val byteCount: Int)
 
 class AiGenerationService(
@@ -75,13 +112,15 @@ class AiGenerationService(
         source: String,
         extra: String,
         questionCount: Int = 5,
+        questionTypeIds: List<String> = emptyList(),
+        questionLanguage: String = "ar",
         attachedPdfPagesCount: Int = 0,
         questionStyleHint: String = "",
         difficultyHint: String = "",
         responseSchemaJson: String = "",
         responseFormat: String = "text"
     ): String {
-        val blueprint = Indexer2PromptRegistry.blueprintFor(task)
+        val blueprint = BookIndexPromptRegistry.blueprintFor(task)
         val promptTemplate = context?.let { appContext ->
             appContext.assets.open(blueprint.sourcePath).bufferedReader(Charsets.UTF_8).use { it.readText() }
         }.orEmpty()
@@ -93,12 +132,14 @@ class AiGenerationService(
             unitTitle = PromptPrivacySanitizer.sanitize(lesson.unitTitle),
             title = PromptPrivacySanitizer.sanitize(lesson.title)
         )
-        return Indexer2PromptRegistry.assemblePrompt(
+        return BookIndexPromptRegistry.assemblePrompt(
         lesson = safeLesson,
         task = task,
         source = PromptPrivacySanitizer.sanitize(source),
         extra = PromptPrivacySanitizer.sanitize(extra),
         questionCount = questionCount,
+        questionTypeIds = questionTypeIds,
+        questionLanguage = questionLanguage,
         attachedPdfPagesCount = attachedPdfPagesCount,
         questionStyleHint = PromptPrivacySanitizer.sanitize(questionStyleHint),
         difficultyHint = PromptPrivacySanitizer.sanitize(difficultyHint),
@@ -213,6 +254,10 @@ class AiGenerationService(
         )
     }
 
+    /**
+     * Compatibility adapter for lesson/task callers. New feature adapters should prepare
+     * their own prompt and call execute(AiExecutionRequest) directly.
+     */
     suspend fun generate(
         lesson: LessonRef,
         task: TaskType,
@@ -220,7 +265,11 @@ class AiGenerationService(
         extra: String,
         providers: List<ProviderConfig>,
         selectedProvider: ProviderType,
+        requestedModelId: String,
+        requestedProfileId: String,
         questionCount: Int = 5,
+        questionTypeIds: List<String> = emptyList(),
+        questionLanguage: String = "ar",
         pdfPageImagesBase64: List<String> = emptyList(),
         questionStyleHint: String = "",
         difficultyHint: String = "",
@@ -235,56 +284,135 @@ class AiGenerationService(
         onReserveProvider: (suspend (ProviderConfig) -> Boolean)? = null,
         onProviderStateChanged: (suspend (providerId: String, status: String, retryAfterEpochMs: Long) -> Unit)? = null,
         onAttemptFinished: (suspend (providerLabel: String, model: String, success: Boolean, error: String?) -> Unit)? = null
-    ): GeneratedResult = withContext(Dispatchers.IO) {
-        val active = ProviderRoutingPolicy.activeProfiles(providers, selectedProvider)
-
-        if (active.isEmpty()) {
-            throw IllegalStateException("لا يوجد ملف ${selectedProvider.displayName} فعّال بمفتاح ونموذج صالحين. لا يتم التحويل تلقائياً إلى مزود آخر.")
+    ): GeneratedResult {
+        val prompt = withContext(Dispatchers.IO) {
+            buildPrompt(
+                lesson = lesson,
+                task = task,
+                source = source,
+                extra = extra,
+                questionCount = questionCount,
+                questionTypeIds = questionTypeIds,
+                questionLanguage = questionLanguage,
+                attachedPdfPagesCount = if (!pdfDocumentBase64.isNullOrBlank()) 1 else pdfPageImagesBase64.size,
+                questionStyleHint = questionStyleHint,
+                difficultyHint = difficultyHint,
+                responseSchemaJson = responseSchemaJson,
+                responseFormat = responseFormat
+            )
         }
-
-        val prompt = buildPrompt(
-            lesson = lesson,
-            task = task,
-            source = source,
-            extra = extra,
-            questionCount = questionCount,
-            attachedPdfPagesCount = if (!pdfDocumentBase64.isNullOrBlank()) 1 else pdfPageImagesBase64.size,
-            questionStyleHint = questionStyleHint,
-            difficultyHint = difficultyHint,
-            responseSchemaJson = responseSchemaJson,
-            responseFormat = responseFormat
+        return execute(
+            AiExecutionRequest(
+                prompt = prompt,
+                providers = providers,
+                selectedProvider = selectedProvider,
+                requestedModelId = requestedModelId,
+                requestedProfileId = requestedProfileId,
+                pdfPageImagesBase64 = pdfPageImagesBase64,
+                pdfDocumentBase64 = pdfDocumentBase64,
+                responseSchemaJson = responseSchemaJson,
+                responseFormat = responseFormat,
+                templateId = templateId,
+                templateVersion = templateVersion,
+                responseSchemaHash = responseSchemaHash,
+                requestFingerprint = requestFingerprint,
+                sourcePdfHash = sourcePdfHash,
+                onReserveProvider = onReserveProvider,
+                onProviderStateChanged = onProviderStateChanged,
+                onAttemptFinished = onAttemptFinished
+            )
         )
+    }
+
+    /**
+     * Task-neutral provider execution. It does not know LessonRef, TaskType, Room entities,
+     * question parsing, index parsing, assessment interpretation or UI destinations.
+     */
+    suspend fun execute(request: AiExecutionRequest): GeneratedResult = withContext(Dispatchers.IO) {
+        val providers = request.providers
+        val selectedProvider = request.selectedProvider
+        val requestedModelId = request.requestedModelId
+        val requestedProfileId = request.requestedProfileId
+        val pdfPageImagesBase64 = request.pdfPageImagesBase64
+        val pdfDocumentBase64 = request.pdfDocumentBase64
+        val responseSchemaJson = request.responseSchemaJson
+        val responseFormat = request.responseFormat
+        val templateId = request.templateId
+        val templateVersion = request.templateVersion
+        val responseSchemaHash = request.responseSchemaHash
+        val requestFingerprint = request.requestFingerprint
+        val sourcePdfHash = request.sourcePdfHash
+        val onReserveProvider = request.onReserveProvider
+        val onProviderStateChanged = request.onProviderStateChanged
+        val onAttemptFinished = request.onAttemptFinished
+        val prompt = request.prompt
+
+        require(prompt.isNotBlank()) { "يجب تجهيز البرومبت قبل تنفيذ طلب AI." }
+        require(requestedModelId.isNotBlank()) { "يجب اختيار نموذج من كتالوج مدير النظام." }
+        require(requestedProfileId.isNotBlank()) { "يجب اختيار ملف اتصال API." }
+
+        val active = ProviderRoutingPolicy.orderedProfiles(
+            providers = providers,
+            selectedProvider = selectedProvider,
+            preferredProfileId = requestedProfileId
+        )
+        require(active.isNotEmpty()) {
+            "لا توجد ملفات API مفعّلة للمزود ${selectedProvider.displayName}."
+        }
         val errors = mutableListOf<String>()
+        var lastFailureKind = AiExecutionFailureKind.PROVIDER_UNAVAILABLE
+        val expectJson = responseFormat.equals("json", ignoreCase = true) || responseSchemaJson.isNotBlank()
 
-        for (profile in active) {
-            val configuredModelCandidates = ProviderRoutingPolicy.modelCandidates(profile)
-            val modelCandidates = if (profile.provider == ProviderType.GEMINI) {
-                configuredModelCandidates.filterNot { geminiModelRouter.isCoolingDown(profile.id, it) }
-            } else {
-                configuredModelCandidates
-            }
+        profileLoop@ for (profile in active) {
+            val modelCandidates = when (profile.provider) {
+                ProviderType.GEMINI -> ProviderRoutingPolicy.modelCandidates(profile, requestedModelId)
+                ProviderType.OPENAI_COMPATIBLE -> listOf(requestedModelId.trim())
+            }.distinct()
             if (modelCandidates.isEmpty()) {
-                val message = "${profile.label}: لا توجد نماذج متاحة لهذا المفتاح حالياً"
-                errors.add(message)
-                if (profile.provider == ProviderType.GEMINI) {
-                    throw IllegalStateException("$message؛ لن ننتقل تلقائياً إلى مفتاح Google آخر لتجاوز حد المعدل.")
-                }
-                continue
+                errors.add("${profile.label}: لا توجد نماذج مرشحة صالحة لهذا الملف.")
+                continue@profileLoop
             }
 
-            var geminiRateLimitObserved = false
+            var skipProfile = false
+            var profileHadRetryableFailure = false
+
             modelLoop@ for (modelName in modelCandidates) {
-                val candidateProfile = profile.copy(model = modelName)
-                val expectJson = responseFormat.equals("json", ignoreCase = true) || responseSchemaJson.isNotBlank()
-                var retry = 0
-                while (retry < 3) {
+                if (profile.provider == ProviderType.GEMINI &&
+                    geminiModelRouter.isCoolingDown(profile.id, modelName)
+                ) {
+                    errors.add("${profile.label}/$modelName: النموذج في فترة تهدئة بعد ازدحام سابق.")
+                    profileHadRetryableFailure = true
+                    continue@modelLoop
+                }
+
+                val candidateProfile = profile.copy(
+                    model = modelName,
+                    fallbackModels = emptyList(),
+                    strictModel = true
+                )
+                var attempt = 0
+                var moveToNextModel = false
+                var eRetryAfterEpochMs = 0L
+
+                while (attempt < 3 && !moveToNextModel) {
+                    eRetryAfterEpochMs = 0L
                     val callStart = System.currentTimeMillis()
                     try {
                         val reserved = onReserveProvider?.invoke(candidateProfile) ?: true
                         if (!reserved) {
-                            errors.add("${profile.label}/$modelName: المفتاح معطّل أو مقيّد أو استنفد حصته اليومية")
+                            val state = profile.runtimeStatus.uppercase()
+                            lastFailureKind = when (state) {
+                                "QUOTA_EXHAUSTED" -> AiExecutionFailureKind.QUOTA_EXHAUSTED
+                                "INVALID_KEY" -> AiExecutionFailureKind.INVALID_CREDENTIALS
+                                else -> AiExecutionFailureKind.PROVIDER_UNAVAILABLE
+                            }
+                            errors.add(
+                                "${profile.label}: لم يُرسل الطلب لأن ملف API غير متاح حالياً (الحالة: $state)."
+                            )
+                            skipProfile = true
                             break@modelLoop
                         }
+
                         val (outputText, tokens) = callProvider(
                             profile = candidateProfile,
                             prompt = prompt,
@@ -294,8 +422,8 @@ class AiGenerationService(
                             expectJson = expectJson
                         )
                         val durationMs = (System.currentTimeMillis() - callStart).coerceAtLeast(1L)
-                        onProviderStateChanged?.invoke(profile.id, "ACTIVE", 0L)
-                        onAttemptFinished?.invoke(profile.label, modelName, true, null)
+                        notifyProviderState(onProviderStateChanged, profile.id, "ACTIVE", 0L)
+                        notifyAttemptFinished(onAttemptFinished, profile.label, modelName, true, null)
                         return@withContext GeneratedResult(
                             text = outputText,
                             providerLabel = profile.label,
@@ -316,63 +444,140 @@ class AiGenerationService(
                         throw e
                     } catch (e: ProviderCallException) {
                         val reason = e.message?.takeIf { it.isNotBlank() } ?: "فشل"
-                        errors.add("${profile.label}/$modelName: $reason")
-                        onAttemptFinished?.invoke(profile.label, modelName, false, reason)
+                        errors.add("${profile.label}/$modelName (المحاولة ${attempt + 1}/3): $reason")
+                        notifyAttemptFinished(onAttemptFinished, profile.label, modelName, false, reason)
                         val failureStatus = classifyProviderFailure(e, reason, profile.provider)
-                        if (failureStatus == "QUOTA_EXHAUSTED") {
-                            onProviderStateChanged?.invoke(profile.id, failureStatus, e.retryAfterEpochMs)
-                            // A confirmed quota exhaustion is not a model-level saturation
-                            // signal. Stop this generation instead of cycling through models
-                            // or other Google profiles to bypass the provider's quota.
-                            throw IllegalStateException(
-                                "${profile.label}: أفاد Gemini باستنفاد الحصة المتاحة لهذا المفتاح/المشروع. أوقفنا المحاولات الإضافية؛ تحقق من حالة الحصة لدى Google.",
-                                e
-                            )
-                        }
+                        eRetryAfterEpochMs = e.retryAfterEpochMs
 
-                        if (e.httpCode == 429 && profile.provider == ProviderType.GEMINI) {
-                            geminiRateLimitObserved = true
-                            geminiModelRouter.markCoolingDown(profile.id, modelName, e.retryAfterEpochMs)
-                        } else if (failureStatus != "RATE_LIMITED" || profile.provider == ProviderType.OPENAI_COMPATIBLE) {
-                            onProviderStateChanged?.invoke(profile.id, failureStatus, e.retryAfterEpochMs)
-                        }
-                        // A rate-limit response cools down the affected Gemini model.
-                        // Only transient non-429 failures are retried on the same request.
-                        // Gemini and OpenAI provider paths remain isolated.
-                        if (e.httpCode == 429 || !e.isTransient) {
-                            break
-                        }
-                        if (retry == 0) {
-                            delay((800L shl retry).coerceAtMost(4_000L) + kotlin.random.Random.nextLong(0L, 251L))
+                        when (failureStatus) {
+                            "QUOTA_EXHAUSTED" -> {
+                                lastFailureKind = AiExecutionFailureKind.QUOTA_EXHAUSTED
+                                notifyProviderState(onProviderStateChanged, profile.id, failureStatus, e.retryAfterEpochMs)
+                                errors.add("${profile.label}: تم استنفاد الحصة؛ سيتم تجربة ملف API آخر للمزود نفسه.")
+                                skipProfile = true
+                                break@modelLoop
+                            }
+                            "INVALID_KEY" -> {
+                                lastFailureKind = AiExecutionFailureKind.INVALID_CREDENTIALS
+                                notifyProviderState(onProviderStateChanged, profile.id, failureStatus, 0L)
+                                errors.add("${profile.label}: المفتاح غير صالح؛ سيتم تجربة ملف API آخر للمزود نفسه.")
+                                skipProfile = true
+                                break@modelLoop
+                            }
+                            "INVALID_REQUEST" -> {
+                                notifyProviderState(onProviderStateChanged, profile.id, failureStatus, 0L)
+                                lastFailureKind = AiExecutionFailureKind.INVALID_REQUEST
+                                throw AiExecutionException(
+                                    lastFailureKind,
+                                    "${profile.label}/$modelName: رفض المزود الطلب بسبب إعداد أو مدخل غير صالح: $reason",
+                                    e
+                                )
+                            }
+                            "MODEL_UNAVAILABLE" -> {
+                                lastFailureKind = AiExecutionFailureKind.MODEL_UNAVAILABLE
+                                notifyProviderState(onProviderStateChanged, profile.id, failureStatus, 0L)
+                                moveToNextModel = true
+                            }
+                            "RATE_LIMITED" -> {
+                                lastFailureKind = AiExecutionFailureKind.RATE_LIMITED
+                                if (profile.provider == ProviderType.GEMINI) {
+                                    profileHadRetryableFailure = true
+                                    if (attempt == 2) {
+                                        // Cool down this model only; do not block sibling Gemini models on the same key.
+                                        geminiModelRouter.markCoolingDown(profile.id, modelName, e.retryAfterEpochMs)
+                                        notifyProviderState(onProviderStateChanged, profile.id, "MODEL_RATE_LIMITED", e.retryAfterEpochMs)
+                                        moveToNextModel = true
+                                    }
+                                } else if (attempt == 2) {
+                                    // OpenAI-compatible profiles may represent separate projects/keys.
+                                    val keyCooldownUntil = e.retryAfterEpochMs.takeIf { it > 0L }
+                                        ?: (System.currentTimeMillis() + 60_000L)
+                                    notifyProviderState(onProviderStateChanged, profile.id, failureStatus, keyCooldownUntil)
+                                    skipProfile = true
+                                    break@modelLoop
+                                }
+                            }
+                            else -> {
+                                if (!e.isTransient) {
+                                    notifyProviderState(onProviderStateChanged, profile.id, failureStatus, e.retryAfterEpochMs)
+                                    lastFailureKind = if (failureStatus == "EMPTY_RESPONSE") {
+                                        AiExecutionFailureKind.EMPTY_RESPONSE
+                                    } else {
+                                        AiExecutionFailureKind.PROVIDER_UNAVAILABLE
+                                    }
+                                    throw AiExecutionException(
+                                        lastFailureKind,
+                                        "${profile.label}/$modelName: فشل غير قابل لإعادة المحاولة: $reason",
+                                        e
+                                    )
+                                }
+                                profileHadRetryableFailure = true
+                                if (attempt == 2) {
+                                    if (profile.provider == ProviderType.GEMINI) {
+                                        moveToNextModel = true
+                                    } else {
+                                        skipProfile = true
+                                        break@modelLoop
+                                    }
+                                }
+                            }
                         }
                     } catch (e: IOException) {
                         val reason = e.message?.takeIf { it.isNotBlank() } ?: "خطأ شبكة"
-                        errors.add("${profile.label}/$modelName: $reason")
-                        onAttemptFinished?.invoke(profile.label, modelName, false, reason)
-                        onProviderStateChanged?.invoke(profile.id, "ERROR", 0L)
-                        if (retry == 0) {
-                            delay((800L shl retry).coerceAtMost(4_000L) + kotlin.random.Random.nextLong(0L, 251L))
+                        errors.add("${profile.label}/$modelName (المحاولة ${attempt + 1}/3): $reason")
+                        notifyAttemptFinished(onAttemptFinished, profile.label, modelName, false, reason)
+                        notifyProviderState(onProviderStateChanged, profile.id, "NETWORK_ERROR", 0L)
+                        lastFailureKind = AiExecutionFailureKind.NETWORK_ERROR
+                        profileHadRetryableFailure = true
+                        if (attempt == 2) {
+                            if (profile.provider == ProviderType.GEMINI) {
+                                moveToNextModel = true
+                            } else {
+                                skipProfile = true
+                                break@modelLoop
+                            }
                         }
                     } catch (e: Exception) {
                         val reason = e.message?.takeIf { it.isNotBlank() } ?: "فشل"
                         errors.add("${profile.label}/$modelName: $reason")
-                        onAttemptFinished?.invoke(profile.label, modelName, false, reason)
-                        onProviderStateChanged?.invoke(profile.id, "ERROR", 0L)
-                        break
+                        notifyAttemptFinished(onAttemptFinished, profile.label, modelName, false, reason)
+                        notifyProviderState(onProviderStateChanged, profile.id, "ERROR", 0L)
+                        throw e
                     }
-                    retry++
+
+                    if (attempt < 2 && !moveToNextModel && !skipProfile) {
+                        val exponentialDelay = (800L shl attempt).coerceAtMost(8_000L)
+                        val retryAfterDelay = if (eRetryAfterEpochMs > 0L) {
+                            (eRetryAfterEpochMs - System.currentTimeMillis()).coerceAtLeast(0L)
+                        } else 0L
+                        val retryDelay = maxOf(exponentialDelay, retryAfterDelay).coerceAtMost(30_000L)
+                        delay(retryDelay + kotlin.random.Random.nextLong(0L, 251L))
+                    }
+                    attempt++
                 }
             }
 
-            if (geminiRateLimitObserved) {
-                throw IllegalStateException(
-                    "${profile.label}: أعاد Gemini HTTP 429. تم احترام فترة الانتظار وتجربة نماذج هذا المفتاح فقط؛ لن يتم تدوير مفاتيح Google تلقائياً.",
-                    null
+            if (skipProfile) continue@profileLoop
+
+            if (profile.provider == ProviderType.GEMINI && profileHadRetryableFailure) {
+                throw AiExecutionException(
+                    AiExecutionFailureKind.RATE_LIMITED,
+                    "تعذر استخدام نماذج Gemini المهيأة على الملف ${profile.label} بعد ثلاث محاولات لكل نموذج. لم يتم تدوير مفاتيح Google بسبب الازدحام؛ تدوير الملف الآخر مخصص لحالة نفاد الحصة أو عدم صلاحية المفتاح. التفاصيل: ${errors.joinToString(" | ")}"
+                )
+            }
+
+            if (profile.provider == ProviderType.GEMINI && errors.isNotEmpty()) {
+                throw AiExecutionException(
+                    lastFailureKind,
+                    "تعذر التوليد عبر Gemini بعد تجربة النماذج المهيأة: ${errors.joinToString(" | ")}"
                 )
             }
         }
 
-        throw IllegalStateException("تعذر التوليد عبر ${selectedProvider.displayName}: ${errors.joinToString(" | ")}")
+        throw AiExecutionException(
+            lastFailureKind,
+            "تعذر التوليد عبر ${selectedProvider.displayName}. جُرّبت ملفات API المفعّلة التابعة للمزود نفسه فقط. التفاصيل: ${errors.joinToString(" | ")}"
+        )
     }
 
     suspend fun testProviderConnection(profile: ProviderConfig): String = withContext(Dispatchers.IO) {
@@ -390,6 +595,41 @@ class AiGenerationService(
         )
         val elapsed = (System.currentTimeMillis() - started).coerceAtLeast(1L)
         "اتصال ناجح بـ ${profile.model} (${elapsed}ms): ${reply.trim().take(40)}"
+    }
+
+    /**
+     * Telemetry/state callbacks must never discard a provider response or interrupt
+     * same-provider failover. Cancellation is the only callback exception rethrown.
+     */
+    private suspend fun notifyProviderState(
+        callback: (suspend (providerId: String, status: String, retryAfterEpochMs: Long) -> Unit)?,
+        providerId: String,
+        status: String,
+        retryAfterEpochMs: Long
+    ) {
+        try {
+            callback?.invoke(providerId, status, retryAfterEpochMs)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            // Provider execution remains authoritative; diagnostic persistence is best-effort.
+        }
+    }
+
+    private suspend fun notifyAttemptFinished(
+        callback: (suspend (providerLabel: String, model: String, success: Boolean, error: String?) -> Unit)?,
+        providerLabel: String,
+        model: String,
+        success: Boolean,
+        error: String?
+    ) {
+        try {
+            callback?.invoke(providerLabel, model, success, error)
+        } catch (failure: CancellationException) {
+            throw failure
+        } catch (_: Exception) {
+            // A telemetry write failure must not hide the response returned by the provider.
+        }
     }
 
     private suspend fun callProvider(
@@ -496,7 +736,19 @@ class AiGenerationService(
                 ?: 0
 
             if (text.isBlank()) {
-                throw ProviderCallException("استجابة فارغة", isTransient = true)
+                val finishReason = (firstCandidate?.get("finishReason") as? JsonPrimitive)?.contentOrNull.orEmpty()
+                val blockReason = ((jsonObj?.get("promptFeedback") as? JsonObject)
+                    ?.get("blockReason") as? JsonPrimitive)?.contentOrNull.orEmpty()
+                val diagnostic = listOf(
+                    "لم يُرجع Gemini محتوى نصياً قابلاً للاستخراج",
+                    finishReason.takeIf { it.isNotBlank() }?.let { "finishReason=$it" },
+                    blockReason.takeIf { it.isNotBlank() }?.let { "blockReason=$it" }
+                ).filterNotNull().joinToString("؛ ")
+                throw ProviderCallException(
+                    message = diagnostic,
+                    isTransient = false,
+                    providerReason = listOf(finishReason, blockReason).filter { it.isNotBlank() }.joinToString(" ")
+                )
             }
             return text to tokens
         }
@@ -562,19 +814,34 @@ class AiGenerationService(
             val rawBody = response.body?.string().orEmpty()
             val jsonObj = runCatching { json.parseToJsonElement(rawBody).jsonObject }.getOrNull()
             if (!response.isSuccessful) {
-                val errMsg = jsonObj?.get("error")
-                    ?.let { it as? JsonObject }
-                    ?.get("message")
-                    ?.let { it as? JsonPrimitive }
-                    ?.contentOrNull
+                val errorObject = jsonObj?.get("error") as? JsonObject
+                val errMsg = (errorObject?.get("message") as? JsonPrimitive)?.contentOrNull
                     ?: "API HTTP ${response.code}"
-                throw ProviderCallException(errMsg, isTransientHttp(response.code), response.code, retryAfterEpochMs(response))
+                val providerReason = listOf("type", "code", "param")
+                    .mapNotNull { key -> (errorObject?.get(key) as? JsonPrimitive)?.contentOrNull }
+                    .filter { it.isNotBlank() }
+                    .joinToString(" ")
+                throw ProviderCallException(
+                    message = errMsg,
+                    isTransient = isTransientHttp(response.code),
+                    httpCode = response.code,
+                    retryAfterEpochMs = retryAfterEpochMs(response),
+                    providerReason = providerReason
+                )
             }
 
             val choices = jsonObj?.get("choices") as? JsonArray
             val firstChoice = choices?.firstOrNull() as? JsonObject
             val messageObj = firstChoice?.get("message") as? JsonObject
-            val text = (messageObj?.get("content") as? JsonPrimitive)?.contentOrNull.orEmpty()
+            val content = messageObj?.get("content")
+            val text = when (content) {
+                is JsonPrimitive -> content.contentOrNull.orEmpty()
+                is JsonArray -> content.joinToString("") { segment ->
+                    val item = segment as? JsonObject
+                    ((item?.get("text") as? JsonPrimitive)?.contentOrNull).orEmpty()
+                }
+                else -> ""
+            }
             val tokens = (jsonObj?.get("usage") as? JsonObject)
                 ?.get("total_tokens")
                 ?.let { it as? JsonPrimitive }
@@ -582,7 +849,17 @@ class AiGenerationService(
                 ?: 0
 
             if (text.isBlank()) {
-                throw ProviderCallException("استجابة فارغة", isTransient = true)
+                val finishReason = (firstChoice?.get("finish_reason") as? JsonPrimitive)?.contentOrNull.orEmpty()
+                val refusal = (messageObj?.get("refusal") as? JsonPrimitive)?.contentOrNull.orEmpty()
+                throw ProviderCallException(
+                    message = listOf(
+                        "لم يُرجع OpenAI-compatible محتوى نصياً قابلاً للاستخراج",
+                        finishReason.takeIf { it.isNotBlank() }?.let { "finish_reason=$it" },
+                        refusal.takeIf { it.isNotBlank() }?.let { "refusal=$it" }
+                    ).filterNotNull().joinToString("؛ "),
+                    isTransient = false,
+                    providerReason = listOf(finishReason, refusal).filter { it.isNotBlank() }.joinToString(" ")
+                )
             }
             return text to tokens
         }
@@ -660,9 +937,14 @@ class AiGenerationService(
             error.httpCode == 401 || error.httpCode == 403 ||
                 Regex("invalid api.?key|api key not valid|unauthorized|authentication failed")
                     .containsMatchIn(signals) -> "INVALID_KEY"
-            provider == ProviderType.GEMINI &&
-                Regex("quota_exceeded|quota exceeded|quota exhausted|daily quota|insufficient quota|billing limit")
-                    .containsMatchIn(signals) -> "QUOTA_EXHAUSTED"
+            Regex("quota_exceeded|quota exceeded|quota exhausted|daily quota|insufficient quota|insufficient_quota|billing limit|billing_hard_limit|exceeded your current quota|per.?day.*per.?project.*per.?model|generate.?requests.*per.?day.*per.?project.*per.?model|free.?tier.*requests.*per.?day")
+                .containsMatchIn(signals) -> "QUOTA_EXHAUSTED"
+            error.httpCode == 404 ||
+                Regex("model[^ ]*(not found|does not exist)|model_not_found|unsupported model")
+                    .containsMatchIn(signals) -> "MODEL_UNAVAILABLE"
+            Regex("لم يُرجع .* محتوى نصياً|استجابة فارغة|empty response")
+                .containsMatchIn(signals) -> "EMPTY_RESPONSE"
+            error.httpCode == 400 -> "INVALID_REQUEST"
             Regex("rate_limit_exceeded|rate.?limit|too many requests|requests per minute|tokens per minute|retry after")
                 .containsMatchIn(signals) -> "RATE_LIMITED"
             error.httpCode == 429 -> "RATE_LIMITED"
@@ -681,7 +963,7 @@ class AiGenerationService(
                 .toEpochMilli()
         }.getOrNull()
 
-        return retryAt?.coerceAtLeast(now + 1_000L) ?: (now + 60_000L)
+        return retryAt?.coerceAtLeast(now + 1_000L) ?: 0L
     }
 
     private fun sha256(value: String): String = MessageDigest.getInstance("SHA-256")

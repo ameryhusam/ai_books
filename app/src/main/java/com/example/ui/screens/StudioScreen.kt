@@ -1,5 +1,7 @@
 package com.example.ui.screens
 
+import com.example.ui.components.QuestionGenerationOptions
+
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -83,6 +85,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -94,7 +97,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.R
-import com.example.data.ai.Indexer2PromptRegistry
+import com.example.data.ai.BookIndexPromptRegistry
+import com.example.data.ai.QuestionResponseContract
 import com.example.model.BookRef
 import com.example.model.CloudDraft
 import com.example.model.DraftRecord
@@ -138,6 +142,8 @@ fun StudioScreen(
     workspaceLessons: List<LessonRef> = emptyList(),
     task: TaskType,
     questionCount: Int,
+    selectedQuestionTypeIds: List<String>,
+    questionLanguage: String,
     questionStyle: String,
     questionDifficulty: QuestionDifficulty,
     attachPdfPages: Boolean,
@@ -150,6 +156,7 @@ fun StudioScreen(
     lessonPackages: List<InteractivePackageRecord>,
     teacherNote: TeacherNoteRecord? = null,
     promptTemplates: List<PromptTemplateRecord> = emptyList(),
+    activePromptTemplateId: String = "",
     isBusy: Boolean,
     onBackToLibrary: () -> Unit,
     onSelectLesson: (LessonRef) -> Unit = {},
@@ -158,6 +165,8 @@ fun StudioScreen(
     onShowFeedback: (String) -> Unit = {},
     onSelectTask: (TaskType) -> Unit,
     onQuestionCountChange: (Int) -> Unit,
+    onQuestionTypesChange: (List<String>) -> Unit,
+    onQuestionLanguageChange: (String) -> Unit,
     onQuestionStyleChange: (String) -> Unit,
     onQuestionDifficultyChange: (QuestionDifficulty) -> Unit,
     onToggleAttachPdfPages: () -> Unit,
@@ -243,6 +252,8 @@ fun StudioScreen(
                     showBackLink = false,
                     task = task,
                     questionCount = questionCount,
+                    selectedQuestionTypeIds = selectedQuestionTypeIds,
+                    questionLanguage = questionLanguage,
                     questionStyle = questionStyle,
                     questionDifficulty = questionDifficulty,
                     attachPdfPages = attachPdfPages,
@@ -255,6 +266,7 @@ fun StudioScreen(
                     lessonPackages = lessonPackages,
                     teacherNote = teacherNote,
                     promptTemplates = promptTemplates,
+                    activePromptTemplateId = activePromptTemplateId,
                     isBusy = isBusy,
                     onBackToLibrary = onBackToLibrary,
                     onOpenLessonSwitcher = { showLessonSwitcher = true },
@@ -263,6 +275,8 @@ fun StudioScreen(
                     onShowFeedback = onShowFeedback,
                     onSelectTask = onSelectTask,
                     onQuestionCountChange = onQuestionCountChange,
+                    onQuestionTypesChange = onQuestionTypesChange,
+                    onQuestionLanguageChange = onQuestionLanguageChange,
                     onQuestionStyleChange = onQuestionStyleChange,
                     onQuestionDifficultyChange = onQuestionDifficultyChange,
                     onToggleAttachPdfPages = onToggleAttachPdfPages,
@@ -305,6 +319,8 @@ fun StudioScreen(
                     showBackLink = true,
                     task = task,
                     questionCount = questionCount,
+                    selectedQuestionTypeIds = selectedQuestionTypeIds,
+                    questionLanguage = questionLanguage,
                     questionStyle = questionStyle,
                     questionDifficulty = questionDifficulty,
                     attachPdfPages = attachPdfPages,
@@ -317,6 +333,7 @@ fun StudioScreen(
                     lessonPackages = lessonPackages,
                     teacherNote = teacherNote,
                     promptTemplates = promptTemplates,
+                    activePromptTemplateId = activePromptTemplateId,
                     isBusy = isBusy,
                     onBackToLibrary = onBackToLibrary,
                     onOpenLessonSwitcher = { showLessonSwitcher = true },
@@ -325,6 +342,8 @@ fun StudioScreen(
                     onShowFeedback = onShowFeedback,
                     onSelectTask = onSelectTask,
                     onQuestionCountChange = onQuestionCountChange,
+                    onQuestionTypesChange = onQuestionTypesChange,
+                    onQuestionLanguageChange = onQuestionLanguageChange,
                     onQuestionStyleChange = onQuestionStyleChange,
                     onQuestionDifficultyChange = onQuestionDifficultyChange,
                     onToggleAttachPdfPages = onToggleAttachPdfPages,
@@ -382,6 +401,8 @@ private fun StudioWorkbench(
     showBackLink: Boolean,
     task: TaskType,
     questionCount: Int,
+    selectedQuestionTypeIds: List<String>,
+    questionLanguage: String,
     questionStyle: String,
     questionDifficulty: QuestionDifficulty,
     attachPdfPages: Boolean,
@@ -394,6 +415,7 @@ private fun StudioWorkbench(
     lessonPackages: List<InteractivePackageRecord>,
     teacherNote: TeacherNoteRecord?,
     promptTemplates: List<PromptTemplateRecord>,
+    activePromptTemplateId: String,
     isBusy: Boolean,
     onBackToLibrary: () -> Unit,
     onOpenLessonSwitcher: () -> Unit,
@@ -402,6 +424,8 @@ private fun StudioWorkbench(
     onShowFeedback: (String) -> Unit,
     onSelectTask: (TaskType) -> Unit,
     onQuestionCountChange: (Int) -> Unit,
+    onQuestionTypesChange: (List<String>) -> Unit,
+    onQuestionLanguageChange: (String) -> Unit,
     onQuestionStyleChange: (String) -> Unit,
     onQuestionDifficultyChange: (QuestionDifficulty) -> Unit,
     onToggleAttachPdfPages: () -> Unit,
@@ -444,27 +468,53 @@ private fun StudioWorkbench(
         }
     }
 
-    val activeBlueprint = remember(task) { Indexer2PromptRegistry.blueprintFor(task) }
+    val activeBlueprint = remember(task) { BookIndexPromptRegistry.blueprintFor(task) }
+    val context = LocalContext.current
+    val promptTemplateContent = remember(context, activeBlueprint.sourcePath) {
+        runCatching {
+            context.assets.open(activeBlueprint.sourcePath).bufferedReader(Charsets.UTF_8).use { it.readText() }
+        }.getOrDefault("")
+    }
+    val activePromptTemplate = remember(promptTemplates, activePromptTemplateId, task) {
+        promptTemplates.firstOrNull { it.id == activePromptTemplateId }
+            ?: promptTemplates.firstOrNull { it.task == task }
+    }
+    val templateInstructions = activePromptTemplate?.instructions.orEmpty().trim()
+    val effectivePreviewExtra = if (templateInstructions.isNotBlank() && extraInstructions.contains(templateInstructions)) {
+        extraInstructions.trim()
+    } else {
+        listOf(templateInstructions, extraInstructions.trim()).filter { it.isNotBlank() }.distinct().joinToString("\n\n")
+    }
     val livePromptPreview = remember(
         selectedLesson,
         task,
         sourceText,
         extraInstructions,
+        promptTemplates,
+        activePromptTemplateId,
         questionCount,
+        selectedQuestionTypeIds,
+        questionLanguage,
         attachPdfPages,
         questionStyle,
         questionDifficulty
     ) {
         if (selectedLesson != null) {
-            Indexer2PromptRegistry.assemblePrompt(
+            BookIndexPromptRegistry.assemblePrompt(
                 lesson = selectedLesson,
                 task = task,
                 source = sourceText,
-                extra = extraInstructions,
+                extra = effectivePreviewExtra,
                 questionCount = questionCount,
+                questionTypeIds = selectedQuestionTypeIds,
+                questionLanguage = questionLanguage,
                 attachedPdfPagesCount = if (attachPdfPages && !selectedLesson.pdfPath.isNullOrBlank()) 1 else 0,
                 questionStyleHint = questionStyle.takeIf { task == TaskType.QUESTIONS && it != "متنوعة" }.orEmpty(),
-                difficultyHint = if (task == TaskType.QUESTIONS) questionDifficulty.labelAr else ""
+                difficultyHint = if (task == TaskType.QUESTIONS) questionDifficulty.id else "",
+                promptTemplate = promptTemplateContent,
+                responseSchemaJson = if (task == TaskType.QUESTIONS) QuestionResponseContract.schemaFor(selectedQuestionTypeIds, questionDifficulty.id) else activePromptTemplate?.responseSchemaJson.orEmpty(),
+                responseFormat = if (task == TaskType.QUESTIONS) "json" else activePromptTemplate?.responseFormat
+                    ?: if (activePromptTemplate?.responseSchemaJson.isNullOrBlank()) "text" else "json"
             )
         } else {
             "${activeBlueprint.roleInstruction}\n${activeBlueprint.outputContract}"
@@ -516,7 +566,7 @@ private fun StudioWorkbench(
                         color = EduInk
                     )
                     Text(
-                        text = "يمكنك اختيار أي كتاب أو درس مباشرة من هنا لتوليد الشروح وبنوك الأسئلة والأنشطة التفاعلية، مع الوصول الكامل لمصادر البرومبت ومخططات indexer2.",
+                        text = "يمكنك اختيار أي كتاب أو درس مباشرة من هنا لتوليد الشروح وبنوك الأسئلة والأنشطة التفاعلية، مع الوصول الكامل لمصادر البرومبت ومخططات الفهرس.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = EduMuted
                     )
@@ -637,7 +687,7 @@ private fun StudioWorkbench(
                                     ) {
                                         Icon(Icons.Rounded.Terminal, contentDescription = null, tint = EduPurple, modifier = Modifier.size(14.dp))
                                         Text(
-                                            text = "مصادر indexer2",
+                                            text = "مصادر البرومبت",
                                             style = MaterialTheme.typography.labelSmall,
                                             color = EduPurple,
                                             fontWeight = FontWeight.Bold
@@ -651,7 +701,7 @@ private fun StudioWorkbench(
                                 contentPadding = PaddingValues(vertical = 2.dp)
                             ) {
                                 items(TaskType.entries, key = { it.id }) { item ->
-                                    val bp = Indexer2PromptRegistry.blueprintFor(item)
+                                    val bp = BookIndexPromptRegistry.blueprintFor(item)
                                     val active = task == item
                                     Surface(
                                         shape = RoundedCornerShape(14.dp),
@@ -752,35 +802,22 @@ private fun StudioWorkbench(
 
                             if (task == TaskType.QUESTIONS) {
                                 Text(
-                                    text = "نمط الأسئلة والمستوى",
+                                    text = "إعدادات توليد الأسئلة",
                                     style = MaterialTheme.typography.labelMedium,
                                     color = EduInk,
                                     modifier = Modifier.padding(top = 4.dp)
                                 )
-                                FlowRow(
-                                    horizontalArrangement = Arrangement.spacedBy(7.dp),
-                                    verticalArrangement = Arrangement.spacedBy(7.dp)
-                                ) {
-                                    listOf("متنوعة", "اختيار من متعدد", "صح أم خطأ", "إجابة قصيرة").forEach { style ->
-                                        EduPill(
-                                            text = style,
-                                            active = questionStyle == style,
-                                            onClick = { onQuestionStyleChange(style) }
-                                        )
-                                    }
-                                }
-                                FlowRow(
-                                    horizontalArrangement = Arrangement.spacedBy(7.dp),
-                                    verticalArrangement = Arrangement.spacedBy(7.dp)
-                                ) {
-                                    QuestionDifficulty.entries.forEach { diff ->
-                                        EduPill(
-                                            text = diff.labelAr,
-                                            active = questionDifficulty == diff,
-                                            onClick = { onQuestionDifficultyChange(diff) }
-                                        )
-                                    }
-                                }
+                                QuestionGenerationOptions(
+                                    questionCount = questionCount,
+                                    selectedQuestionTypeIds = selectedQuestionTypeIds,
+                                    questionLanguage = questionLanguage,
+                                    questionDifficulty = questionDifficulty,
+                                    onQuestionCountChange = onQuestionCountChange,
+                                    onQuestionTypesChange = onQuestionTypesChange,
+                                    onQuestionLanguageChange = onQuestionLanguageChange,
+                                    onQuestionDifficultyChange = onQuestionDifficultyChange,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
                             }
                         }
 
@@ -975,7 +1012,7 @@ private fun StudioWorkbench(
                                     .testTag("extra_input")
                             )
 
-                            // Expandable Live Prompt Preview (indexer2)
+                            // Expandable Live Prompt Preview 
                             Surface(
                                 shape = RoundedCornerShape(12.dp),
                                 color = EduFieldBg,
@@ -997,7 +1034,7 @@ private fun StudioWorkbench(
                                         ) {
                                             Icon(Icons.Rounded.Terminal, contentDescription = null, tint = EduPurple, modifier = Modifier.size(16.dp))
                                             Text(
-                                                text = "معاينة البرومبت المركّب (indexer2)",
+                                                text = "معاينة البرومبت المركّب ",
                                                 style = MaterialTheme.typography.labelMedium,
                                                 color = EduInk,
                                                 fontWeight = FontWeight.Bold

@@ -6,9 +6,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.sqlite.db.SupportSQLiteOpenHelper
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import com.example.data.ai.AiGenerationService
-import com.example.data.ai.Indexer2PromptRegistry
+import com.example.data.ai.BookIndexPromptRegistry
 import com.example.data.ai.TemplateResponseAdapter
 import com.example.data.ai.TemplateOutputValidator
+import com.example.data.ai.QuestionResponseContract
 import com.example.data.ai.PromptPrivacySanitizer
 import com.example.data.local.DraftEntity
 import com.example.data.local.BookEntity
@@ -30,6 +31,7 @@ import com.example.data.repository.LearningProgressAnalytics
 import com.example.data.repository.LessonSequenceGate
 import com.example.data.repository.MilestoneBadgeEngine
 import com.example.data.repository.QuestionBankEngine
+import com.example.data.repository.QuestionBankService
 import com.example.data.security.ProviderStorage
 import com.example.data.workspace.DirectWorkspaceBinder
 import com.example.data.workspace.PdfBookSplitter
@@ -58,6 +60,8 @@ import com.example.model.PackageKind
 import com.example.model.PdfBookInfo
 import com.example.model.PromptTemplateRecord
 import com.example.model.QuestionAttemptRecord
+import com.example.model.QuestionContentPayload
+import com.example.model.QuestionRequiredField
 import com.example.model.QuestionDifficulty
 import com.example.model.QuestionItem
 import com.example.model.QuestionType
@@ -68,6 +72,7 @@ import com.example.model.ProviderType
 import com.example.model.UnitCompletionStatus
 import com.example.ui.components.LearningProgressCalculator
 import kotlinx.coroutines.flow.first
+import kotlinx.serialization.decodeFromString
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -91,6 +96,9 @@ import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
+import java.io.BufferedInputStream
+import java.net.ServerSocket
+import java.net.Socket
 import java.time.LocalDate
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
@@ -281,7 +289,7 @@ class EduMiniCoreTest {
     }
 
     @Test
-    fun workspaceContractValidatorBlocksUnverifiedIndexer2Source() {
+    fun workspaceContractValidatorBlocksUnverifiedLegacySource() {
         val index = """
             {
               "gradeKey": "G04",
@@ -408,7 +416,7 @@ class EduMiniCoreTest {
     }
 
     @Test
-    fun importerSupportsIndexer2IndependentSourceDirectory() = runBlocking {
+    fun importerSupportsIndependentPartSourceDirectory() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val importer = WorkspaceImporter(context)
         val zipBytes = createTestZip(
@@ -594,6 +602,199 @@ class EduMiniCoreTest {
     }
 
     @Test
+    fun questionPromptIncludesSelectedTypesDistributionLanguageDifficultyAndTemplateSchema() {
+        val service = AiGenerationService()
+        val schema = """{"type":"OBJECT","properties":{"questions":{"type":"ARRAY"}}}"""
+        val prompt = service.buildPrompt(
+            lesson = sampleLesson(),
+            task = TaskType.QUESTIONS,
+            source = "مصدر الدرس",
+            extra = "",
+            questionCount = 5,
+            questionTypeIds = listOf("mcq", "true_false", "short_answer"),
+            questionLanguage = "en",
+            difficultyHint = "hard",
+            responseSchemaJson = schema,
+            responseFormat = "json"
+        )
+
+        assertTrue(prompt.contains("العدد الإجمالي المطلوب من الأسئلة: 5"))
+        assertTrue(prompt.contains("mcq=2"))
+        assertTrue(prompt.contains("true_false=2"))
+        assertTrue(prompt.contains("short_answer=1"))
+        assertTrue(prompt.contains("English"))
+        assertTrue(prompt.contains("hard"))
+        assertTrue(prompt.contains(schema))
+    }
+
+    @Test
+    fun questionPromptRejectsMoreSelectedTypesThanRequestedQuestions() {
+        val service = AiGenerationService()
+        val failed = runCatching {
+            service.buildPrompt(
+                lesson = sampleLesson(),
+                task = TaskType.QUESTIONS,
+                source = "مصدر الدرس",
+                extra = "",
+                questionCount = 2,
+                questionTypeIds = listOf("mcq", "true_false", "short_answer")
+            )
+        }.isFailure
+
+        assertTrue(failed)
+    }
+
+    @Test
+    fun canonicalQuestionSchemaValidatesAndExposesOnlyPersistedQuestionContentFields() {
+        val schema = Json.parseToJsonElement(QuestionResponseContract.schemaJson).jsonObject
+        assertTrue(TemplateOutputValidator.validateSchema(QuestionResponseContract.schemaJson).isEmpty())
+        val itemProperties = schema["properties"]!!.jsonObject["questions"]!!
+            .jsonObject["items"]!!.jsonObject["properties"]!!.jsonObject
+        val payloadDescriptor = QuestionContentPayload.serializer().descriptor
+        val payloadFields = (0 until payloadDescriptor.elementsCount)
+            .map { payloadDescriptor.getElementName(it) }.toSet()
+        assertEquals(payloadFields, itemProperties.keys)
+        val requiredFields = (0 until payloadDescriptor.elementsCount)
+            .filter { index -> payloadDescriptor.getElementAnnotations(index).any { it is QuestionRequiredField } }
+            .map { payloadDescriptor.getElementName(it) }.toSet()
+        val schemaRequiredFields = schema["properties"]!!.jsonObject["questions"]!!
+            .jsonObject["items"]!!.jsonObject["required"]!!.jsonArray
+            .map { it.jsonPrimitive.content }.toSet()
+        assertEquals(requiredFields, schemaRequiredFields)
+        assertEquals(
+            QuestionType.entries.map { it.id }.toSet(),
+            itemProperties["type"]!!.jsonObject["enum"]!!.jsonArray.map { it.jsonPrimitive.content }.toSet()
+        )
+        val selectedSchema = Json.parseToJsonElement(
+            QuestionResponseContract.schemaFor(listOf("mcq", "short_answer"))
+        ).jsonObject
+        val selectedTypeIds = selectedSchema["properties"]!!.jsonObject["questions"]!!
+            .jsonObject["items"]!!.jsonObject["properties"]!!.jsonObject["type"]!!
+            .jsonObject["enum"]!!.jsonArray.map { it.jsonPrimitive.content }.toSet()
+        assertEquals(setOf("mcq", "short_answer"), selectedTypeIds)
+        val selectedDifficultySchema = Json.parseToJsonElement(
+            QuestionResponseContract.schemaFor(listOf("mcq"), "hard")
+        ).jsonObject
+        val allowedDifficulties = selectedDifficultySchema["properties"]!!.jsonObject["questions"]!!
+            .jsonObject["items"]!!.jsonObject["properties"]!!.jsonObject["difficulty"]!!
+            .jsonObject["enum"]!!.jsonArray.map { it.jsonPrimitive.content }.toSet()
+        assertEquals(setOf("hard"), allowedDifficulties)
+    }
+
+    @Test
+    fun strictGeneratedQuestionParserEnforcesExactCountAndTypeDistribution() {
+        val raw = """{"questions":[
+            {"type":"mcq","prompt":"سؤال اختيار 1؟","options":["أ","ب"],"correctAnswer":"أ","difficulty":"easy"},
+            {"type":"mcq","prompt":"سؤال اختيار 2؟","options":["ج","د"],"correctAnswer":"ج","difficulty":"medium"},
+            {"type":"true_false","prompt":"عبارة صحيحة؟","options":["صح","خطأ"],"correctAnswer":"صح","difficulty":"easy"},
+            {"type":"true_false","prompt":"عبارة خاطئة؟","options":["صح","خطأ"],"correctAnswer":"خطأ","difficulty":"hard"},
+            {"type":"short_answer","prompt":"ما المفهوم؟","options":[],"correctAnswer":"المفهوم","difficulty":"medium"}
+        ]}"""
+        assertTrue(TemplateOutputValidator.validateOutput(raw, QuestionResponseContract.schemaJson).isEmpty())
+        val parsed = QuestionBankEngine.parseGeneratedQuestions(
+            rawText = raw,
+            workspaceId = "ws-test",
+            lesson = sampleLesson(),
+            expectedCount = 5,
+            selectedTypeIds = listOf("mcq", "true_false", "short_answer")
+        )
+        assertEquals(5, parsed.size)
+        assertEquals(mapOf("mcq" to 2, "true_false" to 2, "short_answer" to 1), parsed.groupingBy { it.type.id }.eachCount())
+    }
+
+    @Test
+    fun savedGenerationPromptRetainsExpectedQuestionBatchForLaterDraftApproval() {
+        val prompt = """
+            العدد الإجمالي المطلوب من الأسئلة: 5، وليس العدد لكل نوع.
+            التوزيع المطلوب للعدد الإجمالي حسب النوع: mcq=2, true_false=2, short_answer=1. التزم بالأعداد المحددة.
+            مستوى الصعوبة المطلوب (قيمة difficulty في JSON): hard. استخدم هذه القيمة المعيارية كما هي.
+        """.trimIndent()
+        val expected = QuestionResponseContract.expectedBatchFromPrompt(prompt)
+        assertNotNull(expected)
+        assertEquals(5, expected?.count)
+        assertEquals(listOf("mcq", "true_false", "short_answer"), expected?.typeIds)
+        assertEquals("hard", expected?.difficultyId)
+    }
+
+    @Test
+    fun canonicalQuestionPayloadMapsToRoomAndRejectsDuplicateBatchWithoutPartialWrites() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val db = Room.inMemoryDatabaseBuilder(context, EduMiniDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            val lesson = sampleLesson()
+            val raw = """{"questions":[{"type":"mcq","conceptTag":"الجمع","prompt":"ما ناتج 2 + 2؟","options":["3","4"],"correctAnswer":"4","rationale":"نجمع العددين.","difficulty":"easy","sourcePages":"5"}]}"""
+            val parsed = QuestionBankEngine.parseGeneratedQuestions(
+                raw, "ws-contract", lesson, 1, listOf("mcq")
+            )
+            val service = QuestionBankService(db.eduMiniDao())
+            val saved = service.saveQuestionsWithConceptTags(
+                workspaceId = "ws-contract",
+                lesson = lesson,
+                parsedQuestions = parsed,
+                requireAllNew = true
+            )
+            assertEquals(1, saved.size)
+            val stored = db.eduMiniDao().observeQuestionsForWorkspace("ws-contract").first().single()
+            assertEquals("mcq", stored.type)
+            assertEquals("ما ناتج 2 + 2؟", stored.prompt)
+            assertEquals("4", stored.correctAnswer)
+            assertEquals("easy", stored.difficulty)
+            assertEquals(listOf("3", "4"), Json.decodeFromString<List<String>>(stored.optionsJson))
+            assertEquals("الجمع", stored.conceptTag)
+
+            val duplicateResult = service.saveQuestionsWithConceptTags(
+                workspaceId = "ws-contract",
+                lesson = lesson,
+                parsedQuestions = parsed,
+                requireAllNew = true
+            )
+            assertTrue(duplicateResult.isEmpty())
+            val partialDuplicateFailure = runCatching {
+                service.saveQuestionsWithConceptTags(
+                    workspaceId = "ws-contract",
+                    lesson = lesson,
+                    parsedQuestions = listOf(
+                        parsed.single(),
+                        parsed.single().copy(
+                            id = "q-new",
+                            prompt = "سؤال جديد لا يكرر السابق؟",
+                            fingerprint = QuestionBankEngine.computeFingerprint("سؤال جديد لا يكرر السابق؟")
+                        )
+                    ),
+                    requireAllNew = true
+                )
+            }.isFailure
+            assertTrue(partialDuplicateFailure)
+            assertEquals(1, db.eduMiniDao().observeQuestionsForWorkspace("ws-contract").first().size)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun strictGeneratedQuestionParserRejectsCountAndTypeMixMismatch() {
+        val raw = """{"questions":[
+            {"type":"mcq","prompt":"سؤال 1؟","options":["أ","ب"],"correctAnswer":"أ","difficulty":"easy"},
+            {"type":"mcq","prompt":"سؤال 2؟","options":["ج","د"],"correctAnswer":"ج","difficulty":"medium"},
+            {"type":"mcq","prompt":"سؤال 3؟","options":["هـ","و"],"correctAnswer":"هـ","difficulty":"hard"}
+        ]}"""
+        val countFailure = runCatching {
+            QuestionBankEngine.parseGeneratedQuestions(raw, "ws-test", sampleLesson(), 2, listOf("mcq"))
+        }.isFailure
+        val typeFailure = runCatching {
+            QuestionBankEngine.parseGeneratedQuestions(raw, "ws-test", sampleLesson(), 3, listOf("mcq", "true_false"))
+        }.isFailure
+        val difficultyFailure = runCatching {
+            QuestionBankEngine.parseGeneratedQuestions(raw, "ws-test", sampleLesson(), 3, listOf("mcq"), "easy")
+        }.isFailure
+        assertTrue(countFailure)
+        assertTrue(typeFailure)
+        assertTrue(difficultyFailure)
+    }
+
+    @Test
     fun pdfBookSplitterAutoSplitsAndCreatesWorkspaceWithLessonPdfs() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val splitter = PdfBookSplitter(context)
@@ -630,7 +831,7 @@ class EduMiniCoreTest {
         val manifestFile = File(workspace.rootPath, "workspace/G05/SCI/book_manifest.json")
         assertTrue(indexFile.exists())
         assertTrue(manifestFile.exists())
-        assertTrue(indexFile.readText().contains("edu.book_index.v2"))
+        assertTrue(indexFile.readText().contains("edu.book_index.draft.v1"))
         assertTrue(indexFile.readText().contains("assignmentStatus"))
         assertTrue(indexFile.readText().contains("need_review"))
         assertTrue(indexFile.readText().contains("lesson_01"))
@@ -1003,7 +1204,7 @@ class EduMiniCoreTest {
     }
 
     @Test
-    fun repositoryQuestionBankCrudAndWorkspaceExporterIndexer2Zip() = runBlocking {
+    fun repositoryQuestionBankCrudAndLegacyWorkspaceZip() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val db = EduMiniDatabase.getInstance(context)
         val repo = EduMiniRepository(
@@ -1079,7 +1280,7 @@ class EduMiniCoreTest {
         assertTrue(current.first { it.id == savedFromDraft.first().id }.reviewed)
 
         val baos = ByteArrayOutputStream()
-        val receipt = repo.exportIndexer2Zip(baos, ws)
+        val receipt = repo.exportLegacyWorkspaceZip(baos, ws)
         assertTrue(receipt.entriesCount >= 4)
         assertEquals(1, receipt.draftsCount)
         assertEquals(2, receipt.questionsCount)
@@ -1459,25 +1660,25 @@ class EduMiniCoreTest {
     }
 
     @Test
-    fun indexer2PromptRegistryCoversAllTasksAndStandardSchemas() {
+    fun bookIndexPromptRegistryCoversAllTasksAndStandardSchemas() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         TaskType.entries.forEach { task ->
-            val blueprint = Indexer2PromptRegistry.blueprintFor(task)
+            val blueprint = BookIndexPromptRegistry.blueprintFor(task)
             assertEquals(task, blueprint.task)
-            assertTrue(blueprint.sourcePath.startsWith("prompts/indexer2/"))
+            assertTrue(blueprint.sourcePath.startsWith("prompts/book_indexing/"))
             assertTrue(blueprint.outputContract.isNotBlank())
             context.assets.open(blueprint.sourcePath).use { asset ->
                 assertTrue(asset.readBytes().isNotEmpty())
             }
         }
 
-        assertEquals(6, Indexer2PromptRegistry.schemas.size)
-        assertTrue(Indexer2PromptRegistry.schemas.any { it.fileName.contains("index.json") })
-        assertTrue(Indexer2PromptRegistry.schemas.any { it.fileName.contains("book_manifest.json") })
-        assertTrue(Indexer2PromptRegistry.schemas.any { it.fileName.contains("interactive.json") })
-        assertTrue(Indexer2PromptRegistry.schemas.any { it.fileName == "manifest.json" })
+        assertEquals(6, BookIndexPromptRegistry.schemas.size)
+        assertTrue(BookIndexPromptRegistry.schemas.any { it.fileName.contains("index.json") })
+        assertTrue(BookIndexPromptRegistry.schemas.any { it.fileName.contains("book_manifest.json") })
+        assertTrue(BookIndexPromptRegistry.schemas.any { it.fileName.contains("interactive.json") })
+        assertTrue(BookIndexPromptRegistry.schemas.any { it.fileName == "manifest.json" })
 
-        val prompt = Indexer2PromptRegistry.assemblePrompt(
+        val prompt = BookIndexPromptRegistry.assemblePrompt(
             lesson = sampleLesson(),
             task = TaskType.EXPLANATION,
             source = "مفهوم القسمة المطولة",
@@ -1485,7 +1686,7 @@ class EduMiniCoreTest {
             questionCount = 5,
             attachedPdfPagesCount = 1
         )
-        assertTrue(prompt.contains("prompts/indexer2/lesson_explanation.prompt.md"))
+        assertTrue(prompt.contains("prompts/book_indexing/lesson_explanation.prompt.md"))
         assertTrue(prompt.contains("مفهوم القسمة المطولة"))
         assertTrue(prompt.contains("ملف PDF الأصلي للدرس مرفق"))
     }
@@ -1543,7 +1744,7 @@ class EduMiniCoreTest {
                 """.trimIndent()
             )
 
-            fun addIndexer2Book(subjectKey: String, componentKey: String?, title: String) {
+            fun addBookFixture(subjectKey: String, componentKey: String?, title: String) {
                 val componentFolder = componentKey ?: ""
                 val componentPath = if (componentKey == null) "" else componentKey + "/"
                 val bookDir = File(rootDir, "workspace/G07/" + subjectKey + "/" + componentFolder).apply { mkdirs() }
@@ -1581,12 +1782,12 @@ class EduMiniCoreTest {
                 File(bookDir, "book_manifest.json").writeText(manifestRaw)
             }
 
-            addIndexer2Book("SCI", null, "العلوم والحياة")
-            addIndexer2Book("ENG", "COURSE", "English Course")
-            addIndexer2Book("ENG", "WORKBOOK", "English Workbook")
-            addIndexer2Book("SOC", "GEO", "الجغرافيا")
-            addIndexer2Book("SOC", "HIST", "التاريخ")
-            addIndexer2Book("SOC", "TARBIA", "التربية الوطنية")
+            addBookFixture("SCI", null, "العلوم والحياة")
+            addBookFixture("ENG", "COURSE", "English Course")
+            addBookFixture("ENG", "WORKBOOK", "English Workbook")
+            addBookFixture("SOC", "GEO", "الجغرافيا")
+            addBookFixture("SOC", "HIST", "التاريخ")
+            addBookFixture("SOC", "TARBIA", "التربية الوطنية")
 
             val binder = DirectWorkspaceBinder(context)
             val inspection = binder.inspectDirectory(rootDir)
@@ -2017,7 +2218,7 @@ class EduMiniCoreTest {
                 warnings = emptyList()
             )
             val baos = ByteArrayOutputStream()
-            val receipt = WorkspaceExporter.exportIndexer2CompatibleZip(
+            val receipt = WorkspaceExporter.exportLegacyWorkspaceZip(
                 outputStream = baos,
                 workspace = workspace,
                 drafts = emptyList(),
@@ -2828,9 +3029,9 @@ class EduMiniCoreTest {
             assertEquals(8, sameDayReservations.count { it })
             assertEquals(8, storage.loadProviders().single { it.id == provider.id }.dailyRequestsUsed)
 
-            // Diagnostic QUOTA_EXHAUSTED does not act as a hard local block unless key is disabled/rate-limited/invalid.
+            // A provider-confirmed exhausted quota blocks this profile for the current quota day.
             storage.updateProviderRuntimeState(provider.id, ProviderStorage.STATUS_QUOTA_EXHAUSTED, 0L)
-            assertTrue(storage.reserveProviderKey(provider.id, dayOne + 30_000L))
+            assertFalse(storage.reserveProviderKey(provider.id, dayOne + 30_000L))
 
             // Active RATE_LIMITED blocks until retryAfterEpochMs expires.
             val cooldownEnd = dayOne + 120_000L
@@ -2838,10 +3039,12 @@ class EduMiniCoreTest {
             assertFalse(storage.reserveProviderKey(provider.id, dayOne + 60_000L))
             assertTrue(storage.reserveProviderKey(provider.id, cooldownEnd + 1_000L))
 
-            // INVALID_KEY and DISABLED remain blocked even across UTC day rollover.
-            storage.updateProviderRuntimeState(provider.id, ProviderStorage.STATUS_INVALID_KEY, 0L)
+            // Quota exhaustion clears at the next configured quota day; invalid keys do not.
+            storage.updateProviderRuntimeState(provider.id, ProviderStorage.STATUS_QUOTA_EXHAUSTED, 0L)
             val nextDay = todayUtc.plusDays(1).atTime(0, 1).toInstant(java.time.ZoneOffset.UTC).toEpochMilli()
-            assertFalse(storage.reserveProviderKey(provider.id, nextDay))
+            assertTrue(storage.reserveProviderKey(provider.id, nextDay))
+            storage.updateProviderRuntimeState(provider.id, ProviderStorage.STATUS_INVALID_KEY, 0L)
+            assertFalse(storage.reserveProviderKey(provider.id, nextDay + 60_000L))
         }
     }
 
@@ -2932,6 +3135,18 @@ class EduMiniCoreTest {
             com.example.data.ai.ProviderRoutingPolicy.modelCandidates(geminiProfiles.single())
         )
         assertEquals(
+            listOf("gemini-selected", "gemini-primary", "gemini-fallback"),
+            com.example.data.ai.ProviderRoutingPolicy.modelCandidates(geminiProfiles.single(), "gemini-selected")
+        )
+        assertEquals(
+            listOf("gemini-key"),
+            com.example.data.ai.ProviderRoutingPolicy.orderedProfiles(
+                profiles,
+                ProviderType.GEMINI,
+                "gemini-key"
+            ).map { it.id }
+        )
+        assertEquals(
             listOf("gpt-test", "gpt-fallback"),
             com.example.data.ai.ProviderRoutingPolicy.modelCandidates(openAiProfiles.single())
         )
@@ -2959,6 +3174,21 @@ class EduMiniCoreTest {
     }
 
     @Test
+    fun explicitCatalogueModelSelectionNeverAddsProfileFallbacks() {
+        assertEquals(
+            listOf("gemini-3.8-flash"),
+            com.example.data.ai.ProviderRoutingPolicy.exactModelCandidate("gemini-3.8-flash")
+        )
+        assertEquals(
+            listOf("gpt-enterprise-v7"),
+            com.example.data.ai.ProviderRoutingPolicy.exactModelCandidate(" gpt-enterprise-v7 ")
+        )
+        assertTrue(runCatching {
+            com.example.data.ai.ProviderRoutingPolicy.exactModelCandidate(" ")
+        }.isFailure)
+    }
+
+    @Test
     fun geminiModelCooldownDoesNotBlockSiblingModelsOrOtherKeys() {
         val router = com.example.data.ai.GeminiModelRouter(defaultCooldownMs = 60_000L)
         val now = 1_000_000L
@@ -2968,6 +3198,230 @@ class EduMiniCoreTest {
         assertFalse(router.isCoolingDown("key-a", "gemini-3.7-flash", now + 1_000L))
         assertFalse(router.isCoolingDown("key-b", "gemini-3.8-flash", now + 1_000L))
         assertFalse(router.isCoolingDown("key-a", "gemini-3.8-flash", now + 61_000L))
+    }
+
+    @Test
+    fun geminiRetriesThreeTimesThenUsesNextConfiguredModel() {
+        val server = ServerSocket(0)
+        val requestLines = java.util.Collections.synchronizedList(mutableListOf<String>())
+        val serverFailure = java.util.concurrent.atomic.AtomicReference<Throwable?>(null)
+        val successBody = """{"candidates":[{"content":{"parts":[{"text":"fallback model response"}]}}],"usageMetadata":{"totalTokenCount":3}}"""
+        val thread = Thread {
+            try {
+                repeat(4) { index ->
+                    server.accept().use { socket ->
+                        val request = readTestHttpRequest(socket)
+                        requestLines.add(request.lineSequence().firstOrNull().orEmpty())
+                        if (index < 3) {
+                            writeTestHttpResponse(socket, 503, """{"error":{"message":"Service unavailable","status":"UNAVAILABLE"}}""")
+                        } else {
+                            writeTestHttpResponse(socket, 200, successBody)
+                        }
+                    }
+                }
+            } catch (error: Throwable) {
+                serverFailure.set(error)
+            }
+        }
+        thread.start()
+        try {
+            val profile = ProviderConfig(
+                id = "gemini-retry-profile",
+                provider = ProviderType.GEMINI,
+                label = "Gemini retry profile",
+                model = "gemini-primary",
+                baseUrl = "",
+                apiKey = "gemini-retry-key",
+                enabled = true,
+                createdAt = 1L,
+                fallbackModels = listOf("gemini-fallback")
+            )
+            val generated = runBlocking {
+                AiGenerationService(
+                    geminiEndpointBase = "http://127.0.0.1:${server.localPort}/v1beta/models"
+                ).execute(
+                    com.example.data.ai.AiExecutionRequest(
+                        prompt = "Return a short response",
+                        providers = listOf(profile),
+                        selectedProvider = ProviderType.GEMINI,
+                        requestedModelId = "gemini-primary",
+                        requestedProfileId = profile.id
+                    )
+                )
+            }
+            thread.join(5_000L)
+            assertEquals("fallback model response", generated.text)
+            assertEquals("gemini-fallback", generated.model)
+            assertEquals(4, requestLines.size)
+            assertEquals(
+                listOf(
+                    "POST /v1beta/models/gemini-primary:generateContent HTTP/1.1",
+                    "POST /v1beta/models/gemini-primary:generateContent HTTP/1.1",
+                    "POST /v1beta/models/gemini-primary:generateContent HTTP/1.1",
+                    "POST /v1beta/models/gemini-fallback:generateContent HTTP/1.1"
+                ),
+                requestLines.toList()
+            )
+            assertNull(serverFailure.get())
+        } finally {
+            runCatching { server.close() }
+            thread.join(2_000L)
+        }
+    }
+
+    @Test
+    fun geminiQuotaExhaustionMovesDirectlyToNextSameProviderProfile() {
+        val server = ServerSocket(0)
+        val requests = java.util.Collections.synchronizedList(mutableListOf<String>())
+        val statuses = java.util.Collections.synchronizedList(mutableListOf<String>())
+        val thread = Thread {
+            repeat(2) { index ->
+                server.accept().use { socket ->
+                    requests.add(readTestHttpRequest(socket))
+                    if (index == 0) {
+                        writeTestHttpResponse(
+                            socket,
+                            429,
+                            """{"error":{"message":"Resource exhausted","status":"RESOURCE_EXHAUSTED","details":[{"metadata":{"quotaId":"GenerateRequestsPerDayPerProjectPerModel-FreeTier","quotaMetric":"generativelanguage.googleapis.com/generate_content_free_tier_requests"}}]}}"""
+                        )
+                    } else {
+                        writeTestHttpResponse(
+                            socket,
+                            200,
+                            """{"candidates":[{"content":{"parts":[{"text":"second key success"}]}}]}"""
+                        )
+                    }
+                }
+            }
+        }
+        thread.start()
+        try {
+            val profiles = listOf(
+                ProviderConfig("gemini-a", ProviderType.GEMINI, "Gemini A", "gemini-primary", "", "key-a", true, 1L),
+                ProviderConfig("gemini-b", ProviderType.GEMINI, "Gemini B", "gemini-primary", "", "key-b", true, 2L)
+            )
+            val generated = runBlocking {
+                AiGenerationService(
+                    geminiEndpointBase = "http://127.0.0.1:${server.localPort}/v1beta/models"
+                ).execute(
+                    com.example.data.ai.AiExecutionRequest(
+                        prompt = "Return a short response",
+                        providers = profiles,
+                        selectedProvider = ProviderType.GEMINI,
+                        requestedModelId = "gemini-primary",
+                        requestedProfileId = "gemini-a",
+                        onProviderStateChanged = { _, status, _ -> statuses.add(status) }
+                    )
+                )
+            }
+            thread.join(5_000L)
+            assertEquals("second key success", generated.text)
+            assertEquals("Gemini B", generated.providerLabel)
+            assertEquals(2, requests.size)
+            assertTrue(requests[0].contains("x-goog-api-key: key-a", ignoreCase = true))
+            assertTrue(requests[1].contains("x-goog-api-key: key-b", ignoreCase = true))
+            assertTrue(statuses.contains("QUOTA_EXHAUSTED"))
+        } finally {
+            runCatching { server.close() }
+            thread.join(2_000L)
+        }
+    }
+
+    @Test
+    fun openAiQuotaExhaustionMovesToNextOpenAiKeyWithoutChangingProvider() {
+        val server = ServerSocket(0)
+        val requests = java.util.Collections.synchronizedList(mutableListOf<String>())
+        val thread = Thread {
+            repeat(2) { index ->
+                server.accept().use { socket ->
+                    requests.add(readTestHttpRequest(socket))
+                    if (index == 0) {
+                        writeTestHttpResponse(
+                            socket,
+                            429,
+                            """{"error":{"message":"You exceeded your current quota","type":"insufficient_quota","code":"insufficient_quota"}}"""
+                        )
+                    } else {
+                        writeTestHttpResponse(
+                            socket,
+                            200,
+                            """{"choices":[{"message":{"content":"openai second key success"}}]}"""
+                        )
+                    }
+                }
+            }
+        }
+        thread.start()
+        try {
+            val baseUrl = "http://127.0.0.1:${server.localPort}/v1"
+            val profiles = listOf(
+                ProviderConfig("openai-a", ProviderType.OPENAI_COMPATIBLE, "OpenAI A", "gpt-test", baseUrl, "key-a", true, 1L),
+                ProviderConfig("openai-b", ProviderType.OPENAI_COMPATIBLE, "OpenAI B", "gpt-test", baseUrl, "key-b", true, 2L)
+            )
+            val generated = runBlocking {
+                AiGenerationService().execute(
+                    com.example.data.ai.AiExecutionRequest(
+                        prompt = "Return a short response",
+                        providers = profiles,
+                        selectedProvider = ProviderType.OPENAI_COMPATIBLE,
+                        requestedModelId = "gpt-test",
+                        requestedProfileId = "openai-a"
+                    )
+                )
+            }
+            thread.join(5_000L)
+            assertEquals("openai second key success", generated.text)
+            assertEquals("OpenAI B", generated.providerLabel)
+            assertEquals(2, requests.size)
+            assertTrue(requests[0].contains("Authorization: Bearer key-a", ignoreCase = true))
+            assertTrue(requests[1].contains("Authorization: Bearer key-b", ignoreCase = true))
+        } finally {
+            runCatching { server.close() }
+            thread.join(2_000L)
+        }
+    }
+
+    private fun readTestHttpRequest(socket: Socket): String {
+        val input = BufferedInputStream(socket.getInputStream())
+        val headers = ByteArrayOutputStream()
+        var matched = 0
+        while (matched < 4) {
+            val value = input.read()
+            if (value < 0) break
+            headers.write(value)
+            matched = when {
+                matched == 0 && value == 13 -> 1
+                matched == 1 && value == 10 -> 2
+                matched == 2 && value == 13 -> 3
+                matched == 3 && value == 10 -> 4
+                value == 13 -> 1
+                else -> 0
+            }
+        }
+        val headerText = headers.toString(Charsets.US_ASCII.name())
+        val contentLength = Regex("Content-Length:\\s*(\\d+)", RegexOption.IGNORE_CASE)
+            .find(headerText)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 0
+        var remaining = contentLength
+        val buffer = ByteArray(8 * 1024)
+        while (remaining > 0) {
+            val count = input.read(buffer, 0, minOf(buffer.size, remaining))
+            if (count <= 0) break
+            remaining -= count
+        }
+        return headerText
+    }
+
+    private fun writeTestHttpResponse(socket: Socket, status: Int, body: String) {
+        val bytes = body.toByteArray(Charsets.UTF_8)
+        val reason = if (status == 200) "OK" else if (status == 429) "Too Many Requests" else "Service Unavailable"
+        val headers = "HTTP/1.1 $status $reason\r\n" +
+            "Content-Type: application/json\r\n" +
+            "Content-Length: ${bytes.size}\r\n" +
+            "Connection: close\r\n\r\n"
+        val output = socket.getOutputStream()
+        output.write(headers.toByteArray(Charsets.US_ASCII))
+        output.write(bytes)
+        output.flush()
     }
 
     @Test
@@ -3446,15 +3900,140 @@ class EduMiniCoreTest {
                 extra = "",
                 providers = providers,
                 selectedProvider = ProviderType.OPENAI_COMPATIBLE,
+                selectedModelId = "gpt-test",
+                selectedProfileId = "openai-text-only",
                 questionCount = 5,
                 attachPdfPages = true,
                 template = template
             )
             assertEquals("شرح نصي من OpenAI بدون PDF", generated.text)
             assertEquals("Local Mock OpenAI", generated.providerLabel)
+            assertEquals("gpt-test", generated.model)
         } finally {
             runCatching { server.close() }
             serverThread.join(2000)
+            database.close()
+        }
+    }
+
+    @Test
+    fun openAiCompatibleContentArraySegmentsAreConcatenated() {
+        val server = ServerSocket(0)
+        val thread = Thread {
+            server.accept().use { socket ->
+                readTestHttpRequest(socket)
+                writeTestHttpResponse(
+                    socket,
+                    200,
+                    """{"choices":[{"message":{"content":[{"type":"text","text":"segment one"},{"type":"text","text":" segment two"}]}}]}"""
+                )
+            }
+        }
+        thread.start()
+        try {
+            val profile = ProviderConfig(
+                id = "openai-array-content",
+                provider = ProviderType.OPENAI_COMPATIBLE,
+                label = "OpenAI array content",
+                model = "gpt-test",
+                baseUrl = "http://127.0.0.1:${server.localPort}/v1",
+                apiKey = "test-openai-key",
+                enabled = true,
+                createdAt = 1L
+            )
+            val generated = runBlocking {
+                AiGenerationService().execute(
+                    com.example.data.ai.AiExecutionRequest(
+                        prompt = "Return text",
+                        providers = listOf(profile),
+                        selectedProvider = ProviderType.OPENAI_COMPATIBLE,
+                        requestedModelId = "gpt-test",
+                        requestedProfileId = profile.id,
+                        onProviderStateChanged = { _, _, _ -> throw IllegalStateException("state store unavailable") },
+                        onAttemptFinished = { _, _, _, _ -> throw IllegalStateException("attempt log unavailable") }
+                    )
+                )
+            }
+            thread.join(3_000L)
+            assertEquals("segment one segment two", generated.text)
+        } finally {
+            runCatching { server.close() }
+            thread.join(2_000L)
+        }
+    }
+
+    @Test
+    fun questionResponseWithContractErrorsIsReturnedForReviewInsteadOfThrownAway() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val database = Room.inMemoryDatabaseBuilder(context, EduMiniDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        val server = ServerSocket(0)
+        val rawResponse = """{"questions":[]}"""
+        val serverThread = Thread {
+            server.accept().use { socket ->
+                readTestHttpRequest(socket)
+                writeTestHttpResponse(socket, 200, """{"choices":[{"message":{"content":"{\"questions\":[]}"}}]}""")
+            }
+        }
+        serverThread.start()
+        try {
+            val providerStorage = ProviderStorage(context)
+            val providers = listOf(
+                ProviderConfig(
+                    id = "openai-invalid-content",
+                    provider = ProviderType.OPENAI_COMPATIBLE,
+                    label = "OpenAI mock",
+                    model = "gpt-test",
+                    baseUrl = "http://127.0.0.1:${server.localPort}/v1",
+                    apiKey = "test-openai-key",
+                    enabled = true,
+                    createdAt = System.currentTimeMillis()
+                )
+            )
+            providerStorage.saveProviders(providers)
+            val repository = EduMiniRepository(
+                dao = database.eduMiniDao(),
+                providerStorage = providerStorage,
+                workspaceImporter = WorkspaceImporter(context),
+                aiGenerationService = AiGenerationService(context),
+                interactivePackageImporter = InteractivePackageImporter(context),
+                appContext = context
+            )
+            val lesson = sampleLesson().copy(pdfPath = null)
+            val template = PromptTemplateRecord(
+                id = "tpl-invalid-question-batch",
+                title = "Invalid question batch",
+                task = TaskType.QUESTIONS,
+                instructions = "أنشئ أسئلة وفق العقد",
+                responseFormat = "json",
+                sourceAttachmentMode = "none"
+            )
+            val generated = repository.generateContent(
+                workspaceId = lesson.workspaceId,
+                lesson = lesson,
+                task = TaskType.QUESTIONS,
+                source = "مصدر تعليمي كافٍ لإنشاء الأسئلة",
+                extra = "",
+                providers = providers,
+                selectedProvider = ProviderType.OPENAI_COMPATIBLE,
+                selectedModelId = "gpt-test",
+                selectedProfileId = "openai-invalid-content",
+                questionCount = 2,
+                attachPdfPages = false,
+                questionTypeIds = listOf("mcq"),
+                difficultyHint = "easy",
+                template = template
+            )
+
+            serverThread.join(3_000L)
+            assertEquals(rawResponse, generated.text)
+            assertTrue(generated.validationIssues.isNotEmpty())
+            assertTrue(generated.validationIssues.any { it.contains("العدد الناتج") || it.contains("questions") })
+            assertEquals("OpenAI mock", generated.providerLabel)
+        } finally {
+            runCatching { server.close() }
+            serverThread.join(2_000L)
             database.close()
         }
     }
@@ -4059,8 +4638,10 @@ class EduMiniCoreTest {
     fun localModeWithoutFirebaseAndAnalyticsWiringDoesNotCrash() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
 
-        // Unconfigured build has no google-services.json -> default_web_client_id is empty
-        assertEquals("", com.example.ui.auth.resolveDefaultWebClientId(context))
+        // CI may inject google-services.json and generate default_web_client_id.
+        // Its presence is build configuration, not evidence that Firebase services are wired
+        // into this local-mode test. Exercise the resolver without assuming the resource is absent.
+        com.example.ui.auth.resolveDefaultWebClientId(context)
 
         // Null-backed FirestoreSyncRepository must fail gracefully instead of throwing IllegalStateException
         val nullSync = com.example.data.firebase.FirestoreSyncRepository(db = null, auth = null)
@@ -4140,7 +4721,7 @@ class EduMiniCoreTest {
     }
 
     @Test
-    fun bookMetadataMapperUsesOnlyCanonicalIndexer2Keys() {
+    fun bookMetadataMapperUsesOnlyCanonicalCurriculumKeys() {
         val mapper = com.example.data.workspace.BookMetadataMapper
         assertEquals("الصف السابع الأساسي", mapper.gradeDisplayName("G07"))
         assertEquals("الرياضيات", mapper.subjectDisplayName("MATH"))
@@ -4274,6 +4855,84 @@ class EduMiniCoreTest {
             rootDir.deleteRecursively()
             database.close()
         }
+    }
+
+    @Test
+    fun aiModelCatalogPersistsDefaultsAndSupportsCrudSafely() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        context.getSharedPreferences("edu_mini_secure_prefs", android.content.Context.MODE_PRIVATE)
+            .edit().clear().commit()
+        val storage = ProviderStorage(context)
+
+        val initial = storage.loadModelCatalog()
+        assertTrue(initial.any { it.modelId == "gemini-3.5-flash" && it.isDefault })
+        assertTrue(initial.any { it.modelId == "gemini-3.6-flash" && it.displayName == "Gemini 3.6 Flash" })
+        assertTrue(initial.any { it.modelId == "gemini-3.7-flash" && it.displayName == "Gemini 3.7 Flash" })
+        assertTrue(initial.any { it.modelId == "gemini-3.8-flash" && it.displayName == "Gemini 3.8 Flash" })
+        assertEquals(4, initial.count { it.provider == ProviderType.GEMINI })
+
+        val custom = com.example.data.ai.AiModelDefinition(
+            modelId = "gemini-custom-test",
+            displayName = "Gemini Custom Test",
+            provider = ProviderType.GEMINI
+        )
+        storage.addModelDefinition(custom)
+        storage.setDefaultModel(ProviderType.GEMINI, custom.modelId)
+        val afterDefault = storage.loadModelCatalog()
+        assertTrue(afterDefault.any { it.modelId == custom.modelId && it.isDefault })
+        assertFalse(afterDefault.any { it.modelId == "gemini-3.5-flash" && it.isDefault })
+
+        val renamed = custom.copy(modelId = "gemini-custom-renamed", displayName = "Renamed model")
+        storage.updateModelDefinition(custom.modelId, renamed)
+        assertTrue(storage.loadModelCatalog().any { it.modelId == renamed.modelId && it.displayName == renamed.displayName })
+        storage.setDefaultModel(ProviderType.GEMINI, "gemini-3.5-flash")
+        storage.deleteModelDefinition(renamed.modelId)
+        assertFalse(storage.loadModelCatalog().any { it.modelId == renamed.modelId })
+    }
+
+    @Test
+    fun aiModelCatalogMigrationRestoresGeminiSeedsWhenLegacyCatalogWasEmpty() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        context.getSharedPreferences("edu_mini_secure_prefs", android.content.Context.MODE_PRIVATE)
+            .edit().clear()
+            .putString("edu_mini_ai_model_catalog_v1", "[]")
+            .commit()
+        val storage = ProviderStorage(context)
+
+        val migrated = storage.loadModelCatalog()
+        assertTrue(migrated.any { it.modelId == "gemini-3.5-flash" && it.isDefault })
+        assertTrue(migrated.any { it.modelId == "gemini-3.6-flash" })
+        assertTrue(migrated.any { it.modelId == "gemini-3.7-flash" })
+        assertTrue(migrated.any { it.modelId == "gemini-3.8-flash" })
+        assertEquals(4, migrated.count { it.provider == ProviderType.GEMINI })
+        assertEquals(1, migrated.count { it.provider == ProviderType.GEMINI && it.isDefault })
+    }
+
+    @Test
+    fun aiModelCatalogPreventsDeletingDefaultOrProfileReferencedModels() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        context.getSharedPreferences("edu_mini_secure_prefs", android.content.Context.MODE_PRIVATE)
+            .edit().clear().commit()
+        val storage = ProviderStorage(context)
+        val catalog = storage.loadModelCatalog()
+        assertTrue(runCatching { storage.deleteModelDefinition(catalog.first { it.isDefault }.modelId) }.isFailure)
+
+        val referencedModel = catalog.first { it.provider == ProviderType.GEMINI && !it.isDefault }
+        storage.saveProviders(
+            listOf(
+                ProviderConfig(
+                    id = "catalog-test-profile",
+                    provider = ProviderType.GEMINI,
+                    label = "Catalog test",
+                    model = referencedModel.modelId,
+                    baseUrl = "",
+                    apiKey = "test-key",
+                    enabled = true,
+                    createdAt = 1L
+                )
+            )
+        )
+        assertTrue(runCatching { storage.deleteModelDefinition(referencedModel.modelId) }.isFailure)
     }
 
 }

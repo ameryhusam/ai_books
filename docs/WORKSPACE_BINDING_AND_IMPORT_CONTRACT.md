@@ -2,18 +2,16 @@
 
 ## 1. Responsibility boundary
 
-**Indexer2 is the workspace producer and the single source of truth for book structure. Edu Mini is a workspace consumer.**
+**ai_books owns the complete content-authoring and workspace lifecycle.** The administrator device prepares and approves the curriculum locally; student devices consume grade-scoped content packages. No runtime, schema, API, database, or operational dependency on Indexer2 is permitted.
 
-Indexer2 is responsible for:
-- identifying grade, subject, optional component, source layout and part assignment;
-- reviewing and approving the index and page calibration;
-- slicing lesson PDFs;
-- writing every index, manifest, validation artifact and lesson-file reference;
-- recording hashes and review provenance.
+ai_books is responsible for the full lifecycle:
+- ingesting the selected source PDF temporarily, extracting/reviewing the TOC, and approving the index;
+- assigning stable book/unit/lesson identities and page ranges;
+- slicing lesson PDFs and producing any approved lesson text/HTML assets;
+- persisting the canonical approved index and learning content metadata in Room;
+- maintaining the administrator Workspace and producing portable grade packages.
 
-Edu Mini must not repeat PDF discovery, AI index extraction, part classification, unit assignment, page calibration or lesson slicing. It must not reconstruct lesson paths when the index already provides a valid `sliceFile.workspaceUri`.
-
-Edu Mini validates the package, reads the prepared index records, resolves their declared file references, and persists application metadata/references. It does not rewrite source artifacts.
+The student app validates and imports a grade package, stores its lesson files locally, and binds them to the canonical curriculum records in its own Room database. It must not depend on the administrator device's absolute paths or content URIs.
 
 ## 2. Workspace root and index placement
 
@@ -74,7 +72,7 @@ A P01 proposal must never be silently promoted to a confirmed assignment.
 
 ## 3. Identity and display metadata
 
-The canonical identity fields are `gradeKey`, `subjectKey`, and optional `componentKey`. They are validated against the Indexer2 key catalog and the workspace path.
+The canonical identity fields are `gradeKey`, `subjectKey`, and optional `componentKey`. They are validated against the app-owned curriculum catalog and the package metadata/path.
 
 Display labels are presentation data:
 - use a non-empty `displayName` / `subjectName` / `componentName` declared by the prepared index when available;
@@ -142,7 +140,33 @@ flowchart TD
   K --> L[Expose units and lessons]
 ```
 
-## 9. Current implementation status versus target contract
+## 9. Grade content package for student devices
+
+The distribution unit is a **grade-scoped content package**, not a copy of the administrator's full database. The package is generated from the approved Room curriculum and contains:
+- grade/package metadata and a stable package ID/version;
+- stable book, unit, and lesson keys plus the minimum metadata needed to bind each file to its Room record;
+- lesson PDFs and all required local assets (including HTML/interactive assets when used);
+- relative file paths, byte sizes, SHA-256 hashes, and a package manifest;
+- optional approved question/assessment content only when that content is intended to be distributed to learners.
+
+The package does not contain the administrator's private drafts, API credentials, local settings, unrelated grades, or learner performance history. The canonical index remains in Room; package metadata is a binding/transport projection, not a second editable source of truth. On import, the student app validates the package, installs files into app-managed local storage, then binds them to local Room records. Lesson viewing resolves the local file by stable lesson identity and a validated relative path, never by a path copied from the administrator device.
+
+Suggested logical layout (names are illustrative and must be reconciled with the existing folder contract before implementation):
+
+```text
+grade-package.zip
+  package_manifest.json
+  grade_metadata.json
+  books/<bookKey>/book_metadata.json
+  books/<bookKey>/units/<unitKey>/lessons/<lessonKey>/lesson.pdf
+  books/<bookKey>/units/<unitKey>/lessons/<lessonKey>/content.json
+  books/<bookKey>/units/<unitKey>/lessons/<lessonKey>/interactive/...
+  assets/...
+```
+
+Import must be staged and atomic at package level: verify ZIP paths, grade identity, schema/version compatibility, required files, sizes and hashes before making the package active. A failed import must leave the previously installed package and learner records intact. Re-import/update must preserve stable lesson identities and learner progress; removed lessons require an explicit retention/archive policy, not silent deletion.
+
+## 10. Current implementation status versus target contract
 
 The Android implementation has now been updated toward this contract:
 - the direct binder discovers root and part-local indexes; a part-local index is accepted as an independent source only with its local manifest, while a merged derived view is skipped when its root index exists;
@@ -151,9 +175,9 @@ The Android implementation has now been updated toward this contract:
 - a declared `sliceFile.workspaceUri` is authoritative. If it is unsafe or cannot be resolved, the consumer does not silently reconstruct a different lesson path; legacy reconstruction is reserved for packages with no explicit URI;
 - the importer and binder prefer the index-provided `subjectName` for display, with the Android mapper as fallback.
 
-Tests have been added for standalone part-local import/binding, merged derived-index hash validation, and explicit URI precedence. The repository test suite and Android build have not been run in this work session; the GitHub commits currently show no CI status checks. Do not treat code changes as test-passing until those commands run successfully.
+Tests have been added for standalone part-local import/binding, merged derived-index hash validation, and explicit URI precedence. The repository test suite and Android build have not been run in this work session; do not treat code changes as test-passing until those commands run successfully.
 
-## 10. Rejection diagnostics
+## 11. Rejection diagnostics
 
 Report the book root, index path and failing field/file. At minimum distinguish:
 - missing or invalid grade/subject/component key;
