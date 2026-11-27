@@ -465,6 +465,7 @@ private fun StudioWorkbench(
     LaunchedEffect(generatedResult) {
         if (generatedResult.isNotBlank() && generatedResult != lastResultSeen && workbenchTab == 0) {
             lastResultSeen = generatedResult
+            workbenchTab = 1
         }
     }
 
@@ -780,7 +781,7 @@ private fun StudioWorkbench(
 
                             if (task == TaskType.QUESTIONS || task == TaskType.INTERACTIVE) {
                                 Text(
-                                    text = stringResource(R.string.studio_question_count_label),
+                                    text = if (task == TaskType.INTERACTIVE) "عدد المحطات التفاعلية المطلوبة" else stringResource(R.string.studio_question_count_label),
                                     style = MaterialTheme.typography.labelMedium,
                                     color = EduInk,
                                     modifier = Modifier.padding(top = 4.dp)
@@ -791,7 +792,7 @@ private fun StudioWorkbench(
                                 ) {
                                     listOf(3, 5, 10, 15, 20).forEach { count ->
                                         EduPill(
-                                            text = "$count أسئلة",
+                                            text = if (task == TaskType.INTERACTIVE) "$count محطات" else "$count أسئلة",
                                             active = questionCount == count,
                                             onClick = { onQuestionCountChange(count) },
                                             testTag = "question_count_$count"
@@ -1298,6 +1299,7 @@ private fun StudioWorkbench(
                                         Spacer(modifier = Modifier.width(4.dp))
                                         Text("نسخ", color = EduInk, style = MaterialTheme.typography.labelMedium)
                                     }
+                                    if (task == TaskType.QUESTIONS) {
                                     OutlinedButton(
                                         onClick = onSaveToQuestionBank,
                                         shape = RoundedCornerShape(10.dp),
@@ -1309,6 +1311,7 @@ private fun StudioWorkbench(
                                         Icon(Icons.Outlined.Quiz, contentDescription = null, tint = EduGreenDark, modifier = Modifier.size(16.dp))
                                         Spacer(modifier = Modifier.width(4.dp))
                                         Text("استخراج لبنك الأسئلة", color = EduGreenDark, style = MaterialTheme.typography.labelMedium)
+                                    }
                                     }
                                 }
 
@@ -1363,7 +1366,7 @@ private fun StudioWorkbench(
                                 color = EduInk,
                                 modifier = Modifier.padding(top = 4.dp)
                             )
-                            lessonDrafts.forEach { draft ->
+                            lessonDrafts.filter { it.task == task }.forEach { draft ->
                                 val statusEnum = DraftStatus.fromId(draft.status)
                                 EduPanel(
                                     modifier = Modifier
