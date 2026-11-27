@@ -1511,7 +1511,6 @@ class EduMiniCoreTest {
             {
               "gradeKey":"G05",
               "subjectKey":"SCI",
-              "partKey":"P01",
               "sourceLayout":"MERGED_PARTS_FILE",
               "approvalStatus":"NEEDS_REVIEW",
               "requiresReview":true,
