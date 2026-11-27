@@ -6,7 +6,7 @@ Working branch: `feat/provider-isolation-local-workspace`.
 ## Non-negotiable decisions
 
 - Gemini and OpenAI are independent providers. Provider selection is explicit; failure in one provider never invokes the other.
-- Gemini alone owns Gemini model fallback and Gemini key selection/rotation. Candidate models must be configured, available to the selected project/key, and compatible with the task contract.
+- The selected provider/profile/model is explicit. The current generation path uses only the exact model selected by the user; it does not silently rotate keys, change profiles, switch providers or dispatch a configured fallback model. Any future same-provider fallback must be explicitly enabled, observable and tested.
 - OpenAI remains independently selectable/testable and owns its own model, key, retry, and error policy.
 - PDF splitting is paused and removed from active application flows. PDF reading, page rendering, OCR/text extraction, source attachment, and workspace indexing remain.
 - Local workspace is the source for discovering grade/subject/book/lesson metadata. No persistent lesson JSON snapshot is introduced in this work.
@@ -28,11 +28,11 @@ Exit criteria:
 - Gemini: keep key/model candidate iteration inside Gemini only; classify 401/403, 429 quota vs rate-limit, 5xx, network and invalid-request failures; use bounded exponential backoff with jitter and Retry-After; enforce one quota reservation per actual HTTP dispatch.
 - OpenAI: separate implementation and settings/test connection path; no Gemini key/model state is read by it.
 - A provider switch affects new requests only; in-flight requests retain their selected provider.
-- Preserve template prompt, response schema/mapping, attachment semantics and provenance.
+- Preserve prompt-template instructions/version, database-derived response contracts for persisted records, attachment semantics and provenance. Legacy template schema/mapping fields must not override the current Room-derived contract.
 
 Exit criteria:
 - Tests prove Gemini failure never dispatches OpenAI and vice versa.
-- Tests prove model/key fallback is provider-scoped and bounded.
+- Tests prove the exact selected model/profile is used and no automatic provider/profile/key/model substitution occurs under the current policy.
 - Test-connection action tests only the selected profile/provider.
 - No secrets appear in logs or error messages.
 
@@ -45,8 +45,8 @@ Implemented on `feat/provider-isolation-local-workspace`:
 - Captured the selected provider in each generation request. A provider change affects subsequent requests; an in-flight request keeps its captured selection.
 - Filtered active provider profiles before generation. Gemini requests can only use Gemini profiles and OpenAI requests can only use OpenAI-compatible profiles.
 - Restricted PDF attachment preparation to the selected provider's supported path: native PDF for Gemini; rendered page images for OpenAI-compatible endpoints.
-- Added `ProviderRoutingPolicy` to centralize provider-scoped profile ordering and model fallback candidates.
-- On Gemini HTTP 429, apply an in-memory model-scoped cooldown (profile + model) and immediately try the next configured Gemini model/key; sibling models on the same key remain eligible. Cooldown state currently resets when the process restarts. Quota-exhausted keys are marked and skipped.
+- Added `ProviderRoutingPolicy` for provider-scoped profile handling. Although it contains a configured-candidate helper, the current generation path uses `exactModelCandidate(requestedModelId)` and therefore dispatches only the exact model selected in the UI.
+- Current runtime behavior: on Gemini HTTP 429, apply an in-memory model-scoped cooldown (profile + model) and stop the request. Do not automatically try another model, API profile or key. Cooldown state currently resets when the process restarts. Quota-exhausted responses stop the current request.
 - Transient non-429 failures use bounded exponential backoff with jitter; every actual dispatch reserves its own request slot.
 - Added tests for provider isolation, strict-model behavior, persistence of the selected provider, and model-scoped Gemini cooldown.
 - Added the missing `MessageDigest` import in `AiGenerationService.kt`.
@@ -57,6 +57,9 @@ Validation limitations:
 - The CI workflow has been updated to run on pushes to `main` and `feat/**` branches, and on pull requests targeting `main`. No completed workflow result has been observed yet, so no Gradle result or APK is claimed.
 - Before declaring Phase 1 complete, run `:app:compileDebugKotlin`, `:app:testDebugUnitTest`, and `:app:assembleDebug` in an Android/Gradle environment. Resolve any compiler/test failures before beginning Phase 2.
 
+
+
+**Current policy clarification (2026-11-27):** the historical Phase 1 notes above have been reconciled with the active AiGenerationService path. It enforces the exact selected profile and model; configured fallbackModels are not currently dispatched. The shared AI architecture described in Generation Studio uses one task-neutral execution entry point with private provider-specific transport adapters. Task parsing, semantic validation, database mapping and UI delivery remain feature-owned.
 ## Phase 2 — Pause PDF splitting (P0)
 
 - Remove splitter entry points from active UI/navigation and repository workflows.
