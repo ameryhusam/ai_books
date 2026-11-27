@@ -3917,6 +3917,50 @@ class EduMiniCoreTest {
     }
 
     @Test
+    fun openAiCompatibleContentArraySegmentsAreConcatenated() {
+        val server = ServerSocket(0)
+        val thread = Thread {
+            server.accept().use { socket ->
+                readTestHttpRequest(socket)
+                writeTestHttpResponse(
+                    socket,
+                    200,
+                    """{"choices":[{"message":{"content":[{"type":"text","text":"segment one"},{"type":"text","text":" segment two"}]}}]}"""
+                )
+            }
+        }
+        thread.start()
+        try {
+            val profile = ProviderConfig(
+                id = "openai-array-content",
+                provider = ProviderType.OPENAI_COMPATIBLE,
+                label = "OpenAI array content",
+                model = "gpt-test",
+                baseUrl = "http://127.0.0.1:${server.localPort}/v1",
+                apiKey = "test-openai-key",
+                enabled = true,
+                createdAt = 1L
+            )
+            val generated = runBlocking {
+                AiGenerationService().execute(
+                    com.example.data.ai.AiExecutionRequest(
+                        prompt = "Return text",
+                        providers = listOf(profile),
+                        selectedProvider = ProviderType.OPENAI_COMPATIBLE,
+                        requestedModelId = "gpt-test",
+                        requestedProfileId = profile.id
+                    )
+                )
+            }
+            thread.join(3_000L)
+            assertEquals("segment one segment two", generated.text)
+        } finally {
+            runCatching { server.close() }
+            thread.join(2_000L)
+        }
+    }
+
+    @Test
     fun questionResponseWithContractErrorsIsReturnedForReviewInsteadOfThrownAway() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val database = Room.inMemoryDatabaseBuilder(context, EduMiniDatabase::class.java)
