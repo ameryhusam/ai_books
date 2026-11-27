@@ -17,7 +17,7 @@ Primary implementation references:
 - `app/src/main/java/com/example/data/ai/AiGenerationService.kt`
 - `app/src/main/java/com/example/data/ai/ProviderRoutingPolicy.kt`
 - `app/src/main/java/com/example/data/ai/GeminiModelRouter.kt`
-- `app/src/main/java/com/example/data/ai/Indexer2PromptRegistry.kt`
+- `app/src/main/java/com/example/data/ai/BookIndexPromptRegistry.kt`
 - `app/src/main/java/com/example/data/ai/TemplateResponseAdapter.kt`
 - `app/src/main/java/com/example/data/ai/TemplateOutputValidator.kt`
 - `app/src/main/java/com/example/data/security/ProviderStorage.kt`
@@ -657,3 +657,89 @@ Question generation is intentionally different from general prompt templates:
 - Before insertion, the service also rejects a batch containing questions already stored for the same lesson. This avoids partial writes and misleading "requested count vs saved count" results.
 
 No Room entity, column, database version, or migration was changed by this contract consolidation. If the persisted question-content model evolves, update `QuestionContentPayload` and its single mapping into `QuestionItem`/`QuestionEntity`; the provider schema is regenerated automatically from the serializable descriptor. Storage-only metadata remains application-managed and does not enter the model response.
+
+
+## 15. One reusable AI request pipeline for content generation and book-index discovery
+
+Book-index discovery is a different task, not a different AI integration. It must use the same request execution and provider transport already used by lesson-question generation.
+
+### 15.1 Proven request sequence to reuse
+
+The existing PDF lesson-question flow establishes the reusable sequence:
+
+1. Resolve the selected lesson and its exact segmented PDF from the workspace index.
+2. Read and validate the PDF bytes, enforce the size limit and calculate SHA-256.
+3. Resolve the task prompt and response schema.
+4. Assemble prompt variables from curriculum/lesson context and user instructions.
+5. Attach the original PDF to Gemini as `application/pdf`; for OpenAI-compatible providers, render PDF pages as JPEG image parts.
+6. Submit prompt, attachment and JSON response configuration through the shared provider service.
+7. Extract the provider's response text and usage metadata.
+8. Validate JSON against the response schema, then run task-specific semantic validation.
+9. Preserve request provenance (provider, model, prompt, schema/hash, source PDF hash and request fingerprint).
+10. Keep the output as a reviewable draft; only explicit approval may persist selected content.
+
+The earlier reference workflow uses the same pattern for index discovery: it supplies a sampled original-book PDF rather than a lesson PDF, and changes only the prompt, schema and task context. The important reusable behavior is the request/response contract—not the older service's key/model fallback policy.
+
+### 15.2 Current shared Android transport
+
+`AiGenerationService.kt` already owns:
+- Gemini PDF-native attachment and Gemini structured JSON response configuration;
+- OpenAI-compatible rendered-page image transport and JSON-object response mode;
+- provider-specific request construction and response extraction;
+- selected provider/profile/model enforcement;
+- cancellation, bounded transient retries, quota reservation and rate-limit cooldown;
+- provider/model and request provenance returned with `GeneratedResult`.
+
+`EduMiniRepository.generateContent()` prepares the question task's prompt/schema/source, calls `AiGenerationService.generate()`, validates the output and invokes the question parser. `QuestionResponseContract` is the single provider-facing question schema source; the application does not trust a prompt example as a schema.
+
+### 15.3 Why index discovery is not connected yet
+
+The current `AiGenerationService.generate()` entry point is lesson-specific: it requires `LessonRef` and `TaskType`, then loads the prompt through `BookIndexPromptRegistry`. Book intake runs before a lesson exists, so index discovery cannot correctly call this entry point without fabricating lesson metadata or misusing an unrelated content task.
+
+The new `BookIndexPromptTemplate.SOURCE_PATH` and prompt asset are not currently loaded by the service. In addition, `BookIndexPromptTemplate.responseSchemaJson` is presently an example JSON object, not a JSON Schema. It is suitable only as an illustrative shape; it must not be passed to Gemini's `responseSchema` or the local schema validator.
+
+### 15.4 Required correction without duplicate AI code
+
+Create one task-neutral request/execution boundary inside `AiGenerationService`. It should accept:
+- the fully assembled prompt;
+- source attachments (native PDF payloads and/or rendered page images);
+- response format and a real versioned JSON Schema;
+- provider, selected profile and exact model;
+- prompt/schema versions and hashes, source hash and request fingerprint.
+
+Move the existing provider routing, quota reservation, cancellation, provider call, retry/cooldown and response extraction into that shared execution method. Keep the current lesson-oriented `generate()` as a thin adapter that prepares its task-specific prompt and PDF inputs, then delegates to the shared method. Add a book-index discovery adapter that prepares its own prompt/schema and a bounded PDF sample, then delegates to the same method. Do not add another OkHttp client, Gemini HTTP implementation, provider fallback loop or separate response parser.
+
+Preserve current Android provider policy: no silent cross-provider fallback, no automatic key rotation to bypass quota, exact selected model/profile, and existing cooldown rules. Reusing the proven request shape does not mean copying a different runtime's key/model fallback behavior.
+
+### 15.5 Response handling for index discovery
+
+The model response is an untrusted discovery draft. The required handling is:
+
+1. Parse exactly one JSON object.
+2. Validate it against the index-discovery JSON Schema.
+3. Convert it into the typed intake draft without inventing missing values.
+4. Run deterministic domain validation: curriculum keys, source layout, part assignments/evidence, unit/lesson uniqueness, printed-page ranges, offset mapping and physical PDF bounds.
+5. Save the raw response and validation/provenance metadata for diagnostics.
+6. Display all extracted values and uncertainty to the user.
+7. Require explicit user confirmation before approval, canonical index/manifest writing or slicing.
+
+A schema-valid response is not necessarily semantically correct. In particular, the model cannot approve its own part assignments or source-layout inference.
+
+### 15.6 Printed-page coordinate contract
+
+For book indexing, printed pages are the page numbers printed in the textbook and referenced by its original table of contents. They are not PDF viewer page numbers.
+
+Keep:
+- printed book page numbers;
+- physical page positions in the original uploaded PDF;
+- local page numbers inside a sliced lesson PDF;
+
+as separate coordinates. The app applies `originalPdfPage = printedBookPage + offset` only when a verified physical page is not already available. Never apply offset twice. A non-constant mapping or weak page evidence requires calibration review.
+
+### 15.7 Prompt/schema separation
+
+The discovery prompt must be concise, clear and focused on visible evidence, exact TOC titles/page numbers, grade/subject identity, unit-to-part evidence and explicit uncertainty. It should request JSON only.
+
+Keep the prompt instructions separate from the JSON Schema. Gemini can receive the schema through structured-output configuration; OpenAI-compatible endpoints currently receive JSON-object mode and require strict local schema validation. Do not paste a long schema into the prompt when the provider can receive it separately. Do not pass a sample JSON object as if it were a schema.
+
+The final index serializer is a later application-owned step. The model's discovery JSON must not be treated as an approved canonical index or manifest.
