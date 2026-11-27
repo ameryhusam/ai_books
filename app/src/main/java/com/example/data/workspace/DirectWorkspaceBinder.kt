@@ -124,6 +124,7 @@ class DirectWorkspaceBinder(private val context: Context) {
         gradeKey: String,
         onProgress: (String, Int) -> Unit = { _, _ -> }
     ): DirectBoundWorkspaceResult = withContext(Dispatchers.IO) {
+        onProgress("قراءة ملفات الصف $gradeKey", 10)
         val isSaf = UriIO.isContentUri(rootUriOrPath)
         if (isSaf) takePersistableReadPermission(Uri.parse(rootUriOrPath))
         val entries: List<IndexedEntry>
@@ -142,7 +143,7 @@ class DirectWorkspaceBinder(private val context: Context) {
             folderName = dir.name
         }
 
-        onProgress("فهرسة ملفات الصف ${gradeKey}", 30)
+        onProgress("فهرسة ملفات الصف ${gradeKey}", 52)
         val entryMap = entries.associateBy { it.relativePath.lowercase() }
         val warnings = mutableListOf<String>()
         val rejectionErrors = mutableListOf<String>()
