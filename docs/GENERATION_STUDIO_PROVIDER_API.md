@@ -856,3 +856,13 @@ A successful result displays provider, model, elapsed time, and the complete ret
 Provider HTTP failures are mapped to typed diagnostics for invalid credentials, exhausted quota, rate limiting, unavailable model, invalid request, empty response, and provider/network failure. Quota signals are evaluated before generic HTTP 403/429 handling so quota errors are not mislabeled as invalid credentials. Empty or whitespace-only model output is never reported as success. API keys are not included in test output; any accidental exact-key echo is masked.
 
 Gemini uses its own `x-goog-api-key` header and generateContent endpoint. OpenAI-compatible profiles use their own Bearer token and configured `/chat/completions` endpoint. MockWebServer tests verify request construction, full response handling, error classification, and empty/network failure behavior without requiring real API credentials. Passing these tests validates transport handling, not live account/model entitlement; live verification must be performed on an Android device with the user's own provider configuration.
+
+
+### Provider credentials are independent of model selection — 2026-11-27
+
+- A provider connection stores the provider type, a user-defined connection label, API credential, and (for OpenAI-compatible endpoints) the endpoint URL. The API key is not a model-specific credential.
+- A Gemini API key can be used with any Gemini model that is available and authorized for the Google project/account associated with that key. Model availability, entitlement, quota and endpoint compatibility are still checked by the API request; this does not guarantee that every model ID is callable.
+- Model selection belongs to the model catalogue and the generation-time model picker, not to API-key creation. The API connection form therefore does not require a model or fallback-model selection.
+- The connection test resolves the provider's enabled default model (or the first enabled supported model if no default is configured) and tests that model using the entered unsaved key. The test result identifies the exact model tested.
+- OpenAI-compatible credentials remain separate from Gemini credentials. The selected OpenAI-compatible model is resolved from its own provider catalogue and endpoint configuration.
+- Operational explanations and fallback-policy details belong in this document and README, not in the Android settings UI.
