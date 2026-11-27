@@ -418,15 +418,15 @@ For future hardening, keep the failure categories distinct:
 
 The current code already separates several of these cases, but its retry/backoff policy and Gemini cooldown persistence remain narrower than this target contract. Do not describe the target policy as fully implemented until tests prove each branch.
 
-## 8. Provider profiles, secrets and request telemetry
+## 8. Provider API keys, secrets and request telemetry
 
-Provider connections are encrypted at rest using an Android Keystore-backed key and authenticated encryption. The connection contains the provider type, connection label, endpoint where applicable, API key, enabled state, priority, automatically derived same-provider fallback candidates, and runtime status. New API keys do not store a primary model or fallback-model list; the model is selected separately for each generation request.
+Each provider owns multiple API-key records encrypted at rest using an Android Keystore-backed key and authenticated encryption. Every key has a generated provider-scoped alias, enabled state, priority, quota/runtime status and usage telemetry. OpenAI-compatible keys also use their provider endpoint. Newly added keys do not store model IDs or model-fallback lists; model selection and fallback candidates are resolved separately from the provider model catalogue.
 
 Rules:
 
 - Never include API keys in prompts, logs, draft provenance, backups or Firestore.
 - Mask secrets in the UI.
-- Test-connection must test only the selected provider connection and the enabled default model from that provider's catalogue (or the first enabled supported model if no default exists).
+- API-key testing must test only the selected provider and entered key, using the enabled default model from that provider's catalogue (or the first enabled supported model if no default exists).
 - Runtime status and last-used information may be stored locally.
 - The application must not claim that encryption at rest makes an API key impossible to extract from a distributed APK. A public release should use a controlled backend for provider credentials and request dispatch.
 
@@ -434,7 +434,7 @@ Rules:
 
 The current `dailyRequestLimit` and `dailyRequestsUsed` fields are not an authoritative local quota gate. `ProviderStorage` explicitly treats the counter as diagnostic telemetry and relies on the provider response for actual quota status. Do not promise that the app enforces a daily request cap until that behavior is deliberately implemented and tested.
 
-Quota date normalization uses each profile's configured timezone. Provider runtime status and `Retry-After` timestamps are retained separately from the prompt-template data.
+Quota date normalization uses each key's configured timezone. Key runtime status and `Retry-After` timestamps are retained separately from prompt-template data.
 ### 8.2 Central system-admin model catalogue
 
 Model metadata and model identifiers are defined by
@@ -458,14 +458,11 @@ separately encrypted in `edu_mini_ai_profiles_v1`.
 
 The generation dialog presents two independent selections:
 - a model that is enabled and supports generation in the central catalogue;
-- an enabled API profile for the selected provider.
+- an enabled API key belonging to the selected provider.
 
-The selected model ID and profile ID are required parameters throughout
+The selected model ID and API-key record ID are required parameters throughout
 `EduMiniRepository.generateContent` and `AiGenerationService.generate`.
-The request uses the exact selected model ID and exact selected profile; it
-does not silently substitute a profile fallback model or another API profile.
-The default model is only the initial selection in the dialog. Concept
-remediation uses the system default model and an available profile.
+The selected key is attempted first. If it is quota-exhausted or invalid, routing may use another enabled key of the same provider. Gemini may move through enabled same-provider catalogue models after model-specific failures; these model candidates are not stored on individual keys. OpenAI-compatible key failover keeps the requested model unchanged. The default model is only the initial selection in the dialog. Concept remediation uses the system default model and an available key.
 
 Model IDs are the provider-facing version identifiers. Renaming an ID creates
 the new catalogue document and retires the old document; a default entry is
@@ -829,8 +826,8 @@ The source changes are in place, but behavior is not considered verified until t
 - Provider identity is `Gemini`; model identity is a separate exact Google model ID.
 - Default model: `gemini-3.5-flash` (display: `Gemini 3.5 Flash`).
 - Other built-in Gemini models: `gemini-3.6-flash`, `gemini-3.7-flash`, and `gemini-3.8-flash` (display names retain the Gemini family/version).
-- The four built-in entries are enabled and user-manageable in the model catalog. The selected default is the first model used; fallback order is configured by the profile/runtime policy and must not be inferred from model display order.
-- API connection creation does not ask the user to choose a Gemini model. On save, enabled Gemini catalogue entries are copied as ordered same-provider fallback candidates (default first); the generation-time picker chooses the primary model for each request.
+- The four built-in entries are enabled and user-manageable in the model catalog. The selected default is the initial model; Gemini fallback candidates are resolved from enabled catalogue entries at request time, independently of API keys.
+- Adding a Gemini API key does not ask for or store a model. The generation-time picker chooses the primary model for each request, and model fallback candidates are resolved from the catalogue.
 - The central Firestore collection is still authoritative. Missing built-in entries are merged into the central collection only for a user whose `system_admins/{uid}` record grants `manage_ai_models`; a normal teacher/admin role is not sufficient. Non-authorized users must not silently substitute a local catalogue for the central one.
 - Local SharedPreferences catalog migration restores missing built-in metadata for legacy installs without overwriting custom entries or API credentials.
 - The configured model IDs are `gemini-3.5-flash`, `gemini-3.6-flash`, `gemini-3.7-flash`, and `gemini-3.8-flash`; availability and access are determined by the user's Google API account. See the official [Gemini model list](https://ai.google.dev/gemini-api/docs/models) and [pricing/model IDs](https://ai.google.dev/gemini-api/docs/pricing).
@@ -852,14 +849,14 @@ A successful result displays provider, model, elapsed time, and the complete ret
 
 Provider HTTP failures are mapped to typed diagnostics for invalid credentials, exhausted quota, rate limiting, unavailable model, invalid request, empty response, and provider/network failure. Quota signals are evaluated before generic HTTP 403/429 handling so quota errors are not mislabeled as invalid credentials. Empty or whitespace-only model output is never reported as success. API keys are not included in test output; any accidental exact-key echo is masked.
 
-Gemini uses its own `x-goog-api-key` header and generateContent endpoint. OpenAI-compatible profiles use their own Bearer token and configured `/chat/completions` endpoint. MockWebServer tests verify request construction, full response handling, error classification, and empty/network failure behavior without requiring real API credentials. Passing these tests validates transport handling, not live account/model entitlement; live verification must be performed on an Android device with the user's own provider configuration.
+Gemini uses its own `x-goog-api-key` header and generateContent endpoint. OpenAI-compatible API keys use their own Bearer token and configured `/chat/completions` endpoint. MockWebServer tests verify request construction, full response handling, error classification, and empty/network failure behavior without requiring real API credentials. Passing these tests validates transport handling, not live account/model entitlement; live verification must be performed on an Android device with the user's own provider configuration.
 
 
 ### Provider credentials are independent of model selection — 2026-11-27
 
 - A provider stores multiple encrypted API-key records, each with a generated alias (`GEMINI_API_KEY_N` or `OPENAI_API_KEY_N`), provider type, and endpoint where applicable. The API key is not a model-specific credential.
 - A Gemini API key can be used with any Gemini model that is available and authorized for the Google project/account associated with that key. Model availability, entitlement, quota and endpoint compatibility are still checked by the API request; this does not guarantee that every model ID is callable.
-- Model selection belongs to the model catalogue and the generation-time model picker, not to API-key creation. The API connection form therefore does not require a model or fallback-model selection.
+- Model selection belongs to the model catalogue and the generation-time model picker, not to API-key creation. The API-key form does not require a model or fallback-model selection.
 - The API-key test resolves the provider's enabled default model (or the first enabled supported model if no default is configured) and tests that model using the entered unsaved key. The test result identifies the exact model tested.
 - OpenAI-compatible credentials remain separate from Gemini credentials. The selected OpenAI-compatible model is resolved from its own provider catalogue and endpoint configuration.
 - Operational explanations and fallback-policy details belong in this document and README, not in the Android settings UI.
