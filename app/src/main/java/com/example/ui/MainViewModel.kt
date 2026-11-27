@@ -780,9 +780,19 @@ class MainViewModel(
 
     fun inspectDirectFolderUri(treeUri: Uri) {
         viewModelScope.launch {
-            _uiState.update { it.copy(isBusy = true, directInspection = null) }
+            _uiState.update {
+                it.copy(
+                    isBusy = true,
+                    directInspection = null,
+                    workspaceOperation = WorkspaceOperationProgress("فحص مجلد مساحة العمل", "قراءة محتويات المجلد", 5)
+                )
+            }
             try {
-                val inspection = repository.inspectDirectTreeUri(treeUri)
+                val inspection = repository.inspectDirectTreeUri(treeUri) { stage, percent ->
+                    _uiState.update {
+                        it.copy(workspaceOperation = WorkspaceOperationProgress("فحص مجلد مساحة العمل", stage, percent))
+                    }
+                }
                 _uiState.update { state ->
                     state.copy(
                         directInspection = inspection
@@ -796,7 +806,7 @@ class MainViewModel(
                     )
                 }
             } finally {
-                _uiState.update { it.copy(isBusy = false) }
+                _uiState.update { it.copy(isBusy = false, workspaceOperation = null) }
             }
         }
     }
@@ -810,9 +820,18 @@ class MainViewModel(
         val targets = gradeKeys.map { it.trim().uppercase() }.filter { it.isNotBlank() }.distinct()
         if (targets.isEmpty()) return
         viewModelScope.launch {
-            _uiState.update { it.copy(isBusy = true) }
+            _uiState.update {
+                it.copy(
+                    isBusy = true,
+                    workspaceOperation = WorkspaceOperationProgress("ربط الصفوف والمواد", "بدء ربط الصفوف المحددة", 3)
+                )
+            }
             try {
-                val boundList = repository.bindDirectWorkspaces(inspection.rootUriOrPath, targets)
+                val boundList = repository.bindDirectWorkspaces(inspection.rootUriOrPath, targets) { stage, percent ->
+                    _uiState.update {
+                        it.copy(workspaceOperation = WorkspaceOperationProgress("ربط الصفوف والمواد", stage, percent))
+                    }
+                }
                 val primary = boundList.first()
                 _studentDashboardState.value = StudentDashboardState()
                 _uiState.update { state ->
@@ -852,7 +871,7 @@ class MainViewModel(
                     )
                 }
             } finally {
-                _uiState.update { it.copy(isBusy = false) }
+                _uiState.update { it.copy(isBusy = false, workspaceOperation = null) }
             }
         }
     }
@@ -860,12 +879,21 @@ class MainViewModel(
     fun refreshDirectWorkspaceCatalog() {
         val currentWorkspace = _uiState.value.workspace ?: return
         viewModelScope.launch {
-            _uiState.update { it.copy(isBusy = true) }
+            _uiState.update {
+                it.copy(
+                    isBusy = true,
+                    workspaceOperation = WorkspaceOperationProgress("تحديث مساحة العمل", "قراءة فهارس الصف ومواده", 5)
+                )
+            }
             try {
                 val refreshed = repository.bindDirectWorkspace(
                     rootUriOrPath = currentWorkspace.rootPath,
                     gradeKey = currentWorkspace.gradeKey
-                )
+                ) { stage, percent ->
+                    _uiState.update {
+                        it.copy(workspaceOperation = WorkspaceOperationProgress("تحديث مساحة العمل", stage, percent))
+                    }
+                }
                 _studentDashboardState.value = StudentDashboardState()
                 _uiState.update { state ->
                     val nextBookKey = refreshed.books
@@ -902,7 +930,7 @@ class MainViewModel(
                     )
                 }
             } finally {
-                _uiState.update { it.copy(isBusy = false) }
+                _uiState.update { it.copy(isBusy = false, workspaceOperation = null) }
             }
         }
     }
