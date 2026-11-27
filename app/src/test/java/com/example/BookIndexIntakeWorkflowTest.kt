@@ -22,6 +22,7 @@ class BookIndexIntakeWorkflowTest {
         subjectKey = "SCI",
         subjectName = "العلوم",
         sourceLayout = IndexSourceLayout.SINGLE_PART_FILE,
+        sourceLayoutEvidence = "عنوان الكتاب يوضح أنه الجزء الأول",
         partKey = "P01",
         offset = 4,
         units = listOf(
