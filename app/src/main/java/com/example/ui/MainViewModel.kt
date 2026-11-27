@@ -1019,6 +1019,18 @@ class MainViewModel(
                 selectedLesson = lesson,
                 selectedBookKey = lesson.bookKey,
                 packageSourcePages = lesson.pageRange.orEmpty(),
+                generatedResult = "",
+                activeDraftProvider = "تحرير يدوي",
+                activeDraftModel = "local",
+                activeDraftTemplateId = "",
+                activeDraftTemplateVersion = 1,
+                activeDraftResponseSchemaHash = "",
+                activeDraftRequestFingerprint = "",
+                activeDraftContentHash = "",
+                activeDraftSourcePdfHash = "",
+                generatedQuestionExpectedCount = null,
+                generatedQuestionExpectedTypeIds = emptyList(),
+                generatedQuestionExpectedDifficultyId = "",
                 page = AppPage.STUDIO
             )
         }
@@ -1029,7 +1041,19 @@ class MainViewModel(
             it.copy(
                 selectedLesson = lesson,
                 selectedBookKey = lesson.bookKey,
-                packageSourcePages = lesson.pageRange.orEmpty()
+                packageSourcePages = lesson.pageRange.orEmpty(),
+                generatedResult = "",
+                activeDraftProvider = "تحرير يدوي",
+                activeDraftModel = "local",
+                activeDraftTemplateId = "",
+                activeDraftTemplateVersion = 1,
+                activeDraftResponseSchemaHash = "",
+                activeDraftRequestFingerprint = "",
+                activeDraftContentHash = "",
+                activeDraftSourcePdfHash = "",
+                generatedQuestionExpectedCount = null,
+                generatedQuestionExpectedTypeIds = emptyList(),
+                generatedQuestionExpectedDifficultyId = ""
             )
         }
     }
@@ -2137,7 +2161,24 @@ class MainViewModel(
 
     fun selectTask(task: TaskType) {
         val defaultTemplate = promptTemplates.value.firstOrNull { it.task == task }
-        _uiState.update { it.copy(task = task, activePromptTemplateId = defaultTemplate?.id.orEmpty()) }
+        _uiState.update {
+            it.copy(
+                task = task,
+                activePromptTemplateId = defaultTemplate?.id.orEmpty(),
+                generatedResult = "",
+                activeDraftProvider = "تحرير يدوي",
+                activeDraftModel = "local",
+                activeDraftTemplateId = "",
+                activeDraftTemplateVersion = 1,
+                activeDraftResponseSchemaHash = "",
+                activeDraftRequestFingerprint = "",
+                activeDraftContentHash = "",
+                activeDraftSourcePdfHash = "",
+                generatedQuestionExpectedCount = null,
+                generatedQuestionExpectedTypeIds = emptyList(),
+                generatedQuestionExpectedDifficultyId = ""
+            )
+        }
     }
 
     fun updateQuestionCount(count: Int) {
@@ -2245,7 +2286,7 @@ class MainViewModel(
             }
             val cloudNote = if (cloudSyncResult.isSuccess) " • مزامنة سحابية ✓" else ""
             _uiState.update {
-                it.copy(toastMessage = "تم حفظ نسخة جديدة كمسودة للمراجعة؛ لم تُضف إلى بنك الأسئلة بعد$cloudNote")
+                it.copy(toastMessage = "تم حفظ نسخة جديدة من «${snapshot.task.labelAr}» كمسودة للمراجعة$cloudNote")
             }
         }
     }
@@ -2750,6 +2791,12 @@ class MainViewModel(
 
     fun saveGeneratedDraftToQuestionBank() {
         val snapshot = _uiState.value
+        if (snapshot.task != TaskType.QUESTIONS) {
+            _uiState.update {
+                it.copy(alert = AlertMessage("إجراء غير متاح", "استخراج بنك الأسئلة متاح لمهمة بنك الأسئلة فقط."))
+            }
+            return
+        }
         val lesson = snapshot.selectedLesson
         if (lesson == null) {
             _uiState.update {
@@ -3562,7 +3609,7 @@ class MainViewModel(
                             sourcePdfHash = out.sourcePdfHash,
                             templateId = out.templateId,
                             promptUsed = out.promptUsed,
-                            responseSchemaJson = snapshot.activeDraftResponseSchemaHash
+                            responseSchemaJson = out.responseSchemaJson
                         )
                     }.getOrNull()
                 } else null
