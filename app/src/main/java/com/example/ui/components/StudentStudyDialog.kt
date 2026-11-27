@@ -176,7 +176,7 @@ fun StudentStudyDialog(
                 compareByDescending<DraftRecord> { it.status == DraftStatus.APPROVED.id }
                     .thenByDescending { it.version }
             )
-        interactiveDrafts.firstNotNullOfOrNull { InteractiveActivityParser.parse(it.content, lesson.title) }
+        interactiveDrafts.firstNotNullOfOrNull { InteractiveActivityParser.parseStrictJson(it.content, lesson.title) }
     }
     val hasWebPackage = publishedPkg != null || fallbackDirectFilePkg != null
     val hasInteractive = hasWebPackage || interactiveDraftActivity != null
