@@ -286,7 +286,7 @@ class EduMiniCoreTest {
     }
 
     @Test
-    fun workspaceContractValidatorBlocksUnverifiedIndexer2Source() {
+    fun workspaceContractValidatorBlocksUnverifiedLegacySource() {
         val index = """
             {
               "gradeKey": "G04",
@@ -413,7 +413,7 @@ class EduMiniCoreTest {
     }
 
     @Test
-    fun importerSupportsIndexer2IndependentSourceDirectory() = runBlocking {
+    fun importerSupportsIndependentPartSourceDirectory() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val importer = WorkspaceImporter(context)
         val zipBytes = createTestZip(
@@ -1201,7 +1201,7 @@ class EduMiniCoreTest {
     }
 
     @Test
-    fun repositoryQuestionBankCrudAndWorkspaceExporterIndexer2Zip() = runBlocking {
+    fun repositoryQuestionBankCrudAndLegacyWorkspaceZip() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val db = EduMiniDatabase.getInstance(context)
         val repo = EduMiniRepository(
@@ -1657,12 +1657,12 @@ class EduMiniCoreTest {
     }
 
     @Test
-    fun indexer2PromptRegistryCoversAllTasksAndStandardSchemas() {
+    fun bookIndexPromptRegistryCoversAllTasksAndStandardSchemas() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         TaskType.entries.forEach { task ->
             val blueprint = BookIndexPromptRegistry.blueprintFor(task)
             assertEquals(task, blueprint.task)
-            assertTrue(blueprint.sourcePath.startsWith("prompts/indexer2/"))
+            assertTrue(blueprint.sourcePath.startsWith("prompts/book_indexing/"))
             assertTrue(blueprint.outputContract.isNotBlank())
             context.assets.open(blueprint.sourcePath).use { asset ->
                 assertTrue(asset.readBytes().isNotEmpty())
@@ -1683,7 +1683,7 @@ class EduMiniCoreTest {
             questionCount = 5,
             attachedPdfPagesCount = 1
         )
-        assertTrue(prompt.contains("prompts/indexer2/lesson_explanation.prompt.md"))
+        assertTrue(prompt.contains("prompts/book_indexing/lesson_explanation.prompt.md"))
         assertTrue(prompt.contains("مفهوم القسمة المطولة"))
         assertTrue(prompt.contains("ملف PDF الأصلي للدرس مرفق"))
     }
@@ -1741,7 +1741,7 @@ class EduMiniCoreTest {
                 """.trimIndent()
             )
 
-            fun addIndexer2Book(subjectKey: String, componentKey: String?, title: String) {
+            fun addBookFixture(subjectKey: String, componentKey: String?, title: String) {
                 val componentFolder = componentKey ?: ""
                 val componentPath = if (componentKey == null) "" else componentKey + "/"
                 val bookDir = File(rootDir, "workspace/G07/" + subjectKey + "/" + componentFolder).apply { mkdirs() }
@@ -1779,12 +1779,12 @@ class EduMiniCoreTest {
                 File(bookDir, "book_manifest.json").writeText(manifestRaw)
             }
 
-            addIndexer2Book("SCI", null, "العلوم والحياة")
-            addIndexer2Book("ENG", "COURSE", "English Course")
-            addIndexer2Book("ENG", "WORKBOOK", "English Workbook")
-            addIndexer2Book("SOC", "GEO", "الجغرافيا")
-            addIndexer2Book("SOC", "HIST", "التاريخ")
-            addIndexer2Book("SOC", "TARBIA", "التربية الوطنية")
+            addBookFixture("SCI", null, "العلوم والحياة")
+            addBookFixture("ENG", "COURSE", "English Course")
+            addBookFixture("ENG", "WORKBOOK", "English Workbook")
+            addBookFixture("SOC", "GEO", "الجغرافيا")
+            addBookFixture("SOC", "HIST", "التاريخ")
+            addBookFixture("SOC", "TARBIA", "التربية الوطنية")
 
             val binder = DirectWorkspaceBinder(context)
             val inspection = binder.inspectDirectory(rootDir)
@@ -4358,7 +4358,7 @@ class EduMiniCoreTest {
     }
 
     @Test
-    fun bookMetadataMapperUsesOnlyCanonicalIndexer2Keys() {
+    fun bookMetadataMapperUsesOnlyCanonicalCurriculumKeys() {
         val mapper = com.example.data.workspace.BookMetadataMapper
         assertEquals("الصف السابع الأساسي", mapper.gradeDisplayName("G07"))
         assertEquals("الرياضيات", mapper.subjectDisplayName("MATH"))
