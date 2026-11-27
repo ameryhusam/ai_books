@@ -3033,8 +3033,8 @@ class MainViewModel(
                         it.copy(
                             alert = AlertMessage(
                                 title = "تم استلام المحتوى لكن تعذر حفظ المسودة",
-                                message = "الاستجابة الخام ما زالت معروضة ويمكن نسخها أو مراجعتها. لم يتم إدراجها في قاعدة البيانات.\\n\\n" +
-                                    diagnostics.joinToString("\\n") { "• $it" }
+                                message = "الاستجابة الخام ما زالت معروضة ويمكن نسخها أو مراجعتها. لم يتم إدراجها في قاعدة البيانات.\n\n" +
+                                    diagnostics.joinToString("\n") { "• $it" }
                             )
                         )
                     }
