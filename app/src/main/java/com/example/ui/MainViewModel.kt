@@ -1026,7 +1026,7 @@ class MainViewModel(
         _uiState.update { it.copy(promptSourcesOpen = false) }
     }
 
-    fun applyIndexer2Blueprint(spec: PromptBlueprintSpec) {
+    fun applyBookIndexBlueprint(spec: PromptBlueprintSpec) {
         _uiState.update { state ->
             state.copy(
                 task = spec.task,
@@ -1045,7 +1045,7 @@ class MainViewModel(
                 generatedQuestionExpectedCount = null,
                 generatedQuestionExpectedTypeIds = emptyList(),
                 generatedQuestionExpectedDifficultyId = "",
-                activeDraftProvider = "indexer2 Schema",
+                activeDraftProvider = "Book index schema",
                 activeDraftModel = "template",
                 promptSourcesOpen = false,
                 page = AppPage.STUDIO,
@@ -2646,7 +2646,7 @@ class MainViewModel(
                     it.copy(
                         alert = AlertMessage(
                             "تم تصدير الحزمة",
-                            "تم إنشاء ملف ZIP متوافق مع indexer2 ويحتوي على ${receipt.entriesCount} ملف (${receipt.draftsCount} مسودة، ${receipt.questionsCount} سؤال) مع التحقق SHA-256."
+                            "تم إنشاء ملف ZIP بصيغة التوافق القديمة ويحتوي على ${receipt.entriesCount} ملف (${receipt.draftsCount} مسودة، ${receipt.questionsCount} سؤال) مع التحقق SHA-256."
                         )
                     )
                 }
