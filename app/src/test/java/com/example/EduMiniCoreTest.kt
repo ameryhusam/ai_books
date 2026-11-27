@@ -1513,6 +1513,7 @@ class EduMiniCoreTest {
             {
               "gradeKey":"G05",
               "subjectKey":"SCI",
+              "partKey":"BOTH",
               "sourceLayout":"MERGED_PARTS_FILE",
               "approvalStatus":"NEEDS_REVIEW",
               "requiresReview":true,
@@ -1657,6 +1658,7 @@ class EduMiniCoreTest {
                       "gradeKey":"G04",
                       "gradeName":"الصف الرابع",
                       "subjectKey":"$subject",
+                      "partKey":"BOTH",
                       "sourceLayout":"MERGED_PARTS_FILE",
                       "sourceLayoutEvidence":"مصدر PDF موحد",
                       "approvalStatus":"APPROVED",
@@ -1690,7 +1692,7 @@ class EduMiniCoreTest {
                     .joinToString("") { "%02x".format(it) }
                 File(bookDir, "index.json").writeText(indexRaw)
                 File(bookDir, "book_manifest.json").writeText(
-                    """{"manifestVersion":"edu.book_manifest.v1","gradeKey":"G04","gradeName":"الصف الرابع","subjectKey":"$subject","sourceLayout":"MERGED_PARTS_FILE","sourceLayoutEvidence":"مصدر PDF موحد","sourceReviewStatus":"VERIFIED","sourceSha256":"${"c".repeat(64)}","indexSha256":"$indexSha"}"""
+                    """{"manifestVersion":"edu.book_manifest.v1","gradeKey":"G04","gradeName":"الصف الرابع","subjectKey":"$subject","partKey":"BOTH","sourceLayout":"MERGED_PARTS_FILE","sourceLayoutEvidence":"مصدر PDF موحد","sourceReviewStatus":"VERIFIED","sourceSha256":"${"c".repeat(64)}","indexSha256":"$indexSha"}"""
                 )
                 File(bookDir, "units/unit_01/lesson_01.pdf").apply {
                     parentFile?.mkdirs()
