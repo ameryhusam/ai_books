@@ -1354,7 +1354,7 @@ class MainViewModel(
             _uiState.update {
                 it.copy(alert = AlertMessage(
                     "تعذر بدء التقوية",
-                    "تأكد من وجود نموذج مفعّل أضافه مدير النظام ومفتاح API صالح."
+                    "تأكد من وجود نموذج مفعّل ومفتاح API مفعّل لهذا المزود."
                 ))
             }
             return
