@@ -3927,7 +3927,7 @@ class EduMiniCoreTest {
         val serverThread = Thread {
             server.accept().use { socket ->
                 readTestHttpRequest(socket)
-                writeTestHttpResponse(socket, 200, """{"choices":[{"message":{"content":"{\\"questions\\":[]}"}}]}""")
+                writeTestHttpResponse(socket, 200, """{"choices":[{"message":{"content":"{\"questions\":[]}"}}]}""")
             }
         }
         serverThread.start()
