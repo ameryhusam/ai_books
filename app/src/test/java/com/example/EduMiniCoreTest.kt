@@ -6,6 +6,8 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.sqlite.db.SupportSQLiteOpenHelper
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import com.example.data.ai.AiGenerationService
+import com.example.data.ai.AiExecutionException
+import com.example.data.ai.AiExecutionFailureKind
 import com.example.data.ai.BookIndexPromptRegistry
 import com.example.data.ai.TemplateResponseAdapter
 import com.example.data.ai.TemplateOutputValidator
@@ -83,6 +85,9 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.security.MessageDigest
 import java.util.zip.ZipInputStream
+import okhttp3.OkHttpClient
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -3150,6 +3155,161 @@ class EduMiniCoreTest {
             listOf("gpt-test", "gpt-fallback"),
             com.example.data.ai.ProviderRoutingPolicy.modelCandidates(openAiProfiles.single())
         )
+    }
+
+    @Test
+    fun providerConnectionTestShowsCompleteGeminiResponseAndRequestMetadata() = runBlocking {
+        val server = MockWebServer()
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """{"candidates":[{"content":{"parts":[{"text":"جاهز. هذه استجابة اختبار كاملة تتجاوز أربعين حرفاً للتأكد من عدم اقتطاع النص."}]}}]}"""
+            )
+        )
+        server.start()
+        try {
+            val profile = ProviderConfig(
+                id = "gemini-test",
+                provider = ProviderType.GEMINI,
+                label = "Gemini test",
+                model = "gemini-test-model",
+                baseUrl = "",
+                apiKey = "gemini-secret-test-key",
+                enabled = true,
+                createdAt = 1L
+            )
+            val service = AiGenerationService(
+                context = null,
+                client = OkHttpClient(),
+                geminiEndpointBase = server.url("/v1beta/models").toString().trimEnd('/')
+            )
+
+            val result = service.testProviderConnection(profile)
+            val request = server.takeRequest()
+
+            assertTrue(result.contains("المزود: Gemini"))
+            assertTrue(result.contains("النموذج: gemini-test-model"))
+            assertTrue(result.contains("زمن الاستجابة:"))
+            assertTrue(result.contains("هذه استجابة اختبار كاملة تتجاوز أربعين حرفاً للتأكد من عدم اقتطاع النص."))
+            assertFalse(result.contains(profile.apiKey))
+            assertEquals("/v1beta/models/gemini-test-model:generateContent", request.path)
+            assertEquals(profile.apiKey, request.getHeader("x-goog-api-key"))
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun providerConnectionTestClassifiesCredentialsQuotaModelAndRateLimitErrors() = runBlocking {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setResponseCode(401).setBody(
+            """{"error":{"message":"API key not valid. Please pass a valid API key."}}"""
+        ))
+        server.enqueue(MockResponse().setResponseCode(429).setBody(
+            """{"error":{"message":"Quota exceeded for this project."}}"""
+        ))
+        server.enqueue(MockResponse().setResponseCode(404).setBody(
+            """{"error":{"message":"Model not found."}}"""
+        ))
+        server.enqueue(MockResponse().setResponseCode(429).setBody(
+            """{"error":{"message":"Too many requests. Please retry later."}}"""
+        ))
+        server.start()
+        try {
+            val profile = ProviderConfig(
+                id = "gemini-test",
+                provider = ProviderType.GEMINI,
+                label = "Gemini test",
+                model = "gemini-test-model",
+                baseUrl = "",
+                apiKey = "gemini-secret-test-key",
+                enabled = true,
+                createdAt = 1L
+            )
+            val service = AiGenerationService(
+                context = null,
+                client = OkHttpClient(),
+                geminiEndpointBase = server.url("/v1beta/models").toString().trimEnd('/')
+            )
+
+            val invalidKey = runCatching { service.testProviderConnection(profile) }.exceptionOrNull()
+            assertTrue(invalidKey is AiExecutionException)
+            assertEquals(AiExecutionFailureKind.INVALID_CREDENTIALS, (invalidKey as AiExecutionException).kind)
+            assertFalse(invalidKey.message.orEmpty().contains(profile.apiKey))
+
+            val quota = runCatching { service.testProviderConnection(profile) }.exceptionOrNull()
+            assertTrue(quota is AiExecutionException)
+            assertEquals(AiExecutionFailureKind.QUOTA_EXHAUSTED, (quota as AiExecutionException).kind)
+
+            val missingModel = runCatching { service.testProviderConnection(profile) }.exceptionOrNull()
+            assertTrue(missingModel is AiExecutionException)
+            assertEquals(AiExecutionFailureKind.MODEL_UNAVAILABLE, (missingModel as AiExecutionException).kind)
+
+            val rateLimited = runCatching { service.testProviderConnection(profile) }.exceptionOrNull()
+            assertTrue(rateLimited is AiExecutionException)
+            assertEquals(AiExecutionFailureKind.RATE_LIMITED, (rateLimited as AiExecutionException).kind)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun providerConnectionTestRejectsEmptyOpenAiCompatibleResponse() = runBlocking {
+        val server = MockWebServer()
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """{"choices":[{"message":{"content":""},"finish_reason":"stop"}]}"""
+            )
+        )
+        server.start()
+        try {
+            val profile = ProviderConfig(
+                id = "openai-test",
+                provider = ProviderType.OPENAI_COMPATIBLE,
+                label = "OpenAI test",
+                model = "gpt-test-model",
+                baseUrl = server.url("/v1").toString().trimEnd('/'),
+                apiKey = "openai-secret-test-key",
+                enabled = true,
+                createdAt = 1L
+            )
+            val service = AiGenerationService(context = null, client = OkHttpClient())
+
+            val error = runCatching { service.testProviderConnection(profile) }.exceptionOrNull()
+            assertTrue(error is AiExecutionException)
+            assertEquals(AiExecutionFailureKind.EMPTY_RESPONSE, (error as AiExecutionException).kind)
+            val request = server.takeRequest()
+            assertEquals("/v1/chat/completions", request.path)
+            assertEquals("Bearer ${profile.apiKey}", request.getHeader("Authorization"))
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun providerConnectionTestMapsNetworkFailureSeparately() = runBlocking {
+        val server = MockWebServer()
+        server.start()
+        val baseUrl = server.url("/v1beta/models").toString().trimEnd('/')
+        server.shutdown()
+        val profile = ProviderConfig(
+            id = "gemini-network-test",
+            provider = ProviderType.GEMINI,
+            label = "Gemini network test",
+            model = "gemini-test-model",
+            baseUrl = "",
+            apiKey = "gemini-secret-test-key",
+            enabled = true,
+            createdAt = 1L
+        )
+        val service = AiGenerationService(
+            context = null,
+            client = OkHttpClient(),
+            geminiEndpointBase = baseUrl
+        )
+
+        val error = runCatching { service.testProviderConnection(profile) }.exceptionOrNull()
+        assertTrue(error is AiExecutionException)
+        assertEquals(AiExecutionFailureKind.NETWORK_ERROR, (error as AiExecutionException).kind)
     }
 
     @Test
