@@ -450,7 +450,10 @@ class EduMiniRepository(
                 lessonsCount = book.lessonsCount,
                 coverPath = book.coverPath,
                 sourcePdfPath = book.sourcePdfPath,
-                subjectName = book.subjectName
+                subjectName = book.subjectName,
+                approvalStatus = book.approvalStatus ?: "LEGACY_UNVERIFIED",
+                requiresReview = book.requiresReview,
+                sourceReviewStatus = book.sourceReviewStatus ?: "UNKNOWN"
             )
         }
         val lessonEntities = imported.lessons.map { lesson ->
@@ -2683,7 +2686,10 @@ class EduMiniRepository(
         lessonsCount = lessonsCount,
         coverPath = coverPath,
         sourcePdfPath = sourcePdfPath,
-        subjectName = subjectName
+        subjectName = subjectName,
+        approvalStatus = approvalStatus,
+        requiresReview = requiresReview,
+        sourceReviewStatus = sourceReviewStatus
     )
 
     private fun LessonEntity.toModel(wsId: String) = LessonRef(
