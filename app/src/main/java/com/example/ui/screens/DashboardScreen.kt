@@ -216,18 +216,22 @@ fun DashboardScreen(
     val allBookNodes = remember(bookFilteredUnits) {
         bookFilteredUnits.flatMap { it.nodes }
     }
-    val filterCounts = remember(allBookNodes) {
+    val filterCounts = remember(allBookNodes, isLearner) {
         mapOf(
             DashboardLessonFilter.ALL to allBookNodes.size,
             DashboardLessonFilter.PENDING to allBookNodes.count { !it.isCompleted },
             DashboardLessonFilter.IN_PROGRESS to allBookNodes.count {
-                !it.isCompleted && (it.status == LearningNodeStatus.IN_PROGRESS || it.quizAttemptedCount > 0)
+                !it.isCompleted && if (isLearner) {
+                    it.quizAttemptedCount > 0
+                } else {
+                    it.status == LearningNodeStatus.IN_PROGRESS || it.quizAttemptedCount > 0
+                }
             },
             DashboardLessonFilter.READY_FOR_QUIZ to allBookNodes.count { !it.isCompleted && it.questionsCount > 0 },
             DashboardLessonFilter.COMPLETED to allBookNodes.count { it.isCompleted }
         )
     }
-    val visibleUnitPaths = remember(bookFilteredUnits, dashboardState.lessonFilter) {
+    val visibleUnitPaths = remember(bookFilteredUnits, dashboardState.lessonFilter, isLearner) {
         if (dashboardState.lessonFilter == DashboardLessonFilter.ALL) {
             bookFilteredUnits
         } else {
@@ -237,7 +241,11 @@ fun DashboardScreen(
                         DashboardLessonFilter.ALL -> true
                         DashboardLessonFilter.PENDING -> !node.isCompleted
                         DashboardLessonFilter.IN_PROGRESS ->
-                            !node.isCompleted && (node.status == LearningNodeStatus.IN_PROGRESS || node.quizAttemptedCount > 0)
+                            !node.isCompleted && if (isLearner) {
+                                node.quizAttemptedCount > 0
+                            } else {
+                                node.status == LearningNodeStatus.IN_PROGRESS || node.quizAttemptedCount > 0
+                            }
                         DashboardLessonFilter.READY_FOR_QUIZ -> !node.isCompleted && node.questionsCount > 0
                         DashboardLessonFilter.COMPLETED -> node.isCompleted
                     }
