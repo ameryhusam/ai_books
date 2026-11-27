@@ -1790,7 +1790,7 @@ class EduMiniRepository(
         dao.deleteQuestionById(questionId)
     }
 
-    suspend fun exportIndexer2Zip(
+    suspend fun exportLegacyWorkspaceZip(
         outputStream: OutputStream,
         workspace: ImportedWorkspace,
         learnerProfiles: List<LearnerProfile> = emptyList(),
@@ -1822,7 +1822,7 @@ class EduMiniRepository(
             activeLearnerId = activeLearnerId,
             lessonTexts = lessonTexts
         )
-        WorkspaceExporter.exportIndexer2CompatibleZip(
+        WorkspaceExporter.exportLegacyWorkspaceZip(
             outputStream = outputStream,
             workspace = workspace,
             drafts = drafts,
