@@ -171,7 +171,7 @@ fun StudentStudyDialog(
         } else null
     }
     val interactiveDraftActivity = remember(drafts, lesson) {
-        val interactiveDrafts = drafts.filter { it.task == TaskType.INTERACTIVE }
+        val interactiveDrafts = drafts.filter { it.task == TaskType.INTERACTIVE && it.status == DraftStatus.APPROVED.id }
             .sortedWith(
                 compareByDescending<DraftRecord> { it.status == DraftStatus.APPROVED.id }
                     .thenByDescending { it.version }
