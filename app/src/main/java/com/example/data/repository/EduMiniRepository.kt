@@ -520,7 +520,11 @@ class EduMiniRepository(
                 title = unit.title,
                 partKey = unit.partKey,
                 sortOrder = unit.sortOrder,
-                sourceIndexPath = unit.sourceIndexPath
+                sourceIndexPath = unit.sourceIndexPath,
+                proposedPartKey = unit.proposedPartKey,
+                assignmentStatus = unit.assignmentStatus,
+                assignmentSource = unit.assignmentSource,
+                assignmentEvidence = unit.assignmentEvidence
             )
         }
         return WorkspaceCatalogGraph(
