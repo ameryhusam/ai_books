@@ -184,7 +184,22 @@ Display names never replace canonical keys. A discovered subject label must be m
 
 ### 11.3 Printed page and PDF page mapping
 
-Physical PDF page = printed page + offset is the sole fallback mapping when physical PDF page values are not explicitly available. If pdfPageStart / pdfPageEnd are already present, do not apply offset again. Validate the resulting physical range against the actual PDF page count. Keep printed numbering and physical PDF numbering as separate values.
+In this contract, **printed page** means the page number printed in the textbook and referenced by the book's original table of contents for a unit or lesson. It is not the PDF viewer page number.
+
+Keep these coordinates distinct:
+- `printedPageStart` / `printedPageEnd`: page numbers read from the printed table of contents;
+- `pdfPageStart` / `pdfPageEnd`: physical page positions in the uploaded original PDF, counted from 1;
+- lesson-slice page: local page number inside a generated lesson-only PDF, also counted from 1. It is not a replacement for either original coordinate.
+
+The calibration equation is:
+
+```
+original PDF page = printed book page + offset
+```
+
+For example, if the TOC says printed page 25 and that page is physical PDF page 31, the offset is +6. The app applies this mapping only when the physical PDF position has not already been explicitly established. If `pdfPageStart` / `pdfPageEnd` already contain verified physical PDF positions, do not apply offset again.
+
+The offset is a source-level calibration, not a per-lesson guess. Verify it against more than one visible printed-page marker where possible. If the difference is inconsistent, the source has inserted/unprinted pages or a non-constant mapping; do not force a single offset. Mark calibration for review and preserve explicit physical page positions where they can be established. Validate every mapped physical range against the actual original PDF page count. After slicing, keep local lesson-PDF page numbers separate from original PDF positions.
 
 ### 11.4 Evidence and approval rules
 
@@ -206,3 +221,75 @@ The reusable prompt should focus on extracting unit name, lesson name, unit-to-p
 ### 11.6 Implementation boundary
 
 The app-owned intake data contract and validation are the shared boundary. UI, PDF extraction, OCR, built-in parsers and AI providers are adapters that populate or edit this draft. The canonical index serializer and manifest writer consume only the approved contract. This prevents discovery-specific formats from leaking into Room, the canonical JSON index, the student package or the Android consumer.
+
+
+## 12. Shared AI invocation and response workflow
+
+The application must reuse one AI invocation pipeline for index discovery and lesson-content generation. Only the task prompt, response schema, context values and source attachment preparation differ.
+
+### 12.1 Reference workflow established in the existing generation path
+
+The reference implementation demonstrates this sequence:
+
+1. Resolve the exact source artifact. For question generation, resolve one approved lesson-level PDF from the canonical index; do not substitute another lesson or use metadata alone.
+2. Read the PDF bytes, validate the PDF signature and size, and calculate SHA-256.
+3. Load the task prompt and response schema from the task/template registry.
+4. Render the prompt variables using the selected lesson/book context and user instructions.
+5. Attach the original lesson PDF to the prompt as `application/pdf` for Gemini. For OpenAI-compatible endpoints, render supported PDF pages to JPEG image inputs; do not claim native-PDF support for every compatible endpoint.
+6. Send prompt, source attachment and JSON response configuration in one provider request.
+7. Read the provider's response text and usage/model metadata.
+8. Parse JSON and validate it against the exact response schema; then apply task-specific semantic validation and mapping.
+9. Save the raw result as a reviewable draft/artifact with source hash, prompt/schema version and hashes, provider/model, validation report and request fingerprint.
+10. Persist approved content only after the user's explicit review/approval action.
+
+The existing reference flow uses one provider request boundary for both PDF-based index extraction and PDF-based lesson-question generation. The question-generation route proves the reusable pattern: resolve the lesson PDF, render the configured task prompt, load its schema, attach the PDF, receive JSON, validate it and save a review artifact. The index-extraction route follows the same request shape with a different prompt/schema and a bounded sample of the original book PDF.
+
+### 12.2 Current Android implementation
+
+The Android application already has the provider transport building blocks in `AiGenerationService.kt`:
+
+- Gemini receives the prompt and original PDF bytes as `application/pdf` inline data.
+- OpenAI-compatible providers receive prompt text plus rendered JPEG page images.
+- Gemini JSON mode sends `responseMimeType=application/json` and a normalized response schema when a valid JSON Schema is supplied.
+- OpenAI-compatible JSON mode currently sends `response_format=json_object`; the app must still validate the returned JSON locally.
+- Provider/profile/model selection, request cancellation, transient HTTP retry, quota reservation, rate-limit cooldown and provider isolation are already owned by the shared service and provider policy.
+- The question path uses `QuestionResponseContract` as its provider-facing schema source, validates output, then parses into the app's question model.
+
+### 12.3 Index-discovery integration gaps that must be fixed
+
+The following are present but not connected to that shared path:
+
+- `BookIndexPromptTemplate.SOURCE_PATH` identifies the discovery prompt, but `AiGenerationService.buildPrompt()` currently loads prompt assets only through `BookIndexPromptRegistry.blueprintFor(TaskType)`.
+- The existing `generate()` entry point requires a `LessonRef` and a content `TaskType`; index intake happens before a lesson exists. Creating a fake `LessonRef` or routing index discovery through an unrelated content task would be an incorrect workaround.
+- `BookIndexPromptTemplate.responseSchemaJson` is currently an example JSON object, not a JSON Schema. It cannot be passed as the provider's structured-output schema. The service will omit provider-level `responseSchema` because the object has no schema `type` and `properties`.
+- The discovery prompt is not loaded and submitted by the upload/intake flow. No current call connects the original book PDF to this prompt.
+- There is no completed parser mapping the model response into `BookIndexIntakeDraft`, and the semantic review gate is not connected to the provider response.
+- The current index discovery schema example and canonical `edu.book_index.v2` index example are different artifacts. Do not pass an example canonical index as if it were the extraction response schema.
+
+### 12.4 Required shared-service correction
+
+Refactor the existing service boundary, not duplicate it:
+
+- Introduce a task-neutral AI request value containing the fully assembled prompt, source attachments, response schema/format, selected provider/profile/model, and provenance metadata.
+- Move the current provider selection, quota reservation, `callProvider()`, cancellation, retry/cooldown, and response metadata logic behind one task-neutral execution method.
+- Keep the current lesson-generation API as a thin adapter that builds its prompt and attachment list, then calls the shared execution method. Do not regress its existing behavior.
+- Add an index-discovery adapter that loads the short discovery prompt and the real JSON Schema, prepares a bounded PDF sample from the original uploaded book, and calls the same execution method. It must not create a parallel HTTP client or provider retry loop.
+- Preserve the app's current provider policy: explicit provider/profile/model selection, no silent cross-provider fallback, no automatic key rotation to bypass quotas, and the existing rate-limit cooldown. Reuse the proven request/response shape, not a different project's key/model fallback policy.
+- Parse and validate the raw response, map it to the intake draft, run the deterministic domain checks, and leave all inferred values unapproved until the user confirms them.
+- Save prompt/schema versions and hashes, source PDF hash, selected model/provider, raw response and validation report for reproducibility.
+
+The AI model may extract printed page numbers from the TOC and propose a constant offset only when visual evidence supports it. The application owns the page mapping, bounds checks and approval rules. The model must not be asked to invent physical page positions from printed numbers.
+
+### 12.5 Prompt design rules
+
+Keep the discovery prompt short and task-focused. It should tell the model:
+1. inspect the attached book pages and identify grade, subject, book title and source-part evidence;
+2. extract unit and lesson titles in source order;
+3. copy the printed page numbers exactly as shown in the original table of contents;
+4. distinguish printed book pages from physical PDF pages and state offset only when verified;
+5. return unknown/null and a concise evidence/review reason instead of guessing;
+6. return JSON only according to the supplied response schema.
+
+Do not duplicate the full schema or long examples in the prompt when the selected provider supports structured JSON output. For providers that only support JSON-object mode, include a compact field/enum contract in the prompt and always apply local schema validation. Keep curriculum keys grounded in the app's curriculum catalogue; the model must not invent or derive keys from display names.
+
+The prompt is an instruction resource. The JSON Schema is a separate machine-readable contract. The intake model/domain validator is the final application-side safety boundary. These three roles must not be collapsed into one hard-coded prompt string.
