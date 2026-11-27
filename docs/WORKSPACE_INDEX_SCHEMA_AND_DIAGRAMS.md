@@ -104,11 +104,11 @@ A lesson contains source numbering, title, printed page range, optional physical
 
 `sliceFile.workspaceUri` is the preferred explicit path to the generated lesson PDF. It is workspace-relative and must resolve from the selected workspace root. The consumer must not prepend the part or unit path again when this URI is already present.
 
-The slicer currently calculates physical page ranges from `printedPageStart + offset` and `printedPageEnd + offset`. Optional `pdfPageStart` / `pdfPageEnd` fields must not be conflated with printed page numbers or user-entered expected TOC pages. Apply page offset exactly once in the ai_books slicing pipeline and cover it with tests.
+The canonical slicing rule is: physical PDF page = printed page + offset when physical page values are not already known. Explicit pdfPageStart / pdfPageEnd values are physical positions and must not receive offset again. Keep printed and physical page values separate, apply offset exactly once, and cover the mapping with tests. The current fixed-page splitter does not yet implement this complete mapping.
 
 ## 7. Manifest contract
 
-The TypeScript exporter now writes `edu.book_manifest.v2` with:
+The canonical manifest writer must emit `edu.book_manifest.v2` with:
 - `manifestVersion`, `gradeKey`, `subjectKey`, `componentKey`, `partKey`, `sourceLayout`, `sourceReviewStatus`;
 - `sourceFileName` and `sourceSha256`;
 - `canonicalIndexPath` and `canonicalIndexSha256`;
@@ -146,7 +146,7 @@ For a standalone source, `partKey` must agree between manifest and index (`P01` 
 
 Compatibility note: the validator still accepts older manifests in a warning/legacy path. Do not silently upgrade a legacy manifest to v2 by filling guessed provenance. Generate v2 only when the source evidence and hashes are available.
 
-The validator currently enforces a subset of the documented manifest fields; this is an implementation contract, not yet a standalone machine-readable JSON Schema. Before treating the format as frozen for external producers, add a versioned JSON Schema and golden fixtures for both standalone and merged layouts, then verify the TypeScript exporter and Android validator against the same fixtures.
+The validator currently enforces a subset of the documented manifest fields; this is an implementation contract, not yet a standalone machine-readable JSON Schema. Before treating the format as frozen, add a versioned JSON Schema and golden fixtures for both standalone and merged layouts, then verify the Android writer, validator and importer against the same fixtures.
 
 ## 8. Identity and key rules
 
@@ -187,3 +187,10 @@ The upload review model is BookIndexIntakeDraft (app-owned Kotlin contract). It 
 The user-facing sequence is: select PDF → inspect metadata and TOC → propose grade/subject/template → extract units and lessons → display all fields for direct editing → confirm source layout and unit-part assignment → explicitly confirm the complete draft → approve canonical index → slice lessons → validate and write the v2 manifest. AI extraction and built-in parsing both populate the same draft; neither can bypass reviewer confirmation.
 
 Offset is applied once only when deriving physical PDF pages from printed page numbers. Explicit pdfPageStart / pdfPageEnd values are already physical PDF positions and must not be offset again. A unit's partKey is not inferred from unit order alone. Unresolved assignment or source layout blocks approval and slicing.
+
+
+## 11. Intake implementation status
+
+The Android project now has a shared BookIndexIntakeDraft contract and validation rules in BookIndexIntakeWorkflow.kt. It captures grade/subject display names and stable keys, source layout and part, selected template and discovery method, offset, unit/lesson names, printed and physical page values, assignment evidence and reviewer confirmation. The current PDF splitter emits provisional draft artifacts and no longer assigns P01 to every lesson. Reusable prompt resources are stored under app/src/main/assets/prompts/book_indexing and referenced through BookIndexPromptRegistry.
+
+The upload screen is not yet wired to this contract. Automatic TOC/grade/subject extraction, AI PDF-page attachment, deterministic parser selection, editing/confirmation UI, and the canonical v2 serializer/manifest/slicing path remain to be integrated. The workflow described in this document is the target contract; those UI and end-to-end steps are not claimed as complete.
