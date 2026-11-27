@@ -2119,6 +2119,8 @@ class MainViewModel(
                 activeDraftTemplateId = draft.templateId,
                 activeDraftTemplateVersion = draft.templateVersion,
                 activeDraftResponseSchemaHash = draft.responseSchemaHash,
+                activeDraftPromptUsed = draft.promptUsed,
+                activeDraftResponseSchemaJson = draft.responseSchemaJson,
                 activeDraftRequestFingerprint = draft.requestFingerprint,
                 activeDraftContentHash = draft.contentHash,
                 activeDraftSourcePdfHash = draft.sourcePdfHash,
@@ -2278,6 +2280,8 @@ class MainViewModel(
                     templateId = snapshot.activeDraftTemplateId,
                     templateVersion = snapshot.activeDraftTemplateVersion,
                     responseSchemaHash = snapshot.activeDraftResponseSchemaHash,
+                    promptUsed = snapshot.activeDraftPromptUsed,
+                    responseSchemaJson = snapshot.activeDraftResponseSchemaJson,
                     requestFingerprint = snapshot.activeDraftRequestFingerprint,
                     sourcePdfHash = snapshot.activeDraftSourcePdfHash
                 )
@@ -2464,6 +2468,8 @@ class MainViewModel(
                 activeDraftTemplateId = cloudDraft.templateId,
                 activeDraftTemplateVersion = cloudDraft.templateVersion.toInt().coerceAtLeast(1),
                 activeDraftResponseSchemaHash = cloudDraft.responseSchemaHash,
+                activeDraftPromptUsed = cloudDraft.promptUsed,
+                activeDraftResponseSchemaJson = cloudDraft.responseSchemaJson,
                 activeDraftRequestFingerprint = cloudDraft.requestFingerprint,
                 activeDraftContentHash = cloudDraft.contentHash,
                 activeDraftSourcePdfHash = cloudDraft.sourcePdfHash,
