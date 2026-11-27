@@ -586,6 +586,7 @@ fun DashboardScreen(
                                     stepNumber = idx + 1,
                                     isLast = idx == unitPath.nodes.lastIndex,
                                     node = node,
+                                    showApprovedOnly = isLearner,
                                     showStudioAction = !isLearner,
                                     onOpenStudentStudy = {
                                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -1967,11 +1968,14 @@ private fun LearningPathNodeRow(
     stepNumber: Int,
     isLast: Boolean,
     node: LearningLessonNode,
+    showApprovedOnly: Boolean,
     showStudioAction: Boolean,
     onOpenStudentStudy: () -> Unit,
     onPreviewPdf: (() -> Unit)?,
     onOpenInStudio: () -> Unit
 ) {
+    val visibleDraftsCount = if (showApprovedOnly) node.approvedDraftsCount else node.draftsCount
+    val visiblePackagesCount = if (showApprovedOnly) node.publishedPackagesCount else node.packagesCount
     val (nodeColor, borderColor, bgColor) = when (node.status) {
         LearningNodeStatus.COMPLETED -> Triple(EduGreen, EduGreen, EduMint.copy(alpha = 0.4f))
         LearningNodeStatus.READY -> Triple(EduPurple, EduPurple.copy(alpha = 0.55f), EduWhite)
@@ -2080,17 +2084,17 @@ private fun LearningPathNodeRow(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    if (node.draftsCount > 0) {
+                    if (visibleDraftsCount > 0) {
                         LessonMetaChip(
                             icon = Icons.Rounded.Description,
-                            label = "ملخص/شرح (${node.draftsCount})",
+                            label = "ملخص/شرح ($visibleDraftsCount)",
                             tint = EduBlue
                         )
                     }
-                    if (node.packagesCount > 0) {
+                    if (visiblePackagesCount > 0) {
                         LessonMetaChip(
                             icon = Icons.Rounded.Code,
-                            label = "تفاعلي (${node.packagesCount})",
+                            label = "تفاعلي ($visiblePackagesCount)",
                             tint = EduPurple
                         )
                     }
