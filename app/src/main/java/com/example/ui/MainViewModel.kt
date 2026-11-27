@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.firebase.AnalyticsTracker
 import com.example.data.ai.AiModelDefinition
+import com.example.data.ai.AiModelCatalogDefaults
 import com.example.data.ai.AiExecutionException
 import com.example.data.ai.AiExecutionFailureKind
 import com.example.data.firebase.FirestoreSyncRepository
@@ -338,7 +339,19 @@ class MainViewModel(
                 runCatching { firestoreSync.isSystemAdmin() }
                     .onSuccess { allowed -> _uiState.update { it.copy(isSystemAdmin = allowed) } }
                     .onFailure { _uiState.update { it.copy(isSystemAdmin = false) } }
-                runCatching { firestoreSync.fetchAiModelCatalog() }
+                runCatching {
+                    var catalog = firestoreSync.fetchAiModelCatalog()
+                    // Bootstrap the central catalogue only for an explicitly
+                    // authorized system administrator, and only when it is empty.
+                    // Ordinary teachers/users never publish local defaults to Firestore.
+                    if (allowed && catalog.isEmpty()) {
+                        AiModelCatalogDefaults.entries.forEach { seed ->
+                            firestoreSync.upsertAiModelDefinition(seed)
+                        }
+                        catalog = firestoreSync.fetchAiModelCatalog()
+                    }
+                    catalog
+                }
                     .onSuccess { catalog -> _uiState.update { it.copy(aiModelCatalog = catalog) } }
                     .onFailure { error ->
                         _uiState.update {
