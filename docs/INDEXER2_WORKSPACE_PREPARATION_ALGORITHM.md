@@ -1,12 +1,12 @@
-# Indexer2 Workspace Preparation Algorithm
+# the former indexing workflow Workspace Preparation Algorithm
 
 ## 1. Responsibility boundary
 
-This document describes the producer contract that Edu Mini consumes. Indexer2 owns PDF discovery, curriculum identity, source-layout classification, unit-part assignment, index review, page calibration, lesson slicing, file paths, manifests and hashes.
+This document describes the producer contract that Edu Mini consumes. the former indexing workflow owns PDF discovery, curriculum identity, source-layout classification, unit-part assignment, index review, page calibration, lesson slicing, file paths, manifests and hashes.
 
 Edu Mini must consume the prepared workspace. It must not duplicate the PDF classifier, infer part assignments, rebuild lesson paths when `sliceFile.workspaceUri` exists, or slice the source PDF again.
 
-The Indexer2 implementation is the authority for actual behavior. Where this document describes the target layout not yet implemented, the status is explicitly marked below.
+The the former indexing workflow implementation is the authority for actual behavior. Where this document describes the target layout not yet implemented, the status is explicitly marked below.
 
 ## 2. End-to-end preparation sequence
 
@@ -51,7 +51,7 @@ For each unit, preserve:
 
 Automatic assignment requires explicit source evidence such as a TOC section, unit title/heading evidence or a verified standalone-source part. Unit number alone is never evidence.
 
-For an unresolved unit in a confirmed merged source, Indexer2 may propose P01 as a default review suggestion. The UI must display the proposal and require an explicit reviewer action to confirm P01 or choose P02. Until that action, keep `partKey=unknown`, `assignmentStatus=need_review`, and keep the source `sourceLayout=MERGED_PARTS_FILE`.
+For an unresolved unit in a confirmed merged source, The app-owned intake workflow may propose P01 as a default review suggestion. The UI must display the proposal and require an explicit reviewer action to confirm P01 or choose P02. Until that action, keep `partKey=unknown`, `assignmentStatus=need_review`, and keep the source `sourceLayout=MERGED_PARTS_FILE`.
 
 A manual decision must be recorded as reviewer provenance. A confirmed proposal must not be recorded as automatic evidence.
 
@@ -148,4 +148,50 @@ Edu Mini must:
 - A merged source has one root canonical index; part indexes are derived.
 - Each source PDF has its own source SHA-256.
 - Each index hash belongs to the exact index file it describes.
-- The application consumes Indexer2's workspace; it does not reimplement its indexing logic.
+- The application consumes the app-generated workspace; it does not reimplement its indexing logic.
+
+
+## 11. App-owned book intake and indexing workflow
+
+The indexing algorithm is a first-class capability of ai_books. Removing an external runtime dependency does not remove, simplify away, or discard the algorithmic principles described above. The app owns PDF intake, discovery, index drafting, review, approval, slicing, hashing, validation and Workspace creation.
+
+### 11.1 Intake sequence
+
+1. The user selects a PDF. The app stages it locally, records its original filename, SHA-256 and physical PDF page count, and inspects text/OCR availability.
+2. The app discovers candidate curriculum metadata: grade, subject, book title, source layout and possible part. Discovery can use local rules/catalogues, a reusable built-in template, or an AI prompt template. These are alternative discovery methods over the same output contract, not separate index formats.
+3. The discovery step inspects the table of contents and relevant page regions to propose unit titles, lesson titles, printed page ranges, candidate part assignments and evidence. It must not fabricate missing values.
+4. The user sees one editable review screen containing grade key/name, subject key/name, book title, source layout, source part, selected template, offset, units, lessons, part assignments and page ranges.
+5. The user may edit any proposed value, select a different reusable template, switch between built-in parsing and AI-assisted extraction, or complete the index manually.
+6. The user explicitly confirms the reviewed metadata. Only a valid confirmed draft can become an approved canonical index and proceed to final PDF slicing.
+7. The app writes the canonical index and matching v2 book manifest from the same approved in-memory model, calculates hashes from the exact serialized bytes, validates the result, then creates lesson slices and Workspace records.
+
+### 11.2 Reusable index fields
+
+The shared index-intake contract must carry grade display name and stable grade key; subject display name and stable subject key; book title and optional component key; source filename, SHA-256 and physical PDF page count; source layout and source-level part; reusable template ID and discovery method; offset and explicit printed-page / physical-PDF-page values; stable unit and lesson keys, display names, unit-to-part assignment, assignment status/source/evidence; reviewer confirmation and review provenance.
+
+Display names never replace canonical keys. A discovered subject label must be matched to a known catalogue key or explicitly confirmed/created by the user; never derive a canonical key by slugifying an Arabic display name.
+
+### 11.3 Printed page and PDF page mapping
+
+Physical PDF page = printed page + offset is the sole fallback mapping when physical PDF page values are not explicitly available. If pdfPageStart / pdfPageEnd are already present, do not apply offset again. Validate the resulting physical range against the actual PDF page count. Keep printed numbering and physical PDF numbering as separate values.
+
+### 11.4 Evidence and approval rules
+
+- AI or local discovery creates a draft, not an approved index.
+- A proposed part assignment remains NEEDS_REVIEW until the user confirms it.
+- Unit number alone is not evidence for a part assignment.
+- Unknown source layout blocks final approval and slicing.
+- An independent source requires P01 or P02; a merged source uses BOTH at source level and confirms each unit's part independently.
+- Every automatically assigned part must retain its source evidence; every manual assignment must identify the reviewer as its source.
+- The UI must preserve the user's edits when changing discovery method or regenerating proposals. Regeneration must not silently overwrite confirmed fields.
+- Failure to extract a TOC or OCR text must expose manual entry; it must not create fake unit/lesson names or evenly spaced page ranges and label them as discovered.
+
+### 11.5 Templates and provider independence
+
+Index templates are reusable application resources, not an external tool's private implementation. A template defines its extraction instructions, required fields, response schema/version and validation rules. The user can select a built-in deterministic template or an AI prompt template. Both must produce the same BookIndexIntakeDraft contract. Provider/model selection belongs to the AI execution layer and must not change the index schema or approval rules.
+
+The reusable prompt should focus on extracting unit name, lesson name, unit-to-part relationship, printed page start/end, subject name/key, grade name/key and evidence. Offset mapping is applied by the app's deterministic page-mapping function, not delegated to the model.
+
+### 11.6 Implementation boundary
+
+The app-owned intake data contract and validation are the shared boundary. UI, PDF extraction, OCR, built-in parsers and AI providers are adapters that populate or edit this draft. The canonical index serializer and manifest writer consume only the approved contract. This prevents discovery-specific formats from leaking into Room, the canonical JSON index, the student package or the Android consumer.
