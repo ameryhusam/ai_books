@@ -1357,7 +1357,7 @@ class MainViewModel(
             _uiState.update {
                 it.copy(alert = AlertMessage(
                     "تعذر بدء التقوية",
-                    "تأكد من وجود نموذج مفعّل أضافه مدير النظام وملف اتصال API صالح."
+                    "تأكد من وجود نموذج مفعّل أضافه مدير النظام ومفتاح API صالح."
                 ))
             }
             return
@@ -2940,7 +2940,7 @@ class MainViewModel(
         }
         if (availableProfiles.isEmpty()) {
             _uiState.update {
-                it.copy(alert = AlertMessage("لا يوجد اتصال API", "أضف أو فعّل ملف اتصال لهذا المزود في الإعدادات."))
+                it.copy(alert = AlertMessage("لا يوجد مفتاح API", "أضف أو فعّل مفتاح API لهذا المزود في الإعدادات."))
             }
             return
         }
