@@ -84,6 +84,9 @@ data class BookIndexIntakeDraft(
         if (sourceFileName.isBlank()) add("اسم ملف المصدر مطلوب")
         if (!sourceSha256.matches(Regex("(?i)^[a-f0-9]{64}$"))) add("بصمة المصدر SHA-256 غير صالحة")
         if (totalPdfPages <= 0) add("عدد صفحات PDF غير صالح")
+        if (discoveryConfidence != null && discoveryConfidence !in 0.0..1.0) {
+            add("درجة ثقة الاكتشاف يجب أن تكون بين 0 و1")
+        }
         if (bookTitle.isBlank()) add("عنوان الكتاب مطلوب")
         if (gradeKey.isBlank()) add("مفتاح الصف مطلوب")
         if (subjectKey.isBlank()) add("مفتاح المادة مطلوب")
@@ -112,6 +115,11 @@ data class BookIndexIntakeDraft(
                 add("الجزء المعتمد للوحدة ${unit.title} يجب أن يطابق جزء ملف المصدر")
             }
             if (unit.assignmentEvidence.isBlank()) add("دليل تعيين الجزء مطلوب للوحدة ${unit.title}")
+            if (unit.assignmentStatus == IndexAssignmentStatus.ASSIGNED &&
+                unit.assignmentSource !in setOf(IndexAssignmentSource.INDEX_EVIDENCE, IndexAssignmentSource.REVIEWER)
+            ) {
+                add("مصدر تعيين الجزء للوحدة ${unit.title} غير موثوق للاعتماد")
+            }
             if (unit.lessons.isEmpty()) add("الوحدة ${unit.title} لا تحتوي دروساً")
             if (unit.lessons.map { it.lessonKey }.distinct().size != unit.lessons.size) {
                 add("توجد مفاتيح دروس مكررة في الوحدة ${unit.title}")
