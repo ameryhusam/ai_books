@@ -3318,6 +3318,59 @@ class EduMiniCoreTest {
     }
 
     @Test
+    fun geminiResourceExhaustedWithoutQuotaMetadataRemainsRateLimited() = runBlocking {
+        val server = MockWebServer()
+        server.enqueue(
+            MockResponse().setResponseCode(429).setBody(
+                """{"error":{"message":"Resource exhausted","status":"RESOURCE_EXHAUSTED"}}"""
+            )
+        )
+        server.enqueue(
+            MockResponse().setResponseCode(403).setBody(
+                """{"error":{"message":"Permission denied","status":"PERMISSION_DENIED"}}"""
+            )
+        )
+        server.start()
+        try {
+            val profile = ProviderConfig(
+                id = "gemini-classifier-test",
+                provider = ProviderType.GEMINI,
+                label = "Gemini classifier test",
+                model = "gemini-test-model",
+                baseUrl = "",
+                apiKey = "gemini-classifier-secret",
+                enabled = true,
+                createdAt = 1L
+            )
+            val service = AiGenerationService(
+                context = null,
+                client = OkHttpClient(),
+                geminiEndpointBase = server.url("/v1beta/models").toString().trimEnd('/')
+            )
+
+            val ambiguousExhaustion = runCatching {
+                service.testProviderConnection(profile)
+            }.exceptionOrNull()
+            assertTrue(ambiguousExhaustion is AiExecutionException)
+            assertEquals(
+                AiExecutionFailureKind.RATE_LIMITED,
+                (ambiguousExhaustion as AiExecutionException).kind
+            )
+
+            val permissionDenied = runCatching {
+                service.testProviderConnection(profile)
+            }.exceptionOrNull()
+            assertTrue(permissionDenied is AiExecutionException)
+            assertEquals(
+                AiExecutionFailureKind.PROVIDER_UNAVAILABLE,
+                (permissionDenied as AiExecutionException).kind
+            )
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
     fun providerConnectionTestRejectsEmptyOpenAiCompatibleResponse() = runBlocking {
         val server = MockWebServer()
         server.enqueue(
