@@ -577,7 +577,19 @@ class AiGenerationService(
                 ?: 0
 
             if (text.isBlank()) {
-                throw ProviderCallException("استجابة فارغة", isTransient = true)
+                val finishReason = (firstCandidate?.get("finishReason") as? JsonPrimitive)?.contentOrNull.orEmpty()
+                val blockReason = ((jsonObj?.get("promptFeedback") as? JsonObject)
+                    ?.get("blockReason") as? JsonPrimitive)?.contentOrNull.orEmpty()
+                val diagnostic = listOf(
+                    "لم يُرجع Gemini محتوى نصياً قابلاً للاستخراج",
+                    finishReason.takeIf { it.isNotBlank() }?.let { "finishReason=$it" },
+                    blockReason.takeIf { it.isNotBlank() }?.let { "blockReason=$it" }
+                ).filterNotNull().joinToString("؛ ")
+                throw ProviderCallException(
+                    message = diagnostic,
+                    isTransient = false,
+                    providerReason = listOf(finishReason, blockReason).filter { it.isNotBlank() }.joinToString(" ")
+                )
             }
             return text to tokens
         }
@@ -655,7 +667,15 @@ class AiGenerationService(
             val choices = jsonObj?.get("choices") as? JsonArray
             val firstChoice = choices?.firstOrNull() as? JsonObject
             val messageObj = firstChoice?.get("message") as? JsonObject
-            val text = (messageObj?.get("content") as? JsonPrimitive)?.contentOrNull.orEmpty()
+            val content = messageObj?.get("content")
+            val text = when (content) {
+                is JsonPrimitive -> content.contentOrNull.orEmpty()
+                is JsonArray -> content.joinToString("") { segment ->
+                    val item = segment as? JsonObject
+                    ((item?.get("text") as? JsonPrimitive)?.contentOrNull).orEmpty()
+                }
+                else -> ""
+            }
             val tokens = (jsonObj?.get("usage") as? JsonObject)
                 ?.get("total_tokens")
                 ?.let { it as? JsonPrimitive }
@@ -663,7 +683,17 @@ class AiGenerationService(
                 ?: 0
 
             if (text.isBlank()) {
-                throw ProviderCallException("استجابة فارغة", isTransient = true)
+                val finishReason = (firstChoice?.get("finish_reason") as? JsonPrimitive)?.contentOrNull.orEmpty()
+                val refusal = (messageObj?.get("refusal") as? JsonPrimitive)?.contentOrNull.orEmpty()
+                throw ProviderCallException(
+                    message = listOf(
+                        "لم يُرجع OpenAI-compatible محتوى نصياً قابلاً للاستخراج",
+                        finishReason.takeIf { it.isNotBlank() }?.let { "finish_reason=$it" },
+                        refusal.takeIf { it.isNotBlank() }?.let { "refusal=$it" }
+                    ).filterNotNull().joinToString("؛ "),
+                    isTransient = false,
+                    providerReason = listOf(finishReason, refusal).filter { it.isNotBlank() }.joinToString(" ")
+                )
             }
             return text to tokens
         }
@@ -741,9 +771,12 @@ class AiGenerationService(
             error.httpCode == 401 || error.httpCode == 403 ||
                 Regex("invalid api.?key|api key not valid|unauthorized|authentication failed")
                     .containsMatchIn(signals) -> "INVALID_KEY"
-            provider == ProviderType.GEMINI &&
-                Regex("quota_exceeded|quota exceeded|quota exhausted|daily quota|insufficient quota|billing limit")
-                    .containsMatchIn(signals) -> "QUOTA_EXHAUSTED"
+            Regex("quota_exceeded|quota exceeded|quota exhausted|daily quota|insufficient quota|insufficient_quota|billing limit|billing_hard_limit|exceeded your current quota")
+                .containsMatchIn(signals) -> "QUOTA_EXHAUSTED"
+            error.httpCode == 404 ||
+                Regex("model[^ ]*(not found|does not exist)|model_not_found|unsupported model")
+                    .containsMatchIn(signals) -> "MODEL_UNAVAILABLE"
+            error.httpCode == 400 -> "INVALID_REQUEST"
             Regex("rate_limit_exceeded|rate.?limit|too many requests|requests per minute|tokens per minute|retry after")
                 .containsMatchIn(signals) -> "RATE_LIMITED"
             error.httpCode == 429 -> "RATE_LIMITED"
