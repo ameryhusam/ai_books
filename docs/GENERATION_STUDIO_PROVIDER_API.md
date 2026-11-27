@@ -392,13 +392,13 @@ Current policy: keep provider selection explicit and isolated, but permit config
 
 ### 7.2 Current Gemini behavior
 
-The current generation path filters profiles by the selected provider and orders the selected profile first. Gemini retries a saturated model up to three times, marks only that profile/model pair cooling down, and then tries the next configured model. It moves to another Gemini API profile only when the current profile is quota-exhausted, invalid, or otherwise unavailable. OpenAI-compatible requests retain the chosen model and can move to another same-provider API key after three transient failures, or immediately for confirmed quota exhaustion/invalid credentials. No cross-provider fallback occurs.
+The current generation path filters API keys by the selected provider and orders the selected key first. Gemini retries a saturated model up to three times, marks only that key/model pair cooling down, and then tries the next enabled model from the provider catalogue. It moves to another Gemini key when the current key is quota-exhausted or invalid. OpenAI-compatible requests retain the chosen model and move to another same-provider key after three transient failures, or immediately for confirmed quota exhaustion/invalid credentials. No cross-provider fallback occurs.
 
-The active task-neutral AiGenerationService.execute(AiExecutionRequest) dispatch path uses ProviderRoutingPolicy.orderedProfiles() and modelCandidates(profile, requestedModelId). The older generate(lesson, task, ...) method is now a compatibility adapter that prepares the lesson prompt and delegates to execute().
+The active task-neutral AiGenerationService.execute(AiExecutionRequest) dispatch path uses ProviderRoutingPolicy.orderedProfiles() for key ordering and modelCandidates(profile, requestedModelId, modelFallbackIds) for model ordering. The model fallback list is supplied from the provider catalogue at request time and is not persisted on individual keys. The older generate(lesson, task, ...) method remains a compatibility adapter that prepares the lesson prompt and delegates to execute().
 
 ### 7.3 Current OpenAI-compatible behavior
 
-OpenAI-compatible profiles use their own configured candidate model list and their own request function. They do not use Gemini cooldown state or Gemini model identifiers.
+OpenAI-compatible API keys use the same provider endpoint configuration and the same selected model. They do not use Gemini cooldown state or Gemini model identifiers.
 
 A provider switch is explicit. A failed OpenAI request must not dispatch Gemini automatically, and a failed Gemini request must not dispatch OpenAI automatically.
 
@@ -408,15 +408,15 @@ For future hardening, keep the failure categories distinct:
 
 | Failure | Required handling |
 |---|---|
-| Authentication/permission (401/403) | Mark the affected profile invalid/permission-failed; do not retry the same credentials repeatedly |
-| Confirmed quota exhaustion | Stop requests that would bypass the provider's quota; show a clear quota message and retry guidance |
-| Temporary rate limit / overload (429) | Respect `Retry-After`; apply cooldown to the affected model/profile according to provider semantics; try only configured models within the selected provider |
+| Authentication/permission (401/403) | Mark the affected API key invalid/permission-failed; do not retry the same credentials repeatedly |
+| Confirmed quota exhaustion | Mark the affected API key quota-exhausted and try another enabled key of the same provider; if keys share a project quota, the next key may share the same exhausted limit |
+| Temporary rate limit / overload (429) | Respect `Retry-After`; apply cooldown to the affected model/key according to provider semantics; try only catalogue models and API keys within the selected provider |
 | Transient server failure (5xx) | Bounded retry with exponential backoff and jitter, then continue only within the selected provider's configured candidates |
 | Network/timeout | Bounded retry; preserve the user's prompt and source selection |
 | Invalid request/schema/model | Do not repeat an unchanged invalid request; report the precise cause |
 | User cancellation | Cancel the active HTTP call and do not continue fallback attempts |
 
-The current code already separates several of these cases, but its retry/backoff policy and Gemini cooldown persistence remain narrower than this target contract. Do not describe the target policy as fully implemented until tests prove each branch.
+The current code implements bounded retries, same-provider key failover, quota-state persistence and Gemini model-specific cooldown. Continue treating the provider response as authoritative; local request counters are diagnostic only.
 
 ## 8. Provider API keys, secrets and request telemetry
 
@@ -798,10 +798,10 @@ These are feature/data-contract failures, not API transport failures. The raw re
 ### 19.4 Current code-level behavior after the correction
 
 - AiGenerationService.execute(AiExecutionRequest) is task-neutral and owns provider transport, same-provider retries/failover, response extraction and execution metadata.
-- Gemini transient overload/rate-limit/network/server failures receive up to three actual dispatches per configured model, then advance to the next configured Gemini model. Confirmed quota exhaustion or invalid credentials skip the current profile and try another enabled Gemini profile.
-- OpenAI-compatible requests keep the selected model. Transient failures receive up to three actual dispatches before the next enabled OpenAI-compatible profile/key is tried; confirmed quota exhaustion or invalid credentials skip the current profile immediately.
+- Gemini transient overload/rate-limit/network/server failures receive up to three actual dispatches per catalogue model, then advance to the next enabled Gemini catalogue model. Confirmed quota exhaustion or invalid credentials skip the current API key and try another enabled Gemini key.
+- OpenAI-compatible requests keep the selected model. Transient failures receive up to three actual dispatches before the next enabled OpenAI-compatible API key is tried; confirmed quota exhaustion or invalid credentials skip the current key immediately.
 - Provider isolation remains strict: no Gemini-to-OpenAI or OpenAI-to-Gemini fallback.
-- ProviderStorage blocks a provider-confirmed quota-exhausted profile for the remainder of its configured quota day; the quota status resets when that profile's timezone advances to the next day. The local dailyRequestLimit value is not used to infer provider quota. OpenAI-compatible rate-limited keys also receive a bounded cooldown after their three attempts; an explicit Retry-After header is honored.
+- ProviderStorage blocks a provider-confirmed quota-exhausted API key for the remainder of its configured quota day; the quota status resets when that key's timezone advances to the next day. The local dailyRequestLimit value is not used to infer provider quota. OpenAI-compatible rate-limited keys also receive a bounded cooldown after their three attempts; an explicit Retry-After header is honored.
 - OpenAI-compatible message.content may be a string or an array of text segments. Gemini no-text responses include finishReason/blockReason where returned.
 - EduMiniRepository no longer throws away a successful provider response because TemplateOutputValidator or QuestionBankEngine reports content issues. It attaches the findings to GeneratedResult.validationIssues and records RESPONSE_REVIEW_REQUIRED.
 - MainViewModel saves the response draft and displays the content plus diagnostics. Question-bank insertion remains blocked when validation fails and its failure is shown separately.
@@ -811,11 +811,11 @@ These are feature/data-contract failures, not API transport failures. The raw re
 The source changes are in place, but behavior is not considered verified until the Android test/CI run passes. Required tests include:
 
 - Gemini transient overload: exactly three requests for model A, then configured model B; no provider crossing.
-- Gemini confirmed quota exhaustion: skip current profile immediately and try the next enabled Gemini profile; no repeated calls on the exhausted profile.
-- Gemini invalid API key: skip current profile and try the next Gemini profile.
-- OpenAI confirmed quota exhaustion/invalid key: rotate to the next OpenAI-compatible profile/key without changing provider or model.
+- Gemini confirmed quota exhaustion: skip current API key immediately and try the next enabled Gemini key; no repeated calls on the exhausted key.
+- Gemini invalid API key: skip current key and try the next Gemini key.
+- OpenAI confirmed quota exhaustion/invalid key: rotate to the next OpenAI-compatible key without changing provider or model.
 - OpenAI transient failures: bounded three-dispatch retry before same-provider key failover.
-- Quota-exhausted profiles remain skipped during the same configured quota day and become eligible after that profile's quota-day rollover.
+- Quota-exhausted keys remain skipped during the same configured quota day and become eligible after that key's quota-day rollover.
 - Gemini model cooldown does not block sibling models on the same profile.
 - A provider-success response with malformed JSON or a question-domain error is returned with raw text and validationIssues, saved as a reviewable draft, and not inserted into Room.
 - A valid question response reaches the question-bank feature, maps to Room entities, inserts transactionally and appears in the question-bank UI.
