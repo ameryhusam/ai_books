@@ -216,8 +216,17 @@ data class BookRef(
     val sourcePdfPath: String? = null,
     val subjectName: String? = null,
     val approvalStatus: String? = null,
-    val requiresReview: Boolean = false,
-    val sourceReviewStatus: String? = null
+    val requiresReview: Boolean = true,
+    val sourceReviewStatus: String? = null,
+    val schemaVersion: String = "edu.book_index.v2",
+    val gradeName: String = "",
+    val sourceLayout: String = "UNKNOWN",
+    val sourceLayoutEvidence: String = "",
+    val partKey: String? = null,
+    val offset: Int = 1,
+    val totalPdfPages: Int = 0,
+    val sourceFileName: String? = null,
+    val sourceSha256: String? = null
 )
 
 data class LessonRef(
@@ -237,7 +246,12 @@ data class LessonRef(
     val workspaceId: String = "",
     val sourceTextPath: String? = null,
     val interactivePath: String? = null,
-    val printedPageRange: String? = null
+    val printedPageRange: String? = null,
+    val printedPageStart: Int? = null,
+    val printedPageEnd: Int? = null,
+    val pdfPageStart: Int? = null,
+    val pdfPageEnd: Int? = null,
+    val sortOrder: Int = 0
 )
 
 data class DirectGradeChoice(
