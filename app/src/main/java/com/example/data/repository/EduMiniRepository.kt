@@ -1411,21 +1411,27 @@ class EduMiniRepository(
             return activity.steps.size
         }
         val expectedBatch = QuestionResponseContract.expectedBatchFromPrompt(draft.promptUsed)
-        val savedQuestions = saveQuestionsFromDraftText(
-            workspaceId = draft.workspaceId,
-            lesson = lessonRef,
-            rawText = draft.content,
-            draftId = draft.id,
-            templateId = draft.templateId,
-            promptUsed = draft.promptUsed,
-            responseSchemaJson = draft.responseSchemaJson,
-            sourceIndexSha256 = draft.sourceIndexSha256,
-            expectedQuestionCount = expectedBatch?.count,
-            expectedQuestionTypeIds = expectedBatch?.typeIds.orEmpty(),
-            expectedQuestionDifficultyId = expectedBatch?.difficultyId
-        )
+        val alreadyStoredForDraft = dao.countQuestionsForDraft(draft.id)
+        val savedQuestions = if (alreadyStoredForDraft > 0) {
+            emptyList()
+        } else {
+            saveQuestionsFromDraftText(
+                workspaceId = draft.workspaceId,
+                lesson = lessonRef,
+                rawText = draft.content,
+                draftId = draft.id,
+                templateId = draft.templateId,
+                promptUsed = draft.promptUsed,
+                responseSchemaJson = draft.responseSchemaJson,
+                sourceIndexSha256 = draft.sourceIndexSha256,
+                expectedQuestionCount = expectedBatch?.count,
+                expectedQuestionTypeIds = expectedBatch?.typeIds.orEmpty(),
+                expectedQuestionDifficultyId = expectedBatch?.difficultyId
+            )
+        }
+        val approvedCount = dao.approveQuestionsForDraft(draft.id)
         dao.updateDraftStatus(draftId, DraftStatus.APPROVED.id)
-        return savedQuestions.size
+        return maxOf(approvedCount, savedQuestions.size)
     }
 
     suspend fun buildAndPublishInteractiveBundle(
