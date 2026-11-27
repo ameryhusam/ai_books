@@ -207,6 +207,11 @@ The following are future requirements, not completed features of this PR:
 - Trigger early warnings only from sufficient evidence, then assign a new remedial explanation and fresh questions for the same learning objective.
 - Do not treat repeated attempts at the same question as independent proof of mastery.
 - Keep AI as an explanation/recommendation layer, not the sole source of scores or dashboard metrics.
+- Use the shared task-neutral AI execution service for learner-performance interpretation, recommendations, and remedial lesson generation; keep analytics calculations deterministic and feature-owned.
+- Supply AI with compact evidence summaries (attempts, concept tags, recurring errors, assessment outcomes and intervention history), not an unfiltered learner database dump.
+- Ask AI to report evidence-backed strengths, support needs, possible misconceptions as hypotheses, teaching strategies, remediation outlines, uncertainty and measurable follow-up checks.
+- Do not let AI invent scores, infer unsupported cognitive/learning-style labels, or convert insufficient evidence into a weakness.
+- Record whether a recommendation was reviewed, accepted, assigned, opened/read/completed, and followed by a linked assessment so its usefulness can be evaluated.
 
 ### 5.5 Future cross-model review
 Not part of the current implementation. Later, an optional reviewer model may receive the original prompt, source, expected schema, and first model response to critique factual grounding, completeness, and schema compliance. Preserve both original outputs; do not treat the reviewer model as automatically correct. Keep human review for disputed or high-impact content.
@@ -220,7 +225,7 @@ Continue from the merged repository state and the contracts above. Before changi
 3. Classify every proposed change as: existing behavior, bug fix, additive feature, schema migration, or deferred requirement.
 4. Propose a short file-by-file plan and identify affected canonical fields/contracts before editing.
 5. Preserve the Gemini native-PDF path and the OpenAI-compatible rendered-image path.
-6. Preserve template-owned response schema/mapping and canonical app models.
+6. Preserve database-derived response contracts as the authority for persisted records; prompt templates own task instructions/version only. Keep the AI-writable projection and its mapping generated from the current Room schema, excluding application-managed IDs and provenance.
 7. Do not hard-code response JSON in prompts or code as a fallback to template configuration.
 8. Do not create duplicate tables or schema definitions before proving the required data is not already represented.
 9. Add or update focused tests with each behavior change. Run the local test/build commands and report exact results; do not claim success without output.
