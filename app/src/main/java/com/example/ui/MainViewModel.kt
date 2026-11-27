@@ -2626,7 +2626,7 @@ class MainViewModel(
         }
     }
 
-    fun exportIndexer2Zip(uri: Uri) {
+    fun exportLegacyWorkspaceZip(uri: Uri) {
         val workspace = _uiState.value.workspace ?: return
         viewModelScope.launch {
             _uiState.update { it.copy(isBusy = true) }
@@ -2635,7 +2635,7 @@ class MainViewModel(
                     ?: throw IllegalStateException("تعذر فتح ملف الحفظ المختار")
                 val snapshot = _uiState.value
                 val receipt = out.use { stream ->
-                    repository.exportIndexer2Zip(
+                    repository.exportLegacyWorkspaceZip(
                         stream,
                         workspace,
                         learnerProfiles = snapshot.availableLearners,
