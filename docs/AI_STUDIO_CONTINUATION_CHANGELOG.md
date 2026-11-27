@@ -495,3 +495,14 @@ The latest Android CI run observed during this pass is [run 45715165859](https:/
 ### Validation status
 - First GitHub Actions run compiled the Android app and assembled the Debug APK successfully, but 1 of 91 unit tests failed because its assertion searched for wording different from the actual Arabic question-count diagnostic. The assertion was corrected; the rerun is pending.
 - Do not mark this work fully verified until the rerun passes both `:app:testDebugUnitTest` and `:app:assembleDebug`.
+
+## 13. Gemini model catalogue restoration — 2026-11-27
+
+- Corrected the built-in Google Gemini catalogue: `gemini-3.5-flash` is the default; `gemini-3.6-flash` and `gemini-3.8-flash` are available fallback candidates.
+- Kept provider identity (`Gemini`) separate from model display name and exact API model ID. The app sends the exact Google model ID; it does not invent model aliases.
+- Added a one-time local catalog migration for legacy installs that had persisted an empty/older catalog. It preserves custom entries and existing API credentials.
+- Added a guarded Firestore bootstrap: built-in catalog entries are published only when the central collection is empty and the signed-in account is authorized through `system_admins/{uid}` with `manage_ai_models`. A normal teacher/admin role does not bypass this authorization.
+- New Gemini API profiles preselect the central default model and include the other enabled Gemini models as ordered fallbacks. Existing profile selections are preserved.
+- Added tests for the 3.5 default, 3.6/3.8 entries, and migration from a persisted empty local catalog.
+- Official model IDs verified against Google documentation: https://ai.google.dev/gemini-api/docs/models and https://ai.google.dev/gemini-api/docs/pricing.
+- Verification is pending on the latest branch head; do not treat the UI/model catalogue correction as release-verified until CI passes.
