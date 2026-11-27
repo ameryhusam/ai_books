@@ -219,9 +219,8 @@ object BookIndexPromptTemplate {
             "discoveryNotes": {"type": "array", "items": {"type": "string"}}
           }
         }
-
+    """.trimIndent()
 }
-
 
 /**
  * Converts provider output into the app-owned review draft. AI output is never approved here.
