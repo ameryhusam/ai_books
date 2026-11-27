@@ -362,7 +362,14 @@ class DirectWorkspaceBinder(private val context: Context) {
                     lessonsCount = parsedLessons.size,
                     coverPath = resolvedCoverEntry?.uriOrPath,
                     sourcePdfPath = resolvedBookPdfEntry?.uriOrPath,
-                    subjectName = subjectName
+                    subjectName = subjectName,
+                    approvalStatus = indexObj.str("approvalStatus").ifBlank { "LEGACY_UNVERIFIED" },
+                    requiresReview = !indexObj.str("approvalStatus").equals("APPROVED", ignoreCase = true) ||
+                        indexObj.str("requiresReview").equals("true", ignoreCase = true),
+                    sourceReviewStatus = firstNonBlank(
+                        manifestObj?.str("sourceReviewStatus"),
+                        indexObj.str("sourceReviewStatus")
+                    ).ifBlank { "UNKNOWN" }
                 )
             )
             lessons.addAll(parsedLessons)
