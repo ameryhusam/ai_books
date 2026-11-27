@@ -957,7 +957,9 @@ private fun AuthenticatedEduMiniContent(
                         workspaceQuestions.filter {
                             it.bookKey == studyLesson.bookKey &&
                                 it.unitKey == studyLesson.unitKey &&
-                                it.lessonKey == studyLesson.lessonKey
+                                it.lessonKey == studyLesson.lessonKey &&
+                                it.reviewed &&
+                                !it.id.startsWith("q-int-")
                         }
                     }
                     val isCompleted = remember(dashboardSummary, studyLesson) {
