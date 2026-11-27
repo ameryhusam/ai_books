@@ -22,9 +22,6 @@ data class PdfPreviewPayload(
 data class ProviderFormState(
     val editingProviderId: String? = null,
     val provider: ProviderType = ProviderType.GEMINI,
-    val model: String = "",
-    val fallbackModels: String = "",
-    val strictModel: Boolean = false,
     val baseUrl: String = "https://api.openai.com/v1",
     val apiKey: String = "",
     val dailyRequestLimit: String = "0",
