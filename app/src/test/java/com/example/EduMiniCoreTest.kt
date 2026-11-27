@@ -2418,13 +2418,13 @@ class EduMiniCoreTest {
             sourceText = "حالات المادة ثلاث"
         )
 
-        // First sync inserts 2 questions
-        val firstInserted = repo.saveQuestionsFromDraftText(ws.workspaceId, lesson, draft.content)
-        assertEquals(2, firstInserted.size)
+        // A saved draft must remain outside the question bank until explicit approval.
+        val questionsBeforeApproval = repo.observeQuestionsForWorkspace(ws.workspaceId).first()
+        assertTrue(questionsBeforeApproval.isEmpty())
 
-        // Approving the same draft deduplicates cleanly and does not insert duplicate rows
+        // Approval is the only step that imports the generated questions into the bank.
         val addedOnApprove = repo.approveDraft(draft.id)
-        assertEquals(0, addedOnApprove)
+        assertEquals(2, addedOnApprove)
 
         val storedQuestions = repo.observeQuestionsForWorkspace(ws.workspaceId).first()
         assertEquals(2, storedQuestions.size)
