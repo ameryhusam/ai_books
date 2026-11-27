@@ -1388,7 +1388,8 @@ class MainViewModel(
                     taskType = task.id,
                     success = true
                 )
-                _uiState.update { it.copy(providers = repository.loadProviders(), generationProgressPercent = 100, generationStage = "اكتمل التوليد والحفظ") }
+                val latestProviders = runCatching { repository.loadProviders() }.getOrDefault(snapshot.providers)
+                _uiState.update { it.copy(providers = latestProviders, generationProgressPercent = 100, generationStage = "اكتمل التوليد والحفظ") }
 
                 val generatedQuestions = if (task == TaskType.QUESTIONS) {
                     repository.saveQuestionsFromDraftText(workspace.workspaceId, lesson, output.text)
@@ -2990,22 +2991,60 @@ class MainViewModel(
                     }
                 )
                 val wsId = snapshot.workspace?.workspaceId.orEmpty()
-                val persistedDraft = repository.persistDraft(
-                    workspaceId = wsId,
-                    lesson = lesson,
-                    task = snapshot.task,
-                    providerLabel = out.providerLabel,
-                    model = out.model,
-                    text = out.text,
-                    title = lesson.title,
-                    sourceText = snapshot.sourceText,
-                    status = DraftStatus.DRAFT,
-                    generation = out
-                )
-                _uiState.update { it.copy(generationProgressPercent = 98, generationStage = "حفظ المسودة وبصمة المحتوى") }
-                if (isCloudAuthenticated) {
-                    firestoreSync.upsertDraft(currentUserId, persistedDraft)
+                // Surface the provider response immediately. Draft persistence and later
+                // task/database validation must not hide content that the provider returned.
+                _uiState.update {
+                    it.copy(
+                        generatedResult = out.text,
+                        generatedQuestionExpectedCount = if (snapshot.task == TaskType.QUESTIONS) snapshot.questionCount else null,
+                        generatedQuestionExpectedTypeIds = if (snapshot.task == TaskType.QUESTIONS) snapshot.selectedQuestionTypeIds else emptyList(),
+                        generatedQuestionExpectedDifficultyId = if (snapshot.task == TaskType.QUESTIONS) snapshot.questionDifficulty.id else "",
+                        activeDraftProvider = out.providerLabel,
+                        activeDraftModel = out.model,
+                        activeDraftTemplateId = out.templateId,
+                        activeDraftTemplateVersion = out.templateVersion,
+                        activeDraftResponseSchemaHash = out.responseSchemaHash,
+                        activeDraftRequestFingerprint = out.requestFingerprint,
+                        activeDraftContentHash = out.contentHash,
+                        activeDraftSourcePdfHash = out.sourcePdfHash,
+                        generationProgressPercent = 94,
+                        generationStage = "تم استلام المحتوى؛ جارٍ حفظ المسودة والتحقق"
+                    )
                 }
+                val draftSaveResult = runCatching {
+                    repository.persistDraft(
+                        workspaceId = wsId,
+                        lesson = lesson,
+                        task = snapshot.task,
+                        providerLabel = out.providerLabel,
+                        model = out.model,
+                        text = out.text,
+                        title = lesson.title,
+                        sourceText = snapshot.sourceText,
+                        status = DraftStatus.DRAFT,
+                        generation = out
+                    )
+                }
+                val persistedDraft = draftSaveResult.getOrNull()
+                if (persistedDraft == null) {
+                    val saveError = draftSaveResult.exceptionOrNull()?.message ?: "خطأ غير محدد أثناء حفظ المسودة"
+                    val diagnostics = (out.validationIssues + saveError).distinct()
+                    _uiState.update {
+                        it.copy(
+                            alert = AlertMessage(
+                                title = "تم استلام المحتوى لكن تعذر حفظ المسودة",
+                                message = "الاستجابة الخام ما زالت معروضة ويمكن نسخها أو مراجعتها. لم يتم إدراجها في قاعدة البيانات.\\n\\n" +
+                                    diagnostics.joinToString("\\n") { "• $it" }
+                            )
+                        )
+                    }
+                    return@launch
+                }
+                _uiState.update { it.copy(generationProgressPercent = 98, generationStage = "حفظ المسودة وبصمة المحتوى") }
+                val cloudSyncError = if (isCloudAuthenticated) {
+                    runCatching { firestoreSync.upsertDraft(currentUserId, persistedDraft) }
+                        .exceptionOrNull()?.message
+                } else null
                 analyticsTracker?.trackAiExplanationGenerated(
                     providerId = out.providerLabel,
                     taskType = snapshot.task.id,
@@ -3083,7 +3122,7 @@ class MainViewModel(
                     else ->
                         "تم استلام الاستجابة عبر ${out.providerLabel} (${out.model}) وحفظها كمسودة."
                 }
-                val reviewIssues = (out.validationIssues + listOfNotNull(questionSaveError))
+                val reviewIssues = (out.validationIssues + listOfNotNull(questionSaveError, cloudSyncError))
                     .filter { it.isNotBlank() }
                     .distinct()
                 val resultMessage = if (reviewIssues.isEmpty()) {
