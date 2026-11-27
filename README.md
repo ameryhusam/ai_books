@@ -13,6 +13,12 @@ Offline-first Android educational content preparation app built natively with Ko
 - **AI Provider API Keys & Test**: Manages multiple Gemini API keys and multiple OpenAI-compatible API keys independently. Keys are stored encrypted with Android Keystore AES-GCM and receive generated aliases such as `GEMINI_API_KEY_1` and `OPENAI_API_KEY_1`. On confirmed quota exhaustion or invalid credentials, generation can move to another enabled key of the same provider. Model selection and model fallback candidates are resolved separately from the provider model catalogue; changing a model does not require adding or editing an API key. The connection test uses the provider's enabled default model and displays the complete text response.
 - **Learning Progress & Cloud Sync**: Stores application learning data locally with Room and supports Firebase Authentication and per-user Firestore synchronization under the configured security rules.
 
+## Generation Studio task isolation
+
+Generation outputs are retained as task-specific drafts. Question-bank extraction is restricted to the `QUESTIONS` task, question rows are promoted to reviewed status through explicit draft approval, and learner quizzes exclude unreviewed rows and legacy interactive checkpoint rows. Interactive activities are parsed as structured JSON for approval and publishing; ordinary numbered lesson prose is not treated as an activity. Publishing is deferred until an explicit approval/publish action.
+
+Draft version numbers are scoped by workspace, book, unit, lesson, and task. The Studio shows drafts for the selected task, clears the active editor context when the task or lesson changes, and exposes the saved lesson-text source actions. The learner view displays approved reading components and approved/published interactive content only.
+
 ## Book PDF indexing status
 
 The PDF intake and splitting building blocks are not the same as a completed index-to-split user flow. The current implementation includes the intake draft/validation contract and PDF ingestion/splitting components, but the following integration work remains before claiming full automatic indexing:
