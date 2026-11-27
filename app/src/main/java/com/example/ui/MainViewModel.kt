@@ -2176,14 +2176,6 @@ class MainViewModel(
             val isNewProfile = state.providerForm.editingProviderId == null
             val defaultLabel = if (type == ProviderType.GEMINI) "Gemini" else "OpenAI"
             val updatedLabel = if (isNewProfile) defaultLabel else state.providerForm.label
-            val providerModels = state.aiModelCatalog
-                .filter { it.provider == type && it.isEnabled && it.supportsGenerateContent &&
-                    it.lifecycleStatus != AiModelDefinition.STATUS_DEPRECATED }
-            val defaultModel = providerModels.firstOrNull { it.isDefault } ?: providerModels.firstOrNull()
-            val fallbacks = providerModels
-                .filter { it.modelId != defaultModel?.modelId }
-                .sortedBy { it.displayName }
-                .map { it.modelId }
             state.copy(
                 providerForm = state.providerForm.copy(
                     provider = type,
