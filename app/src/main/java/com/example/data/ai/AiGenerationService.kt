@@ -461,7 +461,9 @@ class AiGenerationService(
                                     }
                                 } else if (attempt == 2) {
                                     // OpenAI-compatible profiles may represent separate projects/keys.
-                                    onProviderStateChanged?.invoke(profile.id, failureStatus, e.retryAfterEpochMs)
+                                    val keyCooldownUntil = e.retryAfterEpochMs.takeIf { it > 0L }
+                                        ?: (System.currentTimeMillis() + 60_000L)
+                                    onProviderStateChanged?.invoke(profile.id, failureStatus, keyCooldownUntil)
                                     skipProfile = true
                                     break@modelLoop
                                 }
