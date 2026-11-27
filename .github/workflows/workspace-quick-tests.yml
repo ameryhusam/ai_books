@@ -4,17 +4,11 @@ on:
   push:
     paths:
       - 'app/src/main/java/com/example/data/workspace/**'
+      - 'app/src/main/java/com/example/data/ai/AiGenerationService.kt'
       - 'app/src/main/java/com/example/data/repository/EduMiniRepository.kt'
+      - 'app/src/main/assets/prompts/book_indexing/book_index_discovery.prompt.md'
       - 'app/src/test/java/com/example/data/workspace/**'
-      - 'app/src/test/java/com/example/EduMiniCoreTest.kt'
-      - '.github/workflows/workspace-quick-tests.yml'
-  pull_request:
-    branches: [main]
-    types: [opened, synchronize, reopened, ready_for_review]
-    paths:
-      - 'app/src/main/java/com/example/data/workspace/**'
-      - 'app/src/main/java/com/example/data/repository/EduMiniRepository.kt'
-      - 'app/src/test/java/com/example/data/workspace/**'
+      - 'app/src/test/java/com/example/BookIndexIntakeWorkflowTest.kt'
       - 'app/src/test/java/com/example/EduMiniCoreTest.kt'
       - '.github/workflows/workspace-quick-tests.yml'
   workflow_dispatch:
@@ -42,7 +36,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.3.1'
-      - name: Run focused workspace contract tests (no APK assembly)
+      - name: Run focused workspace and PDF index intake tests (no APK assembly)
         run: >-
           gradle :app:testDebugUnitTest
           --tests com.example.data.workspace.WorkspaceContractValidatorTest
