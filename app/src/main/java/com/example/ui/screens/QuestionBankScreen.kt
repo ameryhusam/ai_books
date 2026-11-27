@@ -144,6 +144,7 @@ fun QuestionBankScreen(
     val filtered = remember(questions, searchQuery, selectedType, selectedDifficulty, onlyCurrentLesson, selectedLesson) {
         val q = searchQuery.trim()
         questions.filter { item ->
+            if (item.id.startsWith("q-int-")) return@filter false
             val matchesLesson = !onlyCurrentLesson || selectedLesson == null ||
                 (item.bookKey == selectedLesson.bookKey && item.unitKey == selectedLesson.unitKey && item.lessonKey == selectedLesson.lessonKey)
             val matchesType = selectedType == null || item.type == selectedType
