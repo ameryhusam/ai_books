@@ -514,6 +514,7 @@ class EduMiniRepository(
             splits = splits
         )
         saveImportedWorkspace(workspace)
+        splitter.discardIngestedBookPdf(pdfInfo)
         return workspace
     }
 
