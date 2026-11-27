@@ -2046,16 +2046,9 @@ class EduMiniRepository(
                 else -> LearningNodeStatus.NOT_STARTED
             }
 
-            val draftPoints = when {
-                approvedDraftsCount > 0 -> POINTS_APPROVED_DRAFT
-                lDrafts.isNotEmpty() -> POINTS_DRAFT_CREATED
-                else -> 0
-            }
-            val pkgPoints = when {
-                publishedPkgsCount > 0 -> POINTS_PUBLISHED_PACKAGE
-                lPkgs.isNotEmpty() -> POINTS_PACKAGE_UPLOADED
-                else -> 0
-            }
+            // Learner-facing points are awarded only for content that has passed approval.
+            val draftPoints = if (approvedDraftsCount > 0) POINTS_APPROVED_DRAFT else 0
+            val pkgPoints = if (publishedPkgsCount > 0) POINTS_PUBLISHED_PACKAGE else 0
             val completionPoints = if (isCompleted) POINTS_LESSON_COMPLETED else 0
             val lessonPoints = draftPoints + pkgPoints + completionPoints
 
@@ -2072,7 +2065,7 @@ class EduMiniRepository(
                 questionsCount = lQuestions.size,
                 quizAttemptedCount = lessonAttemptCount,
                 quizPassed = isCompleted,
-                hasGeneratedMaterials = lDrafts.isNotEmpty() || lPkgs.isNotEmpty() || lQuestions.isNotEmpty()
+                hasGeneratedMaterials = approvedDraftsCount > 0 || publishedPkgsCount > 0 || lQuestions.isNotEmpty()
             )
         }
 
