@@ -466,7 +466,7 @@ class ProviderStorage(context: Context) {
         private const val KEY_SELECTED_PROVIDER = "edu_mini_selected_ai_provider_v1"
         private const val KEY_MODEL_CATALOG = "edu_mini_ai_model_catalog_v1"
         private const val KEY_MODEL_CATALOG_SEED_VERSION = "edu_mini_ai_model_catalog_seed_version"
-        private const val MODEL_CATALOG_SEED_VERSION = 2
+        private const val MODEL_CATALOG_SEED_VERSION = 3
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
         private const val KEY_ALIAS = "edu_mini_providers_aes_key"
         private const val TRANSFORMATION = "AES/GCM/NoPadding"
