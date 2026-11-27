@@ -154,6 +154,9 @@ fun StudioScreen(
     lessonDrafts: List<DraftRecord>,
     cloudDraftsState: SyncUiState<List<CloudDraft>> = SyncUiState.Loading,
     lessonPackages: List<InteractivePackageRecord>,
+    currentLessonTextContent: String? = null,
+    onSaveCurrentAsLessonText: (Boolean) -> Unit = {},
+    onUseStoredLessonTextAsSource: () -> Unit = {},
     teacherNote: TeacherNoteRecord? = null,
     promptTemplates: List<PromptTemplateRecord> = emptyList(),
     activePromptTemplateId: String = "",
@@ -264,6 +267,9 @@ fun StudioScreen(
                     lessonDrafts = lessonDrafts,
                     cloudDraftsState = cloudDraftsState,
                     lessonPackages = lessonPackages,
+                    currentLessonTextContent = currentLessonTextContent,
+                    onSaveCurrentAsLessonText = onSaveCurrentAsLessonText,
+                    onUseStoredLessonTextAsSource = onUseStoredLessonTextAsSource,
                     teacherNote = teacherNote,
                     promptTemplates = promptTemplates,
                     activePromptTemplateId = activePromptTemplateId,
@@ -331,6 +337,9 @@ fun StudioScreen(
                     lessonDrafts = lessonDrafts,
                     cloudDraftsState = cloudDraftsState,
                     lessonPackages = lessonPackages,
+                    currentLessonTextContent = currentLessonTextContent,
+                    onSaveCurrentAsLessonText = onSaveCurrentAsLessonText,
+                    onUseStoredLessonTextAsSource = onUseStoredLessonTextAsSource,
                     teacherNote = teacherNote,
                     promptTemplates = promptTemplates,
                     activePromptTemplateId = activePromptTemplateId,
@@ -413,6 +422,9 @@ private fun StudioWorkbench(
     lessonDrafts: List<DraftRecord>,
     cloudDraftsState: SyncUiState<List<CloudDraft>>,
     lessonPackages: List<InteractivePackageRecord>,
+    currentLessonTextContent: String?,
+    onSaveCurrentAsLessonText: (Boolean) -> Unit,
+    onUseStoredLessonTextAsSource: () -> Unit,
     teacherNote: TeacherNoteRecord?,
     promptTemplates: List<PromptTemplateRecord>,
     activePromptTemplateId: String,
@@ -1638,6 +1650,43 @@ private fun StudioWorkbench(
                                 ) {
                                     Text("حفظ الملاحظة والإشارة", color = EduGreenDark, style = MaterialTheme.typography.labelMedium)
                                 }
+                            }
+                        }
+
+                        if (!currentLessonTextContent.isNullOrBlank()) {
+                            EduPanel(modifier = Modifier.fillMaxWidth()) {
+                                Text("نص الدرس المحفوظ", style = MaterialTheme.typography.titleMedium, color = EduInk)
+                                Text(
+                                    text = currentLessonTextContent.take(260),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = EduMuted,
+                                    maxLines = 4,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                OutlinedButton(
+                                    onClick = onUseStoredLessonTextAsSource,
+                                    modifier = Modifier.fillMaxWidth().minimumInteractiveComponentSize()
+                                ) {
+                                    Text("استخدام النص المحفوظ كمصدر")
+                                }
+                            }
+                        }
+                        if (generatedResult.isNotBlank() && task == TaskType.LESSON_TEXT) {
+                            EduPanel(modifier = Modifier.fillMaxWidth()) {
+                                Text("إدارة نص الدرس", style = MaterialTheme.typography.titleMedium, color = EduInk)
+                                Text(
+                                    "احفظ النص الناتج أو نص المصدر بعد مراجعته. لن يتم اعتماده تلقائياً بمجرد التوليد.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = EduMuted
+                                )
+                                Button(
+                                    onClick = { onSaveCurrentAsLessonText(true) },
+                                    modifier = Modifier.fillMaxWidth().minimumInteractiveComponentSize()
+                                ) { Text("حفظ الناتج كنص للدرس") }
+                                OutlinedButton(
+                                    onClick = { onSaveCurrentAsLessonText(false) },
+                                    modifier = Modifier.fillMaxWidth().minimumInteractiveComponentSize()
+                                ) { Text("حفظ نص المصدر كنص للدرس") }
                             }
                         }
 
