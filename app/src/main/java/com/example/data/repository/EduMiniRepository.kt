@@ -255,10 +255,13 @@ class EduMiniRepository(
         return imported
     }
 
-    suspend fun inspectDirectTreeUri(treeUri: Uri): DirectWorkspaceInspection {
+    suspend fun inspectDirectTreeUri(
+        treeUri: Uri,
+        onProgress: (String, Int) -> Unit = { _, _ -> }
+    ): DirectWorkspaceInspection {
         val binder = directWorkspaceBinder
             ?: throw IllegalStateException("أداة ربط مساحة العمل المباشرة غير مهيأة")
-        return binder.inspectTreeUri(treeUri)
+        return binder.inspectTreeUri(treeUri, onProgress)
     }
 
     suspend fun createClassroom(gradeKey: String, title: String): ImportedWorkspace {
@@ -284,10 +287,14 @@ class EduMiniRepository(
         return workspace
     }
 
-    suspend fun bindDirectWorkspace(rootUriOrPath: String, gradeKey: String): ImportedWorkspace {
+    suspend fun bindDirectWorkspace(
+        rootUriOrPath: String,
+        gradeKey: String,
+        onProgress: (String, Int) -> Unit = { _, _ -> }
+    ): ImportedWorkspace {
         val binder = directWorkspaceBinder
             ?: throw IllegalStateException("أداة ربط مساحة العمل المباشرة غير مهيأة")
-        val bound = binder.bindSingleGrade(rootUriOrPath, gradeKey)
+        val bound = binder.bindSingleGrade(rootUriOrPath, gradeKey, onProgress)
         val emptyPlaceholders = dao.observeAllWorkspaces().first().filter {
             it.gradeKey.equals(bound.workspace.gradeKey, ignoreCase = true) &&
                 it.rootPath.isBlank() &&
@@ -321,13 +328,23 @@ class EduMiniRepository(
         return bound.workspace
     }
 
-    suspend fun bindDirectWorkspaces(rootUriOrPath: String, gradeKeys: List<String>): List<ImportedWorkspace> {
+    suspend fun bindDirectWorkspaces(
+        rootUriOrPath: String,
+        gradeKeys: List<String>,
+        onProgress: (String, Int) -> Unit = { _, _ -> }
+    ): List<ImportedWorkspace> {
         val cleanGrades = gradeKeys.map { it.trim().uppercase() }.filter { it.isNotBlank() }.distinct()
         if (cleanGrades.isEmpty()) return emptyList()
         val bound = mutableListOf<ImportedWorkspace>()
         val failures = mutableListOf<String>()
-        for (gradeKey in cleanGrades) {
-            runCatching { bindDirectWorkspace(rootUriOrPath, gradeKey) }
+        for ((index, gradeKey) in cleanGrades.withIndex()) {
+            val basePercent = 10 + index * 80 / cleanGrades.size
+            onProgress("بدء ربط الصف $gradeKey (${index + 1}/${cleanGrades.size})", basePercent)
+            runCatching {
+                bindDirectWorkspace(rootUriOrPath, gradeKey) { stage, percent ->
+                    onProgress("$gradeKey: $stage", (basePercent + percent * 80 / cleanGrades.size / 100).coerceAtMost(95))
+                }
+            }
                 .onSuccess { bound.add(it) }
                 .onFailure { err ->
                     failures.add("$gradeKey: ${err.message ?: "خطأ غير متوقع"}")
@@ -343,6 +360,7 @@ class EduMiniRepository(
             saveImportedWorkspace(updatedFirst)
             bound[0] = updatedFirst
         }
+        onProgress("اكتمل ربط الصفوف المحددة", 100)
         return bound
     }
 
