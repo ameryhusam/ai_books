@@ -357,7 +357,7 @@ private fun AuthenticatedEduMiniContent(
         contract = ActivityResultContracts.CreateDocument("application/zip")
     ) { uri: Uri? ->
         if (uri != null) {
-            viewModel.exportIndexer2Zip(uri)
+            viewModel.exportLegacyWorkspaceZip(uri)
         }
     }
 
@@ -666,7 +666,7 @@ private fun AuthenticatedEduMiniContent(
                                             onOpenGlobalSearch = viewModel::openGlobalSearch,
                                             onExportWorkspace = {
                                                 val grade = state.workspace?.gradeKey ?: "workspace"
-                                                exportZipLauncher.launch("edu-mini-$grade-indexer2.zip")
+                                                exportZipLauncher.launch("edu-mini-$grade-legacy.zip")
                                             },
                                             onExportBackupJson = {
                                                 val grade = state.workspace?.gradeKey ?: "workspace"
