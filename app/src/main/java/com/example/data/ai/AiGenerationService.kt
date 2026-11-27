@@ -411,7 +411,7 @@ class AiGenerationService(
                                 else -> AiExecutionFailureKind.PROVIDER_UNAVAILABLE
                             }
                             errors.add(
-                                "${profile.label}: لم يُرسل الطلب لأن ملف API غير متاح حالياً (الحالة: $state)."
+                                "${profile.label}: لم يُرسل الطلب لأن مفتاح API غير متاح حالياً (الحالة: $state)."
                             )
                             skipProfile = true
                             break@modelLoop
