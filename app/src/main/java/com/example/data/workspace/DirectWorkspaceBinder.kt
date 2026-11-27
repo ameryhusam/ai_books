@@ -374,7 +374,21 @@ class DirectWorkspaceBinder(private val context: Context) {
                     sourceReviewStatus = firstNonBlank(
                         manifestObj?.str("sourceReviewStatus"),
                         indexObj.str("sourceReviewStatus")
-                    ).ifBlank { "UNKNOWN" }
+                    ).ifBlank { "UNKNOWN" },
+                    schemaVersion = firstNonBlank(
+                        indexObj.str("schemaVersion"),
+                        indexObj.str("indexSchemaVersion"),
+                        manifestObj?.str("schemaVersion"),
+                        "edu.book_index.v2"
+                    ),
+                    gradeName = firstNonBlank(indexObj.str("gradeName"), manifestObj?.str("gradeName")),
+                    sourceLayout = firstNonBlank(indexObj.str("sourceLayout"), manifestObj?.str("sourceLayout")).ifBlank { "UNKNOWN" },
+                    sourceLayoutEvidence = firstNonBlank(indexObj.str("sourceLayoutEvidence"), manifestObj?.str("sourceLayoutEvidence")),
+                    partKey = firstNonBlank(indexObj.str("partKey"), manifestObj?.str("partKey")).ifBlank { null },
+                    offset = firstNonBlank(indexObj.str("offset"), manifestObj?.str("offset")).toIntOrNull() ?: 1,
+                    totalPdfPages = firstNonBlank(indexObj.str("totalPdfPages"), manifestObj?.str("totalPdfPages")).toIntOrNull() ?: 0,
+                    sourceFileName = firstNonBlank(manifestObj?.str("sourceFileName"), indexObj.str("sourceFileName")).ifBlank { null },
+                    sourceSha256 = firstNonBlank(manifestObj?.str("sourceSha256"), indexObj.str("sourceSha256")).ifBlank { null }
                 )
             )
             lessons.addAll(parsedLessons)
@@ -1111,7 +1125,12 @@ class DirectWorkspaceBinder(private val context: Context) {
                         workspaceId = workspaceId,
                         sourceTextPath = matchedTxt?.uriOrPath,
                         interactivePath = matchedHtml?.uriOrPath,
-                        printedPageRange = printedPageRange
+                        printedPageRange = printedPageRange,
+                        printedPageStart = printedStartPage.toIntOrNull(),
+                        printedPageEnd = printedEndPage.toIntOrNull(),
+                        pdfPageStart = startPage.toIntOrNull(),
+                        pdfPageEnd = endPage.toIntOrNull(),
+                        sortOrder = l.str("sortOrder").toIntOrNull() ?: li
                     )
                 )
             }
