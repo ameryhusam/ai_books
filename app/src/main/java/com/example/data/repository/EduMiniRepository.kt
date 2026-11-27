@@ -441,7 +441,8 @@ class EduMiniRepository(
         }.getOrNull()
         val pageImages = aiGenerationService.extractLessonPdfPageImagesBase64(
             pdfPath = pdfInfo.storedPdfPath,
-            maxPages = 20
+            maxPages = 20,
+            sampleAcrossDocument = false
         )
         require(nativePdf != null || pageImages.isNotEmpty()) {
             "تعذر تجهيز صفحات PDF لإرسالها إلى نموذج الذكاء الاصطناعي."
