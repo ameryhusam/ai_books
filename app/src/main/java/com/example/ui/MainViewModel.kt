@@ -2188,8 +2188,8 @@ class MainViewModel(
                 providerForm = state.providerForm.copy(
                     provider = type,
                     label = updatedLabel,
-                    model = if (isNewProfile) defaultModel?.modelId.orEmpty() else state.providerForm.model,
-                    fallbackModels = if (isNewProfile) fallbacks.joinToString(", ") else state.providerForm.fallbackModels
+                    model = if (isNewProfile) "" else state.providerForm.model,
+                    fallbackModels = if (isNewProfile) "" else state.providerForm.fallbackModels
                 )
             )
         }
@@ -2226,9 +2226,9 @@ class MainViewModel(
                     editingProviderId = profile.id,
                     provider = profile.provider,
                     label = profile.label,
-                    model = profile.model,
-                    fallbackModels = profile.fallbackModels.joinToString(", "),
-                    strictModel = profile.strictModel,
+                    model = "",
+                    fallbackModels = "",
+                    strictModel = false,
                     baseUrl = profile.baseUrl.ifBlank { "https://api.openai.com/v1" },
                     apiKey = profile.apiKey,
                     dailyRequestLimit = profile.dailyRequestLimit.toString(),
@@ -2243,10 +2243,24 @@ class MainViewModel(
     }
 
     fun testFormProvider() {
-        val form = _uiState.value.providerForm
-        if (form.model.trim().isEmpty() || form.apiKey.trim().isEmpty()) {
+        val state = _uiState.value
+        val form = state.providerForm
+        if (form.apiKey.trim().isEmpty()) {
             _uiState.update {
-                it.copy(alert = AlertMessage("بيانات ناقصة", "أدخل النموذج ومفتاح API لاختبار الاتصال."))
+                it.copy(alert = AlertMessage("بيانات ناقصة", "أدخل مفتاح API أولاً."))
+            }
+            return
+        }
+        val selectedModel = state.aiModelCatalog.firstOrNull {
+            it.provider == form.provider && it.isDefault && it.isEnabled &&
+                it.supportsGenerateContent && it.lifecycleStatus != AiModelDefinition.STATUS_DEPRECATED
+        }?.modelId ?: state.aiModelCatalog.firstOrNull {
+            it.provider == form.provider && it.isEnabled &&
+                it.supportsGenerateContent && it.lifecycleStatus != AiModelDefinition.STATUS_DEPRECATED
+        }?.modelId.orEmpty()
+        if (selectedModel.isBlank()) {
+            _uiState.update {
+                it.copy(alert = AlertMessage("لا يوجد نموذج متاح", "أضف نموذجاً مفعّلاً لهذا المزود إلى كتالوج النماذج أولاً."))
             }
             return
         }
@@ -2254,7 +2268,7 @@ class MainViewModel(
             id = form.editingProviderId ?: "probe",
             provider = form.provider,
             label = form.label.trim().ifBlank { form.provider.displayName },
-            model = form.model.trim(),
+            model = selectedModel,
             strictModel = form.strictModel,
             baseUrl = form.baseUrl.trim(),
             apiKey = form.apiKey.trim(),
@@ -3356,9 +3370,9 @@ class MainViewModel(
 
     fun addOrUpdateProvider() {
         val form = _uiState.value.providerForm
-        if (form.label.trim().isEmpty() || form.model.trim().isEmpty() || form.apiKey.trim().isEmpty()) {
+        if (form.label.trim().isEmpty() || form.apiKey.trim().isEmpty()) {
             _uiState.update {
-                it.copy(alert = AlertMessage("بيانات ناقصة", "أدخل الاسم والنموذج والمفتاح"))
+                it.copy(alert = AlertMessage("بيانات ناقصة", "أدخل اسم الاتصال ومفتاح API"))
             }
             return
         }
