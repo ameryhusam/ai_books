@@ -125,7 +125,7 @@ class WorkspaceImporter(private val context: Context) {
                 throw IllegalArgumentException("ZIP فارغ")
             }
             onProgress("التحقق من ملفات الحزمة وبصماتها", 58)
-            verifyExportManifest(tempDir)
+            val manifestReviewFindings = verifyExportManifest(tempDir)
             onProgress("اكتشاف الصفوف والمواد", 68)
 
             val gradeRoots = zipNames.mapNotNull { path ->
@@ -137,7 +137,8 @@ class WorkspaceImporter(private val context: Context) {
             }
 
             val zipNameSet = zipNames.toHashSet()
-            val warnings = mutableListOf<String>()
+            val warnings = mutableListOf<String>().apply { addAll(manifestReviewFindings) }
+            val reviewFindings = manifestReviewFindings.toMutableList()
             val gradeSummaries = gradeRoots.mapIndexedNotNull { gradeIndex, grade ->
                 onProgress(
                     "تحليل فهارس الصف ${grade}",
@@ -149,7 +150,8 @@ class WorkspaceImporter(private val context: Context) {
                     gradeKey = grade,
                     zipNames = zipNames,
                     zipNameSet = zipNameSet,
-                    warningsOut = warnings
+                    warningsOut = warnings,
+                    reviewFindingsOut = reviewFindings
                 )
                 if (parsed.books.isEmpty()) null else StagedGradeSummary(
                     gradeKey = grade,
@@ -174,7 +176,9 @@ class WorkspaceImporter(private val context: Context) {
                 fileCount = zipNames.size,
                 expandedBytes = expandedBytes,
                 grades = gradeSummaries,
-                warnings = warnings.distinct()
+                warnings = warnings.distinct(),
+                requiresReviewConfirmation = reviewFindings.isNotEmpty(),
+                reviewFindings = reviewFindings.distinct()
             )
         } catch (e: Exception) {
             tempDir.deleteRecursively()
@@ -185,6 +189,7 @@ class WorkspaceImporter(private val context: Context) {
     suspend fun commitStagedGrades(
         preview: StagedWorkspacePreview,
         selectedGrades: List<String>,
+        allowReviewImport: Boolean = false,
         onProgress: (String, Int) -> Unit = { _, _ -> }
     ): List<ImportedWorkspace> = withContext(Dispatchers.IO) {
         val tempDir = File(preview.tempDirPath)
@@ -193,6 +198,9 @@ class WorkspaceImporter(private val context: Context) {
         }
         require(selectedGrades.isNotEmpty()) {
             "يجب اختيار صف واحد على الأقل من شاشة المعاينة قبل الاستيراد."
+        }
+        require(!preview.requiresReviewConfirmation || allowReviewImport) {
+            "تحتوي الحزمة على فهارس تحتاج إلى مراجعة أو بصمات index غير مطابقة. اعرض التحذيرات وأكد الاستيراد الاستثنائي أولاً."
         }
         val availableGrades = preview.grades.map { it.gradeKey }.toSet()
         val gradesToImport = selectedGrades.distinct()
@@ -211,14 +219,19 @@ class WorkspaceImporter(private val context: Context) {
                 )
                 val gradeFiles = allFiles.filter { it.startsWith("workspace/$gradeKey/") }
                 val validationWarnings = mutableListOf<String>()
+                val commitReviewFindings = mutableListOf<String>()
                 val validatedPreview = parseGradeFromDir(
                     baseDir = tempDir,
                     destRootPath = tempDir.absolutePath,
                     gradeKey = gradeKey,
                     zipNames = gradeFiles,
                     zipNameSet = allFileSet,
-                    warningsOut = validationWarnings
+                    warningsOut = validationWarnings,
+                    reviewFindingsOut = commitReviewFindings
                 )
+                require(allowReviewImport || commitReviewFindings.isEmpty()) {
+                    "تغيرت حالة مراجعة الفهرس أثناء الاستيراد للصف $gradeKey؛ يلزم تأكيد الاستيراد بوضع Review."
+                }
                 require(validatedPreview.books.isNotEmpty()) {
                     "لم يجتز أي كتاب في الصف $gradeKey التحقق النهائي قبل النسخ."
                 }
@@ -340,7 +353,8 @@ class WorkspaceImporter(private val context: Context) {
         gradeKey: String,
         zipNames: List<String>,
         zipNameSet: Set<String>,
-        warningsOut: MutableList<String>
+        warningsOut: MutableList<String>,
+        reviewFindingsOut: MutableList<String>? = null
     ): ParsedGradeTree {
         val bookIndexPaths = zipNames.filter { path ->
             path.startsWith("workspace/$gradeKey/") && CANONICAL_INDEX_REGEX.matches(path)
@@ -430,9 +444,14 @@ class WorkspaceImporter(private val context: Context) {
                 availableIndexSha256 = availableIndexSha256
             )
             warningsOut.addAll(validation.warnings)
-            if (!validation.isValid) {
+            if (!validation.isImportableWithReview) {
                 warningsOut.addAll(validation.errors.map { "$bookRel: $it" })
                 continue
+            }
+            val bookReviewFindings = validation.reviewRequiredErrors.map { "$bookRel: $it" }
+            if (bookReviewFindings.isNotEmpty()) {
+                reviewFindingsOut?.addAll(bookReviewFindings)
+                warningsOut.addAll(bookReviewFindings)
             }
 
             val fallbackTitle = subjectKey + (if (componentKey != null) " / $componentKey" else "")
@@ -566,7 +585,10 @@ class WorkspaceImporter(private val context: Context) {
                     subjectName = BookMetadataMapper.subjectDisplayName(
                         subjectKey,
                         firstNonBlank(indexObj.str("subjectName"), manifestObj?.str("subjectName")).ifBlank { null }
-                    )
+                    ),
+                    approvalStatus = if (bookReviewFindings.isNotEmpty()) "NEEDS_REVIEW" else indexObj.str("approvalStatus").ifBlank { "LEGACY_UNVERIFIED" },
+                    requiresReview = bookReviewFindings.isNotEmpty() || indexObj.str("requiresReview").equals("true", true),
+                    sourceReviewStatus = manifestObj?.str("sourceReviewStatus")?.ifBlank { null }
                 )
             )
             lessons.addAll(parsedLessons)
@@ -580,13 +602,14 @@ class WorkspaceImporter(private val context: Context) {
         )
     }
 
-    private fun verifyExportManifest(root: File) {
+    private fun verifyExportManifest(root: File): List<String> {
+        val reviewFindings = mutableListOf<String>()
         val manifestFile = File(root, "manifest.json")
-        if (!manifestFile.isFile) return
+        if (!manifestFile.isFile) return emptyList()
         val manifest = runCatching {
             json.parseToJsonElement(manifestFile.readText()).jsonObject
         }.getOrElse { throw IllegalArgumentException("manifest.json غير صالح: ${it.message}") }
-        val artifacts = manifest["artifacts"] as? JsonArray ?: return
+        val artifacts = manifest["artifacts"] as? JsonArray ?: return emptyList()
         artifacts.forEach { element ->
             val artifact = element as? JsonObject
                 ?: throw IllegalArgumentException("عنصر artifacts غير صالح في manifest.json")
@@ -615,8 +638,15 @@ class WorkspaceImporter(private val context: Context) {
                 }
             }
             val actualHash = digest.digest().joinToString("") { "%02x".format(it) }
-            require(actualHash == expectedHash) { "فشل التحقق من SHA-256 للملف: $relative" }
+            if (actualHash != expectedHash) {
+                if (safeRelative.substringAfterLast('/').equals("index.json", ignoreCase = true)) {
+                    reviewFindings.add("بصمة SHA-256 لملف الفهرس $relative غير مطابقة؛ سيُستورد بوضع Review بعد موافقتك.")
+                } else {
+                    throw IllegalArgumentException("فشل التحقق من SHA-256 للملف: $relative")
+                }
+            }
         }
+        return reviewFindings.distinct()
     }
 
     private fun collectRelativeFiles(root: File): List<String> {
