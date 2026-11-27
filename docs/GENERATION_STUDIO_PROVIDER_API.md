@@ -789,7 +789,7 @@ Provider/request failures and response-validation failures are separate outcomes
 - Provider saturation: rate limiting, overload, 5xx or network failures after bounded retries.
 - Empty/blocked response: HTTP success without extractable text; the provider's finish/block reason is retained in the diagnostic when available.
 
-These are execution failures. The request layer reports the provider/profile/model and the retry/failover path. It must not report them as JSON or Room validation failures.
+These are execution failures. `AiExecutionException` exposes a typed failure kind (quota exhausted, rate limited, invalid credentials, invalid request, empty response, network error, model unavailable, or provider unavailable). MainViewModel gives these failures distinct alert titles and shows the provider/profile/model/retry/failover details. They are not reported as JSON or Room validation failures.
 
 **Provider returned content, but the feature rejected it**
 - Malformed JSON or unexpected root structure.
@@ -806,7 +806,7 @@ These are feature/data-contract failures, not API transport failures. The raw re
 - Gemini transient overload/rate-limit/network/server failures receive up to three actual dispatches per configured model, then advance to the next configured Gemini model. Confirmed quota exhaustion or invalid credentials skip the current profile and try another enabled Gemini profile.
 - OpenAI-compatible requests keep the selected model. Transient failures receive up to three actual dispatches before the next enabled OpenAI-compatible profile/key is tried; confirmed quota exhaustion or invalid credentials skip the current profile immediately.
 - Provider isolation remains strict: no Gemini-to-OpenAI or OpenAI-to-Gemini fallback.
-- ProviderStorage blocks a provider-confirmed quota-exhausted profile for the remainder of its configured quota day; the quota status resets when that profile's timezone advances to the next day. The local dailyRequestLimit value is not used to infer provider quota.
+- ProviderStorage blocks a provider-confirmed quota-exhausted profile for the remainder of its configured quota day; the quota status resets when that profile's timezone advances to the next day. The local dailyRequestLimit value is not used to infer provider quota. OpenAI-compatible rate-limited keys also receive a bounded cooldown after their three attempts; an explicit Retry-After header is honored.
 - OpenAI-compatible message.content may be a string or an array of text segments. Gemini no-text responses include finishReason/blockReason where returned.
 - EduMiniRepository no longer throws away a successful provider response because TemplateOutputValidator or QuestionBankEngine reports content issues. It attaches the findings to GeneratedResult.validationIssues and records RESPONSE_REVIEW_REQUIRED.
 - MainViewModel saves the response draft and displays the content plus diagnostics. Question-bank insertion remains blocked when validation fails and its failure is shown separately.
