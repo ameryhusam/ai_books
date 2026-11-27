@@ -194,6 +194,7 @@ class EduMiniRepository(
     suspend fun commitStagedWorkspaces(
         preview: StagedWorkspacePreview,
         selectedGrades: List<String>,
+        allowReviewImport: Boolean = false,
         onProgress: (String, Int) -> Unit = { _, _ -> }
     ): List<ImportedWorkspace> {
         val grades = selectedGrades.map { it.trim().uppercase() }.filter { it.isNotBlank() }.distinct()
@@ -208,7 +209,11 @@ class EduMiniRepository(
                 "؛ لم يتم الاستيراد لتجنب تحديث مساحة غير مقصودة."
         }
 
-        val staged = workspaceImporter.commitStagedGrades(preview, grades) { stage, percent ->
+        val staged = workspaceImporter.commitStagedGrades(
+            preview = preview,
+            selectedGrades = grades,
+            allowReviewImport = allowReviewImport
+        ) { stage, percent ->
             onProgress(stage, (percent * 0.88f).toInt().coerceIn(1, 88))
         }
         val replacements = staged.map { incoming ->
