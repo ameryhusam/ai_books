@@ -1388,7 +1388,9 @@ class MainViewModel(
                     taskType = task.id,
                     success = true
                 )
-                val latestProviders = runCatching { repository.loadProviders() }.getOrDefault(snapshot.providers)
+                val latestProviders = runCatching { repository.loadProviders() }
+                    .onFailure { if (it is CancellationException) throw it }
+                    .getOrDefault(snapshot.providers)
                 _uiState.update { it.copy(providers = latestProviders, generationProgressPercent = 100, generationStage = "اكتمل التوليد والحفظ") }
 
                 val generatedQuestions = if (task == TaskType.QUESTIONS) {
@@ -3024,7 +3026,7 @@ class MainViewModel(
                         status = DraftStatus.DRAFT,
                         generation = out
                     )
-                }
+                }.onFailure { if (it is CancellationException) throw it }
                 val persistedDraft = draftSaveResult.getOrNull()
                 if (persistedDraft == null) {
                     val saveError = draftSaveResult.exceptionOrNull()?.message ?: "خطأ غير محدد أثناء حفظ المسودة"
@@ -3043,6 +3045,7 @@ class MainViewModel(
                 _uiState.update { it.copy(generationProgressPercent = 98, generationStage = "حفظ المسودة وبصمة المحتوى") }
                 val cloudSyncError = if (isCloudAuthenticated) {
                     runCatching { firestoreSync.upsertDraft(currentUserId, persistedDraft) }
+                        .onFailure { if (it is CancellationException) throw it }
                         .exceptionOrNull()?.message
                 } else null
                 analyticsTracker?.trackAiExplanationGenerated(
