@@ -18,6 +18,7 @@ Offline-first Android educational content preparation app built natively with Ko
 Generation outputs are retained as task-specific drafts. Question-bank extraction is restricted to the `QUESTIONS` task, question rows are promoted to reviewed status through explicit draft approval, and learner quizzes exclude unreviewed rows and legacy interactive checkpoint rows. Interactive activities are parsed as structured JSON for approval and publishing; ordinary numbered lesson prose is not treated as an activity. Publishing is deferred until an explicit approval/publish action.
 
 Draft version numbers are scoped by workspace, book, unit, lesson, and task. The Studio shows drafts for the selected task, clears the active editor context when the task or lesson changes, and exposes the saved lesson-text source actions. The learner view displays approved reading components and approved/published interactive content only.
+Legacy `q-int-*` checkpoint rows are excluded from the official question-bank view, learner quizzes, and learner dashboard analytics. The interactive-to-question-bank writer has been removed, so this correction does not require a Room schema-version migration; a future source-type column should be introduced only if a new cross-source question ingestion path is added.
 
 ## Book PDF indexing status
 
