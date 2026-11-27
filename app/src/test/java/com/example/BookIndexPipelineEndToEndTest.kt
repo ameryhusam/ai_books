@@ -25,6 +25,7 @@ import com.example.data.workspace.PdfBookSplitter
 import com.example.data.workspace.RoomBookIndexProjection
 import com.example.data.workspace.WorkspaceContractValidator
 import com.example.data.workspace.WorkspaceImporter
+import com.example.model.UserRole
 import com.example.ui.MainViewModel
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.io.MemoryUsageSetting
@@ -595,6 +596,99 @@ class BookIndexPipelineEndToEndTest {
             assertFalse(stagingFile.exists())
             assertTrue(tempSrc.isFile)
         } finally {
+            tempSrc.delete()
+            db.close()
+        }
+    }
+
+    @Test
+    fun stage1To5_learnerLocalPdfIntakeApprovesAndEnrollsGradeWhenUnassigned() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val db = Room.inMemoryDatabaseBuilder(context, EduMiniDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        val tempSrc = File(context.cacheDir, "learner_math_${System.currentTimeMillis()}.pdf")
+        var generatedRootDir: File? = null
+        try {
+            createSamplePdf(tempSrc, pageCount = 4)
+            val repo = buildTestRepository(context, db)
+            val nullSync = FirestoreSyncRepository(db = null, auth = null)
+            val vm = MainViewModel(
+                repository = repo,
+                firestoreSync = nullSync,
+                currentUserId = "student_01",
+                isCloudAuthenticated = false,
+                analyticsTracker = AnalyticsTracker(context)
+            )
+            vm.selectRole(UserRole.LEARNER)
+            assertEquals(UserRole.LEARNER, vm.uiState.value.userRole)
+
+            vm.startBookPdfDiscoveryIntake(Uri.fromFile(tempSrc))
+            val intakeDeadline = System.currentTimeMillis() + 8_000L
+            while (System.currentTimeMillis() < intakeDeadline &&
+                vm.uiState.value.bookIndexReview == null &&
+                vm.uiState.value.alert == null
+            ) {
+                Shadows.shadowOf(Looper.getMainLooper()).idle()
+                Thread.sleep(40)
+            }
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            assertNotNull(vm.uiState.value.bookIndexReview)
+
+            vm.populateStarterUnitsForReview(pagesPerLesson = 2)
+            vm.updateBookIndexDraft { d ->
+                d.copy(
+                    bookTitle = "الرياضيات للصف الخامس",
+                    gradeKey = "G05",
+                    gradeName = "الصف الخامس الأساسي",
+                    subjectKey = "MATH",
+                    subjectName = "الرياضيات",
+                    sourceLayout = IndexSourceLayout.SINGLE_PART_FILE,
+                    partKey = "P01",
+                    sourceLayoutEvidence = "اختار الطالب كتاب الرياضيات الجزء الأول",
+                    units = d.units.map { u ->
+                        u.copy(
+                            assignmentStatus = IndexAssignmentStatus.ASSIGNED,
+                            assignmentSource = IndexAssignmentSource.REVIEWER,
+                            assignmentEvidence = "تأكيد الطالب",
+                            lessons = u.lessons.map { l ->
+                                l.copy(
+                                    assignmentStatus = IndexAssignmentStatus.ASSIGNED,
+                                    assignmentSource = IndexAssignmentSource.REVIEWER
+                                )
+                            }
+                        )
+                    },
+                    reviewerConfirmed = true,
+                    reviewerId = "student_01"
+                )
+            }
+
+            vm.approveAndSplitBookIndex()
+            val approveDeadline = System.currentTimeMillis() + 10_000L
+            while (System.currentTimeMillis() < approveDeadline &&
+                (vm.uiState.value.bookIndexReview != null || vm.uiState.value.isBusy) &&
+                vm.uiState.value.alert == null
+            ) {
+                Shadows.shadowOf(Looper.getMainLooper()).idle()
+                Thread.sleep(50)
+            }
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+            assertEquals(null, vm.uiState.value.alert)
+            assertEquals(null, vm.uiState.value.bookIndexReview)
+            assertEquals("MATH|P01", vm.uiState.value.selectedBookKey)
+            assertEquals("G05", vm.uiState.value.activeLearner.enrolledGradeKey)
+
+            val wsId = vm.uiState.value.selectedWorkspaceId
+            assertNotNull(wsId)
+            val wsEntity = db.eduMiniDao().getWorkspaceByIdSnapshot(wsId!!)
+            assertNotNull(wsEntity)
+            generatedRootDir = File(wsEntity!!.rootPath)
+            assertTrue(File(generatedRootDir, "workspace/G05/MATH/P01/index.json").isFile)
+            assertTrue(File(generatedRootDir, "workspace/G05/MATH/P01/units/unit_01/lesson_01.pdf").isFile)
+        } finally {
+            generatedRootDir?.deleteRecursively()
             tempSrc.delete()
             db.close()
         }

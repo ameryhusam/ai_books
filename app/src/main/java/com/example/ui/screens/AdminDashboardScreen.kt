@@ -69,10 +69,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.R
 import com.example.model.LearnerProfile
+import com.example.model.UserRole
 import com.example.model.WorkspaceSummary
 import com.example.ui.components.EduPanel
 import com.example.ui.components.EduPill
 import com.example.ui.components.EduYellowButton
+import com.example.ui.components.LocalPdfTextbookPickerCard
 import com.example.ui.theme.EduFieldBg
 import com.example.ui.theme.EduGreen
 import com.example.ui.theme.EduGreenDark
@@ -103,6 +105,9 @@ fun AdminDashboardScreen(
     activeLearner: LearnerProfile,
     onCreateClassroom: (gradeKey: String, title: String) -> Unit,
     onBindDirectFolder: () -> Unit,
+    onPickLocalTextbookPdf: () -> Unit = {},
+    hasActiveAiProvider: Boolean = false,
+    isBusy: Boolean = false,
     onOpenClassInLibrary: (workspaceId: String) -> Unit,
     onDeleteClassroom: (workspaceId: String) -> Unit,
     onAddLearner: (displayName: String, enrolledGradeKey: String?) -> Unit,
@@ -201,6 +206,18 @@ fun AdminDashboardScreen(
                             .testTag("admin_kpi_unassigned")
                     )
                 }
+            }
+
+            item(key = "admin_pdf_textbook_picker") {
+                LocalPdfTextbookPickerCard(
+                    userRole = UserRole.ADMIN,
+                    hasActiveAiProvider = hasActiveAiProvider,
+                    isBusy = isBusy,
+                    compact = true,
+                    onPickPdf = onPickLocalTextbookPdf,
+                    cardTestTag = "admin_local_pdf_picker_card",
+                    ctaTestTag = "admin_local_pdf_picker_button"
+                )
             }
 
             item(key = "classes_header") {

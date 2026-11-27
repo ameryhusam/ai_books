@@ -116,6 +116,7 @@ import com.example.ui.components.EduPanel
 import com.example.ui.components.EduPill
 import com.example.ui.components.EduYellowButton
 import com.example.ui.components.LearningProgress
+import com.example.ui.components.LocalPdfTextbookPickerCard
 import com.example.ui.components.StudentPerformanceChartCard
 import com.example.ui.theme.EduBg
 import com.example.ui.theme.EduBlue
@@ -163,6 +164,9 @@ fun DashboardScreen(
     onGenerateConceptRemediation: (String?, TaskType) -> Unit = { _, _ -> },
     onOpenGlobalSearch: () -> Unit = {},
     onBindDirectFolder: () -> Unit = {},
+    onPickLocalTextbookPdf: () -> Unit = {},
+    hasActiveAiProvider: Boolean = false,
+    isBusy: Boolean = false,
     onPickZip: () -> Unit = {},
     onOpenLibrary: () -> Unit = {},
     isCloudAuthenticated: Boolean = false,
@@ -297,6 +301,18 @@ fun DashboardScreen(
                     )
                 }
 
+                item(key = "dashboard_empty_pdf_picker") {
+                    LocalPdfTextbookPickerCard(
+                        userRole = userRole,
+                        hasActiveAiProvider = hasActiveAiProvider,
+                        activeGradeKey = activeLearner.enrolledGradeKey,
+                        isBusy = isBusy,
+                        onPickPdf = onPickLocalTextbookPdf,
+                        cardTestTag = "dashboard_empty_pdf_picker_card",
+                        ctaTestTag = "dashboard_empty_pdf_picker_button"
+                    )
+                }
+
                 if (displaySummary.badges.isNotEmpty()) {
                     item(key = "study_streak_empty") {
                         StudyStreakCard(
@@ -414,6 +430,21 @@ fun DashboardScreen(
                                 }
                             }
                         }
+                    }
+                }
+
+                if (isLearner) {
+                    item(key = "learner_add_pdf_textbook_picker") {
+                        LocalPdfTextbookPickerCard(
+                            userRole = UserRole.LEARNER,
+                            hasActiveAiProvider = hasActiveAiProvider,
+                            activeGradeKey = summary.gradeKey.ifBlank { activeLearner.enrolledGradeKey },
+                            isBusy = isBusy,
+                            compact = true,
+                            onPickPdf = onPickLocalTextbookPdf,
+                            cardTestTag = "learner_dashboard_pdf_picker_card",
+                            ctaTestTag = "learner_dashboard_pdf_picker_button"
+                        )
                     }
                 }
 

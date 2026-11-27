@@ -87,11 +87,13 @@ import com.example.model.LessonRef
 import com.example.model.LibraryPartFilter
 import com.example.model.SyncUiState
 import com.example.model.WorkspaceSummary
+import com.example.model.UserRole
 import com.example.ui.components.BookCoverImage
 import com.example.ui.components.EduPanel
 import com.example.ui.components.EduPill
 import com.example.ui.components.EduYellowButton
 import com.example.ui.components.LearningProgress
+import com.example.ui.components.LocalPdfTextbookPickerCard
 import com.example.ui.theme.EduFieldBg
 import com.example.ui.theme.EduGreen
 import com.example.ui.theme.EduGreenDark
@@ -115,6 +117,8 @@ fun LibraryScreen(
     selectedBookKey: String,
     selectedLesson: LessonRef?,
     activeProvidersCount: Int,
+    hasActiveAiProvider: Boolean = activeProvidersCount > 0,
+    isBusy: Boolean = false,
     diskUsageBytes: Long = 0L,
     bookProgress: List<BookProgressSummary> = emptyList(),
     cloudDraftsState: SyncUiState<List<CloudDraft>> = SyncUiState.Loading,
@@ -182,8 +186,19 @@ fun LibraryScreen(
         ) {
             item(key = "hero") {
                 LibraryHeroCard(
-                    onBindDirectFolder = onBindDirectFolder,
-                    onPickStandalonePdf = onPickStandalonePdf
+                    onBindDirectFolder = onBindDirectFolder
+                )
+            }
+
+            item(key = "pdf_textbook_picker") {
+                LocalPdfTextbookPickerCard(
+                    userRole = UserRole.ADMIN,
+                    hasActiveAiProvider = hasActiveAiProvider,
+                    activeGradeKey = workspace?.gradeKey,
+                    isBusy = isBusy,
+                    onPickPdf = onPickStandalonePdf,
+                    cardTestTag = "library_local_pdf_picker_card",
+                    ctaTestTag = "open_standalone_pdf_button"
                 )
             }
 
@@ -965,8 +980,7 @@ private fun StudentsAndGradesPanel(
 
 @Composable
 private fun LibraryHeroCard(
-    onBindDirectFolder: () -> Unit,
-    onPickStandalonePdf: () -> Unit
+    onBindDirectFolder: () -> Unit
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -1021,29 +1035,6 @@ private fun LibraryHeroCard(
                     icon = Icons.Rounded.FolderOpen,
                     testTag = "bind_direct_folder_button"
                 )
-                OutlinedButton(
-                    onClick = onPickStandalonePdf,
-                    shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.dp, EduWhite.copy(alpha = 0.55f)),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .minimumInteractiveComponentSize()
-                        .testTag("open_standalone_pdf_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.PictureAsPdf,
-                        contentDescription = "استيراد كتاب PDF واكتشاف الفهرس",
-                        tint = EduWhite,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "استيراد كتاب PDF واكتشاف الفهرس",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = EduWhite,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
             }
         }
     }

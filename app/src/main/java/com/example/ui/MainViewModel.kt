@@ -1370,6 +1370,12 @@ class MainViewModel(
                 ).bookKey
                 val firstBookLesson = updatedWorkspace.lessons.firstOrNull { it.bookKey == approvedBookKey }
                     ?: updatedWorkspace.lessons.firstOrNull()
+                val snapshotBeforeUpdate = _uiState.value
+                if (snapshotBeforeUpdate.userRole == UserRole.LEARNER &&
+                    snapshotBeforeUpdate.activeLearner.enrolledGradeKey.isNullOrBlank()
+                ) {
+                    updateLearnerGrade(snapshotBeforeUpdate.activeLearner.userId, updatedWorkspace.gradeKey)
+                }
                 _uiState.update {
                     it.copy(
                         bookIndexReview = null,
@@ -1403,16 +1409,17 @@ class MainViewModel(
             ?: currentUserId.takeIf { it.isNotBlank() }
             ?: "admin_reviewer"
 
-    private fun buildEmptyManualDraft(pdfInfo: PdfBookInfo, reviewerId: String): BookIndexIntakeDraft =
-        BookIndexIntakeDraft(
+    private fun buildEmptyManualDraft(pdfInfo: PdfBookInfo, reviewerId: String): BookIndexIntakeDraft {
+        val defaultGrade = _uiState.value.workspace?.gradeKey
+            ?: _uiState.value.activeLearner.enrolledGradeKey?.takeIf { it.isNotBlank() }
+            ?: "G04"
+        return BookIndexIntakeDraft(
             sourceFileName = pdfInfo.fileName,
             sourceSha256 = pdfInfo.sha256,
             totalPdfPages = pdfInfo.totalPages,
             bookTitle = pdfInfo.fileName.removeSuffix(".pdf").removeSuffix(".PDF"),
-            gradeKey = _uiState.value.workspace?.gradeKey ?: "G04",
-            gradeName = com.example.data.workspace.BookMetadataMapper.gradeDisplayName(
-                _uiState.value.workspace?.gradeKey ?: "G04"
-            ).orEmpty(),
+            gradeKey = defaultGrade,
+            gradeName = com.example.data.workspace.BookMetadataMapper.gradeDisplayName(defaultGrade).orEmpty(),
             subjectKey = "ARAB",
             subjectName = com.example.data.workspace.BookMetadataMapper.subjectDisplayName("ARAB").orEmpty(),
             sourceLayout = IndexSourceLayout.SINGLE_PART_FILE,
@@ -1424,6 +1431,7 @@ class MainViewModel(
             reviewerConfirmed = false,
             reviewerId = reviewerId
         )
+    }
 
     private fun resolveIndexDiscoveryAiTarget(snapshot: MainUiState): Triple<ProviderType, String, String>? {
         val preferredProvider = snapshot.selectedProvider

@@ -133,6 +133,7 @@ import com.example.ui.components.PreImportPreviewDialog
 import com.example.ui.components.PromptSourcesAndSchemasDialog
 import com.example.ui.components.SingleGradePickerDialog
 import com.example.ui.components.StudentStudyDialog
+import com.example.ui.components.rememberLocalPdfTextbookPickerLauncher
 import com.example.ui.screens.AdminDashboardScreen
 import com.example.ui.screens.ConceptReinforcementQuizDialog
 import com.example.ui.screens.DashboardScreen
@@ -440,12 +441,11 @@ private fun AuthenticatedEduMiniContent(
         }
     }
 
-    val standalonePdfPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri: Uri? ->
-        if (uri != null) {
-            viewModel.startBookPdfDiscoveryIntake(uri)
-        }
+    val standalonePdfPickerLauncher = rememberLocalPdfTextbookPickerLauncher { uri ->
+        viewModel.startBookPdfDiscoveryIntake(uri)
+    }
+    val hasActiveAiProvider = remember(state.providers) {
+        state.providers.any { it.enabled && it.apiKey.isNotBlank() }
     }
 
     val packagePickerLauncher = rememberLauncherForActivityResult(
@@ -638,6 +638,11 @@ private fun AuthenticatedEduMiniContent(
                                             onGenerateConceptRemediation = viewModel::generateConceptRemediation,
                                             onOpenGlobalSearch = viewModel::openGlobalSearch,
                                             onBindDirectFolder = { folderPickerLauncher.launch(null) },
+                                            onPickLocalTextbookPdf = {
+                                                standalonePdfPickerLauncher.launch(arrayOf("application/pdf"))
+                                            },
+                                            hasActiveAiProvider = hasActiveAiProvider,
+                                            isBusy = state.isBusy,
                                             onOpenLibrary = { viewModel.navigateTo(AppPage.LIBRARY) },
                                             isCloudAuthenticated = state.isCloudAuthenticated,
                                             onSignOut = onSignOut,
@@ -661,6 +666,11 @@ private fun AuthenticatedEduMiniContent(
                                             activeLearner = state.activeLearner,
                                             onCreateClassroom = viewModel::createManualClassroom,
                                             onBindDirectFolder = { folderPickerLauncher.launch(null) },
+                                            onPickLocalTextbookPdf = {
+                                                standalonePdfPickerLauncher.launch(arrayOf("application/pdf"))
+                                            },
+                                            hasActiveAiProvider = hasActiveAiProvider,
+                                            isBusy = state.isBusy,
                                             onOpenClassInLibrary = { workspaceId ->
                                                 viewModel.selectWorkspace(workspaceId)
                                                 viewModel.navigateTo(AppPage.LIBRARY)
@@ -679,6 +689,8 @@ private fun AuthenticatedEduMiniContent(
                                             selectedBookKey = state.selectedBookKey,
                                             selectedLesson = state.selectedLesson,
                                             activeProvidersCount = state.providers.count { it.enabled },
+                                            hasActiveAiProvider = hasActiveAiProvider,
+                                            isBusy = state.isBusy,
                                             diskUsageBytes = state.activeWorkspaceDiskBytes,
                                             bookProgress = dashboardSummary.bookProgress,
                                             cloudDraftsState = cloudDraftsState,
