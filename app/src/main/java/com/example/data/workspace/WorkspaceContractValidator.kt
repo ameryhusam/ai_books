@@ -14,9 +14,14 @@ import java.util.Locale
 data class WorkspaceContractValidation(
     val canonicalContract: Boolean,
     val errors: List<String>,
-    val warnings: List<String>
+    val warnings: List<String>,
+    val reviewRequiredErrors: List<String> = emptyList()
 ) {
-    val isValid: Boolean get() = errors.isEmpty()
+    /** Strict validation used by direct folder binding. */
+    val isValid: Boolean get() = errors.isEmpty() && reviewRequiredErrors.isEmpty()
+
+    /** Errors in this set may be imported only after explicit user acceptance and remain flagged for review. */
+    val isImportableWithReview: Boolean get() = errors.isEmpty()
 }
 
 /** Validates indexer2 source identity, approval, index fingerprint and lesson file references. */
@@ -179,7 +184,28 @@ object WorkspaceContractValidator {
         val units = index["units"] as? JsonArray
         if (units.isNullOrEmpty()) {
             errors.add("[index.json → units] الفهرس لا يحتوي مصفوفة units صالحة أو أن المصفوفة فارغة.")
-            return WorkspaceContractValidation(canonical, errors.distinct(), warnings.distinct())
+            val reviewMarkers = listOf(
+            "sourceRequiresReview",
+            "partEvidence",
+            "sourceReviewStatus",
+            "approvalStatus",
+            "requiresReview",
+            "indexSha256",
+            "canonicalIndexSha256",
+            "partIndexes",
+            "assignmentSource",
+            "assignmentEvidence",
+            "assignmentStatus",
+            "provisionalAssignment"
+        )
+        val reviewErrors = errors.filter { message -> reviewMarkers.any { marker -> message.contains(marker, ignoreCase = true) } }
+        val blockingErrors = errors.filterNot { it in reviewErrors }
+        return WorkspaceContractValidation(
+            canonicalContract = canonical,
+            errors = blockingErrors.distinct(),
+            warnings = warnings.distinct(),
+            reviewRequiredErrors = reviewErrors.distinct()
+        )
         }
         val available = availableRelativePaths.map { normalizePath(it) }.toSet()
         val seenUnitKeys = HashSet<String>()
