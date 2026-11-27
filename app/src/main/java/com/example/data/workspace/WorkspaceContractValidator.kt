@@ -74,6 +74,31 @@ object WorkspaceContractValidator {
         }
         val canonical = manifestVersion.startsWith("edu.book_manifest.") || sourceLayout.isNotBlank()
 
+        if (!canonical) {
+            val legacyApprovalStatus = index.string("approvalStatus")
+            if (legacyApprovalStatus.isNotBlank() && !legacyApprovalStatus.equals("APPROVED", ignoreCase = true)) {
+                errors.add("[index.json → approvalStatus] الفهرس غير معتمد: '$legacyApprovalStatus'.")
+            }
+            if (index.boolean("requiresReview") || index.boolean("requires_review")) {
+                errors.add("[index.json → requiresReview] الفهرس يحمل علامة requiresReview=true.")
+            }
+            if (sourceReviewStatus.isNotBlank() && !sourceReviewStatus.equals("VERIFIED", ignoreCase = true)) {
+                errors.add("[book_manifest.json → sourceReviewStatus] المصدر يحتاج إلى مراجعة: '$sourceReviewStatus'.")
+            }
+            val legacyIndexSha = manifest?.string("indexSha256").orEmpty()
+            if (legacyIndexSha.isNotBlank() &&
+                (!legacyIndexSha.matches(Regex("^[a-fA-F0-9]{64}$")) || !sha256(indexRaw).equals(legacyIndexSha, ignoreCase = true))
+            ) {
+                errors.add("[book_manifest.json → indexSha256] بصمة index.json غير صالحة أو غير مطابقة.")
+            }
+            val legacyCanonicalIndexSha = manifest?.string("canonicalIndexSha256").orEmpty()
+            if (legacyCanonicalIndexSha.isNotBlank() &&
+                (!legacyCanonicalIndexSha.matches(Regex("^[a-fA-F0-9]{64}$")) || !sha256(indexRaw).equals(legacyCanonicalIndexSha, ignoreCase = true))
+            ) {
+                errors.add("[book_manifest.json → canonicalIndexSha256] بصمة الفهرس canonical غير صالحة أو غير مطابقة.")
+            }
+        }
+
         validateIdentityField(manifest, "gradeKey", expectedGrade, "book_manifest.json", errors)
         validateIdentityField(index, "gradeKey", expectedGrade, "index.json", errors)
         validateIdentityField(manifest, "subjectKey", expectedSubject, "book_manifest.json", errors)
@@ -251,7 +276,7 @@ object WorkspaceContractValidator {
             if (canonical && assignmentStatus.isBlank()) {
                 missingAssignmentUnits.add(unitTitle.ifBlank { unitKey })
             }
-            if (canonical && assignmentStatus.isNotBlank() && !assignmentStatus.equals("assigned", ignoreCase = true)) {
+            if (assignmentStatus.isNotBlank() && !assignmentStatus.equals("assigned", ignoreCase = true)) {
                 errors.add("[index.json → units[${unitKey.ifBlank { unitIndex.toString() }}].assignmentStatus] الوحدة «${unitTitle.ifBlank { unitKey }}» حالتها '$assignmentStatus' (المطلوب 'assigned').")
             }
             if (unit.boolean("provisionalAssignment")) {
