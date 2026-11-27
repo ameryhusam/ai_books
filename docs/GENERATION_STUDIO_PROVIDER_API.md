@@ -380,11 +380,11 @@ The calling feature owns prompt construction, task/schema selection, JSON parsin
 
 ## 7. Model fallback and overload handling
 
-### 7.1 Configured candidate order
+### 7.1 Provider key order and model candidate order
 
-A provider connection stores the provider identity, connection label, API credential, and (for OpenAI-compatible endpoints) its base URL. It is not a model-specific credential. The user selects the model independently in the generation-time model picker.
+A provider owns a collection of API keys. Each key is stored as an encrypted credential record and receives a generated, provider-scoped alias such as `GEMINI_API_KEY_1` or `OPENAI_API_KEY_2`. The alias identifies the key only; it is not a connection name and is not tied to a model. OpenAI-compatible keys also use the provider endpoint configuration. Adding, disabling, reordering or replacing a key does not change model selection.
 
-For backward-compatible routing, a saved connection may carry an automatically populated same-provider fallback-model list. This list is derived from enabled catalogue entries when the connection is saved; it is not a model selection required to create or save an API credential. The selected generation model is always attempted first, followed by the connection's same-provider fallback candidates. The selected API connection is attempted first, then other enabled connections belonging to the same provider are eligible according to provider-specific failover rules. OpenAI-compatible model selection remains explicit; its fallback path rotates API profiles/keys, not providers.
+The selected generation model is resolved independently from the model catalogue. Gemini fallback model candidates are loaded from enabled, supported entries in that provider's catalogue for each generation request; they are not copied into an API-key record. The selected model is attempted first, followed by the catalogue candidates. The selected API key is attempted first, then other enabled keys belonging to the same provider are eligible according to provider-specific key-failover rules. OpenAI-compatible requests keep the selected model and rotate API keys only; they do not cross providers.
 
 The built-in Gemini catalogue seeds four selectable model IDs: `gemini-3.5-flash` (default), `gemini-3.6-flash`, `gemini-3.7-flash`, and `gemini-3.8-flash`. These are configured Google Gemini model IDs; availability and entitlement depend on the Google project/account associated with the API key. The central Firestore catalogue remains authoritative: an authorized system administrator may merge missing built-in seed entries into the central collection; existing definitions and custom entries are preserved.
 
@@ -420,7 +420,7 @@ The current code already separates several of these cases, but its retry/backoff
 
 ## 8. Provider profiles, secrets and request telemetry
 
-Provider connections are encrypted at rest using an Android Keystore-backed key and authenticated encryption. The connection contains the provider type, connection label, endpoint where applicable, API key, enabled state, priority, automatically derived same-provider fallback candidates, and runtime status. New connections do not require a primary model; the model is selected separately for each generation request.
+Provider connections are encrypted at rest using an Android Keystore-backed key and authenticated encryption. The connection contains the provider type, connection label, endpoint where applicable, API key, enabled state, priority, automatically derived same-provider fallback candidates, and runtime status. New API keys do not store a primary model or fallback-model list; the model is selected separately for each generation request.
 
 Rules:
 
@@ -846,7 +846,7 @@ The source changes are in place, but behavior is not considered verified until t
 
 ## Provider connection test in Settings
 
-The Settings screen uses the existing `testFormProvider` / `testSavedProvider` → repository → `AiGenerationService.testProviderConnection` path. It tests unsaved form values directly, allowing a user to verify a profile before saving it. The test sends one short text-only request to the selected provider using that provider's enabled default catalogue model (or the first enabled supported model when no default exists). It does not use lesson prompts, templates, PDF attachments, generation history, quota reservation, draft persistence, or cross-provider fallback.
+The Settings screen uses the existing `testFormProvider` / `testSavedProvider` → repository → `AiGenerationService.testProviderConnection` path. It tests unsaved API-key values directly, allowing a user to verify a key before saving it. The test sends one short text-only request to the selected provider using that provider's enabled default catalogue model (or the first enabled supported model when no default exists). It does not use lesson prompts, templates, PDF attachments, generation history, quota reservation, draft persistence, or cross-provider fallback.
 
 A successful result displays provider, model, elapsed time, and the complete returned text. The result dialog is scrollable rather than truncating the response. The Settings button displays an in-progress state and prevents duplicate test requests.
 
@@ -857,9 +857,19 @@ Gemini uses its own `x-goog-api-key` header and generateContent endpoint. OpenAI
 
 ### Provider credentials are independent of model selection — 2026-11-27
 
-- A provider connection stores the provider type, a user-defined connection label, API credential, and (for OpenAI-compatible endpoints) the endpoint URL. The API key is not a model-specific credential.
+- A provider stores multiple encrypted API-key records, each with a generated alias (`GEMINI_API_KEY_N` or `OPENAI_API_KEY_N`), provider type, and endpoint where applicable. The API key is not a model-specific credential.
 - A Gemini API key can be used with any Gemini model that is available and authorized for the Google project/account associated with that key. Model availability, entitlement, quota and endpoint compatibility are still checked by the API request; this does not guarantee that every model ID is callable.
 - Model selection belongs to the model catalogue and the generation-time model picker, not to API-key creation. The API connection form therefore does not require a model or fallback-model selection.
-- The connection test resolves the provider's enabled default model (or the first enabled supported model if no default is configured) and tests that model using the entered unsaved key. The test result identifies the exact model tested.
+- The API-key test resolves the provider's enabled default model (or the first enabled supported model if no default is configured) and tests that model using the entered unsaved key. The test result identifies the exact model tested.
 - OpenAI-compatible credentials remain separate from Gemini credentials. The selected OpenAI-compatible model is resolved from its own provider catalogue and endpoint configuration.
 - Operational explanations and fallback-policy details belong in this document and README, not in the Android settings UI.
+
+
+### Provider API key collection and failover — 2026-11-27
+
+- The user-facing settings manage API keys under a selected provider, not separate named API connections. Aliases are generated automatically: `GEMINI_API_KEY_1`, `GEMINI_API_KEY_2`, ... and `OPENAI_API_KEY_1`, `OPENAI_API_KEY_2`, ....
+- Each API key keeps its own enabled state, priority, runtime status, quota-day state, retry-after time and usage telemetry. The encrypted SharedPreferences credential store already supports a list of records; no Room schema or new database table is required.
+- Existing stored records are normalized to provider-scoped aliases on load. Their record IDs, API key values, enablement, priority, quota status and timestamps are preserved.
+- Confirmed quota exhaustion or invalid credentials skip the current key and try the next enabled key for the same provider. Provider routing never switches from Gemini to OpenAI or vice versa.
+- Model selection is not stored on an API-key record. The requested model is selected from the provider's model catalogue; Gemini fallback candidates are loaded from that catalogue at request time. OpenAI-compatible key rotation keeps the selected model unchanged.
+- Replacing an existing key resets only that key's runtime quota/error state. Adding, removing, enabling, disabling or reordering keys does not alter the provider's model catalogue.
