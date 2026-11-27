@@ -902,7 +902,7 @@ class AiGenerationService(
             error.httpCode == 401 || error.httpCode == 403 ||
                 Regex("invalid api.?key|api key not valid|unauthorized|authentication failed")
                     .containsMatchIn(signals) -> "INVALID_KEY"
-            Regex("quota_exceeded|quota exceeded|quota exhausted|daily quota|insufficient quota|insufficient_quota|billing limit|billing_hard_limit|exceeded your current quota")
+            Regex("quota_exceeded|quota exceeded|quota exhausted|daily quota|insufficient quota|insufficient_quota|billing limit|billing_hard_limit|exceeded your current quota|per.?day.*per.?project.*per.?model|generate.?requests.*per.?day.*per.?project.*per.?model|free.?tier.*requests.*per.?day")
                 .containsMatchIn(signals) -> "QUOTA_EXHAUSTED"
             error.httpCode == 404 ||
                 Regex("model[^ ]*(not found|does not exist)|model_not_found|unsupported model")
