@@ -176,3 +176,14 @@ The student device imports the ZIP into app-managed local storage, validates it 
 Do not include the administrator's full database, private AI drafts, provider credentials, unrelated grades, or learner performance records. Student attempts, scores, progress, and assessment history are learner data and travel in the opposite direction through a separately authenticated/synchronized data flow. Offline learning must continue when no network is available; pending performance events can be synchronized later.
 
 A package update must preserve learner progress for unchanged stable lesson identities. Removed or changed lessons must be handled by an explicit versioning/retention policy; never silently reset or orphan progress. The package importer must stage, validate hashes and required assets, and activate atomically.
+
+
+## 11. Book upload, discovery and reviewer approval
+
+The book upload workflow is part of the Android application and reuses the existing index algorithm principles. It is not a separate external indexing dependency.
+
+The upload review model is BookIndexIntakeDraft (app-owned Kotlin contract). It carries grade/subject names and stable keys, book title, source hash/page count/layout/part, selected template, discovery method, offset, units, lessons, printed and physical PDF pages, assignment provenance, and explicit reviewer confirmation.
+
+The user-facing sequence is: select PDF → inspect metadata and TOC → propose grade/subject/template → extract units and lessons → display all fields for direct editing → confirm source layout and unit-part assignment → explicitly confirm the complete draft → approve canonical index → slice lessons → validate and write the v2 manifest. AI extraction and built-in parsing both populate the same draft; neither can bypass reviewer confirmation.
+
+Offset is applied once only when deriving physical PDF pages from printed page numbers. Explicit pdfPageStart / pdfPageEnd values are already physical PDF positions and must not be offset again. A unit's partKey is not inferred from unit order alone. Unresolved assignment or source layout blocks approval and slicing.
