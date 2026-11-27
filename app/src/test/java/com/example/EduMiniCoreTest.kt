@@ -1604,7 +1604,7 @@ class EduMiniCoreTest {
             assertEquals(2, imported.size)
             assertEquals(existing.workspaceId, updated.workspaceId)
             assertEquals(existing.workspaceId, savedG05.workspaceId)
-            assertNotEquals(existing.workspaceId, savedG06.workspaceId)
+            assertTrue(existing.workspaceId != savedG06.workspaceId)
             assertNotNull(observed)
             assertEquals("العلوم 5", observed!!.books.single().title)
             assertEquals(1, observed.lessons.size)
