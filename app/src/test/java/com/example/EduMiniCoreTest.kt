@@ -3414,10 +3414,10 @@ class EduMiniCoreTest {
     private fun writeTestHttpResponse(socket: Socket, status: Int, body: String) {
         val bytes = body.toByteArray(Charsets.UTF_8)
         val reason = if (status == 200) "OK" else if (status == 429) "Too Many Requests" else "Service Unavailable"
-        val headers = "HTTP/1.1 $status $reason\\r\\n" +
-            "Content-Type: application/json\\r\\n" +
-            "Content-Length: ${bytes.size}\\r\\n" +
-            "Connection: close\\r\\n\\r\\n"
+        val headers = "HTTP/1.1 $status $reason\r\n" +
+            "Content-Type: application/json\r\n" +
+            "Content-Length: ${bytes.size}\r\n" +
+            "Connection: close\r\n\r\n"
         val output = socket.getOutputStream()
         output.write(headers.toByteArray(Charsets.US_ASCII))
         output.write(bytes)
