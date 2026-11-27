@@ -370,6 +370,12 @@ object WorkspaceContractValidator {
         val direct = firstNonBlank(unit.string("partKey"), unit.string("part")).uppercase(Locale.ROOT)
         if (direct == "P01" || direct == "P02") return direct
 
+        // A proposal or explicit need_review state must never be promoted from a lesson path.
+        val provisionalAssignment = unit.boolean("provisionalAssignment") ||
+            unit.string("assignmentStatus").equals("need_review", ignoreCase = true) ||
+            unit.string("proposedPartKey").isNotBlank()
+        if (provisionalAssignment) return direct
+
         val lessons = unit["lessons"] as? JsonArray
         if (lessons != null) {
             for (elem in lessons) {
