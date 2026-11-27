@@ -177,6 +177,11 @@ class PdfBookSplitter(private val context: Context) {
         }
 
         val manifestJson = buildJsonObject {
+            put("manifestVersion", "edu.book_manifest.draft.v1")
+            put("sourceLayout", "UNKNOWN")
+            put("sourceReviewStatus", "NEEDS_REVIEW")
+            put("sourceReviewReason", "Source layout and curriculum metadata have not been explicitly confirmed.")
+            put("offset", 0)
             put("title", cleanTitle)
             put("gradeKey", cleanGrade)
             put("subjectKey", cleanSubject)
@@ -228,11 +233,15 @@ class PdfBookSplitter(private val context: Context) {
             }
         }
         val indexJson = buildJsonObject {
-            put("schemaVersion", "edu.book_index.v2")
+            put("schemaVersion", "edu.book_index.draft.v1")
+            put("approvalStatus", "NEEDS_REVIEW")
+            put("requiresReview", true)
+            put("reviewReason", "Generated page chunks are provisional until the book intake metadata is confirmed.")
+            put("offset", 0)
             put("gradeKey", cleanGrade)
             put("subjectKey", cleanSubject)
             put("sourceSha256", pdfInfo.sha256)
-            put("sourceLayout", "single_part_pdf")
+            put("sourceLayout", "UNKNOWN")
             put("segmentationStrategy", "fixed_page_chunk_suggestion")
             put("segmentationStatus", "need_review")
             put("units", unitsArray)
@@ -274,7 +283,7 @@ class PdfBookSplitter(private val context: Context) {
                         unitTitle = unitTitle,
                         lessonKey = lessonKey,
                         title = split.title.trim(),
-                        partKey = "P01",
+                        partKey = partKey.takeIf { it == "P01" || it == "P02" },
                         pageRange = "${split.startPage}–${split.endPage}",
                         pdfPath = lessonPdf.takeIf { it.exists() }?.absolutePath,
                         workspaceId = workspaceId
