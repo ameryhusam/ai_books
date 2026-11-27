@@ -1347,13 +1347,10 @@ class MainViewModel(
             it.provider == snapshot.selectedProvider && it.isEnabled &&
                 it.supportsGenerateContent && it.lifecycleStatus != AiModelDefinition.STATUS_DEPRECATED
         }
-        val selectedProfile = snapshot.providers.firstOrNull {
-            it.id == snapshot.selectedGenerationProfileId && it.provider == snapshot.selectedProvider &&
-                it.enabled && it.apiKey.isNotBlank()
-        } ?: snapshot.providers.firstOrNull {
-            it.provider == snapshot.selectedProvider && it.enabled && it.apiKey.isNotBlank()
-        }
-        if (selectedModel == null || selectedProfile == null) {
+        val selectedApiKey = snapshot.providers
+            .filter { it.provider == snapshot.selectedProvider && it.enabled && it.apiKey.isNotBlank() }
+            .minWithOrNull(compareBy<ProviderConfig> { it.priority }.thenBy { it.createdAt })
+        if (selectedModel == null || selectedApiKey == null) {
             _uiState.update {
                 it.copy(alert = AlertMessage(
                     "تعذر بدء التقوية",
@@ -1376,7 +1373,7 @@ class MainViewModel(
                     providers = snapshot.providers,
                     selectedProvider = snapshot.selectedProvider,
                     selectedModelId = selectedModel.modelId,
-                    selectedProfileId = selectedProfile.id,
+                    selectedProfileId = selectedApiKey.id,
                     questionCount = 5,
                     attachPdfPages = true,
                     questionStyleHint = if (task == TaskType.QUESTIONS) "أسئلة تشخيصية تكيفية ومشتتات قائمة على الخطأ" else "",
@@ -2935,25 +2932,22 @@ class MainViewModel(
             }
             return
         }
-        val availableProfiles = snapshot.providers.filter {
+        val availableApiKeys = snapshot.providers.filter {
             it.provider == snapshot.selectedProvider && it.enabled && it.apiKey.isNotBlank()
         }
-        if (availableProfiles.isEmpty()) {
+        if (availableApiKeys.isEmpty()) {
             _uiState.update {
                 it.copy(alert = AlertMessage("لا يوجد مفتاح API", "أضف أو فعّل مفتاح API لهذا المزود في الإعدادات."))
             }
             return
         }
         val defaultModel = availableModels.firstOrNull { it.isDefault } ?: availableModels.first()
-        val selectedProfile = availableProfiles.firstOrNull { it.id == snapshot.selectedGenerationProfileId }
-            ?: availableProfiles.first()
         _uiState.update {
             it.copy(
                 isGenerationModelPickerOpen = true,
                 selectedGenerationModelId = availableModels.firstOrNull {
                     it.modelId == snapshot.selectedGenerationModelId
-                }?.modelId ?: defaultModel.modelId,
-                selectedGenerationProfileId = selectedProfile.id
+                }?.modelId ?: defaultModel.modelId
             )
         }
     }
@@ -2962,30 +2956,25 @@ class MainViewModel(
         _uiState.update { it.copy(selectedGenerationModelId = modelId) }
     }
 
-    fun selectGenerationProfile(profileId: String) {
-        _uiState.update { it.copy(selectedGenerationProfileId = profileId) }
-    }
-
     fun dismissGenerationModelPicker() {
         _uiState.update { it.copy(isGenerationModelPickerOpen = false) }
     }
 
-    fun confirmGenerationSelection(modelId: String, profileId: String) {
+    fun confirmGenerationSelection(modelId: String) {
         val snapshot = _uiState.value
         val model = snapshot.aiModelCatalog.firstOrNull {
             it.modelId == modelId && it.provider == snapshot.selectedProvider &&
                 it.isEnabled && it.supportsGenerateContent &&
                 it.lifecycleStatus != AiModelDefinition.STATUS_DEPRECATED
         }
-        val profile = snapshot.providers.firstOrNull {
-            it.id == profileId && it.provider == snapshot.selectedProvider &&
-                it.enabled && it.apiKey.isNotBlank()
-        }
-        if (model == null || profile == null) {
+        val availableApiKey = snapshot.providers
+            .filter { it.provider == snapshot.selectedProvider && it.enabled && it.apiKey.isNotBlank() }
+            .minWithOrNull(compareBy<ProviderConfig> { it.priority }.thenBy { it.createdAt })
+        if (model == null || availableApiKey == null) {
             _uiState.update {
                 it.copy(alert = AlertMessage(
                     "اختيار غير صالح",
-                    "النموذج أو ملف الاتصال لم يعد متاحاً. حدّث القائمة ثم أعد الاختيار."
+                    "النموذج أو مفاتيح API المفعّلة لم تعد متاحة. حدّث القائمة ثم أعد المحاولة."
                 ))
             }
             return
@@ -2993,18 +2982,23 @@ class MainViewModel(
         _uiState.update {
             it.copy(
                 isGenerationModelPickerOpen = false,
-                selectedGenerationModelId = modelId,
-                selectedGenerationProfileId = profileId
+                selectedGenerationModelId = modelId
             )
         }
-        startGeneration(snapshot, modelId, profileId)
+        startGeneration(snapshot, modelId)
     }
 
     private fun startGeneration(
         snapshot: MainUiState,
-        selectedModelId: String,
-        selectedProfileId: String
+        selectedModelId: String
     ) {
+        val selectedApiKey = snapshot.providers
+            .filter { it.provider == snapshot.selectedProvider && it.enabled && it.apiKey.isNotBlank() }
+            .minWithOrNull(compareBy<ProviderConfig> { it.priority }.thenBy { it.createdAt })
+        if (selectedApiKey == null) {
+            _uiState.update { it.copy(alert = AlertMessage("لا يوجد مفتاح API", "أضف أو فعّل مفتاح API لهذا المزود في الإعدادات.")) }
+            return
+        }
         val lesson = snapshot.selectedLesson ?: run {
             _uiState.update { it.copy(alert = AlertMessage("حدد الدرس", "اختر درساً من المكتبة أولاً.")) }
             return
@@ -3022,7 +3016,7 @@ class MainViewModel(
                     providers = snapshot.providers,
                     selectedProvider = snapshot.selectedProvider,
                     selectedModelId = selectedModelId,
-                    selectedProfileId = selectedProfileId,
+                    selectedProfileId = selectedApiKey.id,
                     questionCount = snapshot.questionCount,
                     questionTypeIds = snapshot.selectedQuestionTypeIds,
                     questionLanguage = snapshot.questionLanguage,
