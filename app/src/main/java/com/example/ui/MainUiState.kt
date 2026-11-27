@@ -103,6 +103,7 @@ data class MainUiState(
     val providerForm: ProviderFormState = ProviderFormState(),
     val recentRuns: List<GenerationRunRecord> = emptyList(),
     val isBusy: Boolean = false,
+    val isTestingProvider: Boolean = false,
     val generationProgressPercent: Int? = null,
     val generationStage: String? = null,
     val toastMessage: String? = null,
