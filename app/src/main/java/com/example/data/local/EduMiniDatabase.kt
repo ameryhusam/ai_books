@@ -46,7 +46,21 @@ data class BookEntity(
     val lessonsCount: Int,
     val coverPath: String? = null,
     val sourcePdfPath: String? = null,
-    val subjectName: String? = null
+    val subjectName: String? = null,
+    @ColumnInfo(defaultValue = "'edu.book_index.v2'") val schemaVersion: String = "edu.book_index.v2",
+    @ColumnInfo(defaultValue = "''") val gradeName: String = "",
+    @ColumnInfo(defaultValue = "'UNKNOWN'") val sourceLayout: String = "UNKNOWN",
+    @ColumnInfo(defaultValue = "''") val sourceLayoutEvidence: String = "",
+    val partKey: String? = null,
+    // Existing books migrate with offset 0 because their original page mapping is unknown.
+    // New approved intake drafts use the contract default (+1) and persist it explicitly.
+    @ColumnInfo(defaultValue = "0") val offset: Int = 1,
+    @ColumnInfo(defaultValue = "'LEGACY_UNVERIFIED'") val approvalStatus: String = "LEGACY_UNVERIFIED",
+    @ColumnInfo(defaultValue = "1") val requiresReview: Boolean = true,
+    @ColumnInfo(defaultValue = "0") val totalPdfPages: Int = 0,
+    val sourceFileName: String? = null,
+    val sourceSha256: String? = null,
+    @ColumnInfo(defaultValue = "'UNKNOWN'") val sourceReviewStatus: String = "UNKNOWN"
 )
 
 @Entity(
@@ -57,6 +71,10 @@ data class BookEntity(
             name = "index_lessons_workspaceId_bookKey_unitKey_lessonKey",
             value = ["workspaceId", "bookKey", "unitKey", "lessonKey"],
             unique = true
+        ),
+        Index(
+            name = "idx_lessons_workspace_book_unit_sort",
+            value = ["workspaceId", "bookKey", "unitKey", "sort_order"]
         )
     ]
 )
@@ -78,7 +96,12 @@ data class LessonEntity(
     val pdfPath: String?,
     @ColumnInfo(name = "source_text_path") val sourceTextPath: String? = null,
     @ColumnInfo(name = "interactive_path") val interactivePath: String? = null,
-    @ColumnInfo(name = "printed_page_range") val printedPageRange: String? = null
+    @ColumnInfo(name = "printed_page_range") val printedPageRange: String? = null,
+    @ColumnInfo(name = "printed_page_start") val printedPageStart: Int? = null,
+    @ColumnInfo(name = "printed_page_end") val printedPageEnd: Int? = null,
+    @ColumnInfo(name = "pdf_page_start") val pdfPageStart: Int? = null,
+    @ColumnInfo(name = "pdf_page_end") val pdfPageEnd: Int? = null,
+    @ColumnInfo(name = "sort_order", defaultValue = "0") val sortOrder: Int = 0
 )
 
 @Entity(
@@ -112,7 +135,11 @@ data class WorkspaceUnitEntity(
     @ColumnInfo(name = "title") val title: String,
     @ColumnInfo(name = "part_key") val partKey: String?,
     @ColumnInfo(name = "sort_order") val sortOrder: Int,
-    @ColumnInfo(name = "source_index_path") val sourceIndexPath: String
+    @ColumnInfo(name = "source_index_path") val sourceIndexPath: String,
+    @ColumnInfo(name = "proposed_part_key") val proposedPartKey: String? = null,
+    @ColumnInfo(name = "assignment_status", defaultValue = "'need_review'") val assignmentStatus: String = "need_review",
+    @ColumnInfo(name = "assignment_source", defaultValue = "'LEGACY_UNVERIFIED'") val assignmentSource: String = "LEGACY_UNVERIFIED",
+    @ColumnInfo(name = "assignment_evidence", defaultValue = "''") val assignmentEvidence: String = ""
 )
 
 @Entity(
@@ -916,7 +943,7 @@ interface EduMiniDao {
         TeacherNoteEntity::class,
         PromptTemplateEntity::class
     ],
-    version = 17,
+    version = 18,
     exportSchema = true
 )
 abstract class EduMiniDatabase : RoomDatabase() {
@@ -1390,6 +1417,45 @@ abstract class EduMiniDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_17_18 = object : Migration(17, 18) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Book-level fields from edu.book_index.v2 and book_manifest.v2.
+                // Legacy records retain an unknown/needs-review state; no page mapping is inferred.
+                db.execSQL("ALTER TABLE books ADD COLUMN schemaVersion TEXT NOT NULL DEFAULT 'edu.book_index.v2'")
+                db.execSQL("ALTER TABLE books ADD COLUMN gradeName TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE books ADD COLUMN sourceLayout TEXT NOT NULL DEFAULT 'UNKNOWN'")
+                db.execSQL("ALTER TABLE books ADD COLUMN sourceLayoutEvidence TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE books ADD COLUMN partKey TEXT")
+                db.execSQL("ALTER TABLE books ADD COLUMN offset INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE books ADD COLUMN approvalStatus TEXT NOT NULL DEFAULT 'LEGACY_UNVERIFIED'")
+                db.execSQL("ALTER TABLE books ADD COLUMN requiresReview INTEGER NOT NULL DEFAULT 1")
+                db.execSQL("ALTER TABLE books ADD COLUMN totalPdfPages INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE books ADD COLUMN sourceFileName TEXT")
+                db.execSQL("ALTER TABLE books ADD COLUMN sourceSha256 TEXT")
+                db.execSQL("ALTER TABLE books ADD COLUMN sourceReviewStatus TEXT NOT NULL DEFAULT 'UNKNOWN'")
+
+                // Unit assignment provenance. Old assignments are not promoted to trusted evidence.
+                db.execSQL("ALTER TABLE workspace_units ADD COLUMN proposed_part_key TEXT")
+                db.execSQL("ALTER TABLE workspace_units ADD COLUMN assignment_status TEXT NOT NULL DEFAULT 'need_review'")
+                db.execSQL("ALTER TABLE workspace_units ADD COLUMN assignment_source TEXT NOT NULL DEFAULT 'LEGACY_UNVERIFIED'")
+                db.execSQL("ALTER TABLE workspace_units ADD COLUMN assignment_evidence TEXT NOT NULL DEFAULT ''")
+
+                // Preserve legacy textual ranges; numeric coordinates remain NULL until reviewed/mapped.
+                db.execSQL("ALTER TABLE lessons ADD COLUMN printed_page_start INTEGER")
+                db.execSQL("ALTER TABLE lessons ADD COLUMN printed_page_end INTEGER")
+                db.execSQL("ALTER TABLE lessons ADD COLUMN pdf_page_start INTEGER")
+                db.execSQL("ALTER TABLE lessons ADD COLUMN pdf_page_end INTEGER")
+                db.execSQL("ALTER TABLE lessons ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0")
+
+                db.execSQL(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_lessons_workspace_book_unit_sort
+                    ON lessons (workspaceId, bookKey, unitKey, sort_order)
+                    """.trimIndent()
+                )
+            }
+        }
+
         fun getInstance(context: Context): EduMiniDatabase {
             return instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -1413,7 +1479,8 @@ abstract class EduMiniDatabase : RoomDatabase() {
                         MIGRATION_13_14,
                         MIGRATION_14_15,
                         MIGRATION_15_16,
-                        MIGRATION_16_17
+                        MIGRATION_16_17,
+                        MIGRATION_17_18
                     )
                     .build()
                     .also { instance = it }
