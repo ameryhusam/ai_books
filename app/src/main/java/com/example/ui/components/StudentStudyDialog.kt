@@ -146,15 +146,20 @@ fun StudentStudyDialog(
         lessonTextContent = loadedText
     }
     val studyDrafts = remember(drafts) {
-        drafts.filter { it.task != TaskType.QUESTIONS }
-            .sortedWith(
-                compareByDescending<DraftRecord> { it.status == DraftStatus.APPROVED.id }
-                    .thenByDescending { it.version }
-            )
+        drafts.filter {
+            it.status == DraftStatus.APPROVED.id &&
+                it.task in setOf(
+                    TaskType.EXPLANATION,
+                    TaskType.SUMMARY,
+                    TaskType.OBJECTIVES,
+                    TaskType.VOCABULARY,
+                    TaskType.WORKED_EXAMPLES,
+                    TaskType.LESSON_REVIEW,
+                    TaskType.DIFFICULTY_ADAPTER
+                )
+        }.sortedByDescending { it.version }
     }
-    val approvedDrafts = remember(studyDrafts) {
-        studyDrafts.filter { it.status == DraftStatus.APPROVED.id }.ifEmpty { studyDrafts }
-    }
+    val approvedDrafts = studyDrafts
     val publishedPkg = remember(packages) {
         packages.firstOrNull { it.publishedForStudents }
     }
