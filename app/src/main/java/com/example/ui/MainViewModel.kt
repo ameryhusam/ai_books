@@ -3579,7 +3579,7 @@ class MainViewModel(
                     success = true
                 )
                 _uiState.update { it.copy(providers = repository.loadProviders(), generationProgressPercent = 100, generationStage = "اكتمل التوليد والحفظ") }
-                val questionSaveResult = if (snapshot.task == TaskType.QUESTIONS) {
+                val questionSaveResult = if (false && snapshot.task == TaskType.QUESTIONS) {
                     runCatching {
                         repository.saveQuestionsFromDraftText(
                             workspaceId = wsId,
@@ -3598,7 +3598,7 @@ class MainViewModel(
                 } else null
                 val syncedQuestionsCount = questionSaveResult?.getOrNull()?.size ?: 0
                 val questionSaveError = questionSaveResult?.exceptionOrNull()?.message
-                val lessonTextSaved = if (snapshot.task == TaskType.LESSON_TEXT) {
+                val lessonTextSaved = if (false && snapshot.task == TaskType.LESSON_TEXT) {
                     val extracted = repository.extractLessonTextFromOutput(out.text)
                     runCatching {
                         repository.saveLessonText(
@@ -3618,7 +3618,7 @@ class MainViewModel(
                 } else {
                     null
                 }
-                val publishedBundle = if (interactiveParsed != null) {
+                val publishedBundle = if (false && interactiveParsed != null) {
                     runCatching {
                         repository.buildAndPublishInteractiveBundle(
                             workspaceId = wsId,
@@ -3634,13 +3634,13 @@ class MainViewModel(
                     snapshot.task == TaskType.QUESTIONS && syncedQuestionsCount > 0 ->
                         "تم التوليد عبر ${out.providerLabel} (${out.model})، وحُفظت المسودة وتم التحقق من العدد والأنواع قبل إضافة $syncedQuestionsCount سؤالاً إلى بنك الأسئلة واختبار الدرس."
                     snapshot.task == TaskType.QUESTIONS ->
-                        "تم حفظ المسودة. الأسئلة المطابقة موجودة مسبقاً في بنك أسئلة الدرس، لذلك لم تُضف نسخ مكررة."
+                        "تم حفظ مسودة الأسئلة فقط. لن تُدرج في بنك الأسئلة أو اختبار الطالب قبل اعتمادها صراحةً."
                     snapshot.task == TaskType.LESSON_TEXT && lessonTextSaved != null ->
                         "تم استخراج وحفظ المحتوى النصي للدرس بنجاح في قاعدة البيانات وتحديث مصدر الاستوديو (v${lessonTextSaved.version})."
                     snapshot.task == TaskType.INTERACTIVE && publishedBundle != null ->
                         "تم التوليد عبر ${out.providerLabel} (${out.model}) وبناء حزمة HTML + JS + JSON (${interactiveParsed?.steps?.size ?: 0} محطة) ونشرها للطالب مع مزامنة المفاهيم."
                     snapshot.task == TaskType.INTERACTIVE && interactiveParsed != null ->
-                        "تم التوليد عبر ${out.providerLabel} (${out.model}) وأصبح النشاط التفاعلي (${interactiveParsed.steps.size} محطة) جاهزاً للتشغيل في شاشة المتعلم والاستوديو."
+                        "تم حفظ النشاط التفاعلي (${interactiveParsed.steps.size} محطة) كمسودة قابلة للمعاينة في الاستوديو؛ لن يُنشر للطالب قبل الاعتماد."
                     else ->
                         "تم استلام الاستجابة عبر ${out.providerLabel} (${out.model}) وحفظها كمسودة."
                 }
