@@ -1,12 +1,12 @@
-# the former indexing workflow Workspace Preparation Algorithm
+# Book Indexing and Workspace Preparation Algorithm
 
 ## 1. Responsibility boundary
 
-This document describes the producer contract that Edu Mini consumes. the former indexing workflow owns PDF discovery, curriculum identity, source-layout classification, unit-part assignment, index review, page calibration, lesson slicing, file paths, manifests and hashes.
+This document defines the indexing workflow owned and executed by ai_books. The application owns PDF discovery, curriculum identity, source-layout classification, unit-part assignment, index review, page calibration, lesson slicing, file paths, manifests and hashes.
 
-Edu Mini must consume the prepared workspace. It must not duplicate the PDF classifier, infer part assignments, rebuild lesson paths when `sliceFile.workspaceUri` exists, or slice the source PDF again.
+The application is both the indexing producer and the workspace consumer. Its student-side import path must not duplicate the PDF classifier, infer part assignments, rebuild lesson paths when sliceFile.workspaceUri exists, or slice the source PDF again.
 
-The the former indexing workflow implementation is the authority for actual behavior. Where this document describes the target layout not yet implemented, the status is explicitly marked below.
+The Kotlin/Android implementation is the authority for actual behavior. Where this document describes target behavior not yet implemented, the status is explicitly marked below.
 
 ## 2. End-to-end preparation sequence
 
@@ -107,7 +107,7 @@ Consumers should use that explicit reference directly. Reconstructing `P01/units
 
 ## 7. Manifest and hashes
 
-The current TypeScript exporter writes `edu.book_manifest.v2` with:
+The canonical app-owned manifest writer must write `edu.book_manifest.v2` with:
 - `canonicalIndexPath` and `canonicalIndexSha256` for the canonical index;
 - `indexSha256` as a compatibility alias for that canonical hash;
 - `partIndexes` containing each derived part path and its independent SHA-256;
