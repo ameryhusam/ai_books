@@ -1025,6 +1025,8 @@ class MainViewModel(
                 activeDraftTemplateId = "",
                 activeDraftTemplateVersion = 1,
                 activeDraftResponseSchemaHash = "",
+                activeDraftPromptUsed = "",
+                activeDraftResponseSchemaJson = "",
                 activeDraftRequestFingerprint = "",
                 activeDraftContentHash = "",
                 activeDraftSourcePdfHash = "",
@@ -1048,6 +1050,8 @@ class MainViewModel(
                 activeDraftTemplateId = "",
                 activeDraftTemplateVersion = 1,
                 activeDraftResponseSchemaHash = "",
+                activeDraftPromptUsed = "",
+                activeDraftResponseSchemaJson = "",
                 activeDraftRequestFingerprint = "",
                 activeDraftContentHash = "",
                 activeDraftSourcePdfHash = "",
@@ -2486,8 +2490,8 @@ class MainViewModel(
                     extractionMethod = if (fromGeneratedOutput) "ai_generated" else "manual",
                     sourcePdfHash = snapshot.activeDraftSourcePdfHash,
                     templateId = snapshot.activeDraftTemplateId,
-                    promptUsed = snapshot.activeDraftRequestFingerprint,
-                    responseSchemaJson = ""
+                    promptUsed = snapshot.activeDraftPromptUsed,
+                    responseSchemaJson = snapshot.activeDraftResponseSchemaJson
                 )
             }.onSuccess { saved ->
                 _uiState.update { it.copy(toastMessage = "تم حفظ نص الدرس بنجاح (الإصدار ${saved.version}) ✓") }
@@ -3525,6 +3529,8 @@ class MainViewModel(
                         activeDraftTemplateId = out.templateId,
                         activeDraftTemplateVersion = out.templateVersion,
                         activeDraftResponseSchemaHash = out.responseSchemaHash,
+                        activeDraftPromptUsed = out.promptUsed,
+                        activeDraftResponseSchemaJson = out.responseSchemaJson,
                         activeDraftRequestFingerprint = out.requestFingerprint,
                         activeDraftContentHash = out.contentHash,
                         activeDraftSourcePdfHash = out.sourcePdfHash,
