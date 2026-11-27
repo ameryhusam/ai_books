@@ -385,7 +385,10 @@ class FirestoreSyncRepository(
      */
     suspend fun isSystemAdmin(): Boolean {
         val uid = requireUserId()
-        val access = requireFirestore().collection("system_admins").document(uid).get().await()
+        val firestore = requireFirestore()
+        val user = firestore.collection("users").document(uid).get().await()
+        if (user.getString("role") != "admin") return false
+        val access = firestore.collection("system_admins").document(uid).get().await()
         val permissions = access.get("permissions") as? List<*>
         return access.exists() &&
             access.getBoolean("enabled") == true &&
