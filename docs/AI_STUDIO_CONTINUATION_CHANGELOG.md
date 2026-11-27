@@ -387,6 +387,7 @@ The latest Android CI run observed during this pass is [run 45715165859](https:/
 - Retry-After now accepts both delta-seconds and RFC 1123 HTTP-date values. If the header is absent or invalid, the existing 60-second fallback remains.
 - Gemini and OpenAI-compatible request paths remain separate. Model-level cooldown behavior for Gemini rate limiting is retained.
 - For Gemini HTTP 429, the router may try configured fallback models on the same API profile, but it stops before moving to another Google API profile. This avoids using key rotation to evade provider rate limits.
+- **Current runtime clarification (2026-11-27):** the current AiGenerationService.generate() path uses ProviderRoutingPolicy.exactModelCandidate(requestedModelId), so it sends only the exact model selected in the dialog. It does not dispatch configured fallbackModels. The preceding bullet records the earlier intended/observed quota-policy design and must not be read as proof that same-profile model fallback is active in the current generation path.
 - SettingsScreen no longer exposes a local daily request cap or local quota-reset timezone; it explains provider-authoritative quota detection and shows the daily attempt count as diagnostic information only.
 
 ### Files changed
