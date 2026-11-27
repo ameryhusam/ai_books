@@ -97,7 +97,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.R
-import com.example.data.ai.Indexer2PromptRegistry
+import com.example.data.ai.BookIndexPromptRegistry
 import com.example.data.ai.QuestionResponseContract
 import com.example.model.BookRef
 import com.example.model.CloudDraft
@@ -468,7 +468,7 @@ private fun StudioWorkbench(
         }
     }
 
-    val activeBlueprint = remember(task) { Indexer2PromptRegistry.blueprintFor(task) }
+    val activeBlueprint = remember(task) { BookIndexPromptRegistry.blueprintFor(task) }
     val context = LocalContext.current
     val promptTemplateContent = remember(context, activeBlueprint.sourcePath) {
         runCatching {
@@ -500,7 +500,7 @@ private fun StudioWorkbench(
         questionDifficulty
     ) {
         if (selectedLesson != null) {
-            Indexer2PromptRegistry.assemblePrompt(
+            BookIndexPromptRegistry.assemblePrompt(
                 lesson = selectedLesson,
                 task = task,
                 source = sourceText,
@@ -566,7 +566,7 @@ private fun StudioWorkbench(
                         color = EduInk
                     )
                     Text(
-                        text = "يمكنك اختيار أي كتاب أو درس مباشرة من هنا لتوليد الشروح وبنوك الأسئلة والأنشطة التفاعلية، مع الوصول الكامل لمصادر البرومبت ومخططات indexer2.",
+                        text = "يمكنك اختيار أي كتاب أو درس مباشرة من هنا لتوليد الشروح وبنوك الأسئلة والأنشطة التفاعلية، مع الوصول الكامل لمصادر البرومبت ومخططات الفهرس.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = EduMuted
                     )
@@ -687,7 +687,7 @@ private fun StudioWorkbench(
                                     ) {
                                         Icon(Icons.Rounded.Terminal, contentDescription = null, tint = EduPurple, modifier = Modifier.size(14.dp))
                                         Text(
-                                            text = "مصادر indexer2",
+                                            text = "مصادر البرومبت",
                                             style = MaterialTheme.typography.labelSmall,
                                             color = EduPurple,
                                             fontWeight = FontWeight.Bold
@@ -701,7 +701,7 @@ private fun StudioWorkbench(
                                 contentPadding = PaddingValues(vertical = 2.dp)
                             ) {
                                 items(TaskType.entries, key = { it.id }) { item ->
-                                    val bp = Indexer2PromptRegistry.blueprintFor(item)
+                                    val bp = BookIndexPromptRegistry.blueprintFor(item)
                                     val active = task == item
                                     Surface(
                                         shape = RoundedCornerShape(14.dp),
@@ -1012,7 +1012,7 @@ private fun StudioWorkbench(
                                     .testTag("extra_input")
                             )
 
-                            // Expandable Live Prompt Preview (indexer2)
+                            // Expandable Live Prompt Preview 
                             Surface(
                                 shape = RoundedCornerShape(12.dp),
                                 color = EduFieldBg,
@@ -1034,7 +1034,7 @@ private fun StudioWorkbench(
                                         ) {
                                             Icon(Icons.Rounded.Terminal, contentDescription = null, tint = EduPurple, modifier = Modifier.size(16.dp))
                                             Text(
-                                                text = "معاينة البرومبت المركّب (indexer2)",
+                                                text = "معاينة البرومبت المركّب ",
                                                 style = MaterialTheme.typography.labelMedium,
                                                 color = EduInk,
                                                 fontWeight = FontWeight.Bold
