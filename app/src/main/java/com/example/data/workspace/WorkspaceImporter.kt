@@ -283,7 +283,7 @@ class WorkspaceImporter(private val context: Context) {
                     require(parsed.books.isNotEmpty()) {
                         "فشل التحقق من الكتب بعد نسخها إلى مساحة العمل الداخلية للصف $gradeKey."
                     }
-                    onProgress("تثبيت مواد ودروس الصف ${gradeKey}", (20 + (idx + 1) * 70 / gradesToImport.size.coerceAtLeast(1)).coerceAtMost(95))
+                    onProgress("تثبيت مواد ودروس الصف ${gradeKey}", (10 + (idx + 1) * 70 / gradesToImport.size.coerceAtLeast(1)).coerceAtMost(95))
                     committed.add(
                         ImportedWorkspace(
                             workspaceId = workspaceId,
