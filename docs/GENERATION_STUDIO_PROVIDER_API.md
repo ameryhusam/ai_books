@@ -388,7 +388,7 @@ The selected generation model is resolved independently from the model catalogue
 
 The built-in Gemini catalogue seeds four selectable model IDs: `gemini-3.5-flash` (default), `gemini-3.6-flash`, `gemini-3.7-flash`, and `gemini-3.8-flash`. These are configured Google Gemini model IDs; availability and entitlement depend on the Google project/account associated with the API key. The central Firestore catalogue remains authoritative: an authorized system administrator may merge missing built-in seed entries into the central collection; existing definitions and custom entries are preserved.
 
-Current policy: keep provider selection explicit and isolated, but permit configured same-provider fallback. For Gemini, make up to three actual dispatch attempts per model on transient overload/rate-limit/network/server failures, then move to the next configured Gemini model. A confirmed daily/project quota exhaustion or invalid key skips the current API profile immediately and tries another enabled Gemini profile. OpenAI-compatible requests keep the selected model, retry transient failures up to three dispatches, then move to another enabled OpenAI-compatible profile/key; invalid key and confirmed quota exhaustion move to the next key immediately.
+Current policy: keep provider selection explicit and isolated, but permit configured same-provider fallback. For Gemini, make up to three actual dispatch attempts per catalogue model on transient overload/rate-limit/network/server failures, then move to the next enabled catalogue model. A confirmed daily/project quota exhaustion or invalid key skips the current API key immediately and tries another enabled Gemini key. OpenAI-compatible requests keep the selected model, retry transient failures up to three dispatches, then move to another enabled OpenAI-compatible key; invalid key and confirmed quota exhaustion move to the next key immediately.
 
 ### 7.2 Current Gemini behavior
 
@@ -583,9 +583,9 @@ Template changes must not erase existing drafts or source workspace records.
 ### Provider isolation and fallback
 - Gemini failure never dispatches OpenAI-compatible.
 - OpenAI-compatible failure never dispatches Gemini.
-- Candidate model order follows the selected profile configuration.
-- Strict model mode attempts only the primary model.
-- Gemini 429 cooldown is model-scoped. After three attempts, the next configured Gemini model is tried; another API profile is selected for quota exhaustion or invalid/unavailable credentials, not as a way to bypass a model's ordinary rate limit.
+- Gemini model candidates follow the provider catalogue order supplied with the request; they are not tied to an individual API key.
+- The selected model is attempted first. Legacy strict-model settings remain honored only for migrated records that explicitly carry that setting.
+- Gemini 429 cooldown is model-scoped. After three attempts, the next enabled catalogue model is tried. A different API key is selected for confirmed quota exhaustion or invalid credentials, not to bypass an ordinary model rate limit.
 - Confirmed quota exhaustion stops prohibited retries.
 - OpenAI-compatible model candidates are independent of Gemini models and cooldown state.
 - Provider switching affects new requests only.
