@@ -56,8 +56,8 @@ class ProviderStorage(context: Context) {
     suspend fun loadModelCatalog(): List<AiModelDefinition> = withContext(Dispatchers.IO) {
         synchronized(lock) {
             val raw = prefs.getString(KEY_MODEL_CATALOG, null)
-            val stored = if (raw == null) {
-                AiModelCatalogDefaults.entries
+            val decoded = if (raw == null) {
+                emptyList()
             } else {
                 try {
                     json.decodeFromString<List<AiModelDefinition>>(raw)
@@ -65,6 +65,40 @@ class ProviderStorage(context: Context) {
                     throw IllegalStateException("تعذر قراءة فهرس نماذج AI المحفوظ؛ لم يتم استبدال البيانات.", error)
                 }
             }
+            // One-time catalog migration: restore the official Gemini seed models
+            // for installations that persisted an empty/older catalog. Preserve
+            // administrator choices and custom models; never replace API credentials.
+            val seedVersion = prefs.getInt(KEY_MODEL_CATALOG_SEED_VERSION, 0)
+            val stored = if (seedVersion < MODEL_CATALOG_SEED_VERSION) {
+                val defaults = AiModelCatalogDefaults.entries
+                val withDefaults = decoded.toMutableList()
+                defaults.forEach { seed ->
+                    val existingIndex = withDefaults.indexOfFirst {
+                        it.provider == seed.provider && it.modelId == seed.modelId
+                    }
+                    if (existingIndex < 0) {
+                        withDefaults += seed.copy(
+                            isDefault = seed.isDefault &&
+                                withDefaults.none { it.provider == seed.provider && it.isDefault }
+                        )
+                    } else {
+                        val existing = withDefaults[existingIndex]
+                        if (existing.displayName == existing.modelId) {
+                            withDefaults[existingIndex] = existing.copy(displayName = seed.displayName)
+                        }
+                    }
+                }
+                if (withDefaults.none { it.provider == ProviderType.GEMINI && it.isDefault }) {
+                    val defaultIndex = withDefaults.indexOfFirst {
+                        it.provider == ProviderType.GEMINI &&
+                            it.modelId == AiModelCatalogDefaults.DEFAULT_GEMINI_MODEL_ID
+                    }
+                    if (defaultIndex >= 0) {
+                        withDefaults[defaultIndex] = withDefaults[defaultIndex].copy(isDefault = true)
+                    }
+                }
+                withDefaults
+            } else decoded
             // Preserve model IDs already used by legacy API profiles by importing
             // their references into the editable catalog instead of silently dropping them.
             val referencedModels = readProfilesLocked().flatMap { profile ->
@@ -82,7 +116,12 @@ class ProviderStorage(context: Context) {
                     )
                 }
             val merged = stored + additions
-            if (raw == null || merged != stored) writeModelCatalogLocked(merged)
+            if (raw == null || merged != decoded || seedVersion < MODEL_CATALOG_SEED_VERSION) {
+                writeModelCatalogLocked(merged)
+                check(prefs.edit().putInt(KEY_MODEL_CATALOG_SEED_VERSION, MODEL_CATALOG_SEED_VERSION).commit()) {
+                    "تعذر حفظ إصدار ترحيل كتالوج نماذج AI."
+                }
+            }
             merged
         }
     }
@@ -426,6 +465,8 @@ class ProviderStorage(context: Context) {
         private const val KEY_PROFILES = "edu_mini_ai_profiles_v1"
         private const val KEY_SELECTED_PROVIDER = "edu_mini_selected_ai_provider_v1"
         private const val KEY_MODEL_CATALOG = "edu_mini_ai_model_catalog_v1"
+        private const val KEY_MODEL_CATALOG_SEED_VERSION = "edu_mini_ai_model_catalog_seed_version"
+        private const val MODEL_CATALOG_SEED_VERSION = 2
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
         private const val KEY_ALIAS = "edu_mini_providers_aes_key"
         private const val TRANSFORMATION = "AES/GCM/NoPadding"
