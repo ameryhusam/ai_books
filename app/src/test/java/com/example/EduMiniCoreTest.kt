@@ -1583,7 +1583,9 @@ class EduMiniCoreTest {
             val zipBytes = createTestZip(
                 mapOf(
                     "workspace/G05/SCI/book_manifest.json" to """{"title":"العلوم 5"}""",
-                    "workspace/G05/SCI/index.json" to """{"units":[{"unitKey":"u1","title":"الوحدة الأولى","lessons":[{"lessonKey":"l1","title":"الدرس الأول"}]}]}"""
+                    "workspace/G05/SCI/index.json" to """{"units":[{"unitKey":"u1","title":"الوحدة الأولى","lessons":[{"lessonKey":"l1","title":"الدرس الأول"}]}]}""",
+                    "workspace/G06/MATH/book_manifest.json" to """{"title":"الرياضيات 6"}""",
+                    "workspace/G06/MATH/index.json" to """{"units":[{"unitKey":"u2","title":"الوحدة الثانية","lessons":[{"lessonKey":"l2","title":"الدرس الثاني"}]}]}"""
                 )
             )
             val preview = importer.inspectZipFromStream(
@@ -1591,18 +1593,24 @@ class EduMiniCoreTest {
                 zipBytes.size.toLong()
             )
 
-            val imported = repo.commitStagedWorkspaces(preview, listOf("G05")).single()
-            val savedGrades = repo.allWorkspaces.first().filter { it.gradeKey == "G05" }
+            val imported = repo.commitStagedWorkspaces(preview, listOf("G05", "G06"))
+            val savedGrades = repo.allWorkspaces.first()
+            val savedG05 = savedGrades.single { it.gradeKey == "G05" }
+            val savedG06 = savedGrades.single { it.gradeKey == "G06" }
+            val updated = imported.single { it.gradeKey == "G05" }
+            val added = imported.single { it.gradeKey == "G06" }
             val observed = repo.observeWorkspace(existing.workspaceId).first()
 
-            assertEquals(1, savedGrades.size)
-            assertEquals(existing.workspaceId, imported.workspaceId)
-            assertEquals(existing.workspaceId, savedGrades.single().workspaceId)
+            assertEquals(2, imported.size)
+            assertEquals(existing.workspaceId, updated.workspaceId)
+            assertEquals(existing.workspaceId, savedG05.workspaceId)
+            assertNotEquals(existing.workspaceId, savedG06.workspaceId)
             assertNotNull(observed)
             assertEquals("العلوم 5", observed!!.books.single().title)
             assertEquals(1, observed.lessons.size)
             assertEquals(existing.workspaceId, observed.lessons.single().workspaceId)
-            assertTrue(File(imported.rootPath).isDirectory)
+            assertTrue(File(updated.rootPath).isDirectory)
+            assertTrue(File(added.rootPath).isDirectory)
         } finally {
             db.close()
         }
