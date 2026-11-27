@@ -2107,11 +2107,11 @@ class EduMiniRepository(
             .map { (key, uNodes) ->
                 val uCompleted = uNodes.count { it.isCompleted }
                 val uTotal = uNodes.size
-                val uInProgress = uNodes.count {
-                    !it.isCompleted && (it.status == LearningNodeStatus.IN_PROGRESS || it.quizAttemptedCount > 0)
-                }
+                val uInProgress = uNodes.count { !it.isCompleted && it.quizAttemptedCount > 0 }
                 val uQuestions = uNodes.sumOf { it.questionsCount }
-                val uGenerated = uNodes.sumOf { it.draftsCount + it.packagesCount + it.questionsCount }
+                val uGenerated = uNodes.sumOf {
+                    it.approvedDraftsCount + it.publishedPackagesCount + it.questionsCount
+                }
                 val uStatus = when {
                     uTotal > 0 && uCompleted == uTotal -> UnitCompletionStatus.COMPLETED
                     uCompleted > 0 || uInProgress > 0 -> UnitCompletionStatus.IN_PROGRESS
