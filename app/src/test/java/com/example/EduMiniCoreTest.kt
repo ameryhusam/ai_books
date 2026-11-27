@@ -1493,6 +1493,51 @@ class EduMiniCoreTest {
     }
 
     @Test
+    fun stagedImportUpdatesExistingGradeAndPreservesWorkspaceIdentity() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val db = Room.inMemoryDatabaseBuilder(context, EduMiniDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        val importer = WorkspaceImporter(context)
+        val repo = EduMiniRepository(
+            dao = db.eduMiniDao(),
+            providerStorage = ProviderStorage(context),
+            workspaceImporter = importer,
+            aiGenerationService = AiGenerationService(context),
+            interactivePackageImporter = InteractivePackageImporter(context),
+            appContext = context
+        )
+        try {
+            val existing = repo.createClassroom("G05", "الصف الخامس")
+            val zipBytes = createTestZip(
+                mapOf(
+                    "workspace/G05/SCI/book_manifest.json" to """{"title":"العلوم 5"}""",
+                    "workspace/G05/SCI/index.json" to """{"units":[{"unitKey":"u1","title":"الوحدة الأولى","lessons":[{"lessonKey":"l1","title":"الدرس الأول"}]}]}"""
+                )
+            )
+            val preview = importer.inspectZipFromStream(
+                ByteArrayInputStream(zipBytes),
+                zipBytes.size.toLong()
+            )
+
+            val imported = repo.commitStagedWorkspaces(preview, listOf("G05")).single()
+            val savedGrades = repo.allWorkspaces.first().filter { it.gradeKey == "G05" }
+            val observed = repo.observeWorkspace(existing.workspaceId).first()
+
+            assertEquals(1, savedGrades.size)
+            assertEquals(existing.workspaceId, imported.workspaceId)
+            assertEquals(existing.workspaceId, savedGrades.single().workspaceId)
+            assertNotNull(observed)
+            assertEquals("العلوم 5", observed!!.books.single().title)
+            assertEquals(1, observed.lessons.size)
+            assertEquals(existing.workspaceId, observed.lessons.single().workspaceId)
+            assertTrue(File(imported.rootPath).isDirectory)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
     fun repositoryAssessmentsNotesTemplatesAndFullBackupRoundtrip() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val db = EduMiniDatabase.getInstance(context)
