@@ -295,6 +295,15 @@ class EduMiniCoreTest {
     }
 
     @Test
+    fun unresolvedUnitProposalIsNotPromotedFromLessonPath() {
+        val unit = Json.parseToJsonElement(
+            """{"partKey":"unknown","proposedPartKey":"P01","assignmentStatus":"need_review","lessons":[{"sliceFile":{"workspaceUri":"workspace/G04/SCI/P01/units/unit_01/lesson_01.pdf"}}]}"""
+        ).jsonObject
+        val resolved = WorkspaceContractValidator.resolveUnitPartKey(unit)
+        assertEquals("UNKNOWN", resolved)
+    }
+
+    @Test
     fun workspaceContractValidatorMarksUnverifiedSourceForReview() {
         val index = """
             {
