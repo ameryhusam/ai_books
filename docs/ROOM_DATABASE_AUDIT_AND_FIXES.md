@@ -7,9 +7,10 @@ Branch: `main`
 
 - Firebase Authentication and the existing Firestore integration remain active.
 - No Firestore collection, document shape, or authentication contract was changed. The client now sends account-scoped progress only for the legacy `learner_default` profile; progress belonging to additional local learner profiles stays local until a profile-aware Firestore contract is designed. Draft sync and Firebase sign-in remain active.
-- Room remains the local operational database.
-- PDF files remain in the linked Workspace; Room stores references and metadata only.
+- Room remains the local operational database on each device.
+- Lesson PDFs and interactive assets remain files in the local Workspace; Room stores stable identities, metadata, and resolvable relative references, not large PDF BLOBs.
 - Local learner profile IDs remain distinct from Firebase Authentication UIDs.
+- Administrator-to-student distribution is a grade-scoped content ZIP; learner performance sync is a separate reverse-direction data flow.
 
 ## Changes completed
 
@@ -82,10 +83,21 @@ This is evidence-guided generation, not a trained predictive ML model. Mastery r
 
 1. **Foreign keys and deletion policy:** curriculum refreshes must not accidentally cascade-delete drafts, questions, attempts, or progress. Define archival/retention behavior before adding foreign keys.
 2. **Schema export:** `exportSchema = false` remains unchanged. Enable it only with KSP schema-location configuration, committed schema snapshots, and migration tests.
-3. **Learner profile metadata in backup:** learning records retain their local learner IDs, but the local profile names/list are currently stored separately in SharedPreferences and are not included in the workspace backup. Recreate matching profile IDs or implement a separate profile backup before moving data to a new device.
+3. **Learner profile metadata and device identity:** learning records retain local learner IDs, but profile names/list are currently stored separately in SharedPreferences and are not included in the workspace backup. A grade content package must not be used as a learner-data backup. The iPad onboarding flow must bind the installed content package to an authenticated child identity (or a deliberately provisioned local identity for offline-only use). Profile metadata and learner records need their own secure backup/sync policy.
 4. **Book file registry:** PDF, extracted text, and related file references remain distributed across existing entities. A dedicated `BookFile` entity should follow the finalized PDF/OCR/splitting lifecycle, not be introduced speculatively.
-5. **Cloud learner separation:** Firestore remains account-scoped and its document contract is unchanged. To avoid merging multiple local learners into one account-wide progress record, the current client syncs progress only for `learner_default`; additional local profiles remain local-only. Do not interpret account-level cloud progress as per-profile progress until a separately versioned cloud contract is designed.
+5. **Cloud learner separation:** the current client syncs progress only for the legacy `learner_default`; additional local profiles remain local-only. This is a known limitation, not the target behavior. The intended parent dashboard needs authenticated per-child identity and a versioned Firestore/backend contract keyed by learner identity, with explicit parent-child authorization. Do not merge multiple children's records into one account-wide progress document.
 6. **Adult-role authorization:** the detailed report is hidden in the learner UI, but `ADMIN` / `LEARNER` is currently a local UI role choice, not a server-enforced permission boundary. Do not treat this as secure protection for sensitive child records. Add authenticated parent/teacher permissions before shared-device or cloud deployment.
+
+## Target deployment flow (not yet implemented)
+
+1. Parent/administrator prepares and approves content on the authoring device.
+2. The app exports a grade-scoped content ZIP containing lesson PDFs, required assets, stable lesson keys, and a manifest. It excludes private authoring drafts, API secrets, unrelated grades, and student performance.
+3. Each child's iPad imports the package and stores its files locally for offline viewing.
+4. The child completes lessons, quizzes, and assessments. Room records attempts, scores, completion, and timestamps under that child's identity.
+5. When connectivity is available, a separately authenticated sync sends learner performance to the parent-owned account/service. The parent dashboard aggregates per-child results.
+6. Package updates preserve records for unchanged stable lesson identities; conflicts between content versions and learner attempts are surfaced rather than silently overwritten.
+
+This is a target architecture. The current implementation does not yet provide the complete grade-package distribution, child-device enrollment, or per-child cloud synchronization flow.
 
 ## Verification status
 
