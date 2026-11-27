@@ -468,3 +468,30 @@ The latest Android CI run observed during this pass is [run 45715165859](https:/
 ### Additional P2 guardrails
 - Added regression coverage for the existing Arabic `conceptTag` inference path, including explicit-tag preservation and lesson-title fallback. The inference implementation itself was already present; it was not duplicated.
 - Added a Studio notice beside the PDF attachment control explaining that attached PDFs/rendered images are sent to the selected provider and are not covered by text redaction. The user can disable attachment before generation.
+
+
+## 12. Task-neutral AI execution and response-review flow — 2026-11-27
+
+### Implemented source changes
+- Added `AiExecutionRequest` and task-neutral `AiGenerationService.execute()`. It accepts a prepared prompt, provider profiles, selected provider/model/profile, PDF/image attachments, response format/schema and provenance/callback metadata. It returns provider text and execution metadata without knowing lesson/question/index/student-assessment semantics.
+- Retained `generate(lesson, task, ...)` as a compatibility adapter; it prepares the existing lesson/task prompt and delegates to `execute()`.
+- Gemini: selected model first; up to three actual dispatch attempts for transient overload/rate-limit/server/network failures, then the next configured Gemini model. Confirmed quota exhaustion or invalid credentials skip the current profile and try another enabled Gemini profile.
+- OpenAI-compatible: selected model remains fixed; transient failures retry up to three actual dispatches before same-provider key/profile failover. Confirmed quota exhaustion or invalid credentials skip the current profile immediately.
+- No cross-provider fallback. Google/OpenAI keys belonging to the same project or organization may share quota; changing a key does not guarantee new quota.
+- Provider-confirmed quota exhaustion blocks that profile until its configured quota day rolls over. Local dailyRequestLimit is not used to infer quota.
+- Added typed `AiExecutionException` failure categories and distinct MainViewModel alert titles for quota, rate limiting, invalid credentials, invalid request, empty response, network, unavailable model and provider failure.
+- `EduMiniRepository` now preserves provider-returned content when JSON/task validation fails, adds findings to `GeneratedResult.validationIssues`, and records `RESPONSE_REVIEW_REQUIRED`. MainViewModel saves the raw content as a draft, displays it, and shows the issues that block database insertion.
+- OpenAI-compatible `message.content` string and text-segment array forms are extracted. Gemini no-text diagnostics retain finishReason/blockReason when present.
+- SettingsScreen explains retry/failover policy and exposes ordered fallback model selection; strict-model mode intentionally disables model fallback.
+
+### Regression coverage added
+- Gemini: three transient attempts on the primary model followed by the next configured model.
+- Gemini: confirmed quota exhaustion moves directly to the next same-provider API profile.
+- OpenAI-compatible: confirmed quota exhaustion moves to the next same-provider API key.
+- OpenAI-compatible: content array segments are concatenated.
+- Invalid question JSON/domain output is returned with validation findings rather than thrown away.
+- Provider quota state is blocked for the current configured quota day and resets on day rollover.
+
+### Validation status
+- First GitHub Actions run compiled the Android app and assembled the Debug APK successfully, but 1 of 91 unit tests failed because its assertion searched for wording different from the actual Arabic question-count diagnostic. The assertion was corrected; the rerun is pending.
+- Do not mark this work fully verified until the rerun passes both `:app:testDebugUnitTest` and `:app:assembleDebug`.
