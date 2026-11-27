@@ -188,6 +188,7 @@ The following are the stable boundaries to preserve while continuing work with G
 - Confirm that template edits increment versions and that old generation drafts retain the exact template version used.
 - Add schema validation and canonical response validation as separate steps.
 - Do not silently replace a missing/blank template schema with code defaults.
+- This rule applies only to legacy/non-persistent template-defined output contracts. For database-backed tasks, resolve the response schema from the current Room/database AI-writable projection; do not use a missing template schema as a reason to invent a separate schema or bypass the database contract.
 
 ### 5.3 Educational tasks not completed by this PR
 The PR explicitly leaves these out of scope:
