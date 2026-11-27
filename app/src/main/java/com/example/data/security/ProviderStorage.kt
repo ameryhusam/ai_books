@@ -6,6 +6,7 @@ import android.security.keystore.KeyProperties
 import android.util.Base64
 import com.example.model.ProviderConfig
 import com.example.model.ProviderType
+import com.example.model.ProviderApiKeyNames
 import com.example.data.ai.AiModelCatalogDefaults
 import com.example.data.ai.AiModelDefinition
 import kotlinx.coroutines.Dispatchers
@@ -245,14 +246,15 @@ class ProviderStorage(context: Context) {
     suspend fun loadProviders(): List<ProviderConfig> = withContext(Dispatchers.IO) {
         synchronized(lock) {
             val stored = readProfilesLocked()
-            val normalized = stored.map { normalizeForCurrentDay(it, System.currentTimeMillis()) }
+            val named = ProviderApiKeyNames.normalizeLegacyNames(stored)
+            val normalized = named.map { normalizeForCurrentDay(it, System.currentTimeMillis()) }
             if (normalized != stored) writeProfilesLocked(normalized)
             normalized
         }
     }
 
     suspend fun saveProviders(items: List<ProviderConfig>) = withContext(Dispatchers.IO) {
-        synchronized(lock) { writeProfilesLocked(items) }
+        synchronized(lock) { writeProfilesLocked(ProviderApiKeyNames.normalizeLegacyNames(items)) }
     }
 
     /**
