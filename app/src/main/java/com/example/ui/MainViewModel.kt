@@ -1811,29 +1811,9 @@ class MainViewModel(
             } else {
                 Result.failure(IllegalStateException("local mode"))
             }
-            val syncedCount = when (snapshot.task) {
-                TaskType.QUESTIONS -> repository.saveQuestionsFromDraftText(wsId, lesson, content).size
-                TaskType.INTERACTIVE -> {
-                    val activity = InteractiveActivityParser.parse(content, lesson.title)
-                    if (activity != null) {
-                        repository.questionBankService.syncInteractiveCheckpointsToQuestionBank(
-                            workspaceId = wsId,
-                            lesson = lesson,
-                            activity = activity
-                        ).size
-                    } else 0
-                }
-                else -> 0
-            }
             val cloudNote = if (cloudSyncResult.isSuccess) " • مزامنة سحابية ✓" else ""
             _uiState.update {
-                it.copy(
-                    toastMessage = if (syncedCount > 0) {
-                        "تم حفظ المسودة وإضافة $syncedCount أسئلة/نقاط تحقق لبنك الأسئلة$cloudNote"
-                    } else {
-                        "تم حفظ نسخة جديدة من المسودة$cloudNote"
-                    }
-                )
+                it.copy(toastMessage = "تم حفظ نسخة جديدة كمسودة للمراجعة؛ لم تُضف إلى بنك الأسئلة بعد$cloudNote")
             }
         }
     }
