@@ -101,28 +101,31 @@ data class BookIndexIntakeDraft(
 
         units.forEach { unit ->
             if (unit.unitKey.isBlank()) add("مفتاح الوحدة لا يمكن أن يكون فارغاً")
-            if (unit.title.isBlank()) add("اسم الوحدة مطلوب (\${unit.unitKey})")
+            if (unit.title.isBlank()) add("اسم الوحدة مطلوب (${unit.unitKey})")
             if (unit.assignmentStatus != IndexAssignmentStatus.ASSIGNED) {
-                add("تعيين الجزء للوحدة \${unit.title} لم يؤكد بعد")
+                add("تعيين الجزء للوحدة ${unit.title} لم يؤكد بعد")
             }
             if (unit.partKey !in setOf("P01", "P02")) {
-                add("الجزء المعتمد للوحدة \${unit.title} يجب أن يكون P01 أو P02")
+                add("الجزء المعتمد للوحدة ${unit.title} يجب أن يكون P01 أو P02")
             }
-            if (unit.assignmentEvidence.isBlank()) add("دليل تعيين الجزء مطلوب للوحدة \${unit.title}")
-            if (unit.lessons.isEmpty()) add("الوحدة \${unit.title} لا تحتوي دروساً")
+            if (sourceLayout == IndexSourceLayout.SINGLE_PART_FILE && unit.partKey != partKey) {
+                add("الجزء المعتمد للوحدة ${unit.title} يجب أن يطابق جزء ملف المصدر")
+            }
+            if (unit.assignmentEvidence.isBlank()) add("دليل تعيين الجزء مطلوب للوحدة ${unit.title}")
+            if (unit.lessons.isEmpty()) add("الوحدة ${unit.title} لا تحتوي دروساً")
             if (unit.lessons.map { it.lessonKey }.distinct().size != unit.lessons.size) {
-                add("توجد مفاتيح دروس مكررة في الوحدة \${unit.title}")
+                add("توجد مفاتيح دروس مكررة في الوحدة ${unit.title}")
             }
             unit.lessons.forEach { lesson ->
-                if (lesson.lessonKey.isBlank()) add("مفتاح الدرس مطلوب في الوحدة \${unit.title}")
-                if (lesson.title.isBlank()) add("اسم الدرس مطلوب في الوحدة \${unit.title}")
+                if (lesson.lessonKey.isBlank()) add("مفتاح الدرس مطلوب في الوحدة ${unit.title}")
+                if (lesson.title.isBlank()) add("اسم الدرس مطلوب في الوحدة ${unit.title}")
                 val start = physicalStartPage(lesson)
                 val end = physicalEndPage(lesson)
                 if (start == null || end == null || start < 1 || end < start || end > totalPdfPages) {
-                    add("نطاق صفحات PDF غير صالح للدرس \${lesson.title} في الوحدة \${unit.title}")
+                    add("نطاق صفحات PDF غير صالح للدرس ${lesson.title} في الوحدة ${unit.title}")
                 }
                 if (lesson.assignmentStatus != IndexAssignmentStatus.ASSIGNED) {
-                    add("إسناد صفحات الدرس \${lesson.title} يحتاج إلى مراجعة")
+                    add("إسناد صفحات الدرس ${lesson.title} يحتاج إلى مراجعة")
                 }
             }
         }
