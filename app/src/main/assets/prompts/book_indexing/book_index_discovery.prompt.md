@@ -25,8 +25,10 @@ Extract and preserve:
 5. If the source layout is uncertain, return UNKNOWN and require user review.
 6. Keep printed page numbers separate from physical PDF page numbers.
 7. A printed-page range plus offset is only a proposed mapping. Do not apply offset to a physical PDF page range that is already known.
-8. Return assignment status NEEDS_REVIEW whenever the evidence is insufficient.
-9. Preserve original Arabic titles. Do not normalize, translate, or rewrite textbook names.
+8. Use offset=1 as the default unless the PDF itself provides clear evidence for another offset. The reviewer can edit this value.
+9. Use 0 for an unknown printed/physical page number; never fabricate a page range.
+10. Return assignment status NEEDS_REVIEW whenever the evidence is insufficient.
+11. Preserve original Arabic titles. Do not normalize, translate, or rewrite textbook names.
 
 ## Output
 
