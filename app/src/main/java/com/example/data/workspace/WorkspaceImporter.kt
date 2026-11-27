@@ -264,6 +264,13 @@ class WorkspaceImporter(private val context: Context) {
                 throw IllegalArgumentException("لم يتم العثور على كتب صالحة في الصفوف المحددة")
             }
             committed
+        } catch (error: Exception) {
+            // Multi-grade imports are staged as one package operation: remove earlier grade copies
+            // if a later grade fails before the repository commits the Room transaction.
+            committed.forEach { imported ->
+                runCatching { File(imported.rootPath).deleteRecursively() }
+            }
+            throw error
         } finally {
             tempDir.deleteRecursively()
         }
