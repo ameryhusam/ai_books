@@ -336,6 +336,7 @@ class AiGenerationService(
         val selectedProvider = request.selectedProvider
         val requestedModelId = request.requestedModelId
         val requestedProfileId = request.requestedProfileId
+        val modelFallbackIds = request.modelFallbackIds
         val pdfPageImagesBase64 = request.pdfPageImagesBase64
         val pdfDocumentBase64 = request.pdfDocumentBase64
         val responseSchemaJson = request.responseSchemaJson
