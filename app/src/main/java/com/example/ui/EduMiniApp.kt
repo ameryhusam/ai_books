@@ -294,6 +294,7 @@ fun EduMiniApp(
                                 onSignOut = performSignOut
                             )
                         }
+                        }
                         state.workspaceOperation?.let { operation ->
                             AlertDialog(
                                 onDismissRequest = {},
