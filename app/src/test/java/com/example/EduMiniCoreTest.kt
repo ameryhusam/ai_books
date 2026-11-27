@@ -4027,7 +4027,7 @@ class EduMiniCoreTest {
             serverThread.join(3_000L)
             assertEquals(rawResponse, generated.text)
             assertTrue(generated.validationIssues.isNotEmpty())
-            assertTrue(generated.validationIssues.any { it.contains("عدد الأسئلة") || it.contains("questions") })
+            assertTrue(generated.validationIssues.any { it.contains("العدد الناتج") || it.contains("questions") })
             assertEquals("OpenAI mock", generated.providerLabel)
         } finally {
             runCatching { server.close() }
