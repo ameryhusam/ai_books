@@ -2265,19 +2265,39 @@ class MainViewModel(
     }
 
     fun testSavedProvider(profile: ProviderConfig) {
+        if (_uiState.value.isTestingProvider) return
         viewModelScope.launch {
-            _uiState.update { it.copy(isBusy = true) }
+            _uiState.update { it.copy(isTestingProvider = true) }
             try {
                 val report = repository.testProviderConnection(profile)
                 _uiState.update {
-                    it.copy(alert = AlertMessage("نتيجة اختبار الاتصال", report))
+                    it.copy(alert = AlertMessage("نجاح اختبار النموذج", report))
                 }
-            } catch (e: Exception) {
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: AiExecutionException) {
+                val title = when (error.kind) {
+                    AiExecutionFailureKind.INVALID_CREDENTIALS -> "مفتاح API غير صالح"
+                    AiExecutionFailureKind.QUOTA_EXHAUSTED -> "حصة API مستنفدة"
+                    AiExecutionFailureKind.RATE_LIMITED -> "النموذج مزدحم أو تجاوز حد الطلبات"
+                    AiExecutionFailureKind.MODEL_UNAVAILABLE -> "النموذج غير متاح"
+                    AiExecutionFailureKind.NETWORK_ERROR -> "خطأ في الاتصال"
+                    AiExecutionFailureKind.EMPTY_RESPONSE -> "استجابة فارغة"
+                    AiExecutionFailureKind.INVALID_REQUEST -> "طلب API غير صالح"
+                    AiExecutionFailureKind.PROVIDER_UNAVAILABLE -> "تعذر الوصول إلى المزود"
+                }
                 _uiState.update {
-                    it.copy(alert = AlertMessage("فشل الاتصال", e.message ?: "تعذر الاتصال بالمزود"))
+                    it.copy(alert = AlertMessage(title, error.message ?: "تعذر اختبار النموذج"))
+                }
+            } catch (error: Exception) {
+                val safeMessage = error.message.orEmpty()
+                    .replace(profile.apiKey, "[مفتاح مخفي]")
+                    .ifBlank { "تعذر اختبار النموذج بسبب خطأ غير متوقع." }
+                _uiState.update {
+                    it.copy(alert = AlertMessage("فشل اختبار النموذج", safeMessage))
                 }
             } finally {
-                _uiState.update { it.copy(isBusy = false) }
+                _uiState.update { it.copy(isTestingProvider = false) }
             }
         }
     }
