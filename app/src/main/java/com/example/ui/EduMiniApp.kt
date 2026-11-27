@@ -802,7 +802,6 @@ private fun AuthenticatedEduMiniContent(
                                             onSignOut = onSignOut,
                                             onBackToLibrary = { viewModel.navigateTo(AppPage.LIBRARY) },
                                             onSelectProviderType = viewModel::updateProviderType,
-                                            onLabelChange = viewModel::updateFormLabel,
                                             onModelChange = viewModel::updateFormModel,
                                             onFallbackModelsChange = viewModel::updateFormFallbackModels,
                                             onBaseUrlChange = viewModel::updateFormBaseUrl,
