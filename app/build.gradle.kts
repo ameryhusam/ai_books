@@ -103,6 +103,7 @@ dependencies {
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core)
     testImplementation(libs.androidx.room.testing)
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
 }
 
 if (!googleServicesFile.exists()) {

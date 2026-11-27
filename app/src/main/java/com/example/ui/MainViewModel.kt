@@ -46,6 +46,7 @@ import com.example.model.PromptBlueprintSpec
 import com.example.model.PromptTemplateRecord
 import com.example.model.ProviderConfig
 import com.example.model.ProviderType
+import com.example.model.ProviderApiKeyNames
 import com.example.model.QuestionAttemptRecord
 import com.example.model.QuestionDifficulty
 import com.example.model.QuestionItem
@@ -1346,17 +1347,14 @@ class MainViewModel(
             it.provider == snapshot.selectedProvider && it.isEnabled &&
                 it.supportsGenerateContent && it.lifecycleStatus != AiModelDefinition.STATUS_DEPRECATED
         }
-        val selectedProfile = snapshot.providers.firstOrNull {
-            it.id == snapshot.selectedGenerationProfileId && it.provider == snapshot.selectedProvider &&
-                it.enabled && it.apiKey.isNotBlank()
-        } ?: snapshot.providers.firstOrNull {
-            it.provider == snapshot.selectedProvider && it.enabled && it.apiKey.isNotBlank()
-        }
-        if (selectedModel == null || selectedProfile == null) {
+        val selectedApiKey = snapshot.providers
+            .filter { it.provider == snapshot.selectedProvider && it.enabled && it.apiKey.isNotBlank() }
+            .minWithOrNull(compareBy<ProviderConfig> { it.priority }.thenBy { it.createdAt })
+        if (selectedModel == null || selectedApiKey == null) {
             _uiState.update {
                 it.copy(alert = AlertMessage(
                     "تعذر بدء التقوية",
-                    "تأكد من وجود نموذج مفعّل أضافه مدير النظام وملف اتصال API صالح."
+                    "تأكد من وجود نموذج مفعّل ومفتاح API مفعّل لهذا المزود."
                 ))
             }
             return
@@ -1375,7 +1373,7 @@ class MainViewModel(
                     providers = snapshot.providers,
                     selectedProvider = snapshot.selectedProvider,
                     selectedModelId = selectedModel.modelId,
-                    selectedProfileId = selectedProfile.id,
+                    selectedProfileId = selectedApiKey.id,
                     questionCount = 5,
                     attachPdfPages = true,
                     questionStyleHint = if (task == TaskType.QUESTIONS) "أسئلة تشخيصية تكيفية ومشتتات قائمة على الخطأ" else "",
@@ -1813,29 +1811,9 @@ class MainViewModel(
             } else {
                 Result.failure(IllegalStateException("local mode"))
             }
-            val syncedCount = when (snapshot.task) {
-                TaskType.QUESTIONS -> repository.saveQuestionsFromDraftText(wsId, lesson, content).size
-                TaskType.INTERACTIVE -> {
-                    val activity = InteractiveActivityParser.parse(content, lesson.title)
-                    if (activity != null) {
-                        repository.questionBankService.syncInteractiveCheckpointsToQuestionBank(
-                            workspaceId = wsId,
-                            lesson = lesson,
-                            activity = activity
-                        ).size
-                    } else 0
-                }
-                else -> 0
-            }
             val cloudNote = if (cloudSyncResult.isSuccess) " • مزامنة سحابية ✓" else ""
             _uiState.update {
-                it.copy(
-                    toastMessage = if (syncedCount > 0) {
-                        "تم حفظ المسودة وإضافة $syncedCount أسئلة/نقاط تحقق لبنك الأسئلة$cloudNote"
-                    } else {
-                        "تم حفظ نسخة جديدة من المسودة$cloudNote"
-                    }
-                )
+                it.copy(toastMessage = "تم حفظ نسخة جديدة كمسودة للمراجعة؛ لم تُضف إلى بنك الأسئلة بعد$cloudNote")
             }
         }
     }
@@ -2173,38 +2151,8 @@ class MainViewModel(
 
     fun updateProviderType(type: ProviderType) {
         _uiState.update { state ->
-            val isNewProfile = state.providerForm.editingProviderId == null
-            val defaultLabel = if (type == ProviderType.GEMINI) "Gemini" else "OpenAI"
-            val updatedLabel = if (isNewProfile) defaultLabel else state.providerForm.label
-            val providerModels = state.aiModelCatalog
-                .filter { it.provider == type && it.isEnabled && it.supportsGenerateContent &&
-                    it.lifecycleStatus != AiModelDefinition.STATUS_DEPRECATED }
-            val defaultModel = providerModels.firstOrNull { it.isDefault } ?: providerModels.firstOrNull()
-            val fallbacks = providerModels
-                .filter { it.modelId != defaultModel?.modelId }
-                .sortedBy { it.displayName }
-                .map { it.modelId }
-            state.copy(
-                providerForm = state.providerForm.copy(
-                    provider = type,
-                    label = updatedLabel,
-                    model = if (isNewProfile) defaultModel?.modelId.orEmpty() else state.providerForm.model,
-                    fallbackModels = if (isNewProfile) fallbacks.joinToString(", ") else state.providerForm.fallbackModels
-                )
-            )
+            state.copy(providerForm = state.providerForm.copy(provider = type))
         }
-    }
-
-    fun updateFormLabel(value: String) {
-        _uiState.update { it.copy(providerForm = it.providerForm.copy(label = value)) }
-    }
-
-    fun updateFormModel(value: String) {
-        _uiState.update { it.copy(providerForm = it.providerForm.copy(model = value)) }
-    }
-
-    fun updateFormFallbackModels(value: String) {
-        _uiState.update { it.copy(providerForm = it.providerForm.copy(fallbackModels = value)) }
     }
 
     fun updateFormBaseUrl(value: String) {
@@ -2215,20 +2163,12 @@ class MainViewModel(
         _uiState.update { it.copy(providerForm = it.providerForm.copy(apiKey = value)) }
     }
 
-    fun toggleFormStrictModel() {
-        _uiState.update { it.copy(providerForm = it.providerForm.copy(strictModel = !it.providerForm.strictModel)) }
-    }
-
     fun startEditProvider(profile: ProviderConfig) {
         _uiState.update {
             it.copy(
                 providerForm = ProviderFormState(
                     editingProviderId = profile.id,
                     provider = profile.provider,
-                    label = profile.label,
-                    model = profile.model,
-                    fallbackModels = profile.fallbackModels.joinToString(", "),
-                    strictModel = profile.strictModel,
                     baseUrl = profile.baseUrl.ifBlank { "https://api.openai.com/v1" },
                     apiKey = profile.apiKey,
                     dailyRequestLimit = profile.dailyRequestLimit.toString(),
@@ -2243,19 +2183,33 @@ class MainViewModel(
     }
 
     fun testFormProvider() {
-        val form = _uiState.value.providerForm
-        if (form.model.trim().isEmpty() || form.apiKey.trim().isEmpty()) {
+        val state = _uiState.value
+        val form = state.providerForm
+        if (form.apiKey.trim().isEmpty()) {
             _uiState.update {
-                it.copy(alert = AlertMessage("بيانات ناقصة", "أدخل النموذج ومفتاح API لاختبار الاتصال."))
+                it.copy(alert = AlertMessage("بيانات ناقصة", "أدخل مفتاح API أولاً."))
+            }
+            return
+        }
+        val selectedModel = state.aiModelCatalog.firstOrNull {
+            it.provider == form.provider && it.isDefault && it.isEnabled &&
+                it.supportsGenerateContent && it.lifecycleStatus != AiModelDefinition.STATUS_DEPRECATED
+        }?.modelId ?: state.aiModelCatalog.firstOrNull {
+            it.provider == form.provider && it.isEnabled &&
+                it.supportsGenerateContent && it.lifecycleStatus != AiModelDefinition.STATUS_DEPRECATED
+        }?.modelId.orEmpty()
+        if (selectedModel.isBlank()) {
+            _uiState.update {
+                it.copy(alert = AlertMessage("لا يوجد نموذج متاح", "أضف نموذجاً مفعّلاً لهذا المزود إلى كتالوج النماذج أولاً."))
             }
             return
         }
         val probe = ProviderConfig(
             id = form.editingProviderId ?: "probe",
             provider = form.provider,
-            label = form.label.trim().ifBlank { form.provider.displayName },
-            model = form.model.trim(),
-            strictModel = form.strictModel,
+            label = state.providers.firstOrNull { it.id == form.editingProviderId && it.provider == form.provider }?.label
+                ?: ProviderApiKeyNames.nextName(form.provider, state.providers),
+            model = selectedModel,
             baseUrl = form.baseUrl.trim(),
             apiKey = form.apiKey.trim(),
             enabled = true,
@@ -2265,19 +2219,56 @@ class MainViewModel(
     }
 
     fun testSavedProvider(profile: ProviderConfig) {
+        val state = _uiState.value
+        if (state.isTestingProvider) return
+        val testModel = profile.model.ifBlank {
+            state.aiModelCatalog.firstOrNull {
+                it.provider == profile.provider && it.isDefault && it.isEnabled &&
+                    it.supportsGenerateContent && it.lifecycleStatus != AiModelDefinition.STATUS_DEPRECATED
+            }?.modelId ?: state.aiModelCatalog.firstOrNull {
+                it.provider == profile.provider && it.isEnabled &&
+                    it.supportsGenerateContent && it.lifecycleStatus != AiModelDefinition.STATUS_DEPRECATED
+            }?.modelId.orEmpty()
+        }
+        if (testModel.isBlank()) {
+            _uiState.update {
+                it.copy(alert = AlertMessage("لا يوجد نموذج متاح", "أضف نموذجاً مفعّلاً لهذا المزود إلى كتالوج النماذج أولاً."))
+            }
+            return
+        }
+        val profileToTest = profile.copy(model = testModel)
         viewModelScope.launch {
-            _uiState.update { it.copy(isBusy = true) }
+            _uiState.update { it.copy(isTestingProvider = true) }
             try {
-                val report = repository.testProviderConnection(profile)
+                val report = repository.testProviderConnection(profileToTest)
                 _uiState.update {
-                    it.copy(alert = AlertMessage("نتيجة اختبار الاتصال", report))
+                    it.copy(alert = AlertMessage("نجاح اختبار النموذج", report))
                 }
-            } catch (e: Exception) {
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: AiExecutionException) {
+                val title = when (error.kind) {
+                    AiExecutionFailureKind.INVALID_CREDENTIALS -> "مفتاح API غير صالح"
+                    AiExecutionFailureKind.QUOTA_EXHAUSTED -> "حصة API مستنفدة"
+                    AiExecutionFailureKind.RATE_LIMITED -> "النموذج مزدحم أو تجاوز حد الطلبات"
+                    AiExecutionFailureKind.MODEL_UNAVAILABLE -> "النموذج غير متاح"
+                    AiExecutionFailureKind.NETWORK_ERROR -> "خطأ في الاتصال"
+                    AiExecutionFailureKind.EMPTY_RESPONSE -> "استجابة فارغة"
+                    AiExecutionFailureKind.INVALID_REQUEST -> "طلب API غير صالح"
+                    AiExecutionFailureKind.PROVIDER_UNAVAILABLE -> "تعذر الوصول إلى المزود"
+                }
                 _uiState.update {
-                    it.copy(alert = AlertMessage("فشل الاتصال", e.message ?: "تعذر الاتصال بالمزود"))
+                    it.copy(alert = AlertMessage(title, error.message ?: "تعذر اختبار النموذج"))
+                }
+            } catch (error: Exception) {
+                val safeMessage = error.message.orEmpty()
+                    .replace(profile.apiKey, "[مفتاح مخفي]")
+                    .ifBlank { "تعذر اختبار النموذج بسبب خطأ غير متوقع." }
+                _uiState.update {
+                    it.copy(alert = AlertMessage("فشل اختبار النموذج", safeMessage))
                 }
             } finally {
-                _uiState.update { it.copy(isBusy = false) }
+                _uiState.update { it.copy(isTestingProvider = false) }
             }
         }
     }
@@ -2921,25 +2912,22 @@ class MainViewModel(
             }
             return
         }
-        val availableProfiles = snapshot.providers.filter {
+        val availableApiKeys = snapshot.providers.filter {
             it.provider == snapshot.selectedProvider && it.enabled && it.apiKey.isNotBlank()
         }
-        if (availableProfiles.isEmpty()) {
+        if (availableApiKeys.isEmpty()) {
             _uiState.update {
-                it.copy(alert = AlertMessage("لا يوجد اتصال API", "أضف أو فعّل ملف اتصال لهذا المزود في الإعدادات."))
+                it.copy(alert = AlertMessage("لا يوجد مفتاح API", "أضف أو فعّل مفتاح API لهذا المزود في الإعدادات."))
             }
             return
         }
         val defaultModel = availableModels.firstOrNull { it.isDefault } ?: availableModels.first()
-        val selectedProfile = availableProfiles.firstOrNull { it.id == snapshot.selectedGenerationProfileId }
-            ?: availableProfiles.first()
         _uiState.update {
             it.copy(
                 isGenerationModelPickerOpen = true,
                 selectedGenerationModelId = availableModels.firstOrNull {
                     it.modelId == snapshot.selectedGenerationModelId
-                }?.modelId ?: defaultModel.modelId,
-                selectedGenerationProfileId = selectedProfile.id
+                }?.modelId ?: defaultModel.modelId
             )
         }
     }
@@ -2948,30 +2936,25 @@ class MainViewModel(
         _uiState.update { it.copy(selectedGenerationModelId = modelId) }
     }
 
-    fun selectGenerationProfile(profileId: String) {
-        _uiState.update { it.copy(selectedGenerationProfileId = profileId) }
-    }
-
     fun dismissGenerationModelPicker() {
         _uiState.update { it.copy(isGenerationModelPickerOpen = false) }
     }
 
-    fun confirmGenerationSelection(modelId: String, profileId: String) {
+    fun confirmGenerationSelection(modelId: String) {
         val snapshot = _uiState.value
         val model = snapshot.aiModelCatalog.firstOrNull {
             it.modelId == modelId && it.provider == snapshot.selectedProvider &&
                 it.isEnabled && it.supportsGenerateContent &&
                 it.lifecycleStatus != AiModelDefinition.STATUS_DEPRECATED
         }
-        val profile = snapshot.providers.firstOrNull {
-            it.id == profileId && it.provider == snapshot.selectedProvider &&
-                it.enabled && it.apiKey.isNotBlank()
-        }
-        if (model == null || profile == null) {
+        val availableApiKey = snapshot.providers
+            .filter { it.provider == snapshot.selectedProvider && it.enabled && it.apiKey.isNotBlank() }
+            .minWithOrNull(compareBy<ProviderConfig> { it.priority }.thenBy { it.createdAt })
+        if (model == null || availableApiKey == null) {
             _uiState.update {
                 it.copy(alert = AlertMessage(
                     "اختيار غير صالح",
-                    "النموذج أو ملف الاتصال لم يعد متاحاً. حدّث القائمة ثم أعد الاختيار."
+                    "النموذج أو مفاتيح API المفعّلة لم تعد متاحة. حدّث القائمة ثم أعد المحاولة."
                 ))
             }
             return
@@ -2979,18 +2962,23 @@ class MainViewModel(
         _uiState.update {
             it.copy(
                 isGenerationModelPickerOpen = false,
-                selectedGenerationModelId = modelId,
-                selectedGenerationProfileId = profileId
+                selectedGenerationModelId = modelId
             )
         }
-        startGeneration(snapshot, modelId, profileId)
+        startGeneration(snapshot, modelId)
     }
 
     private fun startGeneration(
         snapshot: MainUiState,
-        selectedModelId: String,
-        selectedProfileId: String
+        selectedModelId: String
     ) {
+        val selectedApiKey = snapshot.providers
+            .filter { it.provider == snapshot.selectedProvider && it.enabled && it.apiKey.isNotBlank() }
+            .minWithOrNull(compareBy<ProviderConfig> { it.priority }.thenBy { it.createdAt })
+        if (selectedApiKey == null) {
+            _uiState.update { it.copy(alert = AlertMessage("لا يوجد مفتاح API", "أضف أو فعّل مفتاح API لهذا المزود في الإعدادات.")) }
+            return
+        }
         val lesson = snapshot.selectedLesson ?: run {
             _uiState.update { it.copy(alert = AlertMessage("حدد الدرس", "اختر درساً من المكتبة أولاً.")) }
             return
@@ -3008,7 +2996,7 @@ class MainViewModel(
                     providers = snapshot.providers,
                     selectedProvider = snapshot.selectedProvider,
                     selectedModelId = selectedModelId,
-                    selectedProfileId = selectedProfileId,
+                    selectedProfileId = selectedApiKey.id,
                     questionCount = snapshot.questionCount,
                     questionTypeIds = snapshot.selectedQuestionTypeIds,
                     questionLanguage = snapshot.questionLanguage,
@@ -3335,31 +3323,37 @@ class MainViewModel(
     }
 
     fun addOrUpdateProvider() {
-        val form = _uiState.value.providerForm
-        if (form.label.trim().isEmpty() || form.model.trim().isEmpty() || form.apiKey.trim().isEmpty()) {
+        val state = _uiState.value
+        val form = state.providerForm
+        if (form.apiKey.trim().isEmpty()) {
             _uiState.update {
-                it.copy(alert = AlertMessage("بيانات ناقصة", "أدخل الاسم والنموذج والمفتاح"))
+                it.copy(alert = AlertMessage("بيانات ناقصة", "أدخل مفتاح API أولاً."))
             }
             return
         }
-        val fallbacks = form.fallbackModels
-            .split(",", "،", "\n")
-            .map { it.trim() }
-            .filter { it.isNotEmpty() && !it.equals(form.model.trim(), ignoreCase = true) }
-            .distinct()
         viewModelScope.launch {
-            val existingId = form.editingProviderId
             val currentList = _uiState.value.providers
-            val next = if (existingId != null && currentList.any { it.id == existingId }) {
+            val existingId = form.editingProviderId
+            val existing = currentList.firstOrNull { it.id == existingId }
+            if (existing != null && existing.provider != form.provider) {
+                _uiState.update {
+                    it.copy(alert = AlertMessage(
+                        "لا يمكن تغيير المزوّد",
+                        "مفتاح API تابع للمزوّد الذي أُنشئ له. أضف مفتاحاً جديداً للمزوّد الآخر."
+                    ))
+                }
+                return@launch
+            }
+            val now = System.currentTimeMillis()
+            val next = if (existing != null) {
                 currentList.map { p ->
-                    if (p.id == existingId) {
+                    if (p.id == existing.id) {
                         val keyChanged = form.apiKey.trim() != p.apiKey
                         p.copy(
-                            provider = form.provider,
-                            label = form.label.trim(),
-                            model = form.model.trim(),
-                            fallbackModels = fallbacks,
-                            strictModel = form.strictModel,
+                            label = p.label,
+                            model = "",
+                            fallbackModels = emptyList(),
+                            strictModel = false,
                             baseUrl = form.baseUrl.trim(),
                             apiKey = form.apiKey.trim(),
                             dailyRequestLimit = form.dailyRequestLimit.toIntOrNull()?.coerceAtLeast(0) ?: 0,
@@ -3373,30 +3367,35 @@ class MainViewModel(
                     } else p
                 }
             } else {
+                val keyName = ProviderApiKeyNames.nextName(form.provider, currentList)
+                val providerPriority = currentList
+                    .filter { it.provider == form.provider }
+                    .maxOfOrNull { it.priority + 1 } ?: 0
                 currentList + ProviderConfig(
-                    id = System.currentTimeMillis().toString(),
+                    id = "api-key-${java.util.UUID.randomUUID()}",
                     provider = form.provider,
-                    label = form.label.trim(),
-                    model = form.model.trim(),
-                    fallbackModels = fallbacks,
-                    strictModel = form.strictModel,
+                    label = keyName,
+                    model = "",
+                    fallbackModels = emptyList(),
+                    strictModel = false,
                     baseUrl = form.baseUrl.trim(),
                     apiKey = form.apiKey.trim(),
                     enabled = true,
-                    createdAt = System.currentTimeMillis(),
-                    priority = currentList.size,
+                    createdAt = now,
+                    priority = providerPriority,
                     dailyRequestLimit = form.dailyRequestLimit.toIntOrNull()?.coerceAtLeast(0) ?: 0,
                     quotaTimeZone = form.quotaTimeZone.ifBlank { "Asia/Aden" }
                 )
             }
             repository.saveProviders(next)
+            val savedKeyName = next.firstOrNull { it.id == (existing?.id ?: next.last().id) }?.label.orEmpty()
             _uiState.update {
                 it.copy(
                     providers = next,
                     providerForm = ProviderFormState(),
                     alert = AlertMessage(
-                        if (existingId != null) "تم التحديث" else "حفظ",
-                        if (existingId != null) "تم حفظ تعديلات المزود محلياً." else "تم حفظ مفتاح المزود محلياً."
+                        if (existing != null) "تم التحديث" else "تمت إضافة المفتاح",
+                        if (existing != null) "تم حفظ تعديلات مفتاح API." else "تم حفظ $savedKeyName."
                     )
                 )
             }
@@ -3419,14 +3418,19 @@ class MainViewModel(
     }
 
     fun moveProviderPriority(id: String, delta: Int) {
-        val current = _uiState.value.providers.sortedBy { it.priority }.toMutableList()
-        val idx = current.indexOfFirst { it.id == id }
+        val all = _uiState.value.providers
+        val target = all.firstOrNull { it.id == id } ?: return
+        val scoped = all.filter { it.provider == target.provider }.sortedBy { it.priority }.toMutableList()
+        val idx = scoped.indexOfFirst { it.id == id }
         if (idx < 0) return
-        val targetIdx = (idx + delta).coerceIn(0, current.lastIndex)
+        val targetIdx = (idx + delta).coerceIn(0, scoped.lastIndex)
         if (idx == targetIdx) return
-        val item = current.removeAt(idx)
-        current.add(targetIdx, item)
-        val reindexed = current.mapIndexed { i, p -> p.copy(priority = i) }
+        val item = scoped.removeAt(idx)
+        scoped.add(targetIdx, item)
+        val priorities = scoped.mapIndexed { index, profile -> profile.id to index }.toMap()
+        val reindexed = all.map { profile ->
+            priorities[profile.id]?.let { profile.copy(priority = it) } ?: profile
+        }
         viewModelScope.launch {
             repository.saveProviders(reindexed)
             _uiState.update { it.copy(providers = reindexed) }

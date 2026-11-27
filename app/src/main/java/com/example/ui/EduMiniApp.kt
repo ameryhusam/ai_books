@@ -22,7 +22,10 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -781,6 +784,7 @@ private fun AuthenticatedEduMiniContent(
                                             form = state.providerForm,
                                             providers = state.providers,
                                             selectedProvider = state.selectedProvider,
+                                            isTestingProvider = state.isTestingProvider,
                                             modelCatalog = state.aiModelCatalog,
                                             canManageAiModels = state.isCloudAuthenticated && state.authenticatedUserRole == UserRole.ADMIN && state.isSystemAdmin,
                                             onAddAiModel = viewModel::addAiModel,
@@ -798,12 +802,8 @@ private fun AuthenticatedEduMiniContent(
                                             onSignOut = onSignOut,
                                             onBackToLibrary = { viewModel.navigateTo(AppPage.LIBRARY) },
                                             onSelectProviderType = viewModel::updateProviderType,
-                                            onLabelChange = viewModel::updateFormLabel,
-                                            onModelChange = viewModel::updateFormModel,
-                                            onFallbackModelsChange = viewModel::updateFormFallbackModels,
                                             onBaseUrlChange = viewModel::updateFormBaseUrl,
                                             onApiKeyChange = viewModel::updateFormApiKey,
-                                            onToggleStrictModel = viewModel::toggleFormStrictModel,
                                             onAddOrUpdateProvider = viewModel::addOrUpdateProvider,
                                             onCancelEditProvider = viewModel::cancelEditProvider,
                                             onEditProvider = viewModel::startEditProvider,
@@ -850,14 +850,12 @@ private fun AuthenticatedEduMiniContent(
                     GenerationModelPickerDialog(
                         provider = state.selectedProvider,
                         models = state.aiModelCatalog,
-                        profiles = state.providers,
+                        apiKeys = state.providers,
                         defaultModelId = state.aiModelCatalog.firstOrNull {
                             it.provider == state.selectedProvider && it.isDefault
                         }?.modelId.orEmpty(),
                         selectedModelId = state.selectedGenerationModelId,
-                        selectedProfileId = state.selectedGenerationProfileId,
                         onSelectModel = viewModel::selectGenerationModel,
-                        onSelectProfile = viewModel::selectGenerationProfile,
                         onConfirm = viewModel::confirmGenerationSelection,
                         onDismiss = viewModel::dismissGenerationModelPicker
                     )
@@ -1065,6 +1063,9 @@ private fun AuthenticatedEduMiniContent(
                         text = {
                             Text(
                                 text = alert.message,
+                                modifier = Modifier
+                                    .heightIn(max = 440.dp)
+                                    .verticalScroll(rememberScrollState()),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = EduInk
                             )

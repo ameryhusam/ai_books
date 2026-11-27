@@ -6,6 +6,7 @@ import android.security.keystore.KeyProperties
 import android.util.Base64
 import com.example.model.ProviderConfig
 import com.example.model.ProviderType
+import com.example.model.ProviderApiKeyNames
 import com.example.data.ai.AiModelCatalogDefaults
 import com.example.data.ai.AiModelDefinition
 import kotlinx.coroutines.Dispatchers
@@ -23,11 +24,11 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
 /**
- * Encrypted provider profiles plus atomic request-attempt telemetry.
+ * Encrypted provider API-key records plus atomic request-attempt telemetry.
  *
  * Daily limit fields remain in ProviderConfig for backward compatibility, but the
  * app does not enforce provider quota locally. The provider response is authoritative.
- * The same process-wide instance serializes profile state updates.
+ * The same process-wide instance serializes API-key state updates.
  */
 class ProviderStorage(context: Context) {
 
@@ -197,7 +198,7 @@ class ProviderStorage(context: Context) {
             require(profiles.none { profile ->
                 profile.provider == model.provider &&
                     (profile.model == modelId || modelId in profile.fallbackModels)
-            }) { "لا يمكن حذف النموذج لأنه مستخدم في ملف اتصال API. عدّل ملف الاتصال أولاً." }
+            }) { "لا يمكن حذف النموذج لأنه مستخدم في إعداد قديم لمفتاح API. حدّث إعداد المفتاح أولاً." }
             writeModelCatalogLocked(current.filterNot { it.modelId == modelId })
         }
     }
@@ -245,14 +246,15 @@ class ProviderStorage(context: Context) {
     suspend fun loadProviders(): List<ProviderConfig> = withContext(Dispatchers.IO) {
         synchronized(lock) {
             val stored = readProfilesLocked()
-            val normalized = stored.map { normalizeForCurrentDay(it, System.currentTimeMillis()) }
+            val named = ProviderApiKeyNames.normalizeLegacyNames(stored)
+            val normalized = named.map { normalizeForCurrentDay(it, System.currentTimeMillis()) }
             if (normalized != stored) writeProfilesLocked(normalized)
             normalized
         }
     }
 
     suspend fun saveProviders(items: List<ProviderConfig>) = withContext(Dispatchers.IO) {
-        synchronized(lock) { writeProfilesLocked(items) }
+        synchronized(lock) { writeProfilesLocked(ProviderApiKeyNames.normalizeLegacyNames(items)) }
     }
 
     /**
@@ -388,7 +390,7 @@ class ProviderStorage(context: Context) {
         val profiles = try {
             json.decodeFromString<List<ProviderConfig>>(decrypted)
         } catch (e: Exception) {
-            throw IllegalStateException("تعذر قراءة إعدادات مزودي AI المحفوظة؛ لم يتم تجاهل البيانات أو استبدالها.", e)
+            throw IllegalStateException("تعذر قراءة مفاتيح API المحفوظة؛ لم يتم تجاهل البيانات أو استبدالها.", e)
         }
         if (raw.startsWith(PREFIX_PLAIN)) writeProfilesLocked(profiles)
         return profiles
@@ -398,7 +400,7 @@ class ProviderStorage(context: Context) {
         val serialized = json.encodeToString(items)
         val encrypted = encrypt(serialized)
         check(prefs.edit().putString(KEY_PROFILES, encrypted).commit()) {
-            "تعذر حفظ حالة مفاتيح API بأمان"
+            "تعذر حفظ مفاتيح API بأمان"
         }
     }
 

@@ -6,6 +6,8 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.sqlite.db.SupportSQLiteOpenHelper
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import com.example.data.ai.AiGenerationService
+import com.example.data.ai.AiExecutionException
+import com.example.data.ai.AiExecutionFailureKind
 import com.example.data.ai.BookIndexPromptRegistry
 import com.example.data.ai.TemplateResponseAdapter
 import com.example.data.ai.TemplateOutputValidator
@@ -69,6 +71,7 @@ import com.example.model.SecuritySeverity
 import com.example.model.TaskType
 import com.example.model.ProviderConfig
 import com.example.model.ProviderType
+import com.example.model.ProviderApiKeyNames
 import com.example.model.UnitCompletionStatus
 import com.example.ui.components.LearningProgressCalculator
 import kotlinx.coroutines.flow.first
@@ -83,6 +86,9 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.security.MessageDigest
 import java.util.zip.ZipInputStream
+import okhttp3.OkHttpClient
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -2412,13 +2418,13 @@ class EduMiniCoreTest {
             sourceText = "حالات المادة ثلاث"
         )
 
-        // First sync inserts 2 questions
-        val firstInserted = repo.saveQuestionsFromDraftText(ws.workspaceId, lesson, draft.content)
-        assertEquals(2, firstInserted.size)
+        // A saved draft must remain outside the question bank until explicit approval.
+        val questionsBeforeApproval = repo.observeQuestionsForWorkspace(ws.workspaceId).first()
+        assertTrue(questionsBeforeApproval.isEmpty())
 
-        // Approving the same draft deduplicates cleanly and does not insert duplicate rows
+        // Approval is the only step that imports the generated questions into the bank.
         val addedOnApprove = repo.approveDraft(draft.id)
-        assertEquals(0, addedOnApprove)
+        assertEquals(2, addedOnApprove)
 
         val storedQuestions = repo.observeQuestionsForWorkspace(ws.workspaceId).first()
         assertEquals(2, storedQuestions.size)
@@ -3027,9 +3033,11 @@ class EduMiniCoreTest {
             }
             // Local dailyRequestLimit is diagnostic only; all active concurrent reservations succeed.
             assertEquals(8, sameDayReservations.count { it })
-            assertEquals(8, storage.loadProviders().single { it.id == provider.id }.dailyRequestsUsed)
+            val loadedKey = storage.loadProviders().single { it.id == provider.id }
+            assertEquals(8, loadedKey.dailyRequestsUsed)
+            assertEquals("GEMINI_API_KEY_1", loadedKey.label)
 
-            // A provider-confirmed exhausted quota blocks this profile for the current quota day.
+            // A provider-confirmed exhausted quota blocks this API key for the current quota day.
             storage.updateProviderRuntimeState(provider.id, ProviderStorage.STATUS_QUOTA_EXHAUSTED, 0L)
             assertFalse(storage.reserveProviderKey(provider.id, dayOne + 30_000L))
 
@@ -3138,6 +3146,23 @@ class EduMiniCoreTest {
             listOf("gemini-selected", "gemini-primary", "gemini-fallback"),
             com.example.data.ai.ProviderRoutingPolicy.modelCandidates(geminiProfiles.single(), "gemini-selected")
         )
+        val credentialOnlyProfile = geminiProfiles.single().copy(
+            model = "",
+            fallbackModels = listOf("gemini-primary", "gemini-fallback")
+        )
+        // API-key records are credential-only; model fallbacks come from the provider catalogue.
+        assertEquals(
+            listOf("gemini-selected"),
+            com.example.data.ai.ProviderRoutingPolicy.modelCandidates(credentialOnlyProfile, "gemini-selected")
+        )
+        assertEquals(
+            listOf("gemini-selected", "gemini-catalog-fallback"),
+            com.example.data.ai.ProviderRoutingPolicy.modelCandidates(
+                credentialOnlyProfile,
+                "gemini-selected",
+                listOf("gemini-catalog-fallback")
+            )
+        )
         assertEquals(
             listOf("gemini-key"),
             com.example.data.ai.ProviderRoutingPolicy.orderedProfiles(
@@ -3150,6 +3175,259 @@ class EduMiniCoreTest {
             listOf("gpt-test", "gpt-fallback"),
             com.example.data.ai.ProviderRoutingPolicy.modelCandidates(openAiProfiles.single())
         )
+    }
+
+    @Test
+    fun providerApiKeyAliasesAreProviderScopedAndNumbered() {
+        val profiles = listOf(
+            ProviderConfig(
+                id = "gemini-old",
+                provider = ProviderType.GEMINI,
+                label = "Gemini",
+                model = "",
+                baseUrl = "",
+                apiKey = "gemini-secret",
+                enabled = true,
+                createdAt = 1L
+            ),
+            ProviderConfig(
+                id = "gemini-three",
+                provider = ProviderType.GEMINI,
+                label = "GEMINI_API_KEY_3",
+                model = "",
+                baseUrl = "",
+                apiKey = "gemini-secret-3",
+                enabled = true,
+                createdAt = 2L
+            ),
+            ProviderConfig(
+                id = "openai-old",
+                provider = ProviderType.OPENAI_COMPATIBLE,
+                label = "OpenAI",
+                model = "",
+                baseUrl = "https://api.openai.com/v1",
+                apiKey = "openai-secret",
+                enabled = true,
+                createdAt = 3L
+            )
+        )
+
+        assertEquals("GEMINI_API_KEY_4", ProviderApiKeyNames.nextName(ProviderType.GEMINI, profiles))
+        assertEquals("OPENAI_API_KEY_1", ProviderApiKeyNames.nextName(ProviderType.OPENAI_COMPATIBLE, profiles))
+
+        val normalized = ProviderApiKeyNames.normalizeLegacyNames(profiles)
+        assertEquals("GEMINI_API_KEY_1", normalized.first { it.id == "gemini-old" }.label)
+        assertEquals("GEMINI_API_KEY_3", normalized.first { it.id == "gemini-three" }.label)
+        assertEquals("OPENAI_API_KEY_1", normalized.first { it.id == "openai-old" }.label)
+        assertEquals("gemini-secret", normalized.first { it.id == "gemini-old" }.apiKey)
+    }
+
+    @Test
+    fun providerConnectionTestShowsCompleteGeminiResponseAndRequestMetadata() = runBlocking {
+        val server = MockWebServer()
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """{"candidates":[{"content":{"parts":[{"text":"جاهز. هذه استجابة اختبار كاملة تتجاوز أربعين حرفاً للتأكد من عدم اقتطاع النص."}]}}]}"""
+            )
+        )
+        server.start()
+        try {
+            val profile = ProviderConfig(
+                id = "gemini-test",
+                provider = ProviderType.GEMINI,
+                label = "Gemini test",
+                model = "gemini-test-model",
+                baseUrl = "",
+                apiKey = "gemini-secret-test-key",
+                enabled = true,
+                createdAt = 1L
+            )
+            val service = AiGenerationService(
+                context = null,
+                client = OkHttpClient(),
+                geminiEndpointBase = server.url("/v1beta/models").toString().trimEnd('/')
+            )
+
+            val result = service.testProviderConnection(profile)
+            val request = server.takeRequest()
+
+            assertTrue(result.contains("المزود: Gemini"))
+            assertTrue(result.contains("النموذج: gemini-test-model"))
+            assertTrue(result.contains("زمن الاستجابة:"))
+            assertTrue(result.contains("هذه استجابة اختبار كاملة تتجاوز أربعين حرفاً للتأكد من عدم اقتطاع النص."))
+            assertFalse(result.contains(profile.apiKey))
+            assertEquals("/v1beta/models/gemini-test-model:generateContent", request.path)
+            assertEquals(profile.apiKey, request.getHeader("x-goog-api-key"))
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun providerConnectionTestClassifiesCredentialsQuotaModelAndRateLimitErrors() = runBlocking {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setResponseCode(401).setBody(
+            """{"error":{"message":"API key not valid. Please pass a valid API key."}}"""
+        ))
+        server.enqueue(MockResponse().setResponseCode(429).setBody(
+            """{"error":{"message":"Quota exceeded for this project."}}"""
+        ))
+        server.enqueue(MockResponse().setResponseCode(404).setBody(
+            """{"error":{"message":"Model not found."}}"""
+        ))
+        server.enqueue(MockResponse().setResponseCode(429).setBody(
+            """{"error":{"message":"Too many requests. Please retry later."}}"""
+        ))
+        server.start()
+        try {
+            val profile = ProviderConfig(
+                id = "gemini-test",
+                provider = ProviderType.GEMINI,
+                label = "Gemini test",
+                model = "gemini-test-model",
+                baseUrl = "",
+                apiKey = "gemini-secret-test-key",
+                enabled = true,
+                createdAt = 1L
+            )
+            val service = AiGenerationService(
+                context = null,
+                client = OkHttpClient(),
+                geminiEndpointBase = server.url("/v1beta/models").toString().trimEnd('/')
+            )
+
+            val invalidKey = runCatching { service.testProviderConnection(profile) }.exceptionOrNull()
+            assertTrue(invalidKey is AiExecutionException)
+            assertEquals(AiExecutionFailureKind.INVALID_CREDENTIALS, (invalidKey as AiExecutionException).kind)
+            assertFalse(invalidKey.message.orEmpty().contains(profile.apiKey))
+
+            val quota = runCatching { service.testProviderConnection(profile) }.exceptionOrNull()
+            assertTrue(quota is AiExecutionException)
+            assertEquals(AiExecutionFailureKind.QUOTA_EXHAUSTED, (quota as AiExecutionException).kind)
+
+            val missingModel = runCatching { service.testProviderConnection(profile) }.exceptionOrNull()
+            assertTrue(missingModel is AiExecutionException)
+            assertEquals(AiExecutionFailureKind.MODEL_UNAVAILABLE, (missingModel as AiExecutionException).kind)
+
+            val rateLimited = runCatching { service.testProviderConnection(profile) }.exceptionOrNull()
+            assertTrue(rateLimited is AiExecutionException)
+            assertEquals(AiExecutionFailureKind.RATE_LIMITED, (rateLimited as AiExecutionException).kind)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun geminiResourceExhaustedWithoutQuotaMetadataRemainsRateLimited() = runBlocking {
+        val server = MockWebServer()
+        server.enqueue(
+            MockResponse().setResponseCode(429).setBody(
+                """{"error":{"message":"Resource exhausted","status":"RESOURCE_EXHAUSTED"}}"""
+            )
+        )
+        server.enqueue(
+            MockResponse().setResponseCode(403).setBody(
+                """{"error":{"message":"Permission denied","status":"PERMISSION_DENIED"}}"""
+            )
+        )
+        server.start()
+        try {
+            val profile = ProviderConfig(
+                id = "gemini-classifier-test",
+                provider = ProviderType.GEMINI,
+                label = "Gemini classifier test",
+                model = "gemini-test-model",
+                baseUrl = "",
+                apiKey = "gemini-classifier-secret",
+                enabled = true,
+                createdAt = 1L
+            )
+            val service = AiGenerationService(
+                context = null,
+                client = OkHttpClient(),
+                geminiEndpointBase = server.url("/v1beta/models").toString().trimEnd('/')
+            )
+
+            val ambiguousExhaustion = runCatching {
+                service.testProviderConnection(profile)
+            }.exceptionOrNull()
+            assertTrue(ambiguousExhaustion is AiExecutionException)
+            assertEquals(
+                AiExecutionFailureKind.RATE_LIMITED,
+                (ambiguousExhaustion as AiExecutionException).kind
+            )
+
+            val permissionDenied = runCatching {
+                service.testProviderConnection(profile)
+            }.exceptionOrNull()
+            assertTrue(permissionDenied is AiExecutionException)
+            assertEquals(
+                AiExecutionFailureKind.PROVIDER_UNAVAILABLE,
+                (permissionDenied as AiExecutionException).kind
+            )
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun providerConnectionTestRejectsEmptyOpenAiCompatibleResponse() = runBlocking {
+        val server = MockWebServer()
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """{"choices":[{"message":{"content":""},"finish_reason":"stop"}]}"""
+            )
+        )
+        server.start()
+        try {
+            val profile = ProviderConfig(
+                id = "openai-test",
+                provider = ProviderType.OPENAI_COMPATIBLE,
+                label = "OpenAI test",
+                model = "gpt-test-model",
+                baseUrl = server.url("/v1").toString().trimEnd('/'),
+                apiKey = "openai-secret-test-key",
+                enabled = true,
+                createdAt = 1L
+            )
+            val service = AiGenerationService(context = null, client = OkHttpClient())
+
+            val error = runCatching { service.testProviderConnection(profile) }.exceptionOrNull()
+            assertTrue(error is AiExecutionException)
+            assertEquals(AiExecutionFailureKind.EMPTY_RESPONSE, (error as AiExecutionException).kind)
+            val request = server.takeRequest()
+            assertEquals("/v1/chat/completions", request.path)
+            assertEquals("Bearer ${profile.apiKey}", request.getHeader("Authorization"))
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun providerConnectionTestMapsNetworkFailureSeparately() = runBlocking {
+        val server = MockWebServer()
+        server.start()
+        val baseUrl = server.url("/v1beta/models").toString().trimEnd('/')
+        server.shutdown()
+        val profile = ProviderConfig(
+            id = "gemini-network-test",
+            provider = ProviderType.GEMINI,
+            label = "Gemini network test",
+            model = "gemini-test-model",
+            baseUrl = "",
+            apiKey = "gemini-secret-test-key",
+            enabled = true,
+            createdAt = 1L
+        )
+        val service = AiGenerationService(
+            context = null,
+            client = OkHttpClient(),
+            geminiEndpointBase = baseUrl
+        )
+
+        val error = runCatching { service.testProviderConnection(profile) }.exceptionOrNull()
+        assertTrue(error is AiExecutionException)
+        assertEquals(AiExecutionFailureKind.NETWORK_ERROR, (error as AiExecutionException).kind)
     }
 
     @Test
@@ -3201,7 +3479,7 @@ class EduMiniCoreTest {
     }
 
     @Test
-    fun geminiRetriesThreeTimesThenUsesNextConfiguredModel() {
+    fun geminiRetriesThreeTimesThenUsesNextCatalogueModel() {
         val server = ServerSocket(0)
         val requestLines = java.util.Collections.synchronizedList(mutableListOf<String>())
         val serverFailure = java.util.concurrent.atomic.AtomicReference<Throwable?>(null)
@@ -3228,13 +3506,12 @@ class EduMiniCoreTest {
             val profile = ProviderConfig(
                 id = "gemini-retry-profile",
                 provider = ProviderType.GEMINI,
-                label = "Gemini retry profile",
-                model = "gemini-primary",
+                label = "GEMINI_API_KEY_1",
+                model = "",
                 baseUrl = "",
                 apiKey = "gemini-retry-key",
                 enabled = true,
-                createdAt = 1L,
-                fallbackModels = listOf("gemini-fallback")
+                createdAt = 1L
             )
             val generated = runBlocking {
                 AiGenerationService(
@@ -3245,7 +3522,8 @@ class EduMiniCoreTest {
                         providers = listOf(profile),
                         selectedProvider = ProviderType.GEMINI,
                         requestedModelId = "gemini-primary",
-                        requestedProfileId = profile.id
+                        requestedProfileId = profile.id,
+                        modelFallbackIds = listOf("gemini-fallback")
                     )
                 )
             }

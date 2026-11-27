@@ -65,6 +65,57 @@ data class ProviderConfig(
     val lastUsedAtEpochMs: Long = 0L
 )
 
+/**
+ * Stable, provider-scoped aliases for API keys. These aliases identify credentials,
+ * not API connections or model selections.
+ */
+object ProviderApiKeyNames {
+    fun prefix(provider: ProviderType): String = when (provider) {
+        ProviderType.GEMINI -> "GEMINI_API_KEY"
+        ProviderType.OPENAI_COMPATIBLE -> "OPENAI_API_KEY"
+    }
+
+    fun nextName(provider: ProviderType, existing: List<ProviderConfig>): String {
+        val prefix = prefix(provider)
+        val pattern = Regex("^${prefix}_(\\d+)$")
+        val next = existing.asSequence()
+            .filter { it.provider == provider }
+            .mapNotNull { pattern.matchEntire(it.label.trim())?.groupValues?.getOrNull(1)?.toIntOrNull() }
+            .maxOrNull()?.plus(1) ?: 1
+        return "${prefix}_${next}"
+    }
+
+    /**
+     * Gives legacy records stable API_KEY_N aliases without changing their IDs,
+     * credentials, enablement, quota state, or provider ordering.
+     */
+    fun normalizeLegacyNames(profiles: List<ProviderConfig>): List<ProviderConfig> {
+        val result = profiles.toMutableList()
+        ProviderType.entries.forEach { provider ->
+            val scoped = profiles.filter { it.provider == provider }
+                .sortedWith(compareBy<ProviderConfig> { it.priority }.thenBy { it.createdAt }.thenBy { it.id })
+            val prefix = prefix(provider)
+            val pattern = Regex("^${prefix}_(\\d+)$")
+            val used = scoped.mapNotNull {
+                pattern.matchEntire(it.label.trim())?.groupValues?.getOrNull(1)?.toIntOrNull()
+            }.toMutableSet()
+            var next = 1
+            scoped.forEach { profile ->
+                val currentNumber = pattern.matchEntire(profile.label.trim())
+                    ?.groupValues?.getOrNull(1)?.toIntOrNull()
+                if (currentNumber == null) {
+                    while (next in used) next++
+                    val index = result.indexOfFirst { it.id == profile.id }
+                    if (index >= 0) result[index] = profile.copy(label = "${prefix}_${next}")
+                    used += next
+                    next++
+                }
+            }
+        }
+        return result
+    }
+}
+
 @Serializable
 enum class UserRole(val id: String, val labelAr: String) {
     ENTRY("entry", "اختيار الدخول"),

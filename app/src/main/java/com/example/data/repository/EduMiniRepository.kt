@@ -617,6 +617,17 @@ class EduMiniRepository(
             effectiveExtra
         ).joinToString("|")
         val requestSeedHash = sha256Full(requestSeed)
+        val modelFallbackIds = providerStorage.loadModelCatalog()
+            .filter {
+                it.provider == selectedProvider &&
+                    it.modelId != selectedModelId &&
+                    it.isEnabled &&
+                    it.supportsGenerateContent &&
+                    it.lifecycleStatus != com.example.data.ai.AiModelDefinition.STATUS_DEPRECATED
+            }
+            .sortedWith(compareBy<com.example.data.ai.AiModelDefinition> { !it.isDefault }.thenBy { it.displayName })
+            .map { it.modelId }
+            .distinct()
         val startedMs = System.currentTimeMillis()
         onProgress(42, "إرسال البرومبت والمرفق إلى مزود الذكاء الاصطناعي")
         val result = aiGenerationService.generate(
@@ -662,7 +673,8 @@ class EduMiniRepository(
                         tokensUsed = 0
                     )
                 )
-            }
+            },
+            modelFallbackIds = modelFallbackIds
         )
         onProgress(88, "فحص الاستجابة مع الاحتفاظ بالمحتوى المستلم")
         val responseIssues = mutableListOf<String>()

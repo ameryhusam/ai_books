@@ -32,6 +32,7 @@ import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.NetworkCheck
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -94,6 +95,7 @@ fun SettingsScreen(
     form: ProviderFormState,
     providers: List<ProviderConfig>,
     selectedProvider: ProviderType,
+    isTestingProvider: Boolean = false,
     modelCatalog: List<AiModelDefinition> = emptyList(),
     canManageAiModels: Boolean = false,
     onAddAiModel: (AiModelDefinition) -> Unit = {},
@@ -111,12 +113,8 @@ fun SettingsScreen(
     onSignOut: () -> Unit = {},
     onBackToLibrary: () -> Unit,
     onSelectProviderType: (ProviderType) -> Unit,
-    onLabelChange: (String) -> Unit,
-    onModelChange: (String) -> Unit,
-    onFallbackModelsChange: (String) -> Unit,
     onBaseUrlChange: (String) -> Unit,
     onApiKeyChange: (String) -> Unit,
-    onToggleStrictModel: () -> Unit = {},
     onAddOrUpdateProvider: () -> Unit,
     onCancelEditProvider: () -> Unit = {},
     onEditProvider: (ProviderConfig) -> Unit = {},
@@ -309,11 +307,6 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.titleSmall,
                         color = EduInk
                     )
-                    Text(
-                        text = "يتم تنفيذ الطلبات الجديدة عبر المزود المحدد فقط. فشل Gemini لا يستدعي OpenAI تلقائياً، والعكس صحيح.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = EduMuted
-                    )
                     FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(7.dp),
                         verticalArrangement = Arrangement.spacedBy(7.dp)
@@ -333,11 +326,6 @@ fun SettingsScreen(
             item(key = "ai_model_catalog") {
                 EduPanel(modifier = Modifier.fillMaxWidth()) {
                     Text("كتالوج نماذج الذكاء الاصطناعي", style = MaterialTheme.typography.titleSmall, color = EduInk)
-                    Text(
-                        "هذه قائمة النماذج المركزية التي يديرها مدير النظام. اختيار النموذج هنا لا يغيّر ملف اتصال API.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = EduMuted
-                    )
                     if (modelCatalog.isEmpty()) {
                         Text("لا توجد نماذج منشورة حالياً. يضيف مدير النظام النماذج إلى القائمة المركزية.", color = EduMuted, style = MaterialTheme.typography.bodySmall)
                     }
@@ -470,92 +458,33 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.labelMedium,
                         color = EduInk
                     )
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(7.dp),
-                        verticalArrangement = Arrangement.spacedBy(7.dp)
-                    ) {
-                        ProviderType.entries.forEach { type ->
-                            EduPill(
-                                text = type.displayName,
-                                active = form.provider == type,
-                                onClick = { onSelectProviderType(type) },
-                                testTag = "provider_type_${type.id}"
-                            )
-                        }
-                    }
-
-                    Text(
-                        text = stringResource(R.string.settings_profile_name_label),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = EduInk,
-                        modifier = Modifier.padding(top = 6.dp)
-                    )
-                    SettingsField(
-                        value = form.label,
-                        onValueChange = onLabelChange,
-                        testTag = "provider_label_input"
-                    )
-
-                    Text(
-                        text = stringResource(R.string.settings_model_label),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = EduInk,
-                        modifier = Modifier.padding(top = 6.dp)
-                    )
-                    Text(
-                        text = form.model.ifBlank { "لم يتم تحديد نموذج" },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = EduMuted,
-                        modifier = Modifier.padding(vertical = 4.dp)
-                    )
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        modelCatalog.filter { it.provider == form.provider && it.isEnabled && it.supportsGenerateContent && it.lifecycleStatus != AiModelDefinition.STATUS_DEPRECATED }.forEach { model ->
-                            EduPill(
-                                text = model.displayName,
-                                active = form.model == model.modelId,
-                                onClick = { onModelChange(model.modelId) }
-                            )
-                        }
-                    }
-
-                    Text(
-                        text = "النماذج الاحتياطية (تُجرّب بالترتيب بعد النموذج الأساسي)",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = EduInk,
-                        modifier = Modifier.padding(top = 6.dp)
-                    )
-                    Text(
-                        text = "اختر النماذج التي تريد استخدامها كبدائل. ترتيب الاختيار هو ترتيب التجربة؛ إذا لم تحدد بديلاً أو فعّلت الالتزام الصارم فلن ينتقل Gemini إلى نموذج آخر.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = EduMuted
-                    )
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        val selectedFallbacks = form.fallbackModels
-                            .split(",", "،", "\n")
-                            .map { it.trim() }
-                            .filter { it.isNotBlank() }
-                            .toSet()
-                        modelCatalog.filter { it.provider == form.provider && it.isEnabled && it.supportsGenerateContent && it.lifecycleStatus != AiModelDefinition.STATUS_DEPRECATED && it.modelId != form.model }
-                            .forEach { model ->
+                    if (form.editingProviderId == null) {
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(7.dp),
+                            verticalArrangement = Arrangement.spacedBy(7.dp)
+                        ) {
+                            ProviderType.entries.forEach { type ->
                                 EduPill(
-                                    text = model.displayName,
-                                    active = model.modelId in selectedFallbacks,
-                                    onClick = {
-                                        val updated = if (model.modelId in selectedFallbacks) {
-                                            selectedFallbacks - model.modelId
-                                        } else {
-                                            selectedFallbacks + model.modelId
-                                        }
-                                        onFallbackModelsChange(updated.joinToString(", "))
-                                    }
+                                    text = type.displayName,
+                                    active = form.provider == type,
+                                    onClick = { onSelectProviderType(type) },
+                                    testTag = "provider_type_${type.id}"
                                 )
                             }
+                        }
+                    } else {
+                        Text(
+                            text = form.provider.displayName,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = EduInk
+                        )
+                        providers.firstOrNull { it.id == form.editingProviderId }?.label?.let { keyAlias ->
+                            Text(
+                                text = "تعديل $keyAlias",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = EduMuted
+                            )
+                        }
                     }
 
                     if (form.provider == ProviderType.OPENAI_COMPATIBLE) {
@@ -572,18 +501,6 @@ fun SettingsScreen(
                         )
                     }
 
-                    Text(
-                        text = "تُحدَّد الحصة الفعلية من استجابة مزود الخدمة. لا يفرض التطبيق سقفاً يومياً محلياً؛ ويُعرض عدد المحاولات لأغراض التشخيص فقط.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = EduMuted,
-                        modifier = Modifier.padding(top = 8.dp)
-                    )
-                    Text(
-                        text = "سياسة المحاولات: Gemini يحاول النموذج حتى 3 مرات عند الازدحام ثم ينتقل إلى النموذج الاحتياطي التالي. عند نفاد الحصة أو عدم صلاحية المفتاح ينتقل فوراً إلى ملف Gemini API آخر. OpenAI-compatible يعيد المحاولة حتى 3 مرات عند الازدحام ثم ينتقل إلى المفتاح التالي؛ وعند نفاد الحصة أو عدم صلاحية المفتاح ينتقل فوراً. لا يحدث انتقال تلقائي بين Gemini وOpenAI. قد تتشارك المفاتيح التابعة للمشروع نفسه الحصة.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = EduMuted,
-                        modifier = Modifier.padding(top = 4.dp)
-                    )
                     Text(
                         text = stringResource(R.string.settings_api_key_label),
                         style = MaterialTheme.typography.labelMedium,
@@ -632,32 +549,12 @@ fun SettingsScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .clickable(onClick = onToggleStrictModel)
-                            .padding(vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Checkbox(
-                            checked = form.strictModel,
-                            onCheckedChange = { onToggleStrictModel() },
-                            colors = CheckboxDefaults.colors(checkedColor = EduGreen),
-                            modifier = Modifier.testTag("provider_strict_model_checkbox")
-                        )
-                        Text(
-                            text = "التزام صارم بالنموذج المختار (تجاهل Fallback)",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = EduInk
-                        )
-                    }
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
                             .padding(top = 6.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         OutlinedButton(
                             onClick = onTestFormProvider,
+                            enabled = !isTestingProvider,
                             shape = RoundedCornerShape(12.dp),
                             border = BorderStroke(1.dp, EduGreen),
                             modifier = Modifier
@@ -665,9 +562,21 @@ fun SettingsScreen(
                                 .minimumInteractiveComponentSize()
                                 .testTag("test_form_provider_button")
                         ) {
-                            Icon(Icons.Rounded.NetworkCheck, contentDescription = null, tint = EduGreenDark, modifier = Modifier.size(18.dp))
+                            if (isTestingProvider) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    strokeWidth = 2.dp,
+                                    color = EduGreenDark
+                                )
+                            } else {
+                                Icon(Icons.Rounded.NetworkCheck, contentDescription = null, tint = EduGreenDark, modifier = Modifier.size(18.dp))
+                            }
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("اختبار الاتصال", color = EduGreenDark, style = MaterialTheme.typography.labelLarge)
+                            Text(
+                                if (isTestingProvider) "جارٍ اختبار النموذج..." else "اختبار الاتصال",
+                                color = EduGreenDark,
+                                style = MaterialTheme.typography.labelLarge
+                            )
                         }
                         if (form.editingProviderId != null) {
                             OutlinedButton(
@@ -682,7 +591,7 @@ fun SettingsScreen(
                     }
 
                     EduYellowButton(
-                        text = if (form.editingProviderId != null) "حفظ تعديل المزود" else stringResource(R.string.settings_add_api_cta),
+                        text = if (form.editingProviderId != null) "حفظ المفتاح" else stringResource(R.string.settings_add_api_cta),
                         onClick = onAddOrUpdateProvider,
                         icon = Icons.Rounded.Add,
                         testTag = "add_provider_button",
@@ -701,10 +610,11 @@ fun SettingsScreen(
             }
 
             items(
-                items = providers,
+                items = providers.sortedWith(compareBy<ProviderConfig> { it.provider.id }.thenBy { it.priority }.thenBy { it.createdAt }),
                 key = { it.id }
             ) { profile ->
-                val idx = providers.indexOfFirst { it.id == profile.id }
+                val providerKeys = providers.filter { it.provider == profile.provider }.sortedBy { it.priority }
+                val providerIndex = providerKeys.indexOfFirst { it.id == profile.id }
                 EduPanel(modifier = Modifier.fillMaxWidth()) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -713,15 +623,10 @@ fun SettingsScreen(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "#${idx + 1} • ${profile.label}",
+                                text = profile.label,
                                 style = MaterialTheme.typography.titleSmall,
                                 color = EduInk
                             )
-                            val fallbackSuffix = if (profile.fallbackModels.isNotEmpty() && !profile.strictModel) {
-                                " • احتياطي: ${profile.fallbackModels.joinToString(", ")}"
-                            } else if (profile.strictModel) {
-                                " • وضع صارم"
-                            } else ""
                             val statusLabel = when (profile.runtimeStatus.uppercase()) {
                                 "ACTIVE" -> "نشط"
                                 "DISABLED" -> "معطّل"
@@ -731,7 +636,7 @@ fun SettingsScreen(
                                 else -> "خطأ مؤقت"
                             }
                             Text(
-                                text = "${profile.provider.id} • ${profile.model}$fallbackSuffix • ${stringResource(R.string.settings_key_hidden)}",
+                                text = "${profile.provider.displayName} • ${stringResource(R.string.settings_key_hidden)}",
 
                                 style = MaterialTheme.typography.bodySmall,
                                 color = EduMuted
@@ -744,13 +649,22 @@ fun SettingsScreen(
                         }
                         IconButton(
                             onClick = { onTestSavedProvider(profile) },
+                            enabled = !isTestingProvider,
                             modifier = Modifier.minimumInteractiveComponentSize()
                         ) {
-                            Icon(
-                                imageVector = Icons.Rounded.NetworkCheck,
-                                contentDescription = "اختبار الاتصال",
-                                tint = EduBlue
-                            )
+                            if (isTestingProvider) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    strokeWidth = 2.dp,
+                                    color = EduBlue
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Rounded.NetworkCheck,
+                                    contentDescription = "اختبار الاتصال",
+                                    tint = EduBlue
+                                )
+                            }
                         }
                         IconButton(
                             onClick = { onEditProvider(profile) },
@@ -758,30 +672,30 @@ fun SettingsScreen(
                         ) {
                             Icon(
                                 imageVector = Icons.Outlined.Edit,
-                                contentDescription = "تعديل المزود",
+                                contentDescription = "تعديل المفتاح",
                                 tint = EduGreenDark
                             )
                         }
                         IconButton(
                             onClick = { onMoveProvider(profile.id, -1) },
-                            enabled = idx > 0,
+                            enabled = providerIndex > 0,
                             modifier = Modifier.minimumInteractiveComponentSize()
                         ) {
                             Icon(
                                 imageVector = Icons.Rounded.KeyboardArrowUp,
                                 contentDescription = "رفع الأولوية",
-                                tint = if (idx > 0) EduGreenDark else EduLine
+                                tint = if (providerIndex > 0) EduGreenDark else EduLine
                             )
                         }
                         IconButton(
                             onClick = { onMoveProvider(profile.id, 1) },
-                            enabled = idx in 0 until providers.lastIndex,
+                            enabled = providerIndex in 0 until providerKeys.lastIndex,
                             modifier = Modifier.minimumInteractiveComponentSize()
                         ) {
                             Icon(
                                 imageVector = Icons.Rounded.KeyboardArrowDown,
                                 contentDescription = "خفض الأولوية",
-                                tint = if (idx in 0 until providers.lastIndex) EduGreenDark else EduLine
+                                tint = if (providerIndex in 0 until providerKeys.lastIndex) EduGreenDark else EduLine
                             )
                         }
                         if (profile.runtimeStatus != "ACTIVE" && profile.enabled) {
