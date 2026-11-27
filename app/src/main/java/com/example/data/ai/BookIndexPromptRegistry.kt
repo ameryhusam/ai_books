@@ -115,7 +115,7 @@ object BookIndexPromptRegistry {
         PromptBlueprintSpec(
             id = "prompt_questions",
             task = TaskType.QUESTIONS,
-            titleAr = "مخطط بنك الأسئلة القياسي (مخطط الفهرس)",
+            titleAr = "مخطط بنك الأسئلة القياسي",
             subtitleAr = "أسئلة متعددة الأنماط مع الإجابة والتفسير والصعوبة وربط الصفحة المرجعية",
             sourcePath = "prompts/book_indexing/question_bank.prompt.md",
             roleInstruction = "بنك أسئلة مع الخيارات والإجابة الصحيحة والتفسير ومستوى الصعوبة وربط كل سؤال بالصفحة المرجعية",
