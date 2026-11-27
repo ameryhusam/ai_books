@@ -998,7 +998,7 @@ private fun AuthenticatedEduMiniContent(
                         questionCount = state.questionCount,
                         sourceText = state.sourceText,
                         extraInstructions = state.extraInstructions,
-                        onApplyBlueprint = viewModel::applyIndexer2Blueprint,
+                        onApplyBlueprint = viewModel::applyBookIndexBlueprint,
                         onLoadSampleIntoEditor = viewModel::loadSchemaSampleIntoEditor,
                         onShowFeedback = viewModel::showToast,
                         onDismiss = viewModel::dismissPromptSourcesDialog
