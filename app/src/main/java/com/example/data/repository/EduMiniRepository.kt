@@ -2711,7 +2711,11 @@ class EduMiniRepository(
         title = title,
         partKey = partKey,
         sortOrder = sortOrder,
-        sourceIndexPath = sourceIndexPath
+        sourceIndexPath = sourceIndexPath,
+        proposedPartKey = proposedPartKey,
+        assignmentStatus = assignmentStatus,
+        assignmentSource = assignmentSource,
+        assignmentEvidence = assignmentEvidence
     )
 
     private fun BookEntity.toModel() = BookRef(
