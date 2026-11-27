@@ -138,3 +138,47 @@ data class BookIndexIntakeDraft(
         return this
     }
 }
+
+
+/** Shared AI extraction contract. Both prompt and deterministic parsers must populate BookIndexIntakeDraft. */
+object BookIndexPromptTemplate {
+    const val SOURCE_PATH = "prompts/book_indexing/book_index_discovery.prompt.md"
+
+    val responseSchemaJson: String = """
+        {
+          "bookTitle": "اسم الكتاب",
+          "gradeName": "اسم الصف",
+          "gradeKey": "G07",
+          "subjectName": "اسم المادة",
+          "subjectKey": "SCI",
+          "componentKey": null,
+          "sourceLayout": "SINGLE_PART_FILE | MERGED_PARTS_FILE | UNKNOWN",
+          "partKey": "P01 | P02 | BOTH | null",
+          "offset": 4,
+          "units": [
+            {
+              "unitKey": "unit_01",
+              "title": "اسم الوحدة",
+              "partKey": "P01 | P02 | null",
+              "proposedPartKey": null,
+              "assignmentStatus": "ASSIGNED | NEEDS_REVIEW",
+              "assignmentSource": "INDEX_EVIDENCE | DEFAULT_PROPOSAL | LEGACY_UNVERIFIED",
+              "assignmentEvidence": "الدليل النصي",
+              "lessons": [
+                {
+                  "lessonKey": "lesson_01",
+                  "title": "اسم الدرس",
+                  "printedPageStart": 1,
+                  "printedPageEnd": 6,
+                  "pdfPageStart": 5,
+                  "pdfPageEnd": 10,
+                  "assignmentStatus": "ASSIGNED | NEEDS_REVIEW",
+                  "assignmentEvidence": "الدليل النصي"
+                }
+              ]
+            }
+          ],
+          "discoveryNotes": []
+        }
+    """.trimIndent()
+}
