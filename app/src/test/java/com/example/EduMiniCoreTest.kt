@@ -4867,7 +4867,9 @@ class EduMiniCoreTest {
         val initial = storage.loadModelCatalog()
         assertTrue(initial.any { it.modelId == "gemini-3.5-flash" && it.isDefault })
         assertTrue(initial.any { it.modelId == "gemini-3.6-flash" && it.displayName == "Gemini 3.6 Flash" })
+        assertTrue(initial.any { it.modelId == "gemini-3.7-flash" && it.displayName == "Gemini 3.7 Flash" })
         assertTrue(initial.any { it.modelId == "gemini-3.8-flash" && it.displayName == "Gemini 3.8 Flash" })
+        assertEquals(4, initial.count { it.provider == ProviderType.GEMINI })
 
         val custom = com.example.data.ai.AiModelDefinition(
             modelId = "gemini-custom-test",
@@ -4900,7 +4902,9 @@ class EduMiniCoreTest {
         val migrated = storage.loadModelCatalog()
         assertTrue(migrated.any { it.modelId == "gemini-3.5-flash" && it.isDefault })
         assertTrue(migrated.any { it.modelId == "gemini-3.6-flash" })
+        assertTrue(migrated.any { it.modelId == "gemini-3.7-flash" })
         assertTrue(migrated.any { it.modelId == "gemini-3.8-flash" })
+        assertEquals(4, migrated.count { it.provider == ProviderType.GEMINI })
         assertEquals(1, migrated.count { it.provider == ProviderType.GEMINI && it.isDefault })
     }
 
