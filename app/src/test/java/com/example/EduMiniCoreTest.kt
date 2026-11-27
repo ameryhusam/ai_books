@@ -339,7 +339,8 @@ class EduMiniCoreTest {
             availableRelativePaths = setOf("workspace/G04/SCI/P01/units/unit_01/lesson_01.pdf")
         )
         assertFalse(result.isValid)
-        assertTrue(result.errors.any { it.contains("NEEDS_REVIEW") || it.contains("غير معتمد للمراجعة النهائية") })
+        assertTrue(result.isImportableWithReview)
+        assertTrue(result.reviewRequiredErrors.any { it.contains("NEEDS_REVIEW") || it.contains("غير معتمد للمراجعة النهائية") })
     }
 
     @Test
@@ -398,8 +399,9 @@ class EduMiniCoreTest {
         )
 
         assertFalse(result.isValid)
-        assertTrue(result.errors.any { it.contains("assignmentSource") })
-        assertTrue(result.errors.any { it.contains("assignmentEvidence") })
+        assertTrue(result.isImportableWithReview)
+        assertTrue(result.reviewRequiredErrors.any { it.contains("assignmentSource") })
+        assertTrue(result.reviewRequiredErrors.any { it.contains("assignmentEvidence") })
     }
 
     @Test
