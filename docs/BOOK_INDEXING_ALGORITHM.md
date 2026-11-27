@@ -216,7 +216,7 @@ The default offset is +1. The user may change it when the uploaded PDF has a dif
 
 ### 11.5 Templates and provider independence
 
-Index templates are reusable application resources, not an external tool's private implementation. A template defines its extraction instructions, required fields, response schema/version and validation rules. The user can select a built-in deterministic template or an AI prompt template. Both must produce the same BookIndexIntakeDraft contract. Provider/model selection belongs to the AI execution layer and must not change the index schema or approval rules.
+Index templates are reusable application resources, not an external tool's private implementation. A template defines extraction instructions and its version. The database-derived intake response projection defines the fields and validation contract. The user can select a built-in deterministic template or an AI prompt template; both must produce the same BookIndexIntakeDraft contract. Provider/model selection belongs to the shared AI execution layer and must not change the index schema or approval rules.
 
 The reusable prompt should focus on extracting unit name, lesson name, unit-to-part relationship, printed page start/end, subject name/key, grade name/key and evidence. Offset mapping is applied by the app's deterministic page-mapping function, not delegated to the model.
 
@@ -277,7 +277,7 @@ Refactor the existing service boundary, not duplicate it:
 - Keep the current lesson-generation API as a thin adapter that builds its prompt and attachment list, then calls the shared execution method. Do not regress its existing behavior.
 - Add an index-discovery adapter that loads the short discovery prompt and the real JSON Schema, prepares a bounded PDF sample from the original uploaded book, and calls the same execution method. It must not create a parallel HTTP client or provider retry loop.
 - Preserve the app's current provider policy: explicit provider/profile/model selection, no silent cross-provider fallback, no automatic key rotation to bypass quotas, and the existing rate-limit cooldown. Reuse the proven request/response shape, not a different project's key/model fallback policy.
-- Parse and validate the raw response, map it to the intake draft, run the deterministic domain checks, and leave all inferred values unapproved until the user confirms them.
+- The index-intake feature parses and validates the raw response, maps it to the intake draft, runs deterministic domain checks, and leaves all inferred values unapproved until the user confirms them. AiGenerationService only returns raw response and execution metadata.
 - Save prompt/schema versions and hashes, source PDF hash, selected model/provider, raw response and validation report for reproducibility.
 
 The AI model extracts printed page numbers from the TOC. The application applies the default offset +1, allows the user to change it for special PDFs, checks the resulting ranges against the physical PDF page count, and requires approval. The model must not be asked to invent physical PDF positions from printed numbers.
@@ -288,7 +288,7 @@ Keep the discovery prompt short and task-focused. It should tell the model:
 1. inspect the attached book pages and identify grade, subject, book title and source-part evidence;
 2. extract unit and lesson titles in source order;
 3. copy the printed page numbers exactly as shown in the original table of contents;
-4. distinguish printed book pages from physical PDF pages and state offset only when verified;
+4. copy printed page values exactly; do not calculate offset or invent physical PDF positions—the app applies offset +1 by default and lets the user change it;
 5. return unknown/null and a concise evidence/review reason instead of guessing;
 6. return JSON only according to the supplied response schema.
 
