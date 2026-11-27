@@ -3143,6 +3143,14 @@ class EduMiniCoreTest {
             listOf("gemini-selected", "gemini-primary", "gemini-fallback"),
             com.example.data.ai.ProviderRoutingPolicy.modelCandidates(geminiProfiles.single(), "gemini-selected")
         )
+        val credentialOnlyProfile = geminiProfiles.single().copy(
+            model = "",
+            fallbackModels = listOf("gemini-primary", "gemini-fallback")
+        )
+        assertEquals(
+            listOf("gemini-selected", "gemini-primary", "gemini-fallback"),
+            com.example.data.ai.ProviderRoutingPolicy.modelCandidates(credentialOnlyProfile, "gemini-selected")
+        )
         assertEquals(
             listOf("gemini-key"),
             com.example.data.ai.ProviderRoutingPolicy.orderedProfiles(
