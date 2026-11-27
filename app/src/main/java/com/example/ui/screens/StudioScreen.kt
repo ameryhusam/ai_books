@@ -1326,7 +1326,7 @@ private fun StudioWorkbench(
                                     ) {
                                         Icon(Icons.Outlined.Quiz, contentDescription = null, tint = EduGreenDark, modifier = Modifier.size(16.dp))
                                         Spacer(modifier = Modifier.width(4.dp))
-                                        Text("اعتماد المسودة لبنك الأسئلة", color = EduGreenDark, style = MaterialTheme.typography.labelMedium)
+                                        Text("اعتماد آخر مسودة محفوظة", color = EduGreenDark, style = MaterialTheme.typography.labelMedium)
                                     }
                                     }
                                 }
