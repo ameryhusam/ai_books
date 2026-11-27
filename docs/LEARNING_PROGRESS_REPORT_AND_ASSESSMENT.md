@@ -5,7 +5,7 @@ Branch: `main`
 
 ## Product intent
 
-The product should measure durable learning, not merely lesson completion or a single test score. The learner-facing experience is intentionally encouraging and concise. The adult-facing view (current `ADMIN` role) contains diagnostic evidence needed to decide what to teach, review, or assign next.
+The product should measure durable learning, not merely lesson completion or a single test score. The administrator device is used by the parent/teacher to prepare content, distribute grade packages, and review each child's progress. Each child uses the app on their own iPad, imports the package for their grade, studies lessons offline, and records attempts locally. Learner-facing screens remain concise; adult-facing reports provide diagnostic evidence for teaching decisions.
 
 ## Indicators currently implemented
 
@@ -83,7 +83,7 @@ The current `ADMIN` dashboard sees:
 - observed change after reinforcement practice;
 - an exportable Markdown report.
 
-There is currently one adult role (`ADMIN`); separate parent-only and administrator permissions have not yet been implemented.
+There is currently one adult role (`ADMIN`); separate parent-only and administrator permissions have not yet been implemented. The intended deployment has one or more identified learner profiles/devices linked to a responsible adult. A local role switch alone is not an authorization boundary. Before multi-device cloud reporting, enforce authenticated parent/learner identity and server-side authorization.
 
 ## Lesson progression and rewards
 
@@ -101,6 +101,16 @@ The current gate is based on the canonical order of lessons in the Workspace ind
 
 AI-generated adaptive questions remain `reviewed = false`. They are not included in learner reinforcement selection, bank practice, flashcards, or newly created assessments until an adult reviews and approves them. Existing timed assessments are blocked if one of their questions is no longer approved.
 
+## Device distribution and performance synchronization
+
+The content and performance flows are deliberately separate:
+- **Administrator → student devices:** distribute a grade-scoped ZIP containing published lesson PDFs and required assets plus stable binding metadata. It is not a full Room database export.
+- **Student device → administrator/reporting service:** send learner progress, question attempts, assessment scores, and completion events under the authenticated learner identity. These events are collected locally first and must remain usable offline.
+- **Room on each device:** stores the local curriculum projection and learner records needed for offline operation. The canonical authoring index remains on the administrator device; imported package metadata binds student-side Room records to the published content version.
+- **Future/online service:** may synchronize learner records and package/version metadata. It must not be required to open downloaded lesson PDFs or continue learning.
+
+A package update must not overwrite learner attempts or reset progress for unchanged lesson IDs. Content version and learner performance synchronization require separate conflict policies.
+
 ## Important limitations / next design work
 
 1. **Assigned support plans are not yet a complete workflow.** The current app generates explanation drafts and adaptive questions, and records reinforcement practice, but does not yet create a unified assignment containing explanation + questions, record that the learner read the explanation, and close the assignment after a follow-up test.
@@ -108,7 +118,7 @@ AI-generated adaptive questions remain `reviewed = false`. They are not included
 3. **Question equivalence:** delayed recall should ultimately use equivalent but not identical questions, with concept and difficulty metadata. Reusing the exact same question can introduce answer-memory effects.
 4. **Misconception taxonomy:** exact repeated distractors are observable, but semantic misconception categories require teacher-authored tags or a reviewed classification step.
 5. **Weekly assessment schedule:** the current report groups existing attempts; a scheduled weekly assessment and reminders remain future work.
-6. **Parent-specific role and authorization:** the app currently has LEARNER and ADMIN roles; ADMIN combines parent/teacher/admin detail access and authoring. Role selection is currently a local UI choice, not a server-enforced permission boundary. Hiding diagnostics from the learner is a presentation rule, not a security guarantee. Before storing sensitive child-performance records in a shared or networked environment, add a parent-only read permission and enforce adult access with authenticated account roles (for example, Firebase custom claims) or a carefully designed local parent lock.
+6. **Parent/child identity and authorization:** the app currently has LEARNER and ADMIN roles, and local learner IDs are used for progress separation. The target flow requires each iPad session to be associated with the correct child identity and parent account. A local role choice is not sufficient security. Any online performance sync must authenticate the learner/device, authorize the parent to read only linked children, and prevent cross-child data leakage.
 7. **PDF report:** the current export is Markdown. A polished RTL PDF/HTML report can be added after the content and metrics stabilize.
 8. **Calibration:** thresholds (3 questions, 2 days, 80%, 7 days) are initial operational rules and should be configurable and validated against real student usage.
 
