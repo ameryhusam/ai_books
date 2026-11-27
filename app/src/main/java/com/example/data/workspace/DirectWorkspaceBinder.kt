@@ -84,7 +84,7 @@ class DirectWorkspaceBinder(private val context: Context) {
         onProgress("حفظ صلاحية الوصول إلى المجلد", 5)
         takePersistableReadPermission(treeUri)
         onProgress("قراءة ملفات مساحة العمل", 20)
-        val entries = indexSafTree(treeUri)
+        val entries = indexSafTree(treeUri, onProgress)
         onProgress("تحليل فهارس الصفوف والمواد", 60)
         val rootDocId = DocumentsContract.getTreeDocumentId(treeUri)
         val rootDocUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, rootDocId)
@@ -107,7 +107,7 @@ class DirectWorkspaceBinder(private val context: Context) {
     ): DirectWorkspaceInspection = withContext(Dispatchers.IO) {
         require(directory.isDirectory) { "المجلد المحدد غير موجود: ${directory.absolutePath}" }
         onProgress("قراءة ملفات مساحة العمل", 20)
-        val entries = indexLocalDirectory(directory)
+        val entries = indexLocalDirectory(directory, onProgress)
         onProgress("تحليل فهارس الصفوف والمواد", 60)
         val inspection = inspectIndexedEntries(
             rootUriOrPath = directory.absolutePath,
@@ -130,7 +130,7 @@ class DirectWorkspaceBinder(private val context: Context) {
         val folderName: String
         if (isSaf) {
             val treeUri = Uri.parse(rootUriOrPath)
-            entries = indexSafTree(treeUri)
+            entries = indexSafTree(treeUri, onProgress)
             val rootDocId = DocumentsContract.getTreeDocumentId(treeUri)
             val rootDocUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, rootDocId)
             folderName = UriIO.displayName(context, rootDocUri.toString())
@@ -138,7 +138,7 @@ class DirectWorkspaceBinder(private val context: Context) {
         } else {
             val dir = File(rootUriOrPath)
             require(dir.isDirectory) { "تعذر فتح مجلد مساحة العمل: $rootUriOrPath" }
-            entries = indexLocalDirectory(dir)
+            entries = indexLocalDirectory(dir, onProgress)
             folderName = dir.name
         }
 
@@ -1134,10 +1134,13 @@ class DirectWorkspaceBinder(private val context: Context) {
         }
     }
 
-    private fun indexSafTree(treeUri: Uri): List<IndexedEntry> {
+    private fun indexSafTree(
+        treeUri: Uri,
+        onProgress: (String, Int) -> Unit = { _, _ -> }
+    ): List<IndexedEntry> {
         val results = mutableListOf<IndexedEntry>()
         val rootDocId = DocumentsContract.getTreeDocumentId(treeUri)
-        walkSafChildren(treeUri, rootDocId, "", results)
+        walkSafChildren(treeUri, rootDocId, "", results, onProgress)
         return results
     }
 
@@ -1145,7 +1148,8 @@ class DirectWorkspaceBinder(private val context: Context) {
         treeUri: Uri,
         parentDocId: String,
         parentRel: String,
-        out: MutableList<IndexedEntry>
+        out: MutableList<IndexedEntry>,
+        onProgress: (String, Int) -> Unit
     ) {
         if (out.size >= MAX_INDEXED_FILES) return
         val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentDocId)
@@ -1169,27 +1173,33 @@ class DirectWorkspaceBinder(private val context: Context) {
                     val size = if (sizeIdx >= 0 && !cursor.isNull(sizeIdx)) cursor.getLong(sizeIdx) else 0L
                     val rel = if (parentRel.isBlank()) name else "$parentRel/$name"
                     if (mime == DocumentsContract.Document.MIME_TYPE_DIR) {
-                        walkSafChildren(treeUri, docId, rel, out)
+                        walkSafChildren(treeUri, docId, rel, out, onProgress)
                     } else {
                         val docUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
                         out.add(IndexedEntry(rel, docUri.toString(), size))
+                        onProgress("قراءة ملفات المجلد (${out.size})", (20 + out.size * 30 / MAX_INDEXED_FILES).coerceAtMost(50))
                     }
                 }
             }
         }
     }
 
-    private fun indexLocalDirectory(root: File): List<IndexedEntry> {
+    private fun indexLocalDirectory(
+        root: File,
+        onProgress: (String, Int) -> Unit = { _, _ -> }
+    ): List<IndexedEntry> {
         val basePath = root.toPath()
-        return root.walkTopDown()
+        val results = mutableListOf<IndexedEntry>()
+        root.walkTopDown()
             .onEnter { dir -> !dir.name.startsWith(".") }
             .filter { it.isFile }
             .take(MAX_INDEXED_FILES)
-            .map { file ->
+            .forEach { file ->
                 val rel = basePath.relativize(file.toPath()).toString().replace('\\', '/')
-                IndexedEntry(rel, file.absolutePath, file.length())
+                results.add(IndexedEntry(rel, file.absolutePath, file.length()))
+                onProgress("قراءة ملفات المجلد (${results.size})", (20 + results.size * 30 / MAX_INDEXED_FILES).coerceAtMost(50))
             }
-            .toList()
+        return results
     }
 
     private fun joinRel(prefix: String, tail: String): String {
