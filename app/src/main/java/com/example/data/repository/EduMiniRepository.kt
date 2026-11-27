@@ -1285,7 +1285,8 @@ class EduMiniRepository(
             legacyRootPath = lesson.rootPath,
             bookKey = lesson.bookKey,
             unitKey = lesson.unitKey,
-            lessonKey = lesson.lessonKey
+            lessonKey = lesson.lessonKey,
+            task = task.id
         )
         val nextVersion = maxVer + 1
         val id = "draft-${System.currentTimeMillis()}-${UUID.randomUUID().toString().take(6)}"
