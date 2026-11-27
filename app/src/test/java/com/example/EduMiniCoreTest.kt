@@ -828,7 +828,7 @@ class EduMiniCoreTest {
         val manifestFile = File(workspace.rootPath, "workspace/G05/SCI/book_manifest.json")
         assertTrue(indexFile.exists())
         assertTrue(manifestFile.exists())
-        assertTrue(indexFile.readText().contains("edu.book_index.v2"))
+        assertTrue(indexFile.readText().contains("edu.book_index.draft.v1"))
         assertTrue(indexFile.readText().contains("assignmentStatus"))
         assertTrue(indexFile.readText().contains("need_review"))
         assertTrue(indexFile.readText().contains("lesson_01"))
