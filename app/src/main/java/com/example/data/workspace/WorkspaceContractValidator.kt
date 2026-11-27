@@ -375,7 +375,7 @@ object WorkspaceContractValidator {
         val provisionalAssignment = unit.boolean("provisionalAssignment") ||
             unit.string("assignmentStatus").equals("need_review", ignoreCase = true) ||
             unit.string("proposedPartKey").isNotBlank()
-        if (provisionalAssignment) return direct
+        if (provisionalAssignment) return ""
 
         val lessons = unit["lessons"] as? JsonArray
         if (lessons != null) {
