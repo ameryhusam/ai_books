@@ -389,7 +389,7 @@ A provider profile stores:
 - `strictModel`.
 
 Provider profiles retain an ordered primary model and fallbackModels list. SettingsScreen exposes the fallback model chips in the profile editor; their stored order is the execution order, and enabling strictModel disables model fallback. The active execution path now uses the UI-selected model first, followed by configured same-provider Gemini fallbacks. The selected API profile is attempted first, then other enabled profiles belonging to the same provider are eligible according to the provider-specific failover rules. OpenAI-compatible model selection remains fixed; its fallback path rotates API profiles/keys, not providers.
-The built-in Gemini catalogue currently seeds `gemini-3.5-flash` and `gemini-3.8-flash`; it does not currently seed a 3.6 model. Do not invent a model ID: add a 3.6 candidate only after confirming its exact provider model ID and enabling it in the model catalogue.
+The built-in Gemini catalogue seeds `gemini-3.5-flash` (default), `gemini-3.6-flash`, and `gemini-3.8-flash`. These are Google Gemini model IDs, not application-invented aliases. Keep the provider label as `Gemini`; display names such as `Gemini 3.5 Flash` are presentation labels while API dispatch uses the exact `modelId`. The central Firestore catalogue remains authoritative: only an authorized system administrator may bootstrap the three seed entries when the central collection is empty. New Gemini API profiles preselect the central default model and include the other enabled Gemini models as ordered fallback candidates; an existing profile's explicit model/fallback choices must not be overwritten.
 
 Current policy: keep provider selection explicit and isolated, but permit configured same-provider fallback. For Gemini, make up to three actual dispatch attempts per model on transient overload/rate-limit/network/server failures, then move to the next configured Gemini model. A confirmed daily/project quota exhaustion or invalid key skips the current API profile immediately and tries another enabled Gemini profile. OpenAI-compatible requests keep the selected model, retry transient failures up to three dispatches, then move to another enabled OpenAI-compatible profile/key; invalid key and confirmed quota exhaustion move to the next key immediately.
 
@@ -826,3 +826,13 @@ The source changes are in place, but behavior is not considered verified until t
 - A provider-success response with malformed JSON or a question-domain error is returned with raw text and validationIssues, saved as a reviewable draft, and not inserted into Room.
 - A valid question response reaches the question-bank feature, maps to Room entities, inserts transactionally and appears in the question-bank UI.
 - OpenAI string and content-array responses both extract correctly; Gemini finish/block diagnostics remain distinguishable from content-contract errors.
+
+### 8.2.1 Gemini model catalogue correction — 2026-11-27
+
+- Provider identity is `Gemini`; model identity is a separate exact Google model ID.
+- Default model: `gemini-3.5-flash` (display: `Gemini 3.5 Flash`).
+- Configured fallback candidates: `gemini-3.6-flash` and `gemini-3.8-flash` (display names retain the Gemini family/version).
+- A new Gemini API profile preselects the central default and orders the other enabled Gemini models as fallbacks. Existing profiles retain their saved explicit selection.
+- The central Firestore collection is still authoritative. An empty collection is bootstrapped from built-in seeds only for a user whose `system_admins/{uid}` record grants `manage_ai_models`; a normal teacher/admin role is not sufficient. Non-authorized users must not silently substitute a local catalogue for the central one.
+- Local SharedPreferences catalog migration restores missing built-in metadata for legacy installs without overwriting custom entries or API credentials.
+- Google model documentation confirms the exact IDs `gemini-3.5-flash`, `gemini-3.6-flash`, and `gemini-3.8-flash`. See the official [Gemini model list](https://ai.google.dev/gemini-api/docs/models) and [pricing/model IDs](https://ai.google.dev/gemini-api/docs/pricing).
