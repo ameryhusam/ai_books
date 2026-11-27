@@ -1020,6 +1020,7 @@ class MainViewModel(
                 selectedBookKey = lesson.bookKey,
                 packageSourcePages = lesson.pageRange.orEmpty(),
                 generatedResult = "",
+                activeDraftId = "",
                 activeDraftProvider = "تحرير يدوي",
                 activeDraftModel = "local",
                 activeDraftTemplateId = "",
@@ -2113,6 +2114,7 @@ class MainViewModel(
                 selectedLesson = lesson ?: it.selectedLesson,
                 selectedBookKey = lesson?.bookKey ?: it.selectedBookKey,
                 task = draft.task,
+                activeDraftId = draft.id,
                 generatedResult = draft.content,
                 activeDraftProvider = draft.provider,
                 activeDraftModel = draft.model,
@@ -2286,7 +2288,7 @@ class MainViewModel(
                     sourcePdfHash = snapshot.activeDraftSourcePdfHash
                 )
             )
-            _uiState.update { it.copy(activeDraftContentHash = savedDraft.contentHash) }
+            _uiState.update { it.copy(activeDraftId = savedDraft.id, activeDraftContentHash = savedDraft.contentHash) }
             val cloudSyncResult = if (isCloudAuthenticated) {
                 firestoreSync.upsertDraft(currentUserId, savedDraft)
             } else {
@@ -2803,86 +2805,32 @@ class MainViewModel(
         val snapshot = _uiState.value
         if (snapshot.task != TaskType.QUESTIONS) {
             _uiState.update {
-                it.copy(alert = AlertMessage("إجراء غير متاح", "استخراج بنك الأسئلة متاح لمهمة بنك الأسئلة فقط."))
+                it.copy(alert = AlertMessage("إجراء غير متاح", "اعتماد بنك الأسئلة متاح لمهمة بنك الأسئلة فقط."))
             }
             return
         }
-        val lesson = snapshot.selectedLesson
-        if (lesson == null) {
+        val draftId = snapshot.activeDraftId
+        if (draftId.isBlank()) {
             _uiState.update {
-                it.copy(alert = AlertMessage("حدد الدرس", "اختر درساً من المكتبة أولاً."))
+                it.copy(alert = AlertMessage("لا توجد مسودة محفوظة", "احفظ الناتج كمسودة أولاً ثم اعتمده لإضافته إلى بنك الأسئلة."))
             }
             return
         }
-        val text = snapshot.generatedResult.trim()
-        if (text.isEmpty()) {
-            _uiState.update {
-                it.copy(alert = AlertMessage("لا يوجد نص", "ولّد الأسئلة أو أدخلها في المحرر قبل الاستخراج لبنك الأسئلة."))
-            }
-            return
-        }
-        val canonicalWs = snapshot.workspace?.workspaceId.orEmpty().ifBlank { lesson.workspaceId }.ifBlank { lesson.rootPath }
-        val expectedQuestionCount = snapshot.generatedQuestionExpectedCount ?: snapshot.questionCount
-        val expectedQuestionTypeIds = snapshot.generatedQuestionExpectedTypeIds.ifEmpty { snapshot.selectedQuestionTypeIds }
-        val expectedQuestionDifficultyId = snapshot.generatedQuestionExpectedDifficultyId.ifBlank { snapshot.questionDifficulty.id }
-        val parsedResult = runCatching {
-            QuestionBankEngine.parseGeneratedQuestions(
-                rawText = text,
-                workspaceId = canonicalWs,
-                lesson = lesson,
-                expectedCount = expectedQuestionCount,
-                selectedTypeIds = expectedQuestionTypeIds,
-                expectedDifficultyId = expectedQuestionDifficultyId
-            )
-        }
-        if (parsedResult.isFailure) {
-            _uiState.update {
-                it.copy(alert = AlertMessage(
-                    "لم تُحفظ الأسئلة",
-                    parsedResult.exceptionOrNull()?.message ?: "استجابة الأسئلة لا تطابق عقد بنك الأسئلة."
-                ))
-            }
-            return
-        }
-        val parsed = parsedResult.getOrThrow()
         viewModelScope.launch {
-            val savedResult = runCatching {
-                repository.saveQuestionsFromDraftText(
-                    workspaceId = canonicalWs,
-                    lesson = lesson,
-                    rawText = text,
-                    expectedQuestionCount = expectedQuestionCount,
-                    expectedQuestionTypeIds = expectedQuestionTypeIds,
-                    expectedQuestionDifficultyId = expectedQuestionDifficultyId
-                )
-            }
-            val saved = savedResult.getOrElse { error ->
-                _uiState.update {
-                    it.copy(alert = AlertMessage("لم تُحفظ الأسئلة", error.message ?: "تعذر إدراج دفعة الأسئلة."))
-                }
-                return@launch
-            }
-            if (saved.isEmpty()) {
-                _uiState.update {
-                    it.copy(
-                        alert = AlertMessage(
-                            "الأسئلة محفوظة مسبقاً",
-                            "جميع الأسئلة المستخرجة (${parsed.size}) مرتبطة بالفعل ببنك أسئلة واختبار درس «${lesson.title}»."
+            runCatching { repository.approveDraft(draftId) }
+                .onSuccess { count ->
+                    _uiState.update {
+                        it.copy(
+                            toastMessage = "تم اعتماد مسودة الأسئلة وإضافة $count سؤالاً إلى بنك الأسئلة.",
+                            alert = null
                         )
-                    )
+                    }
                 }
-            } else {
-                val dups = QuestionBankEngine.markDuplicates(saved).count { it.isDuplicate }
-                val dupNote = if (dups > 0) " (بينها $dups تشابه داخلي)" else ""
-                _uiState.update {
-                    it.copy(
-                        alert = AlertMessage(
-                            "تم الحفظ في بنك الأسئلة",
-                            "تمت إضافة ${saved.size} سؤال جديد لدرس «${lesson.title}» وربطها باختبار الطالب$dupNote."
-                        )
-                    )
+                .onFailure { error ->
+                    _uiState.update {
+                        it.copy(alert = AlertMessage("تعذر اعتماد الأسئلة", error.message ?: "تحقق من بنية المسودة ثم أعد المحاولة."))
+                    }
                 }
-            }
         }
     }
 
@@ -3573,7 +3521,7 @@ class MainViewModel(
                     }
                     return@launch
                 }
-                _uiState.update { it.copy(generationProgressPercent = 98, generationStage = "حفظ المسودة وبصمة المحتوى") }
+                _uiState.update { it.copy(activeDraftId = persistedDraft.id, generationProgressPercent = 98, generationStage = "حفظ المسودة وبصمة المحتوى") }
                 val cloudSyncError = if (isCloudAuthenticated) {
                     runCatching { firestoreSync.upsertDraft(currentUserId, persistedDraft) }
                         .onFailure { if (it is CancellationException) throw it }
