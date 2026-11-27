@@ -684,6 +684,7 @@ interface EduMiniDao {
           AND book_key = :bookKey
           AND unit_key = :unitKey
           AND lesson_key = :lessonKey
+          AND task = :task
         """
     )
     suspend fun getMaxDraftVersion(
@@ -691,7 +692,8 @@ interface EduMiniDao {
         legacyRootPath: String,
         bookKey: String,
         unitKey: String,
-        lessonKey: String
+        lessonKey: String,
+        task: String
     ): Int
 
     @Query("UPDATE generation_drafts SET status = :status WHERE id = :draftId")
