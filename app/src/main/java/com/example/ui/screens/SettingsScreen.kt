@@ -311,11 +311,6 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.titleSmall,
                         color = EduInk
                     )
-                    Text(
-                        text = "يتم تنفيذ الطلبات الجديدة عبر المزود المحدد فقط. فشل Gemini لا يستدعي OpenAI تلقائياً، والعكس صحيح.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = EduMuted
-                    )
                     FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(7.dp),
                         verticalArrangement = Arrangement.spacedBy(7.dp)
@@ -335,11 +330,6 @@ fun SettingsScreen(
             item(key = "ai_model_catalog") {
                 EduPanel(modifier = Modifier.fillMaxWidth()) {
                     Text("كتالوج نماذج الذكاء الاصطناعي", style = MaterialTheme.typography.titleSmall, color = EduInk)
-                    Text(
-                        "هذه قائمة النماذج المركزية التي يديرها مدير النظام. اختيار النموذج هنا لا يغيّر ملف اتصال API.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = EduMuted
-                    )
                     if (modelCatalog.isEmpty()) {
                         Text("لا توجد نماذج منشورة حالياً. يضيف مدير النظام النماذج إلى القائمة المركزية.", color = EduMuted, style = MaterialTheme.typography.bodySmall)
                     }
@@ -498,68 +488,6 @@ fun SettingsScreen(
                         testTag = "provider_label_input"
                     )
 
-                    Text(
-                        text = stringResource(R.string.settings_model_label),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = EduInk,
-                        modifier = Modifier.padding(top = 6.dp)
-                    )
-                    Text(
-                        text = form.model.ifBlank { "لم يتم تحديد نموذج" },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = EduMuted,
-                        modifier = Modifier.padding(vertical = 4.dp)
-                    )
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        modelCatalog.filter { it.provider == form.provider && it.isEnabled && it.supportsGenerateContent && it.lifecycleStatus != AiModelDefinition.STATUS_DEPRECATED }.forEach { model ->
-                            EduPill(
-                                text = model.displayName,
-                                active = form.model == model.modelId,
-                                onClick = { onModelChange(model.modelId) }
-                            )
-                        }
-                    }
-
-                    Text(
-                        text = "النماذج الاحتياطية (تُجرّب بالترتيب بعد النموذج الأساسي)",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = EduInk,
-                        modifier = Modifier.padding(top = 6.dp)
-                    )
-                    Text(
-                        text = "اختر النماذج التي تريد استخدامها كبدائل. ترتيب الاختيار هو ترتيب التجربة؛ إذا لم تحدد بديلاً أو فعّلت الالتزام الصارم فلن ينتقل Gemini إلى نموذج آخر.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = EduMuted
-                    )
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        val selectedFallbacks = form.fallbackModels
-                            .split(",", "،", "\n")
-                            .map { it.trim() }
-                            .filter { it.isNotBlank() }
-                            .toSet()
-                        modelCatalog.filter { it.provider == form.provider && it.isEnabled && it.supportsGenerateContent && it.lifecycleStatus != AiModelDefinition.STATUS_DEPRECATED && it.modelId != form.model }
-                            .forEach { model ->
-                                EduPill(
-                                    text = model.displayName,
-                                    active = model.modelId in selectedFallbacks,
-                                    onClick = {
-                                        val updated = if (model.modelId in selectedFallbacks) {
-                                            selectedFallbacks - model.modelId
-                                        } else {
-                                            selectedFallbacks + model.modelId
-                                        }
-                                        onFallbackModelsChange(updated.joinToString(", "))
-                                    }
-                                )
-                            }
-                    }
-
                     if (form.provider == ProviderType.OPENAI_COMPATIBLE) {
                         Text(
                             text = stringResource(R.string.settings_base_url_label),
@@ -574,18 +502,6 @@ fun SettingsScreen(
                         )
                     }
 
-                    Text(
-                        text = "تُحدَّد الحصة الفعلية من استجابة مزود الخدمة. لا يفرض التطبيق سقفاً يومياً محلياً؛ ويُعرض عدد المحاولات لأغراض التشخيص فقط.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = EduMuted,
-                        modifier = Modifier.padding(top = 8.dp)
-                    )
-                    Text(
-                        text = "سياسة المحاولات: Gemini يحاول النموذج حتى 3 مرات عند الازدحام ثم ينتقل إلى النموذج الاحتياطي التالي. عند نفاد الحصة أو عدم صلاحية المفتاح ينتقل فوراً إلى ملف Gemini API آخر. OpenAI-compatible يعيد المحاولة حتى 3 مرات عند الازدحام ثم ينتقل إلى المفتاح التالي؛ وعند نفاد الحصة أو عدم صلاحية المفتاح ينتقل فوراً. لا يحدث انتقال تلقائي بين Gemini وOpenAI. قد تتشارك المفاتيح التابعة للمشروع نفسه الحصة.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = EduMuted,
-                        modifier = Modifier.padding(top = 4.dp)
-                    )
                     Text(
                         text = stringResource(R.string.settings_api_key_label),
                         style = MaterialTheme.typography.labelMedium,
@@ -630,27 +546,6 @@ fun SettingsScreen(
                             .fillMaxWidth()
                             .testTag("provider_apikey_input")
                     )
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .clickable(onClick = onToggleStrictModel)
-                            .padding(vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Checkbox(
-                            checked = form.strictModel,
-                            onCheckedChange = { onToggleStrictModel() },
-                            colors = CheckboxDefaults.colors(checkedColor = EduGreen),
-                            modifier = Modifier.testTag("provider_strict_model_checkbox")
-                        )
-                        Text(
-                            text = "التزام صارم بالنموذج المختار (تجاهل Fallback)",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = EduInk
-                        )
-                    }
 
                     Row(
                         modifier = Modifier
