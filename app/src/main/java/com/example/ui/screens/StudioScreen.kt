@@ -475,7 +475,7 @@ private fun StudioWorkbench(
 
     // Switch seamlessly to Output tab when a new result arrives from generation
     LaunchedEffect(generatedResult) {
-        if (generatedResult.isNotBlank() && generatedResult != lastResultSeen && workbenchTab == 0) {
+        if (generatedResult.isNotBlank() && generatedResult != lastResultSeen) {
             lastResultSeen = generatedResult
             workbenchTab = 1
         }
