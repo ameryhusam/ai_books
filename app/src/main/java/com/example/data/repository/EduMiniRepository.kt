@@ -234,12 +234,8 @@ class EduMiniRepository(
         }
 
         onProgress("اكتمل تحديث الصفوف والمواد", 100)
-        staged.forEach { incoming ->
-            val old = existingByGrade[incoming.gradeKey.trim().uppercase()]?.singleOrNull()
-            if (old != null && old.rootPath != incoming.rootPath) {
-                deleteManagedWorkspaceDirectory(old.rootPath)
-            }
-        }
+        // Keep replaced managed folders: other Room records may still reference their files.
+        // Cleanup requires a separate reference audit and explicit migration/retention policy.
         return replacements
     }
 
@@ -341,9 +337,8 @@ class EduMiniRepository(
                 }
             }
         }
-        if (existing != null && existing.rootPath != workspaceToSave.rootPath) {
-            deleteManagedWorkspaceDirectory(existing.rootPath)
-        }
+        // Do not delete the previous workspace directory here. Package and learning records
+        // may still reference files under its root; cleanup is deferred until references migrate.
         return workspaceToSave
     }
 
