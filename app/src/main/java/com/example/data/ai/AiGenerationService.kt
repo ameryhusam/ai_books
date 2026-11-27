@@ -374,6 +374,7 @@ class AiGenerationService(
                 )
                 var attempt = 0
                 var moveToNextModel = false
+                var eRetryAfterEpochMs = 0L
 
                 while (attempt < 3 && !moveToNextModel) {
                     val callStart = System.currentTimeMillis()
@@ -422,6 +423,7 @@ class AiGenerationService(
                         errors.add("${profile.label}/$modelName (المحاولة ${attempt + 1}/3): $reason")
                         onAttemptFinished?.invoke(profile.label, modelName, false, reason)
                         val failureStatus = classifyProviderFailure(e, reason, profile.provider)
+                        eRetryAfterEpochMs = e.retryAfterEpochMs
 
                         when (failureStatus) {
                             "QUOTA_EXHAUSTED" -> {
@@ -448,15 +450,17 @@ class AiGenerationService(
                                 moveToNextModel = true
                             }
                             "RATE_LIMITED" -> {
-                                onProviderStateChanged?.invoke(profile.id, failureStatus, e.retryAfterEpochMs)
                                 if (profile.provider == ProviderType.GEMINI) {
                                     profileHadRetryableFailure = true
                                     if (attempt == 2) {
+                                        // Cool down this model only; do not block sibling Gemini models on the same key.
                                         geminiModelRouter.markCoolingDown(profile.id, modelName, e.retryAfterEpochMs)
+                                        onProviderStateChanged?.invoke(profile.id, "MODEL_RATE_LIMITED", e.retryAfterEpochMs)
                                         moveToNextModel = true
                                     }
                                 } else if (attempt == 2) {
                                     // OpenAI-compatible profiles may represent separate projects/keys.
+                                    onProviderStateChanged?.invoke(profile.id, failureStatus, e.retryAfterEpochMs)
                                     skipProfile = true
                                     break@modelLoop
                                 }
@@ -503,8 +507,12 @@ class AiGenerationService(
                     }
 
                     if (attempt < 2 && !moveToNextModel && !skipProfile) {
-                        val retryAfter = (800L shl attempt).coerceAtMost(8_000L)
-                        delay(retryAfter + kotlin.random.Random.nextLong(0L, 251L))
+                        val exponentialDelay = (800L shl attempt).coerceAtMost(8_000L)
+                        val retryAfterDelay = if (eRetryAfterEpochMs > 0L) {
+                            (eRetryAfterEpochMs - System.currentTimeMillis()).coerceAtLeast(0L)
+                        } else 0L
+                        val retryDelay = maxOf(exponentialDelay, retryAfterDelay).coerceAtMost(30_000L)
+                        delay(retryDelay + kotlin.random.Random.nextLong(0L, 251L))
                     }
                     attempt++
                 }
