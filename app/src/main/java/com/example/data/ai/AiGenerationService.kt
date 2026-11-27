@@ -377,6 +377,7 @@ class AiGenerationService(
                 var eRetryAfterEpochMs = 0L
 
                 while (attempt < 3 && !moveToNextModel) {
+                    eRetryAfterEpochMs = 0L
                     val callStart = System.currentTimeMillis()
                     try {
                         val reserved = onReserveProvider?.invoke(candidateProfile) ?: true
@@ -877,7 +878,7 @@ class AiGenerationService(
                 .toEpochMilli()
         }.getOrNull()
 
-        return retryAt?.coerceAtLeast(now + 1_000L) ?: (now + 60_000L)
+        return retryAt?.coerceAtLeast(now + 1_000L) ?: 0L
     }
 
     private fun sha256(value: String): String = MessageDigest.getInstance("SHA-256")
