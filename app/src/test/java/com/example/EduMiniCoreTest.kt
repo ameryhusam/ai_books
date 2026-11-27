@@ -3917,6 +3917,82 @@ class EduMiniCoreTest {
     }
 
     @Test
+    fun questionResponseWithContractErrorsIsReturnedForReviewInsteadOfThrownAway() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val database = Room.inMemoryDatabaseBuilder(context, EduMiniDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        val server = ServerSocket(0)
+        val rawResponse = """{"questions":[]}"""
+        val serverThread = Thread {
+            server.accept().use { socket ->
+                readTestHttpRequest(socket)
+                writeTestHttpResponse(socket, 200, """{"choices":[{"message":{"content":"$rawResponse"}}]}""")
+            }
+        }
+        serverThread.start()
+        try {
+            val providerStorage = ProviderStorage(context)
+            val providers = listOf(
+                ProviderConfig(
+                    id = "openai-invalid-content",
+                    provider = ProviderType.OPENAI_COMPATIBLE,
+                    label = "OpenAI mock",
+                    model = "gpt-test",
+                    baseUrl = "http://127.0.0.1:${server.localPort}/v1",
+                    apiKey = "test-openai-key",
+                    enabled = true,
+                    createdAt = System.currentTimeMillis()
+                )
+            )
+            providerStorage.saveProviders(providers)
+            val repository = EduMiniRepository(
+                dao = database.eduMiniDao(),
+                providerStorage = providerStorage,
+                workspaceImporter = WorkspaceImporter(context),
+                aiGenerationService = AiGenerationService(context),
+                interactivePackageImporter = InteractivePackageImporter(context),
+                appContext = context
+            )
+            val lesson = sampleLesson().copy(pdfPath = null)
+            val template = PromptTemplateRecord(
+                id = "tpl-invalid-question-batch",
+                title = "Invalid question batch",
+                task = TaskType.QUESTIONS,
+                instructions = "أنشئ أسئلة وفق العقد",
+                responseFormat = "json",
+                sourceAttachmentMode = "none"
+            )
+            val generated = repository.generateContent(
+                workspaceId = lesson.workspaceId,
+                lesson = lesson,
+                task = TaskType.QUESTIONS,
+                source = "مصدر تعليمي كافٍ لإنشاء الأسئلة",
+                extra = "",
+                providers = providers,
+                selectedProvider = ProviderType.OPENAI_COMPATIBLE,
+                selectedModelId = "gpt-test",
+                selectedProfileId = "openai-invalid-content",
+                questionCount = 2,
+                attachPdfPages = false,
+                questionTypeIds = listOf("mcq"),
+                difficultyHint = "easy",
+                template = template
+            )
+
+            serverThread.join(3_000L)
+            assertEquals(rawResponse, generated.text)
+            assertTrue(generated.validationIssues.isNotEmpty())
+            assertTrue(generated.validationIssues.any { it.contains("عدد الأسئلة") || it.contains("questions") })
+            assertEquals("OpenAI mock", generated.providerLabel)
+        } finally {
+            runCatching { server.close() }
+            serverThread.join(2_000L)
+            database.close()
+        }
+    }
+
+    @Test
     fun directWorkspaceBinderIsolatesBooksAndGradesAndCountsGradeRootFiles() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val rootDir = File(context.cacheDir, "direct_ws_isolation_${System.currentTimeMillis()}").apply {
