@@ -96,7 +96,7 @@ The current `Unit` type includes:
 - `assignmentSource`: `INDEX_EVIDENCE`, `REVIEWER`, `DEFAULT_PROPOSAL`, or `LEGACY_UNVERIFIED`;
 - `assignmentEvidence`: provenance/evidence description.
 
-The extraction schema accepts these fields. The intake UI creates a P01 proposal for unresolved units in a merged source but keeps `partKey=unknown` and `assignmentStatus=need_review` until a reviewer confirms P01 or selects P02.
+The extraction schema accepts these fields. The target intake UI must create any P01 proposal only for unresolved units in a source already confirmed as merged, display it as unconfirmed, and keep `partKey=unknown` and `assignmentStatus=need_review` until the user confirms P01 or selects P02.
 
 ## 6. Lesson fields and file references
 
