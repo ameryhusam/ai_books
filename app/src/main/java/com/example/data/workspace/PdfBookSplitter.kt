@@ -79,6 +79,20 @@ class PdfBookSplitter(private val context: Context) {
         )
     }
 
+    /**
+     * Removes only the app-owned temporary staging copy after the source has been consumed.
+     * The selected external PDF is never deleted.
+     */
+    fun discardIngestedBookPdf(pdfInfo: PdfBookInfo) {
+        runCatching {
+            val root = booksStorageDir.canonicalFile
+            val candidate = File(pdfInfo.storedPdfPath).canonicalFile
+            if (candidate.path.startsWith(root.path + File.separator)) {
+                candidate.delete()
+            }
+        }
+    }
+
     fun generateAutoSplits(
         totalPages: Int,
         pagesPerLesson: Int
@@ -164,12 +178,10 @@ class PdfBookSplitter(private val context: Context) {
         } else {
             "Filename suggests $proposedPartKey, but the part assignment is provisional and requires review."
         }
-        val sourceCopy = File(bookDir, "source.pdf")
-        sourcePdf.copyTo(sourceCopy, overwrite = true)
         val warnings = mutableListOf<String>()
         warnings.add("حدود الصفحات المقترحة لا تمثل اكتشافاً مؤكداً لبداية الدروس؛ راجعها مقابل فهرس الكتاب قبل الاعتماد.")
         val lessons = mutableListOf<LessonRef>()
-        var filesCount = 3 // book_manifest.json + index.json + original source PDF
+        var filesCount = 2 // book_manifest.json + index.json; original PDF remains a temporary input
 
         val coverFile = File(bookDir, "cover.png")
         val coverSaved = renderCoverPng(sourcePdf, coverFile)
@@ -187,7 +199,6 @@ class PdfBookSplitter(private val context: Context) {
             put("gradeKey", cleanGrade)
             put("subjectKey", cleanSubject)
             put("sourceFile", pdfInfo.fileName)
-            put("sourcePdf", "source.pdf")
             put("sourceSha256", pdfInfo.sha256)
             put("totalPages", pdfInfo.totalPages)
             put("partKey", "UNKNOWN")
@@ -304,7 +315,7 @@ class PdfBookSplitter(private val context: Context) {
             relativePath = bookRel,
             lessonsCount = lessons.size,
             coverPath = coverFile.takeIf { coverSaved && it.exists() }?.absolutePath,
-            sourcePdfPath = sourceCopy.absolutePath
+            sourcePdfPath = null
         )
 
         ImportedWorkspace(
