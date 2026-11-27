@@ -1,9 +1,10 @@
 name: Edu Mini CI
+# Android build is intentionally opt-in to avoid consuming CI minutes on every commit.
+# Run once when opening/reopening a PR, or dispatch manually after additional changes.
 on:
-  push:
-    branches: [main, 'feat/**', 'refactor/**']
   pull_request:
     branches: [main]
+    types: [opened, reopened, ready_for_review]
   workflow_dispatch:
 
 jobs:
