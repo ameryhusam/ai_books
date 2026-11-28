@@ -1401,6 +1401,19 @@ class EduMiniRepository(
             dao.updateDraftStatus(draftId, DraftStatus.APPROVED.id)
             return maxOf(alreadyStored, imported.size)
         }
+        if (task == TaskType.INTERACTIVE_LESSON) {
+            val eligibleBookQuestionIds = dao.observeQuestionsForWorkspace(draft.workspaceId).first()
+                .filter {
+                    it.bookKey == draft.bookKey && it.unitKey == draft.unitKey && it.lessonKey == draft.lessonKey &&
+                        it.reviewed && it.sourceType == QuestionSourceType.BOOK_EXTRACTED.id
+                }
+                .map { it.id }
+                .toSet()
+            val lessonContent = InteractiveLessonParser.parseStrictJson(draft.content, eligibleBookQuestionIds)
+                ?: throw IllegalArgumentException("تعذر اعتماد الدرس التفاعلي: المخطط غير صالح أو يحتوي مراجع لأسئلة كتاب غير معتمدة.")
+            dao.updateDraftStatus(draftId, DraftStatus.APPROVED.id)
+            return lessonContent.bookQuestionIds.size
+        }
         if (task == TaskType.LESSON_TEXT) {
             val extracted = extractLessonTextFromOutput(draft.content)
             if (extracted.isNotBlank()) {
