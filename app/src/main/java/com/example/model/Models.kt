@@ -13,7 +13,7 @@ enum class TaskType(val id: String, val labelAr: String) {
     WORKED_EXAMPLES("worked_examples", "أمثلة محلولة"),
     LESSON_REVIEW("lesson_review", "مراجعة الدرس"),
     DIFFICULTY_ADAPTER("difficulty_adapter", "تكييف الصعوبة"),
-    INTERACTIVE("interactive", "درس تفاعلي"),
+    INTERACTIVE("interactive", "نشاط تفاعلي"),
     QUESTIONS("questions", "بنك الأسئلة"),
     LESSON_TEXT("lesson_text", "حفظ نص الدرس");
 
