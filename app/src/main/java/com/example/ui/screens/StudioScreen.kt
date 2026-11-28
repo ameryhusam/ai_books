@@ -1351,25 +1351,12 @@ private fun StudioWorkbench(
                                             Spacer(modifier = Modifier.width(6.dp))
                                             Text("تشغيل النشاط التفاعلي (JSON)", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
                                         }
-                                        OutlinedButton(
-                                            onClick = { onPublishInteractiveBundle(generatedResult) },
-                                            enabled = !isBusy,
-                                            shape = RoundedCornerShape(12.dp),
-                                            border = BorderStroke(1.dp, EduGreen),
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .minimumInteractiveComponentSize()
-                                                .testTag("publish_interactive_bundle_button")
-                                        ) {
-                                            Icon(Icons.Rounded.Publish, contentDescription = null, tint = EduGreenDark, modifier = Modifier.size(18.dp))
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            Text(
-                                                text = "تصدير ونشر كحزمة HTML + JS + JSON للطالب",
-                                                color = EduGreenDark,
-                                                style = MaterialTheme.typography.labelLarge,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                        }
+                                        Text(
+                                            text = "يتم إنشاء الحزمة ونشرها للطالب بعد اعتماد المسودة من قائمة المسودات.",
+                                            color = EduMuted,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            modifier = Modifier.padding(horizontal = 4.dp)
+                                        )
                                     }
                                 }
                             }
@@ -1429,16 +1416,6 @@ private fun StudioWorkbench(
                                                     imageVector = Icons.Rounded.PlayArrow,
                                                     contentDescription = "تشغيل النشاط التفاعلي",
                                                     tint = EduPurple
-                                                )
-                                            }
-                                            IconButton(
-                                                onClick = { onPublishInteractiveBundle(draft.content) },
-                                                modifier = Modifier.minimumInteractiveComponentSize()
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Rounded.Publish,
-                                                    contentDescription = "تصدير ونشر HTML + JS + JSON",
-                                                    tint = EduGreenDark
                                                 )
                                             }
                                         }
