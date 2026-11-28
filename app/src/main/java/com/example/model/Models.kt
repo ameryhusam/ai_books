@@ -394,7 +394,8 @@ data class DraftRecord(
     val sourcePdfHash: String = "",
     val promptUsed: String = "",
     val responseSchemaJson: String = "",
-    val sourceIndexSha256: String = ""
+    val sourceIndexSha256: String = "",
+    val sourceType: QuestionSourceType = QuestionSourceType.LEGACY_UNKNOWN
 )
 
 data class LessonTextRecord(
@@ -752,6 +753,20 @@ data class QuestionContentPayload(
     val rationale: String = "",
     val sourcePages: String = ""
 )
+
+enum class QuestionSourceType(val id: String) {
+    BOOK_EXTRACTED("BOOK_EXTRACTED"),
+    AI_GENERATED("AI_GENERATED"),
+    AI_REFORMULATED("AI_REFORMULATED"),
+    MANUAL("MANUAL"),
+    INTERACTIVE_CHECKPOINT("INTERACTIVE_CHECKPOINT"),
+    LEGACY_UNKNOWN("LEGACY_UNKNOWN");
+
+    companion object {
+        fun fromId(id: String): QuestionSourceType =
+            entries.firstOrNull { it.id.equals(id.trim(), ignoreCase = true) } ?: LEGACY_UNKNOWN
+    }
+}
 
 data class QuestionItem(
     val id: String,
