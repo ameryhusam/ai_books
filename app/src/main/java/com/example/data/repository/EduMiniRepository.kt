@@ -3063,7 +3063,8 @@ class EduMiniRepository(
         templateId = templateId,
         promptUsed = promptUsed,
         responseSchemaJson = responseSchemaJson,
-        sourceIndexSha256 = sourceIndexSha256
+        sourceIndexSha256 = sourceIndexSha256,
+        sourceType = sourceType.id
     )
 
     private fun QuestionAttemptEntity.toModel() = QuestionAttemptRecord(
