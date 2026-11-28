@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -38,6 +39,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
@@ -60,10 +62,12 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.data.repository.EduMiniRepository
 import com.example.data.repository.QuestionBankEngine
-import com.example.data.workspace.UriIO
+import com.example.data.repository.InteractiveLessonParser
 import com.example.model.DraftRecord
 import com.example.model.DraftStatus
 import com.example.model.InteractivePackageRecord
+import com.example.model.InteractiveLessonSection
+import com.example.model.QuestionSourceType
 import com.example.model.LessonQuizCompletionResult
 import com.example.model.LessonRef
 import com.example.model.QuestionItem
@@ -81,7 +85,6 @@ import com.example.ui.theme.EduPurple
 import com.example.ui.theme.EduRed
 import com.example.ui.theme.EduWhite
 import com.example.ui.theme.EduYellow
-import java.io.File
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -125,21 +128,20 @@ fun StudentStudyDialog(
         }.sortedByDescending { it.version }
     }
     val approvedDrafts = studyDrafts
-    val publishedPkg = remember(packages) {
-        packages.firstOrNull { it.publishedForStudents }
+    val approvedInteractiveLessonDraft = remember(drafts) {
+        drafts.filter { it.status == DraftStatus.APPROVED.id && it.task == TaskType.INTERACTIVE_LESSON }
+            .maxByOrNull { it.version }
     }
-    val fallbackDirectFilePkg = remember(lesson.interactivePath) {
-        val raw = lesson.interactivePath
-        if (!raw.isNullOrBlank() && !UriIO.isContentUri(raw)) {
-            val f = File(raw)
-            if (f.isFile && f.parentFile != null) f.parentFile!!.absolutePath to f.name else null
-        } else null
+    val interactiveLesson = remember(approvedInteractiveLessonDraft) {
+        approvedInteractiveLessonDraft?.let { InteractiveLessonParser.parseStrictJson(it.content) }
     }
-    // APPROVED drafts are editorial state, not publication state.
-    // Learners can access interactive content only through a published package
-    // or the supported legacy direct-file package.
-    val hasWebPackage = publishedPkg != null || fallbackDirectFilePkg != null
-    val hasInteractive = hasWebPackage
+    val linkedBookQuestions = remember(lessonQuestions, interactiveLesson) {
+        val linkedIds = interactiveLesson?.bookQuestionIds.orEmpty().toSet()
+        lessonQuestions.filter { it.id in linkedIds && it.sourceType == QuestionSourceType.BOOK_EXTRACTED && it.reviewed }
+    }
+    // Published activity packages are supplementary learning activities, not the lesson explanation.
+    val publishedActivitiesPkg = remember(packages) { packages.firstOrNull { it.publishedForStudents } }
+    val hasInteractive = interactiveLesson != null
     // Without a PDF, start directly in the published interactive lesson when available.
     var activeTab by remember(lesson.lessonKey, lesson.bookKey, lesson.unitKey, lesson.pdfPath, hasInteractive) {
         mutableIntStateOf(initialStudentStudyTab(hasPdf = !lesson.pdfPath.isNullOrBlank()))
@@ -397,7 +399,7 @@ fun StudentStudyDialog(
                                     ) {
                                         Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = EduGreenDark, modifier = Modifier.size(18.dp))
                                         Text(
-                                            text = "أتممت النشاط التفاعلي (+${interactiveCompletedXp ?: 0} XP)!",
+                                            text = "أتممت الأنشطة التعليمية (+${interactiveCompletedXp ?: 0} XP)!",
                                             style = MaterialTheme.typography.labelMedium,
                                             color = EduGreenDark,
                                             modifier = Modifier.weight(1f)
@@ -414,61 +416,80 @@ fun StudentStudyDialog(
                                 }
                             }
 
-                            when {
-                                publishedPkg != null -> SandboxedPackageWebView(
-                                    rootDir = publishedPkg.rootDir,
-                                    entryFile = publishedPkg.entryFile,
-                                    modifier = Modifier.weight(1f).fillMaxWidth(),
-                                    onWebQuestionAnswered = { prompt, conceptTag, selected, correct, isCorrect ->
-                                        onInteractiveQuestionAnswered(
-                                            prompt,
-                                            conceptTag.ifBlank { lesson.title },
-                                            selected,
-                                            correct,
-                                            isCorrect,
-                                            emptyList(),
-                                            "interactive_html"
-                                        )
-                                    },
-                                    onWebInteractiveCompleted = { _, earnedXp ->
-                                        interactiveCompletedXp = earnedXp
-                                        onInteractiveXpEarned(earnedXp)
-                                    }
-                                )
-                                fallbackDirectFilePkg != null -> SandboxedPackageWebView(
-                                    rootDir = fallbackDirectFilePkg.first,
-                                    entryFile = fallbackDirectFilePkg.second,
-                                    modifier = Modifier.weight(1f).fillMaxWidth(),
-                                    onWebQuestionAnswered = { prompt, conceptTag, selected, correct, isCorrect ->
-                                        onInteractiveQuestionAnswered(
-                                            prompt,
-                                            conceptTag.ifBlank { lesson.title },
-                                            selected,
-                                            correct,
-                                            isCorrect,
-                                            emptyList(),
-                                            "interactive_html"
-                                        )
-                                    },
-                                    onWebInteractiveCompleted = { _, earnedXp ->
-                                        interactiveCompletedXp = earnedXp
-                                        onInteractiveXpEarned(earnedXp)
-                                    }
-                                )
-                                else -> Column(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .fillMaxWidth()
-                                        .padding(16.dp),
-                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                            Column(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                                Column(
+                                    modifier = Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
-                                    EduPanel(modifier = Modifier.fillMaxWidth()) {
-                                        Text(
-                                            text = "لم يتم تجهيز الدرس التفاعلي الكامل أو نشره لهذا الدرس بعد. يرجى مراجعة المعلم.",
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = EduMuted
-                                        )
+                                    if (interactiveLesson != null) {
+                                        EduPanel(modifier = Modifier.fillMaxWidth()) {
+                                            Text(interactiveLesson.title, style = MaterialTheme.typography.titleLarge, color = EduInk, fontWeight = FontWeight.Bold)
+                                            if (interactiveLesson.objective.isNotBlank()) Text("هدف الدرس: ${interactiveLesson.objective}", style = MaterialTheme.typography.bodyMedium, color = EduGreenDark)
+                                            if (interactiveLesson.introduction.isNotBlank()) EduMarkdownReader(text = interactiveLesson.introduction, headerLabel = "تمهيد الدرس")
+                                        }
+                                        interactiveLesson.sections.forEachIndexed { index, section ->
+                                            EduPanel(modifier = Modifier.fillMaxWidth()) {
+                                                Text("${index + 1}. ${section.title}", style = MaterialTheme.typography.titleMedium, color = EduInk, fontWeight = FontWeight.Bold)
+                                                if (section.conceptTag.isNotBlank()) Text("المفهوم: ${section.conceptTag}", style = MaterialTheme.typography.labelMedium, color = EduPurple)
+                                                EduMarkdownReader(text = section.explanation, headerLabel = "شرح المفهوم")
+                                                if (section.visualDescription.isNotBlank()) EduMarkdownReader(text = section.visualDescription, headerLabel = if (section.visualType.isBlank()) "وسيلة توضيح" else "وسيلة توضيح • ${section.visualType}")
+                                                if (section.workedExample.isNotBlank()) EduMarkdownReader(text = section.workedExample, headerLabel = "مثال تطبيقي محلول")
+                                            }
+                                            if (section.checkpointQuestion.isNotBlank() && section.checkpointOptions.isNotEmpty()) {
+                                                InteractiveLessonCheckpointCard(
+                                                    section = section,
+                                                    onAnswered = { selected, correct, isCorrect ->
+                                                        onInteractiveQuestionAnswered(
+                                                            section.checkpointQuestion, section.conceptTag.ifBlank { lesson.title }, selected, correct, isCorrect,
+                                                            section.checkpointOptions, "interactive_lesson_checkpoint"
+                                                        )
+                                                    }
+                                                )
+                                            }
+                                        }
+                                        if (interactiveLesson.keyPoints.isNotEmpty()) {
+                                            EduPanel(modifier = Modifier.fillMaxWidth()) {
+                                                Text("أهم نقاط المذاكرة", style = MaterialTheme.typography.titleMedium, color = EduGreenDark, fontWeight = FontWeight.Bold)
+                                                interactiveLesson.keyPoints.forEach { Text("• $it", style = MaterialTheme.typography.bodyMedium, color = EduInk) }
+                                            }
+                                        }
+                                        if (interactiveLesson.summary.isNotBlank()) EduMarkdownReader(text = interactiveLesson.summary, headerLabel = "ملخص الدرس")
+                                        if (linkedBookQuestions.isNotEmpty()) {
+                                            EduPanel(modifier = Modifier.fillMaxWidth()) {
+                                                Text("أسئلة الكتاب المرتبطة بهذا الدرس", style = MaterialTheme.typography.titleMedium, color = EduInk, fontWeight = FontWeight.Bold)
+                                                Text("هذه الأسئلة معروضة من بنك الأسئلة مباشرة؛ نصوصها الأصلية لم تُنسخ إلى محتوى الدرس.", style = MaterialTheme.typography.bodySmall, color = EduMuted)
+                                                linkedBookQuestions.forEachIndexed { index, question ->
+                                                    Text("${index + 1}. ${question.prompt}", style = MaterialTheme.typography.bodyMedium, color = EduInk)
+                                                    question.options.forEach { option -> Text("• $option", style = MaterialTheme.typography.bodySmall, color = EduMuted) }
+                                                    if (!question.sourcePages.isNullOrBlank()) Text("صفحة الكتاب: ${question.sourcePages}", style = MaterialTheme.typography.labelSmall, color = EduGreenDark)
+                                                }
+                                                OutlinedButton(onClick = { activeTab = 3 }, modifier = Modifier.fillMaxWidth().minimumInteractiveComponentSize()) {
+                                                    Text("حل أسئلة الكتاب في اختبار الدرس")
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        EduPanel(modifier = Modifier.fillMaxWidth()) {
+                                            Text("لم يتم اعتماد درس تفاعلي كامل لهذا الدرس بعد. ملف المصدر النصي لا يظهر للطالب؛ يرجى مراجعة المعلم لتجهيز الدرس.", style = MaterialTheme.typography.bodyMedium, color = EduMuted)
+                                        }
                                     }
+                                }
+                                if (publishedActivitiesPkg != null) {
+                                    Surface(color = EduWhite, border = BorderStroke(1.dp, EduLine), modifier = Modifier.fillMaxWidth()) {
+                                        Text("أنشطة تعليمية", modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp), style = MaterialTheme.typography.titleMedium, color = EduGreenDark, fontWeight = FontWeight.Bold)
+                                    }
+                                    SandboxedPackageWebView(
+                                        rootDir = publishedActivitiesPkg.rootDir,
+                                        entryFile = publishedActivitiesPkg.entryFile,
+                                        modifier = Modifier.fillMaxWidth().height(460.dp),
+                                        onWebQuestionAnswered = { prompt, conceptTag, selected, correct, isCorrect ->
+                                            onInteractiveQuestionAnswered(prompt, conceptTag.ifBlank { lesson.title }, selected, correct, isCorrect, emptyList(), "educational_activity_html")
+                                        },
+                                        onWebInteractiveCompleted = { _, earnedXp ->
+                                            interactiveCompletedXp = earnedXp
+                                            onInteractiveXpEarned(earnedXp)
+                                        }
+                                    )
                                 }
                             }
                         }
@@ -834,3 +855,38 @@ private fun StudentLessonQuizTab(
 
 internal fun initialStudentStudyTab(hasPdf: Boolean): Int =
     if (hasPdf) 0 else 1
+
+@Composable
+private fun InteractiveLessonCheckpointCard(
+    section: InteractiveLessonSection,
+    onAnswered: (selected: String, correct: String, isCorrect: Boolean) -> Unit
+) {
+    var selected by remember(section.title, section.checkpointQuestion) { mutableStateOf("") }
+    var checked by remember(section.title, section.checkpointQuestion) { mutableStateOf(false) }
+    EduPanel(modifier = Modifier.fillMaxWidth()) {
+        Text("تحقق من فهمك", style = MaterialTheme.typography.titleSmall, color = EduPurple, fontWeight = FontWeight.Bold)
+        Text(section.checkpointQuestion, style = MaterialTheme.typography.bodyMedium, color = EduInk)
+        section.checkpointOptions.forEach { option ->
+            Row(modifier = Modifier.fillMaxWidth().clickable(enabled = !checked) { selected = option }, verticalAlignment = Alignment.CenterVertically) {
+                RadioButton(selected = selected == option, onClick = { if (!checked) selected = option }, enabled = !checked)
+                Text(option, style = MaterialTheme.typography.bodySmall, color = EduInk)
+            }
+        }
+        Button(
+            onClick = {
+                checked = true
+                onAnswered(selected, section.checkpointAnswer, selected == section.checkpointAnswer)
+            },
+            enabled = selected.isNotBlank() && !checked,
+            modifier = Modifier.fillMaxWidth().minimumInteractiveComponentSize()
+        ) { Text("تحقق من الإجابة") }
+        if (checked) {
+            Text(
+                if (selected == section.checkpointAnswer) "إجابة صحيحة، أحسنت!" else "الإجابة الصحيحة: ${section.checkpointAnswer}",
+                color = if (selected == section.checkpointAnswer) EduGreenDark else EduOrange,
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
