@@ -28,12 +28,16 @@ object InteractiveLessonParser {
         val objective = string(root, "objective")
         val introduction = string(root, "introduction")
         val sectionsArray = root["sections"] as? JsonArray ?: return null
-        val sections = sectionsArray.mapIndexedNotNull { index, element ->
-            val item = element as? JsonObject ?: return@mapIndexedNotNull null
+        val sections = sectionsArray.mapIndexed { index, element ->
+            val item = element as? JsonObject ?: return null
             val sectionTitle = string(item, "title")
             val explanation = string(item, "explanation")
-            if (sectionTitle.isBlank() || explanation.isBlank()) return@mapIndexedNotNull null
+            if (sectionTitle.isBlank() || explanation.isBlank()) return null
             val checkpoint = item["checkpoint"] as? JsonObject
+            val checkpointQuestion = checkpoint?.let { string(it, "question") }.orEmpty()
+            val checkpointOptions = checkpoint?.let { stringList(it["options"]) }.orEmpty()
+            val checkpointAnswer = checkpoint?.let { string(it, "answer") }.orEmpty()
+            if (checkpoint != null && (checkpointQuestion.isBlank() || checkpointOptions.size < 2 || checkpointAnswer !in checkpointOptions)) return null
             InteractiveLessonSection(
                 title = sectionTitle,
                 conceptTag = string(item, "conceptTag"),
@@ -41,11 +45,12 @@ object InteractiveLessonParser {
                 visualType = string(item, "visualType"),
                 visualDescription = string(item, "visualDescription"),
                 workedExample = string(item, "workedExample"),
-                checkpointQuestion = checkpoint?.let { string(it, "question") }.orEmpty(),
-                checkpointOptions = checkpoint?.let { stringList(it["options"]) }.orEmpty(),
-                checkpointAnswer = checkpoint?.let { string(it, "answer") }.orEmpty()
+                checkpointQuestion = checkpointQuestion,
+                checkpointOptions = checkpointOptions,
+                checkpointAnswer = checkpointAnswer
             )
         }
+        if (sections.size != sectionsArray.size) return null
         if (title.isBlank() || sections.isEmpty()) return null
         val keyPoints = stringList(root["keyPoints"])
         val questionIds = stringList(root["bookQuestionIds"]).distinct()
