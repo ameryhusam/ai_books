@@ -3629,7 +3629,7 @@ class MainViewModel(
                     success = true
                 )
                 _uiState.update { it.copy(providers = repository.loadProviders(), generationProgressPercent = 100, generationStage = "اكتمل التوليد والحفظ") }
-                val interactiveParsed = if (effectiveTask == TaskType.INTERACTIVE) {
+                val interactiveParsed = if (effectiveTask == TaskType.EDUCATIONAL_ACTIVITIES) {
                     InteractiveActivityParser.parseStrictJson(out.text, lesson.title)
                 } else {
                     null
@@ -3639,10 +3639,10 @@ class MainViewModel(
                         "تم حفظ مسودة الأسئلة فقط. لن تُدرج في بنك الأسئلة أو اختبار الطالب قبل اعتمادها صراحةً."
                     effectiveTask == TaskType.LESSON_TEXT ->
                         "تم حفظ نص الدرس كمسودة. راجع النص واعتمده لحفظه في مصدر الدرس."
-                    effectiveTask == TaskType.INTERACTIVE && interactiveParsed != null ->
-                        "تم حفظ النشاط التفاعلي (${interactiveParsed.steps.size} محطة) كمسودة قابلة للمعاينة في الاستوديو؛ لن يُنشر للطالب قبل الاعتماد."
-                    effectiveTask == TaskType.INTERACTIVE ->
-                        "تم حفظ استجابة النشاط كمسودة، لكن بنيتها لا تجتاز التحقق الصارم بعد."
+                    effectiveTask == TaskType.EDUCATIONAL_ACTIVITIES && interactiveParsed != null ->
+                        "تم حفظ ${interactiveParsed.steps.size} عناصر تعليمية كمسودة قابلة للمعاينة؛ لن تُنشر للطالب قبل الاعتماد."
+                    effectiveTask == TaskType.EDUCATIONAL_ACTIVITIES ->
+                        "تم حفظ الأنشطة كمسودة، لكن بنيتها لا تجتاز التحقق الصارم بعد."
                     else ->
                         "تم استلام الاستجابة عبر ${out.providerLabel} (${out.model}) وحفظها كمسودة."
                 }
@@ -3742,7 +3742,7 @@ class MainViewModel(
             StudioGenerationMode.BULK_FULL_CONTENT -> listOf(
                 TaskType.LESSON_TEXT, TaskType.CONCEPTS, TaskType.OBJECTIVES, TaskType.SOURCE_QUESTIONS,
                 TaskType.EXPLANATION, TaskType.SUMMARY, TaskType.VOCABULARY, TaskType.WORKED_EXAMPLES,
-                TaskType.LESSON_REVIEW, TaskType.DIFFICULTY_ADAPTER, TaskType.QUESTIONS, TaskType.INTERACTIVE_LESSON,
+                TaskType.LESSON_REVIEW, TaskType.DIFFICULTY_ADAPTER, TaskType.QUESTIONS, TaskType.EDUCATIONAL_ACTIVITIES_LESSON,
                 TaskType.EDUCATIONAL_ACTIVITIES, TaskType.ASSESSMENT, TaskType.REMEDIATION
             )
             StudioGenerationMode.SINGLE_LESSON -> emptyList()
