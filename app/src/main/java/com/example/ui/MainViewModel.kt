@@ -14,6 +14,7 @@ import com.example.data.firebase.FirestoreSyncRepository
 import com.example.data.repository.ConceptMasteryEngine
 import com.example.data.repository.EduMiniRepository
 import com.example.data.repository.InteractiveActivityParser
+import com.example.data.repository.InteractiveLessonParser
 import com.example.data.repository.LearningProgressAnalytics
 import com.example.data.repository.LessonSequenceGate
 import com.example.data.repository.QuestionBankEngine
@@ -62,6 +63,7 @@ import com.example.model.QuestionDifficulty
 import com.example.model.QuestionItem
 import com.example.model.QuestionMasteryStats
 import com.example.model.QuestionType
+import com.example.model.QuestionSourceType
 import com.example.model.StagedWorkspacePreview
 import com.example.model.StudentDashboardState
 import com.example.model.SyncUiState
@@ -3525,7 +3527,28 @@ class MainViewModel(
             }
             append("\n\nلا تستنتج نتائج تتجاوز هذه السجلات، واذكر نقص العينة عند الحاجة.")
         } else ""
-        val requestExtra = effectiveExtra + learnerEvidence
+        val approvedBookQuestions = if (effectiveTask == TaskType.INTERACTIVE_LESSON) {
+            workspaceQuestions.value.filter {
+                it.bookKey == lesson.bookKey && it.unitKey == lesson.unitKey && it.lessonKey == lesson.lessonKey &&
+                    it.reviewed && it.sourceType == QuestionSourceType.BOOK_EXTRACTED
+            }
+        } else emptyList()
+        val allowedBookQuestionIds = approvedBookQuestions.map { it.id }.toSet()
+        val interactiveLessonQuestionContext = if (effectiveTask == TaskType.INTERACTIVE_LESSON) buildString {
+            append("\n\nأسئلة الكتاب المعتمدة المتاحة للربط المباشر (استخدم المعرفات فقط ولا تنسخ نصوص الأسئلة):")
+            if (approvedBookQuestions.isEmpty()) {
+                append("\nلا توجد أسئلة كتاب معتمدة لهذا الدرس؛ يجب أن تكون bookQuestionIds مصفوفة فارغة.")
+            } else {
+                approvedBookQuestions.forEach { question ->
+                    append("\n- id=").append(question.id)
+                        .append(" | prompt=").append(question.prompt)
+                        .append(" | page=").append(question.sourcePages.orEmpty())
+                }
+                append("\nأعد في bookQuestionIds المعرفات التي تخدم الدرس فقط، دون إنشاء معرفات جديدة.")
+            }
+        } else ""
+        val requestExtra = listOf(effectiveExtra, learnerEvidence, interactiveLessonQuestionContext)
+            .filter { it.isNotBlank() }.joinToString("\n\n")
         generationJob?.cancel()
         generationJob = viewModelScope.launch {
             _uiState.update { it.copy(isBusy = true, activeDraftId = "", generatedResult = "", generatedDisplayResult = "", generationProgressPercent = 2, generationStage = "بدء تجهيز الطلب") }
@@ -3553,6 +3576,12 @@ class MainViewModel(
                         _uiState.update { it.copy(generationProgressPercent = percent, generationStage = stage) }
                     }
                 )
+                val interactiveLessonParsed = if (effectiveTask == TaskType.INTERACTIVE_LESSON) {
+                    InteractiveLessonParser.parseStrictJson(out.text, allowedBookQuestionIds)
+                        ?: throw IllegalArgumentException(
+                            "خرج الدرس التفاعلي لا يطابق مخطط الدرس أو يتضمن معرفات أسئلة غير معتمدة لهذا الدرس."
+                        )
+                } else null
                 val wsId = snapshot.workspace?.workspaceId.orEmpty()
                 // Surface the provider response immediately. Draft persistence and later
                 // task/database validation must not hide content that the provider returned.
@@ -3563,6 +3592,7 @@ class MainViewModel(
                         generatedDisplayResult = when (effectiveTask) {
                             TaskType.LESSON_TEXT -> repository.extractLessonTextFromOutput(out.text)
                             TaskType.QUESTIONS -> QuestionBankEngine.formatGeneratedQuestionsForPreview(out.text)
+                            TaskType.INTERACTIVE_LESSON -> InteractiveLessonParser.formatForPreview(out.text)
                             else -> out.text
                         },
                         generatedQuestionExpectedCount = if (effectiveTask == TaskType.QUESTIONS) snapshot.questionCount else null,
@@ -3635,6 +3665,8 @@ class MainViewModel(
                     null
                 }
                 val resultSummary = when {
+                    effectiveTask == TaskType.INTERACTIVE_LESSON && interactiveLessonParsed != null ->
+                        "تم إنشاء درس تفاعلي من ${interactiveLessonParsed.sections.size} أقسام، وربط ${interactiveLessonParsed.bookQuestionIds.size} سؤالاً معتمداً من بنك أسئلة الكتاب. المسودة تنتظر مراجعة المعلم."
                     effectiveTask == TaskType.QUESTIONS ->
                         "تم حفظ مسودة الأسئلة فقط. لن تُدرج في بنك الأسئلة أو اختبار الطالب قبل اعتمادها صراحةً."
                     effectiveTask == TaskType.LESSON_TEXT ->
