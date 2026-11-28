@@ -142,7 +142,7 @@ fun StudentStudyDialog(
     val hasInteractive = hasWebPackage
     // Without a PDF, start directly in the published interactive lesson when available.
     var activeTab by remember(lesson.lessonKey, lesson.bookKey, lesson.unitKey, lesson.pdfPath, hasInteractive) {
-        mutableIntStateOf(initialStudentStudyTab(hasPdf = !lesson.pdfPath.isNullOrBlank(), hasInteractive = hasInteractive))
+        mutableIntStateOf(initialStudentStudyTab(hasPdf = !lesson.pdfPath.isNullOrBlank()))
     }
     var interactiveCompletedXp by remember(lesson.lessonKey) { mutableStateOf<Int?>(null) }
 
@@ -220,7 +220,7 @@ fun StudentStudyDialog(
                                 color = if (selected) EduGreen else EduBg,
                                 border = BorderStroke(1.dp, if (selected) EduGreen else EduLine),
                                 modifier = Modifier
-                                    .testTag("student_study_tab_$idx")
+                                    .testTag("student_study_tab_$tabIndex")
                                     .minimumInteractiveComponentSize()
                                     .clip(tabShape)
                                     .clickable { activeTab = tabIndex }
@@ -464,7 +464,7 @@ fun StudentStudyDialog(
                                 ) {
                                     EduPanel(modifier = Modifier.fillMaxWidth()) {
                                         Text(
-                                            text = "لا يوجد نشاط تفاعلي مرتبط بهذا الدرس في مساحة العمل حالياً.",
+                                            text = "لم يتم تجهيز الدرس التفاعلي الكامل أو نشره لهذا الدرس بعد. يرجى مراجعة المعلم.",
                                             style = MaterialTheme.typography.bodyMedium,
                                             color = EduMuted
                                         )
@@ -832,5 +832,5 @@ private fun StudentLessonQuizTab(
 }
 
 
-internal fun initialStudentStudyTab(hasPdf: Boolean, hasInteractive: Boolean): Int =
-    if (!hasPdf && hasInteractive) 1 else 0
+internal fun initialStudentStudyTab(hasPdf: Boolean): Int =
+    if (hasPdf) 0 else 1
