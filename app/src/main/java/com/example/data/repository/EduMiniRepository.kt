@@ -1040,11 +1040,13 @@ class EduMiniRepository(
         val responseSchema = when (task) {
             TaskType.QUESTIONS -> QuestionResponseContract.schemaFor(questionTypeIds, difficultyHint)
             TaskType.SOURCE_QUESTIONS, TaskType.EDUCATIONAL_ACTIVITIES, TaskType.INTERACTIVE_LESSON ->
-                activeTemplate?.responseSchemaJson?.takeIf { it.isNotBlank() }
-                    ?: BookIndexPromptRegistry.blueprintFor(task).schemaSnippet
+                BookIndexPromptRegistry.blueprintFor(task).schemaSnippet
             else -> activeTemplate?.responseSchemaJson.orEmpty()
         }
-        val responseMapping = if (task == TaskType.QUESTIONS) "" else activeTemplate?.responseMappingJson.orEmpty()
+        // These contracts protect verbatim source questions, stable question references,
+        // and the activity package parser. User response mappings must not rewrite their payloads.
+        val contractLockedTasks = setOf(TaskType.SOURCE_QUESTIONS, TaskType.EDUCATIONAL_ACTIVITIES, TaskType.INTERACTIVE_LESSON)
+        val responseMapping = if (task == TaskType.QUESTIONS || task in contractLockedTasks) "" else activeTemplate?.responseMappingJson.orEmpty()
         val responseFormat = if (task in setOf(TaskType.QUESTIONS, TaskType.SOURCE_QUESTIONS, TaskType.EDUCATIONAL_ACTIVITIES, TaskType.INTERACTIVE_LESSON)) {
             "json"
         } else {
