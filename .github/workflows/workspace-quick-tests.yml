@@ -25,6 +25,7 @@ on:
       - 'app/src/test/java/com/example/GenerationDraftTaskIsolationTest.kt'
       - 'app/src/test/java/com/example/InteractiveActivityParserTest.kt'
       - 'app/src/test/java/com/example/QuestionSourceTypeMigration18To19Test.kt'
+      - 'app/src/test/java/com/example/InteractiveCheckpointIsolationTest.kt'
       - 'app/src/main/assets/prompts/book_indexing/book_index_discovery.prompt.md'
       - 'app/src/test/java/com/example/data/workspace/**'
       - 'app/src/test/java/com/example/BookIndexIntakeWorkflowTest.kt'
@@ -66,6 +67,7 @@ jobs:
           --tests com.example.GenerationDraftTaskIsolationTest
           --tests com.example.InteractiveActivityParserTest
           --tests com.example.data.local.QuestionSourceTypeMigration18To19Test
+          --tests com.example.InteractiveCheckpointIsolationTest
           --tests 'com.example.EduMiniCoreTest.canonicalQuestionPayloadMapsToRoomAndRejectsDuplicateBatchWithoutPartialWrites'
           --tests 'com.example.EduMiniCoreTest.strictGeneratedQuestionParserEnforcesExactCountAndTypeDistribution'
           --tests 'com.example.EduMiniCoreTest.strictGeneratedQuestionParserRejectsCountAndTypeMixMismatch'
