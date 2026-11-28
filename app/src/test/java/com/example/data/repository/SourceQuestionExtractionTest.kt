@@ -37,6 +37,9 @@ class SourceQuestionExtractionTest {
         assertEquals(QuestionType.MCQ, question.type)
         assertEquals(QuestionSourceType.BOOK_EXTRACTED, question.sourceType)
         assertFalse(question.reviewed)
+        val preview = QuestionBankEngine.formatSourceQuestionsForPreview(raw, "ws-1", lesson)
+        assertTrue(preview.contains(question.prompt))
+        assertTrue(preview.contains("أسئلة الكتاب الأصلية المستخرجة"))
     }
 
     @Test
