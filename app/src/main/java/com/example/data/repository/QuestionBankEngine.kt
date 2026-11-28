@@ -63,6 +63,23 @@ object QuestionBankEngine {
         }
     }
 
+    fun parseQuestionPayloads(rawText: String): List<QuestionContentPayload> {
+        val cleaned = rawText.trim()
+            .removePrefix("```json")
+            .removePrefix("```")
+            .removeSuffix("```")
+            .trim()
+        val root = runCatching { json.parseToJsonElement(cleaned) as? JsonObject }.getOrNull() ?: return emptyList()
+        val array = root["questions"] as? JsonArray ?: return emptyList()
+        return array.mapNotNull { element ->
+            runCatching { json.decodeFromJsonElement<QuestionContentPayload>(element) }.getOrNull()
+        }
+    }
+
+    fun serializeQuestionPayloads(payloads: List<QuestionContentPayload>): String {
+        return json.encodeToString(mapOf("questions" to payloads))
+    }
+
     fun formatGeneratedQuestionsForPreview(rawText: String): String {
         val cleaned = rawText.trim()
             .removePrefix("```json")
