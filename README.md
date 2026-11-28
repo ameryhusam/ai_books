@@ -20,6 +20,14 @@ Generation outputs are retained as task-specific drafts. Question-bank extractio
 Draft version numbers are scoped by workspace, book, unit, lesson, and task. The Studio shows drafts for the selected task, clears the active editor context when the task or lesson changes, and exposes the saved lesson-text source actions. The learner view displays approved reading components and approved/published interactive content only.
 Interactive checkpoint rows (`q-int-*`) are recorded lazily when a learner answers a checkpoint, not pre-inserted when a package is generated. They are tagged with `source_type = INTERACTIVE_CHECKPOINT` and excluded from the official question-bank view and end-of-lesson quizzes, while their attempts remain available to concept-mastery analytics. The `q-int-*` ID prefix is retained as a compatibility fallback for legacy checkpoint rows. Room migration 18→19 adds `source_type`; existing rows remain `LEGACY_UNKNOWN` because their origin cannot be inferred safely.
 
+## Generation Studio pipeline and prompt quality
+
+The Studio now exposes three execution modes over one shared AI provider path: single-lesson content, bulk question-bank generation for a selected subject, and full subject-content generation. Each mode supports create, update and review operations. Bulk artifacts are saved as `DRAFT` and are not approved or published automatically.
+
+New task types and prompt assets are wired for concept extraction, source-question extraction, explanatory interactive lessons, educational activities, assessments, content review, remediation resources and learner reports. The legacy `INTERACTIVE` task remains a practice activity and has a structured visual preview. Question-bank JSON is displayed as readable question content rather than an editable raw JSON document.
+
+Important boundaries: concepts are not yet normalized into stable relational IDs; source questions, assessment instruments and remediation resources remain draft artifacts; a durable batch-job table and typed field-level JSON editors are still pending; the explanatory interactive-lesson renderer does not yet execute diagram/3D blocks or manage glTF assets. See [Generation Studio bulk pipeline and prompt audit](docs/GENERATION_STUDIO_BULK_PIPELINE_AND_PROMPT_AUDIT.md) for details.
+
 ## Book PDF indexing status
 
 The PDF intake and splitting building blocks are not the same as a completed index-to-split user flow. The current implementation includes the intake draft/validation contract and PDF ingestion/splitting components, but the following integration work remains before claiming full automatic indexing:
