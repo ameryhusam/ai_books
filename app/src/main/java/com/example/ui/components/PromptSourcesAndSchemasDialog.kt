@@ -330,12 +330,13 @@ fun PromptSourcesAndSchemasDialog(
                                             Spacer(modifier = Modifier.width(4.dp))
                                             Text("نسخ JSON", color = EduGreenDark, style = MaterialTheme.typography.labelMedium)
                                         }
-                                        if (schema.id in setOf("schema_educational_activities", "schema_questions", "schema_source_questions")) {
+                                        if (schema.id in setOf("schema_educational_activities", "schema_questions", "schema_source_questions", "schema_interactive_lesson")) {
                                             Button(
                                                 onClick = {
                                                     val targetTask = when (schema.id) {
                                                         "schema_educational_activities" -> TaskType.EDUCATIONAL_ACTIVITIES
                                                         "schema_source_questions" -> TaskType.SOURCE_QUESTIONS
+                                                        "schema_interactive_lesson" -> TaskType.INTERACTIVE_LESSON
                                                         else -> TaskType.QUESTIONS
                                                     }
                                                     onLoadSampleIntoEditor(targetTask, schema.schemaJson)
