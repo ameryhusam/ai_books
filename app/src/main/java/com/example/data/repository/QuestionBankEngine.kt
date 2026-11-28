@@ -78,6 +78,23 @@ object QuestionBankEngine {
         }
     }
 
+    fun formatSourceQuestionsForPreview(rawText: String, workspaceId: String, lesson: LessonRef): String {
+        val questions = parseSourceQuestions(rawText, workspaceId, lesson)
+        return buildString {
+            append("# أسئلة الكتاب الأصلية المستخرجة\n\n")
+            append("عدد الأسئلة: ").append(questions.size).append("\n\n")
+            questions.forEachIndexed { index, question ->
+                append("## ").append(index + 1).append(". ").append(question.type.labelAr).append("\n\n")
+                append(question.prompt).append("\n\n")
+                question.options.forEach { option -> append("- ").append(option).append("\n") }
+                if (question.options.isNotEmpty()) append("\n")
+                if (question.correctAnswer.isNotBlank()) append("**الإجابة الواردة في المصدر:** ").append(question.correctAnswer).append("\n\n")
+                if (!question.sourcePages.isNullOrBlank()) append("**صفحة المصدر:** ").append(question.sourcePages).append("\n\n")
+                append("---\n\n")
+            }
+        }.trim()
+    }
+
     fun serializeQuestionPayloads(payloads: List<QuestionContentPayload>): String {
         return json.encodeToString(mapOf("questions" to payloads))
     }
