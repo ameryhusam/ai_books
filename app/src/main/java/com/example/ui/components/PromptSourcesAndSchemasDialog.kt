@@ -330,10 +330,10 @@ fun PromptSourcesAndSchemasDialog(
                                             Spacer(modifier = Modifier.width(4.dp))
                                             Text("نسخ JSON", color = EduGreenDark, style = MaterialTheme.typography.labelMedium)
                                         }
-                                        if (schema.id == "schema_interactive" || schema.id == "schema_questions") {
+                                        if (schema.id == "schema_educational_activities" || schema.id == "schema_questions") {
                                             Button(
                                                 onClick = {
-                                                    val targetTask = if (schema.id == "schema_interactive") TaskType.INTERACTIVE else TaskType.QUESTIONS
+                                                    val targetTask = if (schema.id == "schema_educational_activities") TaskType.EDUCATIONAL_ACTIVITIES else TaskType.QUESTIONS
                                                     onLoadSampleIntoEditor(targetTask, schema.schemaJson)
                                                     onShowFeedback("تم تحميل نموذج المخطط في محرر الاستوديو")
                                                     onDismiss()
