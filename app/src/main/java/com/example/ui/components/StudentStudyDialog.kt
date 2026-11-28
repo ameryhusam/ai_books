@@ -95,8 +95,6 @@ fun StudentStudyDialog(
     hasNextLesson: Boolean = false,
     lastQuizResult: LessonQuizCompletionResult? = null,
     showAdminShortcuts: Boolean = false,
-    storedLessonText: String? = null,
-    onLoadLessonSourceText: suspend (LessonRef) -> String?,
     onOpenGenerateQuestions: (() -> Unit)? = null,
     onSubmitLessonQuiz: (Map<String, String>) -> Unit,
     onOpenNextLesson: () -> Unit = {},
@@ -112,17 +110,6 @@ fun StudentStudyDialog(
     ) -> Unit = { _, _, _, _, _, _, _ -> },
     onDismiss: () -> Unit
 ) {
-    // 0: محتوى الدرس و PDF, 1: الدرس التفاعلي, 2: الشرح والملخص, 3: اختبار الدرس
-    var activeTab by remember(lesson.lessonKey, lesson.bookKey, lesson.unitKey) {
-        mutableIntStateOf(0)
-    }
-    var lessonTextContent by remember(lesson.sourceTextPath, lesson.pdfPath, storedLessonText) {
-        mutableStateOf<String?>(storedLessonText?.takeIf { it.isNotBlank() })
-    }
-    LaunchedEffect(lesson.sourceTextPath, lesson.pdfPath, storedLessonText) {
-        val storedText = storedLessonText?.takeIf { it.isNotBlank() }
-        lessonTextContent = storedText ?: onLoadLessonSourceText(lesson)
-    }
     val studyDrafts = remember(drafts) {
         drafts.filter {
             it.status == DraftStatus.APPROVED.id &&
@@ -153,6 +140,10 @@ fun StudentStudyDialog(
     // or the supported legacy direct-file package.
     val hasWebPackage = publishedPkg != null || fallbackDirectFilePkg != null
     val hasInteractive = hasWebPackage
+    // Without a PDF, start directly in the published interactive lesson when available.
+    var activeTab by remember(lesson.lessonKey, lesson.bookKey, lesson.unitKey, lesson.pdfPath, hasInteractive) {
+        mutableIntStateOf(initialStudentStudyTab(hasPdf = !lesson.pdfPath.isNullOrBlank(), hasInteractive = hasInteractive))
+    }
     var interactiveCompletedXp by remember(lesson.lessonKey) { mutableStateOf<Int?>(null) }
 
     Dialog(
@@ -202,12 +193,14 @@ fun StudentStudyDialog(
                 }
 
                 // Compact horizontal 4-step study bar: القراءة <-> التفاعلي <-> الشرح <-> الاختبار
-                val studySteps = listOf(
-                    Triple("الدرس و PDF", Icons.Rounded.PictureAsPdf, null),
-                    Triple("التفاعلي", Icons.Rounded.Code, if (hasInteractive) "متاح" else null),
-                    Triple("الشرح والملخص", Icons.Rounded.MenuBook, approvedDrafts.size.takeIf { it > 0 }?.toString()),
-                    Triple("الاختبار", Icons.Rounded.Quiz, lessonQuestions.size.takeIf { it > 0 }?.toString())
-                )
+                val studySteps = buildList {
+                    if (!lesson.pdfPath.isNullOrBlank()) {
+                        add(0 to Triple("ملف PDF", Icons.Rounded.PictureAsPdf, null))
+                    }
+                    add(1 to Triple("الدرس التفاعلي", Icons.Rounded.Code, if (hasInteractive) "متاح" else null))
+                    add(2 to Triple("الشرح والملخص", Icons.Rounded.MenuBook, approvedDrafts.size.takeIf { it > 0 }?.toString()))
+                    add(3 to Triple("الاختبار", Icons.Rounded.Quiz, lessonQuestions.size.takeIf { it > 0 }?.toString()))
+                }
                 Surface(
                     color = EduWhite,
                     border = BorderStroke(1.dp, EduLine),
@@ -218,8 +211,9 @@ fun StudentStudyDialog(
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        itemsIndexed(studySteps) { idx, (label, icon, badgeText) ->
-                            val selected = activeTab == idx
+                        itemsIndexed(studySteps) { _, (tabIndex, step) ->
+                            val (label, icon, badgeText) = step
+                            val selected = activeTab == tabIndex
                             val tabShape = RoundedCornerShape(14.dp)
                             Surface(
                                 shape = tabShape,
@@ -229,7 +223,7 @@ fun StudentStudyDialog(
                                     .testTag("student_study_tab_$idx")
                                     .minimumInteractiveComponentSize()
                                     .clip(tabShape)
-                                    .clickable { activeTab = idx }
+                                    .clickable { activeTab = tabIndex }
                             ) {
                                 Row(
                                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
@@ -277,17 +271,6 @@ fun StudentStudyDialog(
                     when (activeTab) {
                         0 -> {
                             val hasPdf = !lesson.pdfPath.isNullOrBlank()
-                            val readableDraft = remember(approvedDrafts) {
-                                approvedDrafts.firstOrNull {
-                                    it.task == TaskType.EXPLANATION || it.task == TaskType.SUMMARY || it.task == TaskType.LESSON_REVIEW
-                                }
-                            }
-                            val effectiveText = lessonTextContent ?: readableDraft?.content
-                            val hasText = !effectiveText.isNullOrBlank()
-                            // 0 = الكل, 1 = PDF فقط, 2 = نص الدرس فقط
-                            var contentViewMode by remember(lesson.lessonKey, hasPdf, hasText) {
-                                mutableIntStateOf(if (hasPdf && hasText) 0 else if (hasPdf) 1 else 2)
-                            }
                             Column(
                                 modifier = Modifier
                                     .fillMaxSize()
@@ -295,81 +278,20 @@ fun StudentStudyDialog(
                                     .padding(horizontal = 12.dp, vertical = 6.dp),
                                 verticalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                if (hasPdf && hasText) {
-                                    Surface(
-                                        shape = RoundedCornerShape(14.dp),
-                                        color = EduWhite,
-                                        border = BorderStroke(1.dp, EduLine),
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(4.dp),
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                        ) {
-                                            listOf(
-                                                Triple(0, "الكل (PDF + نص)", "study_content_mode_both"),
-                                                Triple(1, "PDF فقط", "study_content_mode_pdf"),
-                                                Triple(2, "النص فقط", "study_content_mode_text")
-                                            ).forEach { (modeIdx, title, tag) ->
-                                                val isActive = contentViewMode == modeIdx
-                                                Surface(
-                                                    shape = RoundedCornerShape(10.dp),
-                                                    color = if (isActive) EduMint else EduWhite,
-                                                    modifier = Modifier
-                                                        .weight(1f)
-                                                        .testTag(tag)
-                                                        .minimumInteractiveComponentSize()
-                                                        .clip(RoundedCornerShape(10.dp))
-                                                        .clickable { contentViewMode = modeIdx }
-                                                ) {
-                                                    Row(
-                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 8.dp),
-                                                        horizontalArrangement = Arrangement.Center,
-                                                        verticalAlignment = Alignment.CenterVertically
-                                                    ) {
-                                                        Text(
-                                                            text = title,
-                                                            style = MaterialTheme.typography.labelSmall,
-                                                            color = if (isActive) EduGreenDark else EduMuted,
-                                                            fontWeight = if (isActive) FontWeight.ExtraBold else FontWeight.SemiBold,
-                                                            maxLines = 1,
-                                                            overflow = TextOverflow.Ellipsis
-                                                        )
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-
-                                if (hasPdf && (contentViewMode == 0 || contentViewMode == 1)) {
+                                if (hasPdf) {
                                     LessonPdfViewer(
                                         pdfPath = lesson.pdfPath,
                                         title = lesson.title,
-                                        maxHeightDp = if (contentViewMode == 0 && hasText) 360 else 500
+                                        maxHeightDp = 500
                                     )
-                                }
-
-                                if (hasText && (contentViewMode == 0 || contentViewMode == 2)) {
-                                    EduMarkdownReader(
-                                        text = effectiveText.orEmpty(),
-                                        headerLabel = if (!lessonTextContent.isNullOrBlank()) {
-                                            "محتوى الدرس النصي من مساحة العمل"
-                                        } else {
-                                            "${readableDraft?.task?.labelAr ?: "محتوى"} • شرح الدرس"
-                                        },
-                                        testTag = "study_lesson_text_reader"
-                                    )
-                                }
-
-                                if (!hasPdf && !hasText) {
-                                    LessonPdfViewer(
-                                        pdfPath = null,
-                                        title = lesson.title,
-                                        maxHeightDp = 240
-                                    )
+                                } else {
+                                    EduPanel(modifier = Modifier.fillMaxWidth()) {
+                                        Text(
+                                            text = "لا يتوفر ملف PDF لهذا الدرس. إذا لم يكن الدرس التفاعلي منشوراً بعد، يرجى إبلاغ المعلم لإعداده واعتماده.",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = EduMuted
+                                        )
+                                    }
                                 }
 
                                 Row(
@@ -427,17 +349,19 @@ fun StudentStudyDialog(
                                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        OutlinedButton(
-                                            onClick = { activeTab = 0 },
-                                            shape = RoundedCornerShape(10.dp),
-                                            border = BorderStroke(1.dp, EduGreen),
-                                            modifier = Modifier
-                                                .minimumInteractiveComponentSize()
-                                                .testTag("study_toggle_pdf_button")
-                                        ) {
-                                            Icon(Icons.Rounded.PictureAsPdf, contentDescription = null, tint = EduGreenDark, modifier = Modifier.size(15.dp))
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Text("محتوى الدرس و PDF", color = EduGreenDark, style = MaterialTheme.typography.labelMedium)
+                                        if (!lesson.pdfPath.isNullOrBlank()) {
+                                            OutlinedButton(
+                                                onClick = { activeTab = 0 },
+                                                shape = RoundedCornerShape(10.dp),
+                                                border = BorderStroke(1.dp, EduGreen),
+                                                modifier = Modifier
+                                                    .minimumInteractiveComponentSize()
+                                                    .testTag("study_toggle_pdf_button")
+                                            ) {
+                                                Icon(Icons.Rounded.PictureAsPdf, contentDescription = null, tint = EduGreenDark, modifier = Modifier.size(15.dp))
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text("عرض ملف PDF", color = EduGreenDark, style = MaterialTheme.typography.labelMedium)
+                                            }
                                         }
                                         Spacer(modifier = Modifier.weight(1f))
                                         Button(
@@ -906,3 +830,7 @@ private fun StudentLessonQuizTab(
         }
     }
 }
+
+
+internal fun initialStudentStudyTab(hasPdf: Boolean, hasInteractive: Boolean): Int =
+    if (!hasPdf && hasInteractive) 1 else 0
