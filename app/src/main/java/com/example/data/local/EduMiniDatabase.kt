@@ -176,8 +176,7 @@ data class DraftEntity(
     @ColumnInfo(name = "source_pdf_hash", defaultValue = "''") val sourcePdfHash: String = "",
     @ColumnInfo(name = "prompt_used", defaultValue = "''") val promptUsed: String = "",
     @ColumnInfo(name = "response_schema_json", defaultValue = "''") val responseSchemaJson: String = "",
-    @ColumnInfo(name = "source_index_sha256", defaultValue = "''") val sourceIndexSha256: String = "",
-    @ColumnInfo(name = "source_type", defaultValue = "'LEGACY_UNKNOWN'") val sourceType: String = "LEGACY_UNKNOWN"
+    @ColumnInfo(name = "source_index_sha256", defaultValue = "''") val sourceIndexSha256: String = ""
 )
 
 @Entity(
@@ -282,7 +281,8 @@ data class QuestionEntity(
     @ColumnInfo(name = "template_id", defaultValue = "''") val templateId: String = "",
     @ColumnInfo(name = "prompt_used", defaultValue = "''") val promptUsed: String = "",
     @ColumnInfo(name = "response_schema_json", defaultValue = "''") val responseSchemaJson: String = "",
-    @ColumnInfo(name = "source_index_sha256", defaultValue = "''") val sourceIndexSha256: String = ""
+    @ColumnInfo(name = "source_index_sha256", defaultValue = "''") val sourceIndexSha256: String = "",
+    @ColumnInfo(name = "source_type", defaultValue = "'LEGACY_UNKNOWN'") val sourceType: String = "LEGACY_UNKNOWN"
 )
 
 @Entity(
