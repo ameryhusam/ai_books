@@ -3405,7 +3405,7 @@ class MainViewModel(
         }
         if (snapshot.studioGenerationMode == StudioGenerationMode.SINGLE_LESSON &&
             snapshot.task == TaskType.LEARNER_REPORT &&
-            workspaceQuestionAttempts.value.none { it.userId == snapshot.activeLearner.userId }
+            workspaceQuestionAttempts.value.isEmpty() && workspaceAttempts.value.isEmpty()
         ) {
             _uiState.update {
                 it.copy(alert = AlertMessage(
@@ -3511,6 +3511,30 @@ class MainViewModel(
             StudioGenerationOperation.REVIEW -> snapshot.extraInstructions + "\n\nنوع المحتوى قيد المراجعة: " + snapshot.task.labelAr +
                 "\n\nالمحتوى الحالي المطلوب تدقيقه دون تعديله:\n" + snapshot.generatedResult
         }
+        val learnerEvidence = if (effectiveTask == TaskType.LEARNER_REPORT) buildString {
+            val progress = learningProgressReport.value
+            append("\n\nبيانات أداء المتعلم المسجلة:")
+            append("\nعدد محاولات الأسئلة: ").append(progress.questionAttemptsCount)
+            append("\nعدد المفاهيم المرصودة: ").append(progress.conceptsObserved)
+            progress.firstTryAccuracyPercent?.let { append("\nدقة المحاولة الأولى: ").append(it).append("%") }
+            progress.latestAccuracyPercent?.let { append("\nالدقة الأحدث: ").append(it).append("%") }
+            progress.stableConceptsPercent?.let { append("\nنسبة المفاهيم المستقرة: ").append(it).append("%") }
+            append("\nعدد محاولات التقييم: ").append(workspaceAttempts.value.size)
+            workspaceAttempts.value.forEach { attempt ->
+                append("\n- ").append(attempt.assessmentTitle)
+                    .append(": ").append(attempt.scorePercent).append("%")
+                    .append(if (attempt.passed) " (اجتاز)" else " (لم يجتز)")
+                    .append(" • ").append(attempt.completedAt)
+            }
+            progress.recurringMistakes.forEach { mistake ->
+                append("\nخطأ متكرر في ").append(mistake.conceptTag)
+                    .append(": ").append(mistake.occurrences).append(" مرات")
+                    .append("؛ الإجابة المختارة: ").append(mistake.selectedAnswer)
+                    .append("؛ المتوقعة: ").append(mistake.expectedAnswer)
+            }
+            append("\n\nلا تستنتج نتائج تتجاوز هذه السجلات، واذكر نقص العينة عند الحاجة.")
+        } else ""
+        val requestExtra = effectiveExtra + learnerEvidence
         generationJob?.cancel()
         generationJob = viewModelScope.launch {
             _uiState.update { it.copy(isBusy = true, activeDraftId = "", generatedResult = "", generatedDisplayResult = "", generationProgressPercent = 2, generationStage = "بدء تجهيز الطلب") }
@@ -3520,7 +3544,7 @@ class MainViewModel(
                     lesson = lesson,
                     task = effectiveTask,
                     source = snapshot.sourceText,
-                    extra = effectiveExtra,
+                    extra = requestExtra,
                     providers = snapshot.providers,
                     selectedProvider = snapshot.selectedProvider,
                     selectedModelId = selectedModelId,
