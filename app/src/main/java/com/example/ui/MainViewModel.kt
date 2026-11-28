@@ -3377,7 +3377,11 @@ class MainViewModel(
                 return
             }
             val targetBookKey = snapshot.selectedBookKey.ifBlank { snapshot.selectedLesson?.bookKey.orEmpty() }
-            val targetLessons = workspace.lessons.filter { it.bookKey == targetBookKey }
+            val targetBook = workspace.books.firstOrNull { it.bookKey == targetBookKey }
+            val targetLessons = workspace.lessons.filter { lesson ->
+                if (targetBook == null) lesson.bookKey == targetBookKey
+                else lesson.subjectKey == targetBook.subjectKey && lesson.componentKey == targetBook.componentKey
+            }
             if (targetBookKey.isBlank() || targetLessons.isEmpty()) {
                 _uiState.update { it.copy(alert = AlertMessage("حدد المادة", "اختر كتاب المادة من المكتبة قبل بدء التوليد الجماعي.")) }
                 return
@@ -3671,9 +3675,13 @@ class MainViewModel(
     private fun startBulkGeneration(snapshot: MainUiState, selectedModelId: String) {
         val workspace = snapshot.workspace ?: return
         val bookKey = snapshot.selectedBookKey.ifBlank { snapshot.selectedLesson?.bookKey.orEmpty() }
+        val targetBook = workspace.books.firstOrNull { it.bookKey == bookKey }
         val lessons = workspace.lessons
-            .filter { it.bookKey == bookKey }
-            .sortedWith(compareBy<LessonRef> { it.sortOrder }.thenBy { it.unitKey }.thenBy { it.lessonKey })
+            .filter { lesson ->
+                if (targetBook == null) lesson.bookKey == bookKey
+                else lesson.subjectKey == targetBook.subjectKey && lesson.componentKey == targetBook.componentKey
+            }
+            .sortedWith(compareBy<LessonRef> { it.sortOrder }.thenBy { it.bookKey }.thenBy { it.unitKey }.thenBy { it.lessonKey })
         val apiKey = snapshot.providers
             .filter { it.provider == snapshot.selectedProvider && it.enabled && it.apiKey.isNotBlank() }
             .minWithOrNull(compareBy<ProviderConfig> { it.priority }.thenBy { it.createdAt })
