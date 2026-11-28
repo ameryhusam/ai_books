@@ -180,13 +180,18 @@ class QuestionBankService(
         val canonicalWs = workspaceId.ifBlank { lesson.workspaceId }.ifBlank { lesson.rootPath }
         if (canonicalWs.isBlank() || parsedQuestions.isEmpty()) return emptyList()
 
+        // A verbatim book question and an AI-generated question may share the same wording
+        // while having different provenance. Deduplicate only within the same source class.
         val existingFingerprints = dao.observeQuestionsForWorkspace(canonicalWs).first()
             .filter {
                 it.bookKey == lesson.bookKey &&
                     it.unitKey == lesson.unitKey &&
                     it.lessonKey == lesson.lessonKey
             }
-            .map { q -> q.fingerprint.ifBlank { QuestionBankEngine.computeFingerprint(q.prompt) } }
+            .map { q ->
+                val fingerprint = q.fingerprint.ifBlank { QuestionBankEngine.computeFingerprint(q.prompt) }
+                fingerprint to QuestionSourceType.fromId(q.sourceType)
+            }
             .toMutableSet()
 
         val resolvedIndexSha = sourceIndexSha256.ifBlank {
@@ -195,7 +200,7 @@ class QuestionBankService(
 
         val newItems = parsedQuestions.mapNotNull { item ->
             val fp = item.fingerprint.ifBlank { QuestionBankEngine.computeFingerprint(item.prompt) }
-            if (!existingFingerprints.add(fp)) return@mapNotNull null
+            if (!existingFingerprints.add(fp to item.sourceType)) return@mapNotNull null
             val tagged = inferConceptTag(
                 explicitTag = item.conceptTag,
                 prompt = item.prompt,
