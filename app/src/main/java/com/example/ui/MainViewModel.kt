@@ -1879,7 +1879,11 @@ class MainViewModel(
                         sourceText = evidence,
                         extraInstructions = taskInstructions,
                         generatedResult = output.text,
-                        generatedDisplayResult = if (task == TaskType.LESSON_TEXT) repository.extractLessonTextFromOutput(output.text) else output.text,
+                        generatedDisplayResult = when (task) {
+                            TaskType.LESSON_TEXT -> repository.extractLessonTextFromOutput(output.text)
+                            TaskType.QUESTIONS -> QuestionBankEngine.formatGeneratedQuestionsForPreview(output.text)
+                            else -> output.text
+                        },
                         activeDraftId = draft.id,
                         activeDraftProvider = output.providerLabel,
                         activeDraftModel = output.model,
@@ -2104,7 +2108,11 @@ class MainViewModel(
                 task = draft.task,
                 activeDraftId = draft.id,
                 generatedResult = draft.content,
-                generatedDisplayResult = if (draft.task == TaskType.LESSON_TEXT) repository.extractLessonTextFromOutput(draft.content) else draft.content,
+                generatedDisplayResult = when (draft.task) {
+                    TaskType.LESSON_TEXT -> repository.extractLessonTextFromOutput(draft.content)
+                    TaskType.QUESTIONS -> QuestionBankEngine.formatGeneratedQuestionsForPreview(draft.content)
+                    else -> draft.content
+                },
                 activeDraftProvider = draft.provider,
                 activeDraftModel = draft.model,
                 activeDraftTemplateId = draft.templateId,
@@ -2206,7 +2214,11 @@ class MainViewModel(
 
     fun updateGeneratedResult(value: String) {
         val snapshot = _uiState.value
-        val display = if (snapshot.task == TaskType.LESSON_TEXT) repository.extractLessonTextFromOutput(value) else value
+        val display = when (snapshot.task) {
+            TaskType.LESSON_TEXT -> repository.extractLessonTextFromOutput(value)
+            TaskType.QUESTIONS -> QuestionBankEngine.formatGeneratedQuestionsForPreview(value)
+            else -> value
+        }
         _uiState.update { it.copy(generatedResult = value, generatedDisplayResult = display) }
     }
 
@@ -2219,10 +2231,10 @@ class MainViewModel(
             it.copy(
                 task = draft.task,
                 generatedResult = draft.content,
-                generatedDisplayResult = if (draft.task == TaskType.LESSON_TEXT) {
-                    repository.extractLessonTextFromOutput(draft.content)
-                } else {
-                    draft.content
+                generatedDisplayResult = when (draft.task) {
+                    TaskType.LESSON_TEXT -> repository.extractLessonTextFromOutput(draft.content)
+                    TaskType.QUESTIONS -> QuestionBankEngine.formatGeneratedQuestionsForPreview(draft.content)
+                    else -> draft.content
                 },
                 activeDraftId = draft.id,
                 activeDraftProvider = draft.provider,
@@ -2278,7 +2290,11 @@ class MainViewModel(
                     sourcePdfHash = snapshot.activeDraftSourcePdfHash
                 )
             )
-            _uiState.update { it.copy(activeDraftId = savedDraft.id, activeDraftContentHash = savedDraft.contentHash, generatedDisplayResult = if (snapshot.task == TaskType.LESSON_TEXT) repository.extractLessonTextFromOutput(content) else content) }
+            _uiState.update { it.copy(activeDraftId = savedDraft.id, activeDraftContentHash = savedDraft.contentHash, generatedDisplayResult = when (snapshot.task) {
+                TaskType.LESSON_TEXT -> repository.extractLessonTextFromOutput(content)
+                TaskType.QUESTIONS -> QuestionBankEngine.formatGeneratedQuestionsForPreview(content)
+                else -> content
+            }) }
             val cloudSyncResult = if (isCloudAuthenticated) {
                 firestoreSync.upsertDraft(currentUserId, savedDraft)
             } else {
@@ -2456,10 +2472,10 @@ class MainViewModel(
             it.copy(
                 task = cloudTask,
                 generatedResult = cloudDraft.content,
-                generatedDisplayResult = if (cloudTask == TaskType.LESSON_TEXT) {
-                    repository.extractLessonTextFromOutput(cloudDraft.content)
-                } else {
-                    cloudDraft.content
+                generatedDisplayResult = when (cloudTask) {
+                    TaskType.LESSON_TEXT -> repository.extractLessonTextFromOutput(cloudDraft.content)
+                    TaskType.QUESTIONS -> QuestionBankEngine.formatGeneratedQuestionsForPreview(cloudDraft.content)
+                    else -> cloudDraft.content
                 },
                 activeDraftId = "",
                 activeDraftProvider = cloudDraft.provider,
@@ -3529,7 +3545,11 @@ class MainViewModel(
                     it.copy(
                         task = effectiveTask,
                         generatedResult = out.text,
-                        generatedDisplayResult = if (effectiveTask == TaskType.LESSON_TEXT) repository.extractLessonTextFromOutput(out.text) else out.text,
+                        generatedDisplayResult = when (effectiveTask) {
+                            TaskType.LESSON_TEXT -> repository.extractLessonTextFromOutput(out.text)
+                            TaskType.QUESTIONS -> QuestionBankEngine.formatGeneratedQuestionsForPreview(out.text)
+                            else -> out.text
+                        },
                         generatedQuestionExpectedCount = if (effectiveTask == TaskType.QUESTIONS) snapshot.questionCount else null,
                         generatedQuestionExpectedTypeIds = if (effectiveTask == TaskType.QUESTIONS) snapshot.selectedQuestionTypeIds else emptyList(),
                         generatedQuestionExpectedDifficultyId = if (effectiveTask == TaskType.QUESTIONS) snapshot.questionDifficulty.id else "",
@@ -3723,6 +3743,7 @@ class MainViewModel(
             var skippedCount = 0
             val failures = mutableListOf<String>()
             var lastVisibleResult = ""
+            var lastVisibleTask: TaskType? = null
             try {
                 val workspaceDrafts = repository.getWorkspaceDraftsSnapshot(workspace.workspaceId, workspace.rootPath)
                 lessons.forEachIndexed { lessonIndex, lesson ->
@@ -3839,6 +3860,7 @@ class MainViewModel(
                                 )
                                 savedCount++
                                 lastVisibleResult = output.text
+                                lastVisibleTask = effectiveTask
                                 if (isCloudAuthenticated) {
                                     runCatching { firestoreSync.upsertDraft(currentUserId, persisted) }
                                         .onFailure { if (it is CancellationException) throw it }
@@ -3863,7 +3885,11 @@ class MainViewModel(
                 _uiState.update {
                     it.copy(
                         generatedResult = lastVisibleResult.ifBlank { it.generatedResult },
-                        generatedDisplayResult = lastVisibleResult.ifBlank { it.generatedDisplayResult },
+                        generatedDisplayResult = if (lastVisibleResult.isBlank()) it.generatedDisplayResult else when (lastVisibleTask) {
+                            TaskType.LESSON_TEXT -> repository.extractLessonTextFromOutput(lastVisibleResult)
+                            TaskType.QUESTIONS -> QuestionBankEngine.formatGeneratedQuestionsForPreview(lastVisibleResult)
+                            else -> lastVisibleResult
+                        },
                         bulkGenerationSummary = summary,
                         generationProgressPercent = 100,
                         generationStage = "انتهت معالجة الدفعة",
