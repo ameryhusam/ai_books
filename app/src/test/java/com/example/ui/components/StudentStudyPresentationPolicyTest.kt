@@ -6,17 +6,14 @@ import org.junit.Test
 class StudentStudyPresentationPolicyTest {
 
     @Test
-    fun pdfKeepsPdfAsInitialStudyTabEvenWhenInteractiveContentExists() {
-        assertEquals(0, initialStudentStudyTab(hasPdf = true, hasInteractive = true))
+    fun availablePdfOpensPdfTab() {
+        assertEquals(0, initialStudentStudyTab(hasPdf = true))
     }
 
     @Test
-    fun missingPdfStartsPublishedInteractiveLessonDirectly() {
-        assertEquals(1, initialStudentStudyTab(hasPdf = false, hasInteractive = true))
+    fun missingPdfOpensInteractiveTab() {
+        assertEquals(1, initialStudentStudyTab(hasPdf = false))
     }
 
     @Test
-    fun missingPdfAndInteractiveContentKeepsUnavailableSourceTab() {
-        assertEquals(0, initialStudentStudyTab(hasPdf = false, hasInteractive = false))
-    }
 }
