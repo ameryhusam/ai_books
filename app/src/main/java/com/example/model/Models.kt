@@ -763,6 +763,15 @@ data class QuestionContentPayload(
     val sourcePages: String = ""
 )
 
+@Serializable
+data class SourceQuestionPayload(
+    val type: String = "",
+    val prompt: String = "",
+    val options: List<String> = emptyList(),
+    val correctAnswer: String = "",
+    val sourcePages: String = ""
+)
+
 enum class QuestionSourceType(val id: String) {
     BOOK_EXTRACTED("BOOK_EXTRACTED"),
     AI_GENERATED("AI_GENERATED"),
