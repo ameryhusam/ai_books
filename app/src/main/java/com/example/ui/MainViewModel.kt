@@ -72,6 +72,8 @@ import com.example.model.UserRoleResolution
 import com.example.model.WorkspaceSummary
 import com.google.firebase.firestore.FirebaseFirestoreException
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -3697,8 +3699,10 @@ class MainViewModel(
                     }
                     var source = repository.getLessonTextSnapshot(workspace.workspaceId, lesson)?.content.orEmpty()
                     val sourceWasStored = source.isNotBlank()
+                    var conceptContext = latestByTask[TaskType.CONCEPTS]?.content.orEmpty()
                     val lessonTaskPlan = if (snapshot.studioGenerationMode == StudioGenerationMode.BULK_QUESTIONS) {
                         buildList {
+                            if (source.isBlank()) add(TaskType.LESSON_TEXT)
                             if (latestByTask[TaskType.CONCEPTS] == null) add(TaskType.CONCEPTS)
                             add(TaskType.QUESTIONS)
                         }
@@ -3742,12 +3746,12 @@ class MainViewModel(
                                 }
                             }
                             if (originalTask == TaskType.QUESTIONS) {
-                                latestByTask[TaskType.CONCEPTS]?.let { conceptDraft ->
-                                    append("\nالمفاهيم المرشحة من الدرس:\n").append(conceptDraft.content)
+                                if (conceptContext.isNotBlank()) {
+                                    append("\nالمفاهيم المرشحة من الدرس:\n").append(conceptContext)
                                 }
                             }
                         }
-                        val requestAttachPdf = originalTask == TaskType.LESSON_TEXT && source.isBlank()
+                        val requestAttachPdf = (originalTask == TaskType.LESSON_TEXT || operation == StudioGenerationOperation.REVIEW) && source.isBlank()
                         try {
                             val output = repository.generateContent(
                                 workspaceId = workspace.workspaceId,
@@ -3797,6 +3801,9 @@ class MainViewModel(
                             }
                             if (originalTask == TaskType.LESSON_TEXT && operation != StudioGenerationOperation.REVIEW) {
                                 source = repository.extractLessonTextFromOutput(output.text)
+                            }
+                            if (originalTask == TaskType.CONCEPTS && operation != StudioGenerationOperation.REVIEW) {
+                                conceptContext = output.text
                             }
                         } catch (cancelled: CancellationException) {
                             throw cancelled
