@@ -3464,6 +3464,14 @@ class MainViewModel(
             _uiState.update { it.copy(alert = AlertMessage("حدد الدرس", "اختر درساً من المكتبة أولاً.")) }
             return
         }
+        val operation = snapshot.studioGenerationOperation
+        val effectiveTask = if (operation == StudioGenerationOperation.REVIEW) TaskType.CONTENT_REVIEW else snapshot.task
+        val effectiveExtra = when (operation) {
+            StudioGenerationOperation.GENERATE -> snapshot.extraInstructions
+            StudioGenerationOperation.UPDATE -> snapshot.extraInstructions + "\n\nالمحتوى السابق المطلوب تحديثه مع الحفاظ على الحقائق الصحيحة:\n" + snapshot.generatedResult
+            StudioGenerationOperation.REVIEW -> snapshot.extraInstructions + "\n\nنوع المحتوى قيد المراجعة: " + snapshot.task.labelAr +
+                "\n\nالمحتوى الحالي المطلوب تدقيقه دون تعديله:\n" + snapshot.generatedResult
+        }
         generationJob?.cancel()
         generationJob = viewModelScope.launch {
             _uiState.update { it.copy(isBusy = true, activeDraftId = "", generatedResult = "", generatedDisplayResult = "", generationProgressPercent = 2, generationStage = "بدء تجهيز الطلب") }
@@ -3471,9 +3479,9 @@ class MainViewModel(
                 val out = repository.generateContent(
                     workspaceId = snapshot.workspace?.workspaceId.orEmpty(),
                     lesson = lesson,
-                    task = snapshot.task,
+                    task = effectiveTask,
                     source = snapshot.sourceText,
-                    extra = snapshot.extraInstructions,
+                    extra = effectiveExtra,
                     providers = snapshot.providers,
                     selectedProvider = snapshot.selectedProvider,
                     selectedModelId = selectedModelId,
@@ -3482,10 +3490,10 @@ class MainViewModel(
                     questionTypeIds = snapshot.selectedQuestionTypeIds,
                     questionLanguage = snapshot.questionLanguage,
                     attachPdfPages = snapshot.attachPdfPages,
-                    questionStyleHint = snapshot.questionStyle.takeIf { snapshot.task == TaskType.QUESTIONS && it != "متنوعة" }.orEmpty(),
+                    questionStyleHint = snapshot.questionStyle.takeIf { effectiveTask == TaskType.QUESTIONS && it != "متنوعة" }.orEmpty(),
                     difficultyHint = if (snapshot.task == TaskType.QUESTIONS) snapshot.questionDifficulty.id else "",
                     template = promptTemplates.value.firstOrNull { it.id == snapshot.activePromptTemplateId }
-                        ?: promptTemplates.value.firstOrNull { it.task == snapshot.task },
+                        ?: promptTemplates.value.firstOrNull { it.task == effectiveTask },
                     catalogModels = snapshot.aiModelCatalog,
                     onProgress = { percent, stage ->
                         _uiState.update { it.copy(generationProgressPercent = percent, generationStage = stage) }
@@ -3496,6 +3504,7 @@ class MainViewModel(
                 // task/database validation must not hide content that the provider returned.
                 _uiState.update {
                     it.copy(
+                        task = effectiveTask,
                         generatedResult = out.text,
                         generatedDisplayResult = if (snapshot.task == TaskType.LESSON_TEXT) repository.extractLessonTextFromOutput(out.text) else out.text,
                         generatedQuestionExpectedCount = if (snapshot.task == TaskType.QUESTIONS) snapshot.questionCount else null,
@@ -3523,7 +3532,7 @@ class MainViewModel(
                         providerLabel = out.providerLabel,
                         model = out.model,
                         text = out.text,
-                        title = lesson.title,
+                        title = if (operation == StudioGenerationOperation.REVIEW) "مراجعة " + snapshot.task.labelAr else lesson.title,
                         sourceText = snapshot.sourceText,
                         status = DraftStatus.DRAFT,
                         generation = out
@@ -3552,7 +3561,7 @@ class MainViewModel(
                 } else null
                 analyticsTracker?.trackAiExplanationGenerated(
                     providerId = out.providerLabel,
-                    taskType = snapshot.task.id,
+                    taskType = effectiveTask.id,
                     success = true
                 )
                 analyticsTracker?.trackLessonCreateCompleted(
