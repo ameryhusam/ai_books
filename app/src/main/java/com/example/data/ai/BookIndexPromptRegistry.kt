@@ -551,6 +551,12 @@ object BookIndexPromptRegistry {
                 append("\nتوجيه إضافي:\n")
                 append(extra)
             }
+            when (task) {
+                TaskType.SOURCE_QUESTIONS -> append("\nقيد إلزامي: انقل السؤال والخيارات كما وردت حرفياً، لا تصحح ولا تعِد الصياغة ولا تضف خيارات أو إجابات أو أرقام صفحات. اترك correctAnswer فارغاً إذا لم يظهر في المصدر. أخرج JSON فقط.")
+                TaskType.INTERACTIVE_LESSON -> append("\nقيد إلزامي: أنشئ شرحاً كاملاً ونقاط مذاكرة وملخصاً. استخدم معرفات أسئلة الكتاب الموجودة في قائمة السياق فقط داخل bookQuestionIds ولا تنسخ نصوصها أو خياراتها أو إجاباتها.")
+                TaskType.EDUCATIONAL_ACTIVITIES -> append("\nقيد إلزامي: ميّز BOOK_EXTRACTED عن AI_CREATED، ولا تنشئ أسئلة بنك أسئلة ضمن الأنشطة. أخرج JSON متوافقاً مع المخطط فقط.")
+                else -> Unit
+            }
         }
     }
 }
