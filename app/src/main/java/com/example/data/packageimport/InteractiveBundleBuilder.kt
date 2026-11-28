@@ -58,6 +58,9 @@ object InteractiveBundleBuilder {
                                 })
                                 put("answer", step.checkpointAnswer)
                                 put("conceptTag", step.conceptTag.ifBlank { step.title.ifBlank { lesson.title } })
+                         put("activityType", step.activityType)
+                         put("sourceType", step.sourceType)
+                         put("sourcePages", step.sourcePages)
                             })
                         }
                     })
@@ -439,7 +442,10 @@ object InteractiveBundleBuilder {
     var step = station.step || {};
     var concept = step.conceptTag || (step.checkpoint && step.checkpoint.conceptTag) || state.data.title || "";
     if (concept) stage.appendChild(el("div", "concept-badge", "المفهوم: " + concept));
-    stage.appendChild(el("h2", "station-title", step.title || ("المحطة " + (station.idx + 1))));
+    if (step.activityType) stage.appendChild(el("div", "concept-badge", "نوع النشاط: " + step.activityType));
+    if (step.sourceType === "BOOK_EXTRACTED") stage.appendChild(el("div", "concept-badge", "نشاط من الكتاب" + (step.sourcePages ? " • ص " + step.sourcePages : "")));
+    else if (step.sourceType === "AI_CREATED") stage.appendChild(el("div", "concept-badge", "نشاط مقترح بالذكاء الاصطناعي"));
+    stage.appendChild(el("h2", "station-title", step.title || ("النشاط " + (station.idx + 1))));
     if (step.body) stage.appendChild(el("p", "station-body", step.body));
 
     var cp = step.checkpoint;
