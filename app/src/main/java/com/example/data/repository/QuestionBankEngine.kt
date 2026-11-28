@@ -117,7 +117,7 @@ object QuestionBankEngine {
         return array.mapIndexed { index, element ->
             val obj = element as? JsonObject ?: throw IllegalArgumentException("سؤال الكتاب رقم ${index + 1} ليس كائن JSON.")
             val descriptor = SourceQuestionPayload.serializer().descriptor
-            val allowed = (0 until descriptor.elementsCount).map(descriptor::getElementName).toSet()
+            val allowed = (0 until descriptor.elementsCount).map { descriptor.getElementName(it) }.toSet()
             val unexpected = obj.keys - allowed
             require(unexpected.isEmpty()) { "حقول غير مسموحة في سؤال الكتاب رقم ${index + 1}: ${unexpected.joinToString()}." }
             val payload = runCatching { json.decodeFromJsonElement<SourceQuestionPayload>(obj) }.getOrElse {
