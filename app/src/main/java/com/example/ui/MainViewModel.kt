@@ -3576,10 +3576,13 @@ class MainViewModel(
                         _uiState.update { it.copy(generationProgressPercent = percent, generationStage = stage) }
                     }
                 )
+                val wsId = snapshot.workspace?.workspaceId.orEmpty()
+                val sourceQuestionsParsed = if (effectiveTask == TaskType.SOURCE_QUESTIONS) {
+                    runCatching { QuestionBankEngine.parseSourceQuestions(out.text, wsId, lesson) }.getOrNull()
+                } else null
                 val interactiveLessonParsed = if (effectiveTask == TaskType.INTERACTIVE_LESSON) {
                     InteractiveLessonParser.parseStrictJson(out.text, allowedBookQuestionIds)
                 } else null
-                val wsId = snapshot.workspace?.workspaceId.orEmpty()
                 // Surface the provider response immediately. Draft persistence and later
                 // task/database validation must not hide content that the provider returned.
                 _uiState.update {
@@ -3589,6 +3592,7 @@ class MainViewModel(
                         generatedDisplayResult = when (effectiveTask) {
                             TaskType.LESSON_TEXT -> repository.extractLessonTextFromOutput(out.text)
                             TaskType.QUESTIONS -> QuestionBankEngine.formatGeneratedQuestionsForPreview(out.text)
+                            TaskType.SOURCE_QUESTIONS -> runCatching { QuestionBankEngine.formatSourceQuestionsForPreview(out.text, wsId, lesson) }.getOrDefault(out.text)
                             TaskType.INTERACTIVE_LESSON -> InteractiveLessonParser.formatForPreview(out.text)
                             else -> out.text
                         },
@@ -3666,6 +3670,10 @@ class MainViewModel(
                         "تم إنشاء درس تفاعلي من ${interactiveLessonParsed.sections.size} أقسام، وربط ${interactiveLessonParsed.bookQuestionIds.size} سؤالاً معتمداً من بنك أسئلة الكتاب. المسودة تنتظر مراجعة المعلم."
                     effectiveTask == TaskType.INTERACTIVE_LESSON ->
                         "تم حفظ الاستجابة كمسودة، لكن بنية الدرس أو مراجع الأسئلة تحتاج إلى تصحيح قبل الاعتماد."
+                    effectiveTask == TaskType.SOURCE_QUESTIONS && !sourceQuestionsParsed.isNullOrEmpty() ->
+                        "تم استخراج ${sourceQuestionsParsed.size} سؤالاً من الكتاب كمسودة. عند اعتمادها ستضاف إلى بنك الأسئلة بالمصدر BOOK_EXTRACTED، وستبقى غير مراجعة حتى يتحقق المعلم من الإجابة النموذجية."
+                    effectiveTask == TaskType.SOURCE_QUESTIONS ->
+                        "استجابة استخراج أسئلة الكتاب غير صالحة أو لا تحتوي أسئلة؛ لن يتم استيرادها إلى البنك."
                     effectiveTask == TaskType.QUESTIONS ->
                         "تم حفظ مسودة الأسئلة فقط. لن تُدرج في بنك الأسئلة أو اختبار الطالب قبل اعتمادها صراحةً."
                     effectiveTask == TaskType.LESSON_TEXT ->
@@ -3677,10 +3685,12 @@ class MainViewModel(
                     else ->
                         "تم استلام الاستجابة عبر ${out.providerLabel} (${out.model}) وحفظها كمسودة."
                 }
+                val sourceQuestionValidationIssue = if (effectiveTask == TaskType.SOURCE_QUESTIONS && sourceQuestionsParsed.isNullOrEmpty())
+                    "استخراج أسئلة الكتاب لا يطابق المخطط الحرفي أو لا يحتوي أسئلة قابلة للاستيراد." else null
                 val interactiveLessonValidationIssue = if (
                     effectiveTask == TaskType.INTERACTIVE_LESSON && interactiveLessonParsed == null
                 ) "بنية الدرس التفاعلي أو مراجع أسئلة الكتاب غير صالحة؛ لن يمكن اعتماد هذه المسودة." else null
-                val reviewIssues = (out.validationIssues + listOfNotNull(cloudSyncError, interactiveLessonValidationIssue))
+                val reviewIssues = (out.validationIssues + listOfNotNull(cloudSyncError, sourceQuestionValidationIssue, interactiveLessonValidationIssue))
                     .filter { it.isNotBlank() }
                     .distinct()
                 val resultMessage = if (reviewIssues.isEmpty()) {
