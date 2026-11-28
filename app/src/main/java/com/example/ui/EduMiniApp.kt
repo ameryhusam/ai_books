@@ -1003,8 +1003,8 @@ private fun AuthenticatedEduMiniContent(
                         lastQuizResult = state.lastLessonQuizResult,
                         showAdminShortcuts = state.userRole == UserRole.ADMIN,
                         onOpenGenerateQuestions = { viewModel.openLessonQuestionsInStudio(studyLesson) },
-                        onSubmitLessonQuiz = { answers ->
-                            viewModel.submitLessonQuiz(studyLesson, lessonQuestions, answers)
+                        onSubmitLessonQuiz = { questions, answers ->
+                            viewModel.submitLessonQuiz(studyLesson, questions, answers)
                         },
                         onOpenNextLesson = { viewModel.openNextLessonInStudy(studyLesson) },
                         onInteractiveXpEarned = viewModel::recordStudentInteractiveCompletion,
