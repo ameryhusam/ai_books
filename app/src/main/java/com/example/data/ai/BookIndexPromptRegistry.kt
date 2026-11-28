@@ -168,7 +168,7 @@ object BookIndexPromptRegistry {
             task = TaskType.ASSESSMENT,
             titleAr = "بناء تقييم الدرس",
             subtitleAr = "إعداد أداة تقييم مرتبطة بالمفاهيم والأهداف ومستويات الأداء",
-            sourcePath = "prompts/book_indexing/question_bank.prompt.md",
+            sourcePath = "prompts/book_indexing/assessment_builder.prompt.md",
             roleInstruction = "بناء أداة تقييم متوازنة مرتبطة بأهداف الدرس",
             outputContract = "جدول مواصفات مبسط، أسئلة متنوعة، مفاتيح الإجابة ومعايير التصحيح",
             quickInstructions = "أنشئ تقييماً يقيس الأهداف والمفاهيم ولا يختبر معلومات خارج الدرس."
