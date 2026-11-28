@@ -1570,6 +1570,34 @@ class EduMiniRepository(
         )?.toModel()
     }
 
+    /**
+     * Reads the lesson's extracted text sidecar for learner presentation.
+     * Storage access stays in the data layer; Compose receives only the resolved text.
+     */
+    suspend fun readLessonSourceText(lesson: LessonRef): String? = withContext(Dispatchers.IO) {
+        val context = appContext ?: return@withContext null
+        val sourcePath = lesson.sourceTextPath?.takeIf { it.isNotBlank() }
+        val fromSource = sourcePath?.let { path ->
+            UriIO.readText(context, path)
+                ?.trim()
+                ?.takeIf { text -> text.isNotEmpty() }
+        }
+        if (!fromSource.isNullOrBlank()) return@withContext fromSource
+
+        val rawPdf = lesson.pdfPath
+            ?.takeIf { it.isNotBlank() && !UriIO.isContentUri(it) }
+            ?: return@withContext null
+        val pdfFile = File(rawPdf)
+        val parent = pdfFile.parentFile ?: return@withContext null
+        val txtSibling = File(parent, pdfFile.nameWithoutExtension + ".txt")
+        val mdSibling = File(parent, pdfFile.nameWithoutExtension + ".md")
+        when {
+            txtSibling.isFile -> txtSibling.readText(Charsets.UTF_8).trim().takeIf { it.isNotEmpty() }
+            mdSibling.isFile -> mdSibling.readText(Charsets.UTF_8).trim().takeIf { it.isNotEmpty() }
+            else -> null
+        }
+    }
+
     suspend fun saveLessonText(
         workspaceId: String,
         lesson: LessonRef,
