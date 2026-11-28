@@ -3809,6 +3809,15 @@ class MainViewModel(
                             skippedCount++
                             continue
                         }
+                        // UPDATE must never silently degrade into a fresh generation.
+                        // A missing source artifact is skipped; the teacher can generate it
+                        // explicitly first, then update the resulting version.
+                        if (operation == StudioGenerationOperation.UPDATE && existing == null) {
+                            skippedCount++
+                            failures += lesson.title + " • " + originalTask.labelAr +
+                                ": لا توجد مسودة سابقة لتحديثها؛ تم تجاوز المهمة دون إنشاء محتوى جديد."
+                            continue
+                        }
                         if (operation == StudioGenerationOperation.REVIEW && existing == null) {
                             skippedCount++
                             continue
