@@ -15,7 +15,15 @@ enum class TaskType(val id: String, val labelAr: String) {
     DIFFICULTY_ADAPTER("difficulty_adapter", "تكييف الصعوبة"),
     INTERACTIVE("interactive", "نشاط تفاعلي"),
     QUESTIONS("questions", "بنك الأسئلة"),
-    LESSON_TEXT("lesson_text", "حفظ نص الدرس");
+    LESSON_TEXT("lesson_text", "استخراج نص الدرس"),
+    CONCEPTS("concepts", "استخراج المفاهيم"),
+    SOURCE_QUESTIONS("source_questions", "أسئلة الكتاب الأصلية"),
+    INTERACTIVE_LESSON("interactive_lesson", "درس تفاعلي شارح"),
+    EDUCATIONAL_ACTIVITIES("educational_activities", "الأنشطة التعليمية"),
+    ASSESSMENT("assessment", "بناء التقييم"),
+    REMEDIATION("remediation", "محتوى التقوية"),
+    CONTENT_REVIEW("content_review", "مراجعة صحة المحتوى"),
+    LEARNER_REPORT("learner_report", "تقرير المتعلم");
 
     companion object {
         fun fromId(id: String): TaskType = entries.firstOrNull { it.id == id } ?: EXPLANATION
