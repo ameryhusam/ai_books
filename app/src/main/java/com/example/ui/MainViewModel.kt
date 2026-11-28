@@ -92,6 +92,25 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.util.UUID
 
+private fun MainUiState.clearActiveDraftContext(): MainUiState = copy(
+    generatedResult = "",
+    generatedDisplayResult = "",
+    activeDraftId = "",
+    activeDraftProvider = "تحرير يدوي",
+    activeDraftModel = "local",
+    activeDraftTemplateId = "",
+    activeDraftTemplateVersion = 1,
+    activeDraftResponseSchemaHash = "",
+    activeDraftPromptUsed = "",
+    activeDraftResponseSchemaJson = "",
+    activeDraftRequestFingerprint = "",
+    activeDraftContentHash = "",
+    activeDraftSourcePdfHash = "",
+    generatedQuestionExpectedCount = null,
+    generatedQuestionExpectedTypeIds = emptyList(),
+    generatedQuestionExpectedDifficultyId = ""
+)
+
 class MainViewModel(
     private val repository: EduMiniRepository,
     private val firestoreSync: FirestoreSyncRepository,
@@ -1014,53 +1033,22 @@ class MainViewModel(
     }
 
     fun selectLessonAndOpenStudio(lesson: LessonRef) {
-        _uiState.update {
-            it.copy(
+        _uiState.update { current ->
+            current.clearActiveDraftContext().copy(
                 selectedLesson = lesson,
                 selectedBookKey = lesson.bookKey,
                 packageSourcePages = lesson.pageRange.orEmpty(),
-                generatedResult = "",
-                generatedDisplayResult = "",
-                activeDraftId = "",
-                activeDraftProvider = "تحرير يدوي",
-                activeDraftModel = "local",
-                activeDraftTemplateId = "",
-                activeDraftTemplateVersion = 1,
-                activeDraftResponseSchemaHash = "",
-                activeDraftPromptUsed = "",
-                activeDraftResponseSchemaJson = "",
-                activeDraftRequestFingerprint = "",
-                activeDraftContentHash = "",
-                activeDraftSourcePdfHash = "",
-                generatedQuestionExpectedCount = null,
-                generatedQuestionExpectedTypeIds = emptyList(),
-                generatedQuestionExpectedDifficultyId = "",
                 page = AppPage.STUDIO
             )
         }
     }
 
     fun selectLessonInStudio(lesson: LessonRef) {
-        _uiState.update {
-            it.copy(
+        _uiState.update { current ->
+            current.clearActiveDraftContext().copy(
                 selectedLesson = lesson,
                 selectedBookKey = lesson.bookKey,
-                packageSourcePages = lesson.pageRange.orEmpty(),
-                generatedResult = "",
-                activeDraftId = "",
-                activeDraftProvider = "تحرير يدوي",
-                activeDraftModel = "local",
-                activeDraftTemplateId = "",
-                activeDraftTemplateVersion = 1,
-                activeDraftResponseSchemaHash = "",
-                activeDraftPromptUsed = "",
-                activeDraftResponseSchemaJson = "",
-                activeDraftRequestFingerprint = "",
-                activeDraftContentHash = "",
-                activeDraftSourcePdfHash = "",
-                generatedQuestionExpectedCount = null,
-                generatedQuestionExpectedTypeIds = emptyList(),
-                generatedQuestionExpectedDifficultyId = ""
+                packageSourcePages = lesson.pageRange.orEmpty()
             )
         }
     }
@@ -2167,23 +2155,10 @@ class MainViewModel(
 
     fun selectTask(task: TaskType) {
         val defaultTemplate = promptTemplates.value.firstOrNull { it.task == task }
-        _uiState.update {
-            it.copy(
+        _uiState.update { current ->
+            current.clearActiveDraftContext().copy(
                 task = task,
-                activePromptTemplateId = defaultTemplate?.id.orEmpty(),
-                generatedResult = "",
-                activeDraftId = "",
-                activeDraftProvider = "تحرير يدوي",
-                activeDraftModel = "local",
-                activeDraftTemplateId = "",
-                activeDraftTemplateVersion = 1,
-                activeDraftResponseSchemaHash = "",
-                activeDraftRequestFingerprint = "",
-                activeDraftContentHash = "",
-                activeDraftSourcePdfHash = "",
-                generatedQuestionExpectedCount = null,
-                generatedQuestionExpectedTypeIds = emptyList(),
-                generatedQuestionExpectedDifficultyId = ""
+                activePromptTemplateId = defaultTemplate?.id.orEmpty()
             )
         }
     }
