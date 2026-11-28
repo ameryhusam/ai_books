@@ -112,7 +112,10 @@ object InteractiveActivityParser {
                 checkpointQuestion = cpQuestion,
                 checkpointOptions = cpOptions,
                 checkpointAnswer = cpAnswer,
-                conceptTag = stepConcept
+                conceptTag = stepConcept,
+                activityType = str(obj, "activityType", "kind").ifBlank { "practice" },
+                sourceType = str(obj, "sourceType").ifBlank { "AI_CREATED" },
+                sourcePages = str(obj, "sourcePages", "sourcePage")
             )
         }.orEmpty()
 
