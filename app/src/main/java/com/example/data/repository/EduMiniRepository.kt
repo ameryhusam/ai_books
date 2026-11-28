@@ -2936,7 +2936,10 @@ class EduMiniRepository(
 
     fun observePromptTemplates(): Flow<List<PromptTemplateRecord>> {
         return dao.observePromptTemplates().map { custom ->
-            custom.map { e ->
+            // The old built-in activity prompt is obsolete. Existing draft records
+            // still resolve through TaskType.fromId("interactive"), but this duplicate
+            // template must not compete with the unified educational-activities prompt.
+            custom.filterNot { it.id == "builtin_interactive_steps" }.map { e ->
                 PromptTemplateRecord(
                     id = e.id,
                     title = e.title,
