@@ -940,6 +940,28 @@ data class InteractiveActivityModel(
     val matchingPairs: List<InteractiveMatchPair> = emptyList()
 )
 
+data class InteractiveLessonSection(
+    val title: String,
+    val conceptTag: String = "",
+    val explanation: String,
+    val visualType: String = "",
+    val visualDescription: String = "",
+    val workedExample: String = "",
+    val checkpointQuestion: String = "",
+    val checkpointOptions: List<String> = emptyList(),
+    val checkpointAnswer: String = ""
+)
+
+data class InteractiveLessonModel(
+    val title: String,
+    val objective: String = "",
+    val introduction: String = "",
+    val sections: List<InteractiveLessonSection> = emptyList(),
+    val keyPoints: List<String> = emptyList(),
+    val summary: String = "",
+    val bookQuestionIds: List<String> = emptyList()
+)
+
 data class StagedGradeSummary(
     val gradeKey: String,
     val booksCount: Int,
