@@ -511,7 +511,7 @@ private fun StudioWorkbench(
     var workbenchTab by remember { mutableIntStateOf(0) } // 0: Compose, 1: Output & Drafts, 2: Source & Packages
     val studioTask = if (studioGenerationMode == StudioGenerationMode.BULK_QUESTIONS) TaskType.QUESTIONS else task
     var formattedEditMode by remember(studioTask) { mutableStateOf(false) }
-    val canEditFormattedContent = studioTask !in setOf(TaskType.INTERACTIVE, TaskType.LESSON_TEXT)
+    val canEditFormattedContent = studioTask !in setOf(TaskType.EDUCATIONAL_ACTIVITIES, TaskType.LESSON_TEXT)
     var promptPreviewExpanded by remember { mutableStateOf(false) }
     var lastResultSeen by remember(selectedLesson) { mutableStateOf(generatedResult) }
 
@@ -524,8 +524,8 @@ private fun StudioWorkbench(
     }
 
     val interactiveActivityPreview = remember(task, generatedResult, selectedLesson) {
-        if (studioTask == TaskType.INTERACTIVE) {
-            InteractiveActivityParser.parseStrictJson(generatedResult, selectedLesson?.title ?: "نشاط الدرس")
+        if (studioTask == TaskType.EDUCATIONAL_ACTIVITIES) {
+            InteractiveActivityParser.parseStrictJson(generatedResult, selectedLesson?.title ?: "أنشطة الدرس")
         } else null
     }
 
@@ -850,9 +850,9 @@ private fun StudioWorkbench(
                                 }
                             }
 
-                            if (studioTask == TaskType.QUESTIONS || studioTask == TaskType.INTERACTIVE) {
+                            if (studioTask == TaskType.QUESTIONS || studioTask == TaskType.EDUCATIONAL_ACTIVITIES) {
                                 Text(
-                                    text = if (studioTask == TaskType.INTERACTIVE) "عدد المحطات التفاعلية المطلوبة" else stringResource(R.string.studio_question_count_label),
+                                    text = if (studioTask == TaskType.EDUCATIONAL_ACTIVITIES) "عدد الأنشطة التعليمية المطلوبة" else stringResource(R.string.studio_question_count_label),
                                     style = MaterialTheme.typography.labelMedium,
                                     color = EduInk,
                                     modifier = Modifier.padding(top = 4.dp)
@@ -863,7 +863,7 @@ private fun StudioWorkbench(
                                 ) {
                                     listOf(3, 5, 10, 15, 20).forEach { count ->
                                         EduPill(
-                                            text = if (studioTask == TaskType.INTERACTIVE) "$count محطات" else "$count أسئلة",
+                                            text = if (studioTask == TaskType.EDUCATIONAL_ACTIVITIES) "$count أنشطة" else "$count أسئلة",
                                             active = questionCount == count,
                                             onClick = { onQuestionCountChange(count) },
                                             testTag = "question_count_$count"
@@ -1347,9 +1347,9 @@ private fun StudioWorkbench(
                                     )
                                 } else {
                                     when {
-                                        studioTask == TaskType.INTERACTIVE && interactiveActivityPreview != null ->
+                                        studioTask == TaskType.EDUCATIONAL_ACTIVITIES && interactiveActivityPreview != null ->
                                             InteractiveActivityFormattedPreview(interactiveActivityPreview)
-                                        studioTask == TaskType.INTERACTIVE ->
+                                        studioTask == TaskType.EDUCATIONAL_ACTIVITIES ->
                                             Surface(
                                                 shape = RoundedCornerShape(12.dp),
                                                 color = EduFieldBg,
@@ -1421,13 +1421,13 @@ private fun StudioWorkbench(
                                     }
                                 }
 
-                                if (studioTask == TaskType.INTERACTIVE) {
+                                if (studioTask == TaskType.EDUCATIONAL_ACTIVITIES) {
                                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                         Button(
                                             onClick = {
                                                 onLaunchInteractiveActivity(
                                                     generatedResult,
-                                                    selectedLesson?.title ?: "نشاط تفاعلي"
+                                                    selectedLesson?.title ?: "أنشطة تعليمية"
                                                 )
                                             },
                                             shape = RoundedCornerShape(12.dp),
@@ -1439,7 +1439,7 @@ private fun StudioWorkbench(
                                         ) {
                                             Icon(Icons.Rounded.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
                                             Spacer(modifier = Modifier.width(6.dp))
-                                            Text("تشغيل النشاط التفاعلي (JSON)", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                                            Text("معاينة الأنشطة التعليمية (JSON)", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
                                         }
                                         Text(
                                             text = "يتم إنشاء الحزمة ونشرها للطالب بعد اعتماد المسودة من قائمة المسودات.",
@@ -1497,14 +1497,14 @@ private fun StudioWorkbench(
                                                 maxLines = 2
                                             )
                                         }
-                                        if (draft.task == TaskType.INTERACTIVE) {
+                                        if (draft.task == TaskType.EDUCATIONAL_ACTIVITIES) {
                                             IconButton(
                                                 onClick = { onLaunchInteractiveActivity(draft.content, draft.title) },
                                                 modifier = Modifier.minimumInteractiveComponentSize()
                                             ) {
                                                 Icon(
                                                     imageVector = Icons.Rounded.PlayArrow,
-                                                    contentDescription = "تشغيل النشاط التفاعلي",
+                                                    contentDescription = "معاينة الأنشطة التعليمية",
                                                     tint = EduPurple
                                                 )
                                             }
