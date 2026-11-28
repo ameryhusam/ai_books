@@ -53,7 +53,10 @@ object InteractiveLessonParser {
         if (sections.size != sectionsArray.size) return null
         if (title.isBlank() || sections.isEmpty()) return null
         val keyPoints = stringList(root["keyPoints"])
-        val questionIds = stringList(root["bookQuestionIds"]).distinct()
+        val summary = string(root, "summary")
+        val questionIdsElement = root["bookQuestionIds"] as? JsonArray ?: return null
+        val questionIds = stringList(questionIdsElement).distinct()
+        if (keyPoints.isEmpty() || summary.isBlank()) return null
         if (allowedBookQuestionIds != null && questionIds.any { it !in allowedBookQuestionIds }) return null
         return InteractiveLessonModel(
             title = title,
@@ -61,7 +64,7 @@ object InteractiveLessonParser {
             introduction = introduction,
             sections = sections,
             keyPoints = keyPoints,
-            summary = string(root, "summary"),
+            summary = summary,
             bookQuestionIds = questionIds
         )
     }
