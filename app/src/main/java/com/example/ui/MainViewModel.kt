@@ -2216,14 +2216,25 @@ class MainViewModel(
             it.copy(
                 task = draft.task,
                 generatedResult = draft.content,
+                generatedDisplayResult = if (draft.task == TaskType.LESSON_TEXT) {
+                    repository.extractLessonTextFromOutput(draft.content)
+                } else {
+                    draft.content
+                },
+                activeDraftId = draft.id,
                 activeDraftProvider = draft.provider,
                 activeDraftModel = draft.model,
                 activeDraftTemplateId = draft.templateId,
                 activeDraftTemplateVersion = draft.templateVersion,
                 activeDraftResponseSchemaHash = draft.responseSchemaHash,
+                activeDraftPromptUsed = draft.promptUsed,
+                activeDraftResponseSchemaJson = draft.responseSchemaJson,
                 activeDraftRequestFingerprint = draft.requestFingerprint,
                 activeDraftContentHash = draft.contentHash,
-                activeDraftSourcePdfHash = draft.sourcePdfHash
+                activeDraftSourcePdfHash = draft.sourcePdfHash,
+                generatedQuestionExpectedCount = null,
+                generatedQuestionExpectedTypeIds = emptyList(),
+                generatedQuestionExpectedDifficultyId = ""
             )
         }
     }
