@@ -106,3 +106,49 @@ No broad file decomposition is included in this workspace feature PR. The invent
 - Do not change database schema as part of this refactor.
 - Do not combine architectural extraction with feature changes.
 - Merge only after CI passes or an equivalent reproducible Android build/test run is recorded.
+
+
+## Learner content delivery boundary — 2026-11-28
+
+The learner experience must distinguish an internal source artifact from published learning content.
+
+### Source-text handling
+
+- `LessonRef.sourceTextPath` and its extracted text are source material for authoring, quick review, and AI-assisted preparation.
+- Raw source text is not a learner-facing reading surface and must not be rendered by `StudentStudyDialog`.
+- The source-text reader belongs behind the repository/data boundary. Studio or teacher workflows may request it when preparing content; the learner presentation layer must not load it as a fallback reading format.
+- A source-text file can be selected as the AI input without attaching or uploading the lesson PDF. Source selection must be explicit and recorded as provenance; do not silently attach both sources.
+
+### Learner presentation policy
+
+1. If a lesson PDF exists, the learner's primary source-content tab displays the PDF only. No raw-text toggle or combined PDF+text view is offered.
+2. If no PDF exists and a published interactive lesson package exists, open the interactive lesson directly.
+3. If neither PDF nor a published interactive package exists, show an actionable unavailable state. Never expose the raw source text as a fallback.
+4. Approved explanation/summary and quiz features remain separate learning surfaces; they are not the raw source-text file.
+5. Interactive packages remain inaccessible until teacher approval and explicit publication.
+
+### Interactive lesson is not an interactive activity
+
+- `INTERACTIVE` remains an activity/checkpoint package and must not be relabelled as a complete lesson.
+- `INTERACTIVE_LESSON` is the intended complete, pedagogically structured interactive version of the lesson.
+- The target workflow must create a complete lesson experience (explanation, examples, learning steps and formative interactions) and transform eligible reviewed textbook questions into interactive question/checkpoint components while retaining source provenance.
+- Generation from a selected text source must work without requiring a PDF upload. PDF may remain an optional alternative input.
+- Generated content remains a draft. Review, validation, approval and publication are explicit gates.
+
+### Implementation status and remaining feature work
+
+- Learner UI no longer loads or renders the raw source text. The learner flow starts on the PDF when present, otherwise on an existing published interactive package.
+- When no PDF and no published interactive package exist, the learner sees a preparation message rather than a blank PDF or raw text.
+- The complete `INTERACTIVE_LESSON` generation-to-published-package pipeline, including mapping reviewed book questions into interactive components, is not yet proven end-to-end and must be tracked as a separate feature slice. Do not claim the no-PDF fallback is complete until this pipeline and its publication/learner tests pass.
+
+### Feature ownership boundaries
+
+| Feature | Owns | Must not own |
+|---|---|---|
+| Studio | Source selection, quick review, AI task orchestration, draft editing, review and publish actions | Learner progress presentation |
+| QuestionBank | Reviewed source questions, question provenance, assessment eligibility and grading | Interactive lesson layout or raw PDF rendering |
+| Library | Workspace/book/lesson metadata and source artifact references | AI generation policy or learner UI decisions |
+| Learner | Published PDF/interactive content presentation, quiz flow and progress events | Raw source-text display, source-file IO, draft approval |
+| Admin | Access policy, operational oversight and reporting | Bypassing content approval/publication |
+
+The existing `EduMiniRepository` remains a compatibility facade while these responsibilities are extracted incrementally. No Gradle module split is included in this phase.
