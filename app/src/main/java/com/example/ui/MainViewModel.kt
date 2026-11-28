@@ -92,6 +92,25 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.util.UUID
 
+private fun MainUiState.clearActiveDraftContext(): MainUiState = copy(
+    generatedResult = "",
+    generatedDisplayResult = "",
+    activeDraftId = "",
+    activeDraftProvider = "تحرير يدوي",
+    activeDraftModel = "local",
+    activeDraftTemplateId = "",
+    activeDraftTemplateVersion = 1,
+    activeDraftResponseSchemaHash = "",
+    activeDraftPromptUsed = "",
+    activeDraftResponseSchemaJson = "",
+    activeDraftRequestFingerprint = "",
+    activeDraftContentHash = "",
+    activeDraftSourcePdfHash = "",
+    generatedQuestionExpectedCount = null,
+    generatedQuestionExpectedTypeIds = emptyList(),
+    generatedQuestionExpectedDifficultyId = ""
+)
+
 class MainViewModel(
     private val repository: EduMiniRepository,
     private val firestoreSync: FirestoreSyncRepository,
@@ -1014,8 +1033,8 @@ class MainViewModel(
     }
 
     fun selectLessonAndOpenStudio(lesson: LessonRef) {
-        _uiState.update {
-            it.copy(
+        _uiState.update { current ->
+            current.clearActiveDraftContext().copy(
                 selectedLesson = lesson,
                 selectedBookKey = lesson.bookKey,
                 packageSourcePages = lesson.pageRange.orEmpty(),
@@ -1025,8 +1044,8 @@ class MainViewModel(
     }
 
     fun selectLessonInStudio(lesson: LessonRef) {
-        _uiState.update {
-            it.copy(
+        _uiState.update { current ->
+            current.clearActiveDraftContext().copy(
                 selectedLesson = lesson,
                 selectedBookKey = lesson.bookKey,
                 packageSourcePages = lesson.pageRange.orEmpty()
@@ -1794,7 +1813,15 @@ class MainViewModel(
 
         generationJob?.cancel()
         generationJob = viewModelScope.launch {
-            _uiState.update { it.copy(isBusy = true, alert = null) }
+            _uiState.update {
+                it.copy(
+                    isBusy = true,
+                    activeDraftId = "",
+                    generatedResult = "",
+                    generatedDisplayResult = "",
+                    alert = null
+                )
+            }
             try {
                 val output = repository.generateContent(
                     workspaceId = workspace.workspaceId,
@@ -1841,23 +1868,6 @@ class MainViewModel(
                     .getOrDefault(snapshot.providers)
                 _uiState.update { it.copy(providers = latestProviders, generationProgressPercent = 100, generationStage = "اكتمل التوليد والحفظ") }
 
-                val generatedQuestions = if (task == TaskType.QUESTIONS) {
-                    repository.saveQuestionsFromDraftText(workspace.workspaceId, lesson, output.text)
-                } else emptyList()
-                generatedQuestions.forEach { question ->
-                    repository.updateQuestion(
-                        questionId = question.id,
-                        type = question.type,
-                        prompt = question.prompt,
-                        options = question.options,
-                        correctAnswer = question.correctAnswer,
-                        rationale = question.rationale,
-                        difficulty = question.difficulty,
-                        conceptTag = conceptTitle,
-                        reviewed = false
-                    )
-                }
-
                 _uiState.update {
                     it.copy(
                         page = AppPage.STUDIO,
@@ -1866,16 +1876,20 @@ class MainViewModel(
                         sourceText = evidence,
                         extraInstructions = taskInstructions,
                         generatedResult = output.text,
+                        generatedDisplayResult = if (task == TaskType.LESSON_TEXT) repository.extractLessonTextFromOutput(output.text) else output.text,
+                        activeDraftId = draft.id,
                         activeDraftProvider = output.providerLabel,
                         activeDraftModel = output.model,
                         activeDraftTemplateId = output.templateId,
                         activeDraftTemplateVersion = output.templateVersion,
                         activeDraftResponseSchemaHash = output.responseSchemaHash,
+                        activeDraftPromptUsed = output.promptUsed,
+                        activeDraftResponseSchemaJson = output.responseSchemaJson,
                         activeDraftRequestFingerprint = output.requestFingerprint,
                         activeDraftContentHash = output.contentHash,
                         activeDraftSourcePdfHash = output.sourcePdfHash,
                         toastMessage = if (task == TaskType.QUESTIONS) {
-                            "تم إنشاء مسودة علاجية وإضافة ${generatedQuestions.size} سؤالاً تكيفياً للمفهوم: $conceptTitle"
+                            "تم إنشاء مسودة أسئلة علاجية للمفهوم «$conceptTitle»؛ ستُضاف إلى البنك بعد الاعتماد."
                         } else {
                             "تم إنشاء شرح تقوية للمفهوم وحفظه كمسودة للمراجعة والاعتماد."
                         }
@@ -2085,12 +2099,16 @@ class MainViewModel(
                 selectedLesson = lesson ?: it.selectedLesson,
                 selectedBookKey = lesson?.bookKey ?: it.selectedBookKey,
                 task = draft.task,
+                activeDraftId = draft.id,
                 generatedResult = draft.content,
+                generatedDisplayResult = if (draft.task == TaskType.LESSON_TEXT) repository.extractLessonTextFromOutput(draft.content) else draft.content,
                 activeDraftProvider = draft.provider,
                 activeDraftModel = draft.model,
                 activeDraftTemplateId = draft.templateId,
                 activeDraftTemplateVersion = draft.templateVersion,
                 activeDraftResponseSchemaHash = draft.responseSchemaHash,
+                activeDraftPromptUsed = draft.promptUsed,
+                activeDraftResponseSchemaJson = draft.responseSchemaJson,
                 activeDraftRequestFingerprint = draft.requestFingerprint,
                 activeDraftContentHash = draft.contentHash,
                 activeDraftSourcePdfHash = draft.sourcePdfHash,
@@ -2137,7 +2155,12 @@ class MainViewModel(
 
     fun selectTask(task: TaskType) {
         val defaultTemplate = promptTemplates.value.firstOrNull { it.task == task }
-        _uiState.update { it.copy(task = task, activePromptTemplateId = defaultTemplate?.id.orEmpty()) }
+        _uiState.update { current ->
+            current.clearActiveDraftContext().copy(
+                task = task,
+                activePromptTemplateId = defaultTemplate?.id.orEmpty()
+            )
+        }
     }
 
     fun updateQuestionCount(count: Int) {
@@ -2179,7 +2202,9 @@ class MainViewModel(
     }
 
     fun updateGeneratedResult(value: String) {
-        _uiState.update { it.copy(generatedResult = value) }
+        val snapshot = _uiState.value
+        val display = if (snapshot.task == TaskType.LESSON_TEXT) repository.extractLessonTextFromOutput(value) else value
+        _uiState.update { it.copy(generatedResult = value, generatedDisplayResult = display) }
     }
 
     fun updatePackageSourcePages(value: String) {
@@ -2191,14 +2216,25 @@ class MainViewModel(
             it.copy(
                 task = draft.task,
                 generatedResult = draft.content,
+                generatedDisplayResult = if (draft.task == TaskType.LESSON_TEXT) {
+                    repository.extractLessonTextFromOutput(draft.content)
+                } else {
+                    draft.content
+                },
+                activeDraftId = draft.id,
                 activeDraftProvider = draft.provider,
                 activeDraftModel = draft.model,
                 activeDraftTemplateId = draft.templateId,
                 activeDraftTemplateVersion = draft.templateVersion,
                 activeDraftResponseSchemaHash = draft.responseSchemaHash,
+                activeDraftPromptUsed = draft.promptUsed,
+                activeDraftResponseSchemaJson = draft.responseSchemaJson,
                 activeDraftRequestFingerprint = draft.requestFingerprint,
                 activeDraftContentHash = draft.contentHash,
-                activeDraftSourcePdfHash = draft.sourcePdfHash
+                activeDraftSourcePdfHash = draft.sourcePdfHash,
+                generatedQuestionExpectedCount = null,
+                generatedQuestionExpectedTypeIds = emptyList(),
+                generatedQuestionExpectedDifficultyId = ""
             )
         }
     }
@@ -2233,11 +2269,13 @@ class MainViewModel(
                     templateId = snapshot.activeDraftTemplateId,
                     templateVersion = snapshot.activeDraftTemplateVersion,
                     responseSchemaHash = snapshot.activeDraftResponseSchemaHash,
+                    promptUsed = snapshot.activeDraftPromptUsed,
+                    responseSchemaJson = snapshot.activeDraftResponseSchemaJson,
                     requestFingerprint = snapshot.activeDraftRequestFingerprint,
                     sourcePdfHash = snapshot.activeDraftSourcePdfHash
                 )
             )
-            _uiState.update { it.copy(activeDraftContentHash = savedDraft.contentHash) }
+            _uiState.update { it.copy(activeDraftId = savedDraft.id, activeDraftContentHash = savedDraft.contentHash, generatedDisplayResult = if (snapshot.task == TaskType.LESSON_TEXT) repository.extractLessonTextFromOutput(content) else content) }
             val cloudSyncResult = if (isCloudAuthenticated) {
                 firestoreSync.upsertDraft(currentUserId, savedDraft)
             } else {
@@ -2245,7 +2283,7 @@ class MainViewModel(
             }
             val cloudNote = if (cloudSyncResult.isSuccess) " • مزامنة سحابية ✓" else ""
             _uiState.update {
-                it.copy(toastMessage = "تم حفظ نسخة جديدة كمسودة للمراجعة؛ لم تُضف إلى بنك الأسئلة بعد$cloudNote")
+                it.copy(toastMessage = "تم حفظ نسخة جديدة من «${snapshot.task.labelAr}» كمسودة للمراجعة$cloudNote")
             }
         }
     }
@@ -2260,7 +2298,7 @@ class MainViewModel(
             return
         }
         val raw = (rawTextOverride ?: snapshot.generatedResult).trim()
-        val activity = InteractiveActivityParser.parse(raw, lesson.title)
+        val activity = InteractiveActivityParser.parseStrictJson(raw, lesson.title)
         if (activity == null) {
             _uiState.update {
                 it.copy(
@@ -2410,15 +2448,24 @@ class MainViewModel(
     }
 
     fun loadCloudDraftIntoEditor(cloudDraft: CloudDraft) {
+        val cloudTask = cloudDraft.taskTypeOrDefault()
         _uiState.update {
             it.copy(
-                task = cloudDraft.taskTypeOrDefault(),
+                task = cloudTask,
                 generatedResult = cloudDraft.content,
+                generatedDisplayResult = if (cloudTask == TaskType.LESSON_TEXT) {
+                    repository.extractLessonTextFromOutput(cloudDraft.content)
+                } else {
+                    cloudDraft.content
+                },
+                activeDraftId = "",
                 activeDraftProvider = cloudDraft.provider,
                 activeDraftModel = cloudDraft.model,
                 activeDraftTemplateId = cloudDraft.templateId,
                 activeDraftTemplateVersion = cloudDraft.templateVersion.toInt().coerceAtLeast(1),
                 activeDraftResponseSchemaHash = cloudDraft.responseSchemaHash,
+                activeDraftPromptUsed = cloudDraft.promptUsed,
+                activeDraftResponseSchemaJson = cloudDraft.responseSchemaJson,
                 activeDraftRequestFingerprint = cloudDraft.requestFingerprint,
                 activeDraftContentHash = cloudDraft.contentHash,
                 activeDraftSourcePdfHash = cloudDraft.sourcePdfHash,
@@ -2445,8 +2492,8 @@ class MainViewModel(
                     extractionMethod = if (fromGeneratedOutput) "ai_generated" else "manual",
                     sourcePdfHash = snapshot.activeDraftSourcePdfHash,
                     templateId = snapshot.activeDraftTemplateId,
-                    promptUsed = snapshot.activeDraftRequestFingerprint,
-                    responseSchemaJson = ""
+                    promptUsed = snapshot.activeDraftPromptUsed,
+                    responseSchemaJson = snapshot.activeDraftResponseSchemaJson
                 )
             }.onSuccess { saved ->
                 _uiState.update { it.copy(toastMessage = "تم حفظ نص الدرس بنجاح (الإصدار ${saved.version}) ✓") }
@@ -2750,82 +2797,34 @@ class MainViewModel(
 
     fun saveGeneratedDraftToQuestionBank() {
         val snapshot = _uiState.value
-        val lesson = snapshot.selectedLesson
-        if (lesson == null) {
+        if (snapshot.task != TaskType.QUESTIONS) {
             _uiState.update {
-                it.copy(alert = AlertMessage("حدد الدرس", "اختر درساً من المكتبة أولاً."))
+                it.copy(alert = AlertMessage("إجراء غير متاح", "اعتماد بنك الأسئلة متاح لمهمة بنك الأسئلة فقط."))
             }
             return
         }
-        val text = snapshot.generatedResult.trim()
-        if (text.isEmpty()) {
+        val draftId = snapshot.activeDraftId
+        if (draftId.isBlank()) {
             _uiState.update {
-                it.copy(alert = AlertMessage("لا يوجد نص", "ولّد الأسئلة أو أدخلها في المحرر قبل الاستخراج لبنك الأسئلة."))
+                it.copy(alert = AlertMessage("لا توجد مسودة محفوظة", "احفظ الناتج كمسودة أولاً ثم اعتمده لإضافته إلى بنك الأسئلة."))
             }
             return
         }
-        val canonicalWs = snapshot.workspace?.workspaceId.orEmpty().ifBlank { lesson.workspaceId }.ifBlank { lesson.rootPath }
-        val expectedQuestionCount = snapshot.generatedQuestionExpectedCount ?: snapshot.questionCount
-        val expectedQuestionTypeIds = snapshot.generatedQuestionExpectedTypeIds.ifEmpty { snapshot.selectedQuestionTypeIds }
-        val expectedQuestionDifficultyId = snapshot.generatedQuestionExpectedDifficultyId.ifBlank { snapshot.questionDifficulty.id }
-        val parsedResult = runCatching {
-            QuestionBankEngine.parseGeneratedQuestions(
-                rawText = text,
-                workspaceId = canonicalWs,
-                lesson = lesson,
-                expectedCount = expectedQuestionCount,
-                selectedTypeIds = expectedQuestionTypeIds,
-                expectedDifficultyId = expectedQuestionDifficultyId
-            )
-        }
-        if (parsedResult.isFailure) {
-            _uiState.update {
-                it.copy(alert = AlertMessage(
-                    "لم تُحفظ الأسئلة",
-                    parsedResult.exceptionOrNull()?.message ?: "استجابة الأسئلة لا تطابق عقد بنك الأسئلة."
-                ))
-            }
-            return
-        }
-        val parsed = parsedResult.getOrThrow()
         viewModelScope.launch {
-            val savedResult = runCatching {
-                repository.saveQuestionsFromDraftText(
-                    workspaceId = canonicalWs,
-                    lesson = lesson,
-                    rawText = text,
-                    expectedQuestionCount = expectedQuestionCount,
-                    expectedQuestionTypeIds = expectedQuestionTypeIds,
-                    expectedQuestionDifficultyId = expectedQuestionDifficultyId
-                )
-            }
-            val saved = savedResult.getOrElse { error ->
-                _uiState.update {
-                    it.copy(alert = AlertMessage("لم تُحفظ الأسئلة", error.message ?: "تعذر إدراج دفعة الأسئلة."))
-                }
-                return@launch
-            }
-            if (saved.isEmpty()) {
-                _uiState.update {
-                    it.copy(
-                        alert = AlertMessage(
-                            "الأسئلة محفوظة مسبقاً",
-                            "جميع الأسئلة المستخرجة (${parsed.size}) مرتبطة بالفعل ببنك أسئلة واختبار درس «${lesson.title}»."
+            runCatching { repository.approveDraft(draftId) }
+                .onSuccess { count ->
+                    _uiState.update {
+                        it.copy(
+                            toastMessage = "تم اعتماد المسودة. عدد الأسئلة التي تمت ترقيتها إلى البنك: $count.",
+                            alert = null
                         )
-                    )
+                    }
                 }
-            } else {
-                val dups = QuestionBankEngine.markDuplicates(saved).count { it.isDuplicate }
-                val dupNote = if (dups > 0) " (بينها $dups تشابه داخلي)" else ""
-                _uiState.update {
-                    it.copy(
-                        alert = AlertMessage(
-                            "تم الحفظ في بنك الأسئلة",
-                            "تمت إضافة ${saved.size} سؤال جديد لدرس «${lesson.title}» وربطها باختبار الطالب$dupNote."
-                        )
-                    )
+                .onFailure { error ->
+                    _uiState.update {
+                        it.copy(alert = AlertMessage("تعذر اعتماد الأسئلة", error.message ?: "تحقق من بنية المسودة ثم أعد المحاولة."))
+                    }
                 }
-            }
         }
     }
 
@@ -3439,7 +3438,7 @@ class MainViewModel(
         }
         generationJob?.cancel()
         generationJob = viewModelScope.launch {
-            _uiState.update { it.copy(isBusy = true, generationProgressPercent = 2, generationStage = "بدء تجهيز الطلب") }
+            _uiState.update { it.copy(isBusy = true, activeDraftId = "", generatedResult = "", generatedDisplayResult = "", generationProgressPercent = 2, generationStage = "بدء تجهيز الطلب") }
             try {
                 val out = repository.generateContent(
                     workspaceId = snapshot.workspace?.workspaceId.orEmpty(),
@@ -3470,6 +3469,7 @@ class MainViewModel(
                 _uiState.update {
                     it.copy(
                         generatedResult = out.text,
+                        generatedDisplayResult = if (snapshot.task == TaskType.LESSON_TEXT) repository.extractLessonTextFromOutput(out.text) else out.text,
                         generatedQuestionExpectedCount = if (snapshot.task == TaskType.QUESTIONS) snapshot.questionCount else null,
                         generatedQuestionExpectedTypeIds = if (snapshot.task == TaskType.QUESTIONS) snapshot.selectedQuestionTypeIds else emptyList(),
                         generatedQuestionExpectedDifficultyId = if (snapshot.task == TaskType.QUESTIONS) snapshot.questionDifficulty.id else "",
@@ -3478,6 +3478,8 @@ class MainViewModel(
                         activeDraftTemplateId = out.templateId,
                         activeDraftTemplateVersion = out.templateVersion,
                         activeDraftResponseSchemaHash = out.responseSchemaHash,
+                        activeDraftPromptUsed = out.promptUsed,
+                        activeDraftResponseSchemaJson = out.responseSchemaJson,
                         activeDraftRequestFingerprint = out.requestFingerprint,
                         activeDraftContentHash = out.contentHash,
                         activeDraftSourcePdfHash = out.sourcePdfHash,
@@ -3514,7 +3516,7 @@ class MainViewModel(
                     }
                     return@launch
                 }
-                _uiState.update { it.copy(generationProgressPercent = 98, generationStage = "حفظ المسودة وبصمة المحتوى") }
+                _uiState.update { it.copy(activeDraftId = persistedDraft.id, generationProgressPercent = 98, generationStage = "حفظ المسودة وبصمة المحتوى") }
                 val cloudSyncError = if (isCloudAuthenticated) {
                     runCatching { firestoreSync.upsertDraft(currentUserId, persistedDraft) }
                         .onFailure { if (it is CancellationException) throw it }
@@ -3532,72 +3534,24 @@ class MainViewModel(
                     success = true
                 )
                 _uiState.update { it.copy(providers = repository.loadProviders(), generationProgressPercent = 100, generationStage = "اكتمل التوليد والحفظ") }
-                val questionSaveResult = if (snapshot.task == TaskType.QUESTIONS) {
-                    runCatching {
-                        repository.saveQuestionsFromDraftText(
-                            workspaceId = wsId,
-                            lesson = lesson,
-                            rawText = out.text,
-                            draftId = persistedDraft.id,
-                            templateId = out.templateId,
-                            promptUsed = out.promptUsed,
-                            responseSchemaJson = out.responseSchemaJson,
-                            sourceIndexSha256 = persistedDraft.sourceIndexSha256,
-                            expectedQuestionCount = snapshot.questionCount,
-                            expectedQuestionTypeIds = snapshot.selectedQuestionTypeIds,
-                            expectedQuestionDifficultyId = snapshot.questionDifficulty.id
-                        )
-                    }
-                } else null
-                val syncedQuestionsCount = questionSaveResult?.getOrNull()?.size ?: 0
-                val questionSaveError = questionSaveResult?.exceptionOrNull()?.message
-                val lessonTextSaved = if (snapshot.task == TaskType.LESSON_TEXT) {
-                    val extracted = repository.extractLessonTextFromOutput(out.text)
-                    runCatching {
-                        repository.saveLessonText(
-                            workspaceId = wsId,
-                            lesson = lesson,
-                            content = extracted,
-                            extractionMethod = "ai_generated",
-                            sourcePdfHash = out.sourcePdfHash,
-                            templateId = out.templateId,
-                            promptUsed = out.promptUsed,
-                            responseSchemaJson = snapshot.activeDraftResponseSchemaHash
-                        )
-                    }.getOrNull()
-                } else null
                 val interactiveParsed = if (snapshot.task == TaskType.INTERACTIVE) {
-                    InteractiveActivityParser.parse(out.text, lesson.title)
+                    InteractiveActivityParser.parseStrictJson(out.text, lesson.title)
                 } else {
                     null
                 }
-                val publishedBundle = if (interactiveParsed != null) {
-                    runCatching {
-                        repository.buildAndPublishInteractiveBundle(
-                            workspaceId = wsId,
-                            lesson = lesson,
-                            activity = interactiveParsed,
-                            publishForStudents = true
-                        )
-                    }.getOrNull()
-                } else null
                 val resultSummary = when {
-                    snapshot.task == TaskType.QUESTIONS && questionSaveError != null ->
-                        "تم استلام الاستجابة من ${out.providerLabel} (${out.model}) وحفظ نصها كمسودة، لكن لم تُدرج الأسئلة في بنك الأسئلة: $questionSaveError"
-                    snapshot.task == TaskType.QUESTIONS && syncedQuestionsCount > 0 ->
-                        "تم التوليد عبر ${out.providerLabel} (${out.model})، وحُفظت المسودة وتم التحقق من العدد والأنواع قبل إضافة $syncedQuestionsCount سؤالاً إلى بنك الأسئلة واختبار الدرس."
                     snapshot.task == TaskType.QUESTIONS ->
-                        "تم حفظ المسودة. الأسئلة المطابقة موجودة مسبقاً في بنك أسئلة الدرس، لذلك لم تُضف نسخ مكررة."
-                    snapshot.task == TaskType.LESSON_TEXT && lessonTextSaved != null ->
-                        "تم استخراج وحفظ المحتوى النصي للدرس بنجاح في قاعدة البيانات وتحديث مصدر الاستوديو (v${lessonTextSaved.version})."
-                    snapshot.task == TaskType.INTERACTIVE && publishedBundle != null ->
-                        "تم التوليد عبر ${out.providerLabel} (${out.model}) وبناء حزمة HTML + JS + JSON (${interactiveParsed?.steps?.size ?: 0} محطة) ونشرها للطالب مع مزامنة المفاهيم."
+                        "تم حفظ مسودة الأسئلة فقط. لن تُدرج في بنك الأسئلة أو اختبار الطالب قبل اعتمادها صراحةً."
+                    snapshot.task == TaskType.LESSON_TEXT ->
+                        "تم حفظ نص الدرس كمسودة. راجع النص واعتمده لحفظه في مصدر الدرس."
                     snapshot.task == TaskType.INTERACTIVE && interactiveParsed != null ->
-                        "تم التوليد عبر ${out.providerLabel} (${out.model}) وأصبح النشاط التفاعلي (${interactiveParsed.steps.size} محطة) جاهزاً للتشغيل في شاشة المتعلم والاستوديو."
+                        "تم حفظ النشاط التفاعلي (${interactiveParsed.steps.size} محطة) كمسودة قابلة للمعاينة في الاستوديو؛ لن يُنشر للطالب قبل الاعتماد."
+                    snapshot.task == TaskType.INTERACTIVE ->
+                        "تم حفظ استجابة النشاط كمسودة، لكن بنيتها لا تجتاز التحقق الصارم بعد."
                     else ->
                         "تم استلام الاستجابة عبر ${out.providerLabel} (${out.model}) وحفظها كمسودة."
                 }
-                val reviewIssues = (out.validationIssues + listOfNotNull(questionSaveError, cloudSyncError))
+                val reviewIssues = (out.validationIssues + listOfNotNull(cloudSyncError))
                     .filter { it.isNotBlank() }
                     .distinct()
                 val resultMessage = if (reviewIssues.isEmpty()) {
@@ -3612,7 +3566,7 @@ class MainViewModel(
                         generatedQuestionExpectedCount = if (snapshot.task == TaskType.QUESTIONS) snapshot.questionCount else null,
                         generatedQuestionExpectedTypeIds = if (snapshot.task == TaskType.QUESTIONS) snapshot.selectedQuestionTypeIds else emptyList(),
                         generatedQuestionExpectedDifficultyId = if (snapshot.task == TaskType.QUESTIONS) snapshot.questionDifficulty.id else "",
-                        sourceText = if (snapshot.task == TaskType.LESSON_TEXT && lessonTextSaved != null) lessonTextSaved.content else it.sourceText,
+                        sourceText = it.sourceText,
                         activeDraftProvider = out.providerLabel,
                         activeDraftModel = out.model,
                         activeDraftTemplateId = out.templateId,

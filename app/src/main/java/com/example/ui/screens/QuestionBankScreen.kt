@@ -80,6 +80,7 @@ import com.example.model.LessonRef
 import com.example.model.MasteryStatus
 import com.example.model.QuestionDifficulty
 import com.example.model.QuestionItem
+import com.example.model.QuestionSourceType
 import com.example.model.QuestionMasteryStats
 import com.example.model.QuestionType
 import com.example.ui.components.EduPanel
@@ -144,6 +145,7 @@ fun QuestionBankScreen(
     val filtered = remember(questions, searchQuery, selectedType, selectedDifficulty, onlyCurrentLesson, selectedLesson) {
         val q = searchQuery.trim()
         questions.filter { item ->
+            if (item.sourceType == QuestionSourceType.INTERACTIVE_CHECKPOINT || item.id.startsWith("q-int-")) return@filter false
             val matchesLesson = !onlyCurrentLesson || selectedLesson == null ||
                 (item.bookKey == selectedLesson.bookKey && item.unitKey == selectedLesson.unitKey && item.lessonKey == selectedLesson.lessonKey)
             val matchesType = selectedType == null || item.type == selectedType

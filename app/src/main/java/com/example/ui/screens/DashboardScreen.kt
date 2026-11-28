@@ -216,18 +216,22 @@ fun DashboardScreen(
     val allBookNodes = remember(bookFilteredUnits) {
         bookFilteredUnits.flatMap { it.nodes }
     }
-    val filterCounts = remember(allBookNodes) {
+    val filterCounts = remember(allBookNodes, isLearner) {
         mapOf(
             DashboardLessonFilter.ALL to allBookNodes.size,
             DashboardLessonFilter.PENDING to allBookNodes.count { !it.isCompleted },
             DashboardLessonFilter.IN_PROGRESS to allBookNodes.count {
-                !it.isCompleted && (it.status == LearningNodeStatus.IN_PROGRESS || it.quizAttemptedCount > 0)
+                !it.isCompleted && if (isLearner) {
+                    it.quizAttemptedCount > 0
+                } else {
+                    it.status == LearningNodeStatus.IN_PROGRESS || it.quizAttemptedCount > 0
+                }
             },
             DashboardLessonFilter.READY_FOR_QUIZ to allBookNodes.count { !it.isCompleted && it.questionsCount > 0 },
             DashboardLessonFilter.COMPLETED to allBookNodes.count { it.isCompleted }
         )
     }
-    val visibleUnitPaths = remember(bookFilteredUnits, dashboardState.lessonFilter) {
+    val visibleUnitPaths = remember(bookFilteredUnits, dashboardState.lessonFilter, isLearner) {
         if (dashboardState.lessonFilter == DashboardLessonFilter.ALL) {
             bookFilteredUnits
         } else {
@@ -237,7 +241,11 @@ fun DashboardScreen(
                         DashboardLessonFilter.ALL -> true
                         DashboardLessonFilter.PENDING -> !node.isCompleted
                         DashboardLessonFilter.IN_PROGRESS ->
-                            !node.isCompleted && (node.status == LearningNodeStatus.IN_PROGRESS || node.quizAttemptedCount > 0)
+                            !node.isCompleted && if (isLearner) {
+                                node.quizAttemptedCount > 0
+                            } else {
+                                node.status == LearningNodeStatus.IN_PROGRESS || node.quizAttemptedCount > 0
+                            }
                         DashboardLessonFilter.READY_FOR_QUIZ -> !node.isCompleted && node.questionsCount > 0
                         DashboardLessonFilter.COMPLETED -> node.isCompleted
                     }
@@ -586,6 +594,7 @@ fun DashboardScreen(
                                     stepNumber = idx + 1,
                                     isLast = idx == unitPath.nodes.lastIndex,
                                     node = node,
+                                    showApprovedOnly = isLearner,
                                     showStudioAction = !isLearner,
                                     onOpenStudentStudy = {
                                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -1967,12 +1976,23 @@ private fun LearningPathNodeRow(
     stepNumber: Int,
     isLast: Boolean,
     node: LearningLessonNode,
+    showApprovedOnly: Boolean,
     showStudioAction: Boolean,
     onOpenStudentStudy: () -> Unit,
     onPreviewPdf: (() -> Unit)?,
     onOpenInStudio: () -> Unit
 ) {
-    val (nodeColor, borderColor, bgColor) = when (node.status) {
+    val visibleDraftsCount = if (showApprovedOnly) node.approvedDraftsCount else node.draftsCount
+    val visiblePackagesCount = if (showApprovedOnly) node.publishedPackagesCount else node.packagesCount
+    val displayStatus = if (
+        showApprovedOnly &&
+        node.status == LearningNodeStatus.IN_PROGRESS &&
+        visibleDraftsCount == 0 &&
+        visiblePackagesCount == 0 &&
+        node.questionsCount == 0 &&
+        node.quizAttemptedCount == 0
+    ) LearningNodeStatus.NOT_STARTED else node.status
+    val (nodeColor, borderColor, bgColor) = when (displayStatus) {
         LearningNodeStatus.COMPLETED -> Triple(EduGreen, EduGreen, EduMint.copy(alpha = 0.4f))
         LearningNodeStatus.READY -> Triple(EduPurple, EduPurple.copy(alpha = 0.55f), EduWhite)
         LearningNodeStatus.IN_PROGRESS -> Triple(EduOrange, EduOrange.copy(alpha = 0.6f), EduWhite)
@@ -2052,7 +2072,7 @@ private fun LearningPathNodeRow(
                         color = EduInk
                     )
                     val details = buildString {
-                        append(node.status.labelAr)
+                        append(displayStatus.labelAr)
                         node.lesson.pageRange?.let { append(" • ص $it") }
                         if (node.questionsCount > 0) append(" • ${node.questionsCount} سؤال")
                     }
@@ -2080,17 +2100,17 @@ private fun LearningPathNodeRow(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    if (node.draftsCount > 0) {
+                    if (visibleDraftsCount > 0) {
                         LessonMetaChip(
                             icon = Icons.Rounded.Description,
-                            label = "ملخص/شرح (${node.draftsCount})",
+                            label = "ملخص/شرح ($visibleDraftsCount)",
                             tint = EduBlue
                         )
                     }
-                    if (node.packagesCount > 0) {
+                    if (visiblePackagesCount > 0) {
                         LessonMetaChip(
                             icon = Icons.Rounded.Code,
-                            label = "تفاعلي (${node.packagesCount})",
+                            label = "تفاعلي ($visiblePackagesCount)",
                             tint = EduPurple
                         )
                     }

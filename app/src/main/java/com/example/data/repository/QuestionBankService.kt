@@ -4,7 +4,6 @@ import com.example.data.local.EduMiniDao
 import com.example.data.local.QuestionAttemptEntity
 import com.example.data.local.QuestionEntity
 import com.example.model.ConceptMasterySummary
-import com.example.model.InteractiveActivityModel
 import com.example.model.LearnerProfile
 import com.example.model.LessonRef
 import com.example.model.MasteryStatus
@@ -13,6 +12,7 @@ import com.example.model.QuestionDifficulty
 import com.example.model.QuestionItem
 import com.example.model.QuestionMasteryStats
 import com.example.model.QuestionType
+import com.example.model.QuestionSourceType
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
@@ -228,77 +228,6 @@ class QuestionBankService(
         return newItems
     }
 
-    /**
-     * Extracts checkpoint questions from an [InteractiveActivityModel] and links/saves them
-     * directly into the Room question bank so interactive lessons & quizzes share one truth.
-     */
-    suspend fun syncInteractiveCheckpointsToQuestionBank(
-        workspaceId: String,
-        lesson: LessonRef,
-        activity: InteractiveActivityModel,
-        draftId: String = "",
-        templateId: String = "",
-        promptUsed: String = "",
-        responseSchemaJson: String = "",
-        sourceIndexSha256: String = ""
-    ): List<QuestionItem> {
-        val canonicalWs = workspaceId.ifBlank { lesson.workspaceId }.ifBlank { lesson.rootPath }
-        if (canonicalWs.isBlank()) return emptyList()
-        val now = Instant.now().toString()
-        val extracted = activity.steps.mapNotNull { step ->
-            val qPrompt = step.checkpointQuestion.trim()
-            val qAns = step.checkpointAnswer.trim()
-            if (qPrompt.isBlank() || qAns.isBlank()) return@mapNotNull null
-            val options = step.checkpointOptions.map { it.trim() }.filter { it.isNotBlank() }
-            val qType = when {
-                options.size == 2 && options.any { it == "صح" || it == "خطأ" } -> QuestionType.TRUE_FALSE
-                options.isNotEmpty() -> QuestionType.MCQ
-                else -> QuestionType.SHORT_ANSWER
-            }
-            val concept = inferConceptTag(
-                explicitTag = step.conceptTag.ifBlank { step.title },
-                prompt = qPrompt,
-                rationale = step.body,
-                lessonTitle = lesson.title
-            )
-            QuestionItem(
-                id = "q-int-${System.currentTimeMillis()}-${UUID.randomUUID().toString().take(6)}",
-                workspaceId = canonicalWs,
-                gradeKey = lesson.grade,
-                bookKey = lesson.bookKey,
-                unitKey = lesson.unitKey,
-                lessonKey = lesson.lessonKey,
-                lessonTitle = lesson.title,
-                type = qType,
-                prompt = qPrompt,
-                options = options,
-                correctAnswer = qAns,
-                rationale = step.body.take(240),
-                difficulty = QuestionDifficulty.MEDIUM,
-                sourcePages = lesson.pageRange,
-                fingerprint = QuestionBankEngine.computeFingerprint(qPrompt),
-                reviewed = true,
-                createdAt = now,
-                conceptTag = concept,
-                draftId = draftId,
-                templateId = templateId,
-                promptUsed = promptUsed,
-                responseSchemaJson = responseSchemaJson,
-                sourceIndexSha256 = sourceIndexSha256
-            )
-        }
-        return saveQuestionsWithConceptTags(
-            workspaceId = canonicalWs,
-            lesson = lesson,
-            parsedQuestions = extracted,
-            draftId = draftId,
-            templateId = templateId,
-            promptUsed = promptUsed,
-            responseSchemaJson = responseSchemaJson,
-            sourceIndexSha256 = sourceIndexSha256
-        )
-    }
-
     suspend fun recordBatchAttemptsForUser(
         workspaceId: String,
         userId: String = LearnerProfile.DEFAULT_USER_ID,
@@ -353,8 +282,12 @@ class QuestionBankService(
 
         val fp = QuestionBankEngine.computeFingerprint(cleanPrompt)
         val existingQuestions = dao.observeQuestionsForWorkspace(canonicalWs).first()
+        // Checkpoint attempts must never attach to an official question merely
+        // because the prompt text happens to be identical. Keep checkpoint history
+        // on its own source row so learner quiz statistics remain uncontaminated.
         val matched = existingQuestions.firstOrNull { q ->
-            q.bookKey == lesson.bookKey &&
+            (q.sourceType == QuestionSourceType.INTERACTIVE_CHECKPOINT.id || q.id.startsWith("q-int-")) &&
+                q.bookKey == lesson.bookKey &&
                 q.unitKey == lesson.unitKey &&
                 q.lessonKey == lesson.lessonKey &&
                 (q.fingerprint.ifBlank { QuestionBankEngine.computeFingerprint(q.prompt) }) == fp
@@ -392,7 +325,8 @@ class QuestionBankService(
                 fingerprint = fp,
                 reviewed = true,
                 createdAt = now,
-                conceptTag = effectiveConcept
+                conceptTag = effectiveConcept,
+                sourceType = QuestionSourceType.INTERACTIVE_CHECKPOINT.id
             )
             dao.insertQuestions(listOf(newEntity))
             newId
@@ -438,7 +372,8 @@ class QuestionBankService(
             templateId = templateId,
             promptUsed = promptUsed,
             responseSchemaJson = responseSchemaJson,
-            sourceIndexSha256 = sourceIndexSha256
+            sourceIndexSha256 = sourceIndexSha256,
+            sourceType = QuestionSourceType.fromId(sourceType)
         )
     }
 
@@ -465,7 +400,8 @@ class QuestionBankService(
         templateId = templateId,
         promptUsed = promptUsed,
         responseSchemaJson = responseSchemaJson,
-        sourceIndexSha256 = sourceIndexSha256
+        sourceIndexSha256 = sourceIndexSha256,
+        sourceType = sourceType.id
     )
 
     private fun QuestionAttemptEntity.toModel() = QuestionAttemptRecord(

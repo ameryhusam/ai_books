@@ -118,6 +118,7 @@ import com.example.data.workspace.DirectWorkspaceBinder
 import com.example.data.workspace.WorkspaceImporter
 import com.example.model.AppPage
 import com.example.model.AuthRoleCheckState
+import com.example.model.QuestionSourceType
 import com.example.model.UserRole
 import com.example.ui.auth.AuthScreen
 import com.example.ui.auth.authStateFlow
@@ -750,10 +751,14 @@ private fun AuthenticatedEduMiniContent(
                                             sourceText = state.sourceText,
                                             extraInstructions = state.extraInstructions,
                                             generatedResult = state.generatedResult,
+                                            displayGeneratedResult = state.generatedDisplayResult,
                                             packageSourcePages = state.packageSourcePages,
                                             lessonDrafts = lessonDrafts,
                                             cloudDraftsState = cloudDraftsState,
                                             lessonPackages = lessonPackages,
+                                            currentLessonTextContent = currentLessonText?.content,
+                                            onSaveCurrentAsLessonText = viewModel::saveCurrentContentAsLessonText,
+                                            onUseStoredLessonTextAsSource = viewModel::useStoredLessonTextAsSource,
                                             teacherNote = currentTeacherNote,
                                             promptTemplates = promptTemplates,
                                             activePromptTemplateId = state.activePromptTemplateId,
@@ -957,7 +962,10 @@ private fun AuthenticatedEduMiniContent(
                         workspaceQuestions.filter {
                             it.bookKey == studyLesson.bookKey &&
                                 it.unitKey == studyLesson.unitKey &&
-                                it.lessonKey == studyLesson.lessonKey
+                                it.lessonKey == studyLesson.lessonKey &&
+                                it.reviewed &&
+                                it.sourceType != QuestionSourceType.INTERACTIVE_CHECKPOINT &&
+                                !it.id.startsWith("q-int-")
                         }
                     }
                     val isCompleted = remember(dashboardSummary, studyLesson) {

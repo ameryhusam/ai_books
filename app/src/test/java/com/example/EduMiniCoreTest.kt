@@ -763,6 +763,7 @@ class EduMiniCoreTest {
             assertEquals("easy", stored.difficulty)
             assertEquals(listOf("3", "4"), Json.decodeFromString<List<String>>(stored.optionsJson))
             assertEquals("الجمع", stored.conceptTag)
+            assertEquals("AI_GENERATED", stored.sourceType)
 
             val duplicateResult = service.saveQuestionsWithConceptTags(
                 workspaceId = "ws-contract",
@@ -856,10 +857,16 @@ class EduMiniCoreTest {
         assertTrue(indexFile.readText().contains("need_review"))
         assertTrue(indexFile.readText().contains("lesson_01"))
         assertTrue(manifestFile.readText().contains("العلوم"))
-        assertTrue(File(workspace.books.first().sourcePdfPath!!).isFile)
+        // The source PDF is a temporary intake file; the workspace owns per-lesson PDFs instead.
+        assertNull(workspace.books.first().sourcePdfPath)
+        workspace.lessons.forEach { lesson ->
+            assertNotNull(lesson.pdfPath)
+            assertTrue(File(lesson.pdfPath!!).isFile)
+        }
         val extractedText = File(workspace.rootPath, "workspace/G05/SCI/P01/units/unit_01/lesson_01.txt")
         assertTrue(extractedText.isFile)
         assertTrue(extractedText.readText().contains("Sample textbook lesson page"))
+        assertTrue(File(extractedText.parentFile, "lesson_01.extraction.json").isFile)
     }
 
     @Test
@@ -1557,6 +1564,7 @@ class EduMiniCoreTest {
             )
         )
 
+        // A mismatched index hash is reviewable only with explicit consent; review metadata must remain unapproved.
         val preview = importer.inspectZipFromStream(ByteArrayInputStream(zipBytes), zipBytes.size.toLong())
         assertTrue(preview.requiresReviewConfirmation)
         assertTrue(preview.reviewFindings.any { it.contains("SHA-256") || it.contains("approvalStatus") })
@@ -1573,7 +1581,8 @@ class EduMiniCoreTest {
         ).single()
         assertTrue(imported.books.single().requiresReview)
         assertEquals("NEEDS_REVIEW", imported.books.single().approvalStatus)
-        assertEquals("UNKNOWN", imported.units.single().partKey)
+        // need_review keeps the proposed part unassigned; only an explicit later review may set partKey.
+        assertNull(imported.units.single().partKey)
         assertEquals("P01", imported.units.single().proposedPartKey)
         assertEquals("need_review", imported.units.single().assignmentStatus)
         assertTrue(imported.warnings.any { it.contains("SHA-256") || it.contains("approvalStatus") })

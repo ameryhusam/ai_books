@@ -150,10 +150,14 @@ fun StudioScreen(
     sourceText: String,
     extraInstructions: String,
     generatedResult: String,
+    displayGeneratedResult: String = generatedResult,
     packageSourcePages: String,
     lessonDrafts: List<DraftRecord>,
     cloudDraftsState: SyncUiState<List<CloudDraft>> = SyncUiState.Loading,
     lessonPackages: List<InteractivePackageRecord>,
+    currentLessonTextContent: String? = null,
+    onSaveCurrentAsLessonText: (Boolean) -> Unit = {},
+    onUseStoredLessonTextAsSource: () -> Unit = {},
     teacherNote: TeacherNoteRecord? = null,
     promptTemplates: List<PromptTemplateRecord> = emptyList(),
     activePromptTemplateId: String = "",
@@ -260,10 +264,14 @@ fun StudioScreen(
                     sourceText = sourceText,
                     extraInstructions = extraInstructions,
                     generatedResult = generatedResult,
+                    displayGeneratedResult = displayGeneratedResult,
                     packageSourcePages = packageSourcePages,
                     lessonDrafts = lessonDrafts,
                     cloudDraftsState = cloudDraftsState,
                     lessonPackages = lessonPackages,
+                    currentLessonTextContent = currentLessonTextContent,
+                    onSaveCurrentAsLessonText = onSaveCurrentAsLessonText,
+                    onUseStoredLessonTextAsSource = onUseStoredLessonTextAsSource,
                     teacherNote = teacherNote,
                     promptTemplates = promptTemplates,
                     activePromptTemplateId = activePromptTemplateId,
@@ -327,10 +335,14 @@ fun StudioScreen(
                     sourceText = sourceText,
                     extraInstructions = extraInstructions,
                     generatedResult = generatedResult,
+                    displayGeneratedResult = displayGeneratedResult,
                     packageSourcePages = packageSourcePages,
                     lessonDrafts = lessonDrafts,
                     cloudDraftsState = cloudDraftsState,
                     lessonPackages = lessonPackages,
+                    currentLessonTextContent = currentLessonTextContent,
+                    onSaveCurrentAsLessonText = onSaveCurrentAsLessonText,
+                    onUseStoredLessonTextAsSource = onUseStoredLessonTextAsSource,
                     teacherNote = teacherNote,
                     promptTemplates = promptTemplates,
                     activePromptTemplateId = activePromptTemplateId,
@@ -409,10 +421,14 @@ private fun StudioWorkbench(
     sourceText: String,
     extraInstructions: String,
     generatedResult: String,
+    displayGeneratedResult: String,
     packageSourcePages: String,
     lessonDrafts: List<DraftRecord>,
     cloudDraftsState: SyncUiState<List<CloudDraft>>,
     lessonPackages: List<InteractivePackageRecord>,
+    currentLessonTextContent: String?,
+    onSaveCurrentAsLessonText: (Boolean) -> Unit,
+    onUseStoredLessonTextAsSource: () -> Unit,
     teacherNote: TeacherNoteRecord?,
     promptTemplates: List<PromptTemplateRecord>,
     activePromptTemplateId: String,
@@ -463,8 +479,9 @@ private fun StudioWorkbench(
 
     // Switch seamlessly to Output tab when a new result arrives from generation
     LaunchedEffect(generatedResult) {
-        if (generatedResult.isNotBlank() && generatedResult != lastResultSeen && workbenchTab == 0) {
+        if (generatedResult.isNotBlank() && generatedResult != lastResultSeen) {
             lastResultSeen = generatedResult
+            workbenchTab = 1
         }
     }
 
@@ -780,7 +797,7 @@ private fun StudioWorkbench(
 
                             if (task == TaskType.QUESTIONS || task == TaskType.INTERACTIVE) {
                                 Text(
-                                    text = stringResource(R.string.studio_question_count_label),
+                                    text = if (task == TaskType.INTERACTIVE) "عدد المحطات التفاعلية المطلوبة" else stringResource(R.string.studio_question_count_label),
                                     style = MaterialTheme.typography.labelMedium,
                                     color = EduInk,
                                     modifier = Modifier.padding(top = 4.dp)
@@ -791,7 +808,7 @@ private fun StudioWorkbench(
                                 ) {
                                     listOf(3, 5, 10, 15, 20).forEach { count ->
                                         EduPill(
-                                            text = "$count أسئلة",
+                                            text = if (task == TaskType.INTERACTIVE) "$count محطات" else "$count أسئلة",
                                             active = questionCount == count,
                                             onClick = { onQuestionCountChange(count) },
                                             testTag = "question_count_$count"
@@ -1146,7 +1163,7 @@ private fun StudioWorkbench(
                                             color = EduGreenDark
                                         )
                                         Text(
-                                            text = generatedResult.take(110).replace('\n', ' '),
+                                            text = displayGeneratedResult.take(110).replace('\n', ' '),
                                             style = MaterialTheme.typography.bodySmall,
                                             color = EduInk,
                                             maxLines = 2,
@@ -1260,7 +1277,7 @@ private fun StudioWorkbench(
                                     )
                                 } else {
                                     EduMarkdownReader(
-                                        text = generatedResult,
+                                        text = displayGeneratedResult,
                                         onSwitchToEdit = { rawEditorMode = true }
                                     )
                                 }
@@ -1298,6 +1315,7 @@ private fun StudioWorkbench(
                                         Spacer(modifier = Modifier.width(4.dp))
                                         Text("نسخ", color = EduInk, style = MaterialTheme.typography.labelMedium)
                                     }
+                                    if (task == TaskType.QUESTIONS) {
                                     OutlinedButton(
                                         onClick = onSaveToQuestionBank,
                                         shape = RoundedCornerShape(10.dp),
@@ -1308,7 +1326,8 @@ private fun StudioWorkbench(
                                     ) {
                                         Icon(Icons.Outlined.Quiz, contentDescription = null, tint = EduGreenDark, modifier = Modifier.size(16.dp))
                                         Spacer(modifier = Modifier.width(4.dp))
-                                        Text("استخراج لبنك الأسئلة", color = EduGreenDark, style = MaterialTheme.typography.labelMedium)
+                                        Text("اعتماد آخر مسودة محفوظة", color = EduGreenDark, style = MaterialTheme.typography.labelMedium)
+                                    }
                                     }
                                 }
 
@@ -1332,25 +1351,12 @@ private fun StudioWorkbench(
                                             Spacer(modifier = Modifier.width(6.dp))
                                             Text("تشغيل النشاط التفاعلي (JSON)", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
                                         }
-                                        OutlinedButton(
-                                            onClick = { onPublishInteractiveBundle(generatedResult) },
-                                            enabled = !isBusy,
-                                            shape = RoundedCornerShape(12.dp),
-                                            border = BorderStroke(1.dp, EduGreen),
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .minimumInteractiveComponentSize()
-                                                .testTag("publish_interactive_bundle_button")
-                                        ) {
-                                            Icon(Icons.Rounded.Publish, contentDescription = null, tint = EduGreenDark, modifier = Modifier.size(18.dp))
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            Text(
-                                                text = "تصدير ونشر كحزمة HTML + JS + JSON للطالب",
-                                                color = EduGreenDark,
-                                                style = MaterialTheme.typography.labelLarge,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                        }
+                                        Text(
+                                            text = "يتم إنشاء الحزمة ونشرها للطالب بعد اعتماد المسودة من قائمة المسودات.",
+                                            color = EduMuted,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            modifier = Modifier.padding(horizontal = 4.dp)
+                                        )
                                     }
                                 }
                             }
@@ -1363,7 +1369,7 @@ private fun StudioWorkbench(
                                 color = EduInk,
                                 modifier = Modifier.padding(top = 4.dp)
                             )
-                            lessonDrafts.forEach { draft ->
+                            lessonDrafts.filter { it.task == task }.forEach { draft ->
                                 val statusEnum = DraftStatus.fromId(draft.status)
                                 EduPanel(
                                     modifier = Modifier
@@ -1410,16 +1416,6 @@ private fun StudioWorkbench(
                                                     imageVector = Icons.Rounded.PlayArrow,
                                                     contentDescription = "تشغيل النشاط التفاعلي",
                                                     tint = EduPurple
-                                                )
-                                            }
-                                            IconButton(
-                                                onClick = { onPublishInteractiveBundle(draft.content) },
-                                                modifier = Modifier.minimumInteractiveComponentSize()
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Rounded.Publish,
-                                                    contentDescription = "تصدير ونشر HTML + JS + JSON",
-                                                    tint = EduGreenDark
                                                 )
                                             }
                                         }
@@ -1635,6 +1631,55 @@ private fun StudioWorkbench(
                                 ) {
                                     Text("حفظ الملاحظة والإشارة", color = EduGreenDark, style = MaterialTheme.typography.labelMedium)
                                 }
+                            }
+                        }
+
+                        if (!currentLessonTextContent.isNullOrBlank()) {
+                            EduPanel(modifier = Modifier.fillMaxWidth()) {
+                                Text("نص الدرس المحفوظ", style = MaterialTheme.typography.titleMedium, color = EduInk)
+                                Text(
+                                    text = currentLessonTextContent.take(260),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = EduMuted,
+                                    maxLines = 4,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                OutlinedButton(
+                                    onClick = onUseStoredLessonTextAsSource,
+                                    modifier = Modifier.fillMaxWidth().minimumInteractiveComponentSize()
+                                ) {
+                                    Text("استخدام النص المحفوظ كمصدر")
+                                }
+                            }
+                        }
+                        if (
+                            generatedResult.isNotBlank() &&
+                            task in setOf(
+                                TaskType.EXPLANATION,
+                                TaskType.SUMMARY,
+                                TaskType.OBJECTIVES,
+                                TaskType.VOCABULARY,
+                                TaskType.WORKED_EXAMPLES,
+                                TaskType.LESSON_REVIEW,
+                                TaskType.DIFFICULTY_ADAPTER,
+                                TaskType.LESSON_TEXT
+                            )
+                        ) {
+                            EduPanel(modifier = Modifier.fillMaxWidth()) {
+                                Text("إدارة نص الدرس", style = MaterialTheme.typography.titleMedium, color = EduInk)
+                                Text(
+                                    "احفظ النص الناتج أو نص المصدر بعد مراجعته. لن يتم اعتماده تلقائياً بمجرد التوليد.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = EduMuted
+                                )
+                                Button(
+                                    onClick = { onSaveCurrentAsLessonText(true) },
+                                    modifier = Modifier.fillMaxWidth().minimumInteractiveComponentSize()
+                                ) { Text("حفظ الناتج كنص للدرس") }
+                                OutlinedButton(
+                                    onClick = { onSaveCurrentAsLessonText(false) },
+                                    modifier = Modifier.fillMaxWidth().minimumInteractiveComponentSize()
+                                ) { Text("حفظ نص المصدر كنص للدرس") }
                             }
                         }
 

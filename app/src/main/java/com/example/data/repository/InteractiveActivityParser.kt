@@ -13,6 +13,16 @@ object InteractiveActivityParser {
 
     private val json = Json { ignoreUnknownKeys = true }
 
+    /**
+     * Strict parser for AI-generated or publishable activities.
+     * Unlike [parse], this never interprets ordinary numbered prose as an activity.
+     */
+    fun parseStrictJson(rawText: String, fallbackTitle: String = "نشاط تفاعلي للدرس"): InteractiveActivityModel? {
+        val cleaned = rawText.trim()
+        if (cleaned.isBlank()) return null
+        return tryParseJson(cleaned, fallbackTitle)
+    }
+
     fun parse(rawText: String, fallbackTitle: String = "نشاط تفاعلي للدرس"): InteractiveActivityModel? {
         val cleaned = rawText.trim()
         if (cleaned.isBlank()) return null

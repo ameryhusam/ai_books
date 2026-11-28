@@ -6,11 +6,34 @@ on:
       - 'app/src/main/java/com/example/data/workspace/**'
       - 'app/src/main/java/com/example/data/ai/AiGenerationService.kt'
       - 'app/src/main/java/com/example/data/repository/EduMiniRepository.kt'
+      - 'app/src/main/java/com/example/data/local/EduMiniDatabase.kt'
+      - 'app/src/main/java/com/example/data/repository/InteractiveActivityParser.kt'
+      - 'app/src/main/java/com/example/data/repository/QuestionBankService.kt'
+      - 'app/src/main/java/com/example/data/repository/QuestionBankEngine.kt'
+      - 'app/src/main/java/com/example/model/Models.kt'
+      - 'app/src/main/java/com/example/data/workspace/WorkspaceExporter.kt'
+      - 'app/src/main/java/com/example/data/firebase/FirestoreSyncRepository.kt'
+      - 'app/src/main/java/com/example/model/CloudModels.kt'
+      - 'app/src/main/java/com/example/ui/MainUiState.kt'
+      - 'app/src/main/java/com/example/ui/MainViewModel.kt'
+      - 'app/src/main/java/com/example/ui/EduMiniApp.kt'
+      - 'app/src/main/java/com/example/ui/components/StudentStudyDialog.kt'
+      - 'app/src/main/java/com/example/ui/screens/DashboardScreen.kt'
+      - 'app/src/main/java/com/example/ui/screens/AdminDashboardScreen.kt'
+      - 'app/src/main/java/com/example/ui/screens/StudioScreen.kt'
+      - 'app/src/main/java/com/example/ui/screens/QuestionBankScreen.kt'
+      - 'app/src/test/java/com/example/GenerationDraftTaskIsolationTest.kt'
+      - 'app/src/test/java/com/example/InteractiveActivityParserTest.kt'
+      - 'app/src/test/java/com/example/QuestionSourceTypeMigration18To19Test.kt'
+      - 'app/src/test/java/com/example/InteractiveCheckpointIsolationTest.kt'
       - 'app/src/main/assets/prompts/book_indexing/book_index_discovery.prompt.md'
       - 'app/src/test/java/com/example/data/workspace/**'
       - 'app/src/test/java/com/example/BookIndexIntakeWorkflowTest.kt'
       - 'app/src/test/java/com/example/EduMiniCoreTest.kt'
       - '.github/workflows/workspace-quick-tests.yml'
+  pull_request:
+    branches: [main]
+    types: [synchronize]
   workflow_dispatch:
 
 permissions:
@@ -41,4 +64,14 @@ jobs:
           gradle :app:testDebugUnitTest
           --tests com.example.data.workspace.WorkspaceContractValidatorTest
           --tests com.example.BookIndexIntakeWorkflowTest
+          --tests com.example.GenerationDraftTaskIsolationTest
+          --tests com.example.InteractiveActivityParserTest
+          --tests com.example.data.local.QuestionSourceTypeMigration18To19Test
+          --tests com.example.InteractiveCheckpointIsolationTest
+          --tests 'com.example.EduMiniCoreTest.canonicalQuestionPayloadMapsToRoomAndRejectsDuplicateBatchWithoutPartialWrites'
+          --tests 'com.example.EduMiniCoreTest.strictGeneratedQuestionParserEnforcesExactCountAndTypeDistribution'
+          --tests 'com.example.EduMiniCoreTest.strictGeneratedQuestionParserRejectsCountAndTypeMixMismatch'
+          --tests 'com.example.EduMiniCoreTest.questionBankEngineParsesJsonAndArabicTextDetectsDuplicatesAndGradesQuiz'
+          --tests 'com.example.EduMiniCoreTest.pdfBookSplitterAutoSplitsAndCreatesWorkspaceWithLessonPdfs'
+          --tests 'com.example.EduMiniCoreTest.importerAllowsIndexHashMismatchOnlyAfterExplicitReviewConsent'
           -PallowMissingGoogleServices=true

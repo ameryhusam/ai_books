@@ -72,6 +72,7 @@ import com.example.model.QuestionAttemptRecord
 import com.example.model.QuestionDifficulty
 import com.example.model.QuestionItem
 import com.example.model.QuestionType
+import com.example.model.QuestionSourceType
 import com.example.model.StagedWorkspacePreview
 import com.example.model.TaskType
 import com.example.model.UnitCompletionStatus
@@ -1285,7 +1286,8 @@ class EduMiniRepository(
             legacyRootPath = lesson.rootPath,
             bookKey = lesson.bookKey,
             unitKey = lesson.unitKey,
-            lessonKey = lesson.lessonKey
+            lessonKey = lesson.lessonKey,
+            task = task.id
         )
         val nextVersion = maxVer + 1
         val id = "draft-${System.currentTimeMillis()}-${UUID.randomUUID().toString().take(6)}"
@@ -1356,6 +1358,7 @@ class EduMiniRepository(
 
     suspend fun approveDraft(draftId: String): Int {
         val draft = dao.getDraftById(draftId) ?: return 0
+        if (draft.status == DraftStatus.APPROVED.id) return 0
         val task = TaskType.fromId(draft.task)
         val lessonRef = dao.getLessonsForWorkspaceSnapshot(draft.workspaceId)
             .firstOrNull {
@@ -1398,44 +1401,42 @@ class EduMiniRepository(
             return 0
         }
         if (task == TaskType.INTERACTIVE) {
-            val activity = InteractiveActivityParser.parse(draft.content, lessonRef.title) ?: return 0
-            val synced = questionBankService.syncInteractiveCheckpointsToQuestionBank(
+            val activity = InteractiveActivityParser.parseStrictJson(draft.content, lessonRef.title)
+                ?: throw IllegalArgumentException("تعذر اعتماد النشاط: بنية النشاط التفاعلي غير صالحة.")
+            buildAndPublishInteractiveBundle(
                 workspaceId = draft.workspaceId,
                 lesson = lessonRef,
                 activity = activity,
+                publishForStudents = true
+            ) ?: throw IllegalStateException("تعذر إنشاء الحزمة التفاعلية؛ لم يتم اعتماد المسودة.")
+            dao.updateDraftStatus(draftId, DraftStatus.APPROVED.id)
+            return activity.steps.size
+        }
+        val expectedBatch = QuestionResponseContract.expectedBatchFromPrompt(draft.promptUsed)
+        val alreadyStoredForDraft = dao.countQuestionsForDraft(draft.id)
+        val savedQuestions = if (alreadyStoredForDraft > 0) {
+            emptyList()
+        } else {
+            saveQuestionsFromDraftText(
+                workspaceId = draft.workspaceId,
+                lesson = lessonRef,
+                rawText = draft.content,
                 draftId = draft.id,
                 templateId = draft.templateId,
                 promptUsed = draft.promptUsed,
                 responseSchemaJson = draft.responseSchemaJson,
-                sourceIndexSha256 = draft.sourceIndexSha256
+                sourceIndexSha256 = draft.sourceIndexSha256,
+                expectedQuestionCount = expectedBatch?.count,
+                expectedQuestionTypeIds = expectedBatch?.typeIds.orEmpty(),
+                expectedQuestionDifficultyId = expectedBatch?.difficultyId
             )
-            runCatching {
-                buildAndPublishInteractiveBundle(
-                    workspaceId = draft.workspaceId,
-                    lesson = lessonRef,
-                    activity = activity,
-                    publishForStudents = true
-                )
-            }
-            dao.updateDraftStatus(draftId, DraftStatus.APPROVED.id)
-            return synced.size
         }
-        val expectedBatch = QuestionResponseContract.expectedBatchFromPrompt(draft.promptUsed)
-        val savedQuestions = saveQuestionsFromDraftText(
-            workspaceId = draft.workspaceId,
-            lesson = lessonRef,
-            rawText = draft.content,
-            draftId = draft.id,
-            templateId = draft.templateId,
-            promptUsed = draft.promptUsed,
-            responseSchemaJson = draft.responseSchemaJson,
-            sourceIndexSha256 = draft.sourceIndexSha256,
-            expectedQuestionCount = expectedBatch?.count,
-            expectedQuestionTypeIds = expectedBatch?.typeIds.orEmpty(),
-            expectedQuestionDifficultyId = expectedBatch?.difficultyId
-        )
+        if (alreadyStoredForDraft == 0 && savedQuestions.isEmpty()) {
+            throw IllegalArgumentException("لم يتم استخراج أسئلة صالحة من المسودة؛ لم يتم اعتمادها أو تغيير حالتها.")
+        }
+        val approvedCount = dao.approveQuestionsForDraft(draft.id)
         dao.updateDraftStatus(draftId, DraftStatus.APPROVED.id)
-        return savedQuestions.size
+        return maxOf(approvedCount, savedQuestions.size)
     }
 
     suspend fun buildAndPublishInteractiveBundle(
@@ -1511,11 +1512,6 @@ class EduMiniRepository(
                 packageId = record.id
             )
         }
-        questionBankService.syncInteractiveCheckpointsToQuestionBank(
-            workspaceId = canonicalWs,
-            lesson = lesson,
-            activity = activity
-        )
         return record
     }
 
@@ -2031,7 +2027,9 @@ class EduMiniRepository(
         val draftsByLesson = drafts.groupBy { Triple(it.bookKey, it.unitKey, it.lessonKey) }
         val pkgsByLesson = packages.groupBy { Triple(it.bookKey, it.unitKey, it.lessonKey) }
         val progressByLesson = progressRows.associateBy { Triple(it.bookKey, it.unitKey, it.lessonKey) }
-        val questionsByLesson = questions.groupBy { Triple(it.bookKey, it.unitKey, it.lessonKey) }
+        val masteryQuestions = questions.filter { it.reviewed }
+        val officialQuestions = masteryQuestions.filter { !it.id.startsWith("q-int-") }
+        val questionsByLesson = officialQuestions.groupBy { Triple(it.bookKey, it.unitKey, it.lessonKey) }
         val attemptsByQuestionId = questionAttempts.groupBy { it.questionId }
 
         val nodes = workspace.lessons.map { lesson ->
@@ -2053,16 +2051,9 @@ class EduMiniRepository(
                 else -> LearningNodeStatus.NOT_STARTED
             }
 
-            val draftPoints = when {
-                approvedDraftsCount > 0 -> POINTS_APPROVED_DRAFT
-                lDrafts.isNotEmpty() -> POINTS_DRAFT_CREATED
-                else -> 0
-            }
-            val pkgPoints = when {
-                publishedPkgsCount > 0 -> POINTS_PUBLISHED_PACKAGE
-                lPkgs.isNotEmpty() -> POINTS_PACKAGE_UPLOADED
-                else -> 0
-            }
+            // Learner-facing points are awarded only for content that has passed approval.
+            val draftPoints = if (approvedDraftsCount > 0) POINTS_APPROVED_DRAFT else 0
+            val pkgPoints = if (publishedPkgsCount > 0) POINTS_PUBLISHED_PACKAGE else 0
             val completionPoints = if (isCompleted) POINTS_LESSON_COMPLETED else 0
             val lessonPoints = draftPoints + pkgPoints + completionPoints
 
@@ -2079,7 +2070,7 @@ class EduMiniRepository(
                 questionsCount = lQuestions.size,
                 quizAttemptedCount = lessonAttemptCount,
                 quizPassed = isCompleted,
-                hasGeneratedMaterials = lDrafts.isNotEmpty() || lPkgs.isNotEmpty() || lQuestions.isNotEmpty()
+                hasGeneratedMaterials = approvedDraftsCount > 0 || publishedPkgsCount > 0 || lQuestions.isNotEmpty()
             )
         }
 
@@ -2118,11 +2109,11 @@ class EduMiniRepository(
             .map { (key, uNodes) ->
                 val uCompleted = uNodes.count { it.isCompleted }
                 val uTotal = uNodes.size
-                val uInProgress = uNodes.count {
-                    !it.isCompleted && (it.status == LearningNodeStatus.IN_PROGRESS || it.quizAttemptedCount > 0)
-                }
+                val uInProgress = uNodes.count { !it.isCompleted && it.quizAttemptedCount > 0 }
                 val uQuestions = uNodes.sumOf { it.questionsCount }
-                val uGenerated = uNodes.sumOf { it.draftsCount + it.packagesCount + it.questionsCount }
+                val uGenerated = uNodes.sumOf {
+                    it.approvedDraftsCount + it.publishedPackagesCount + it.questionsCount
+                }
                 val uStatus = when {
                     uTotal > 0 && uCompleted == uTotal -> UnitCompletionStatus.COMPLETED
                     uCompleted > 0 || uInProgress > 0 -> UnitCompletionStatus.IN_PROGRESS
@@ -2170,7 +2161,7 @@ class EduMiniRepository(
 
         val bookTitleByKey = workspace.books.associate { it.bookKey to it.title }
         val conceptSummaries = ConceptMasteryEngine.computeConceptSummaries(
-            questions = questions,
+            questions = masteryQuestions,
             attempts = questionAttempts,
             bookTitleByKey = bookTitleByKey
         )
@@ -2248,7 +2239,8 @@ class EduMiniRepository(
         sourceIndexSha256: String = "",
         expectedQuestionCount: Int? = null,
         expectedQuestionTypeIds: List<String> = emptyList(),
-        expectedQuestionDifficultyId: String? = null
+        expectedQuestionDifficultyId: String? = null,
+        sourceType: QuestionSourceType = QuestionSourceType.AI_GENERATED
     ): List<QuestionItem> {
         val canonicalWs = workspaceId.ifBlank { lesson.workspaceId }.ifBlank { lesson.rootPath }
         val parsed = if (expectedQuestionCount != null) {
@@ -2264,13 +2256,14 @@ class EduMiniRepository(
             QuestionBankEngine.parseQuestionsFromText(rawText, canonicalWs, lesson)
         }
         if (parsed.isEmpty()) return emptyList()
+        val classifiedQuestions = parsed.map { it.copy(sourceType = sourceType) }
         val effectiveIndexSha = sourceIndexSha256.ifBlank {
             dao.getWorkspaceIndexForBook(canonicalWs, lesson.bookKey)?.indexSha256.orEmpty()
         }
         return questionBankService.saveQuestionsWithConceptTags(
             workspaceId = canonicalWs,
             lesson = lesson,
-            parsedQuestions = parsed,
+            parsedQuestions = classifiedQuestions,
             draftId = draftId,
             templateId = templateId,
             promptUsed = promptUsed,
@@ -2312,7 +2305,8 @@ class EduMiniRepository(
             reviewed = true,
             createdAt = Instant.now().toString(),
             conceptTag = conceptTag.trim().ifBlank { lesson.title },
-            sourceIndexSha256 = indexSha
+            sourceIndexSha256 = indexSha,
+            sourceType = QuestionSourceType.MANUAL
         )
         dao.insertQuestions(listOf(item.toEntity()))
         return item
@@ -2500,7 +2494,8 @@ class EduMiniRepository(
                         templateId = q.templateId,
                         promptUsed = q.promptUsed,
                         responseSchemaJson = q.responseSchemaJson,
-                        sourceIndexSha256 = q.sourceIndexSha256
+                        sourceIndexSha256 = q.sourceIndexSha256,
+                        sourceType = q.sourceType
                     )
                 }
             )
@@ -3041,7 +3036,8 @@ class EduMiniRepository(
             templateId = templateId,
             promptUsed = promptUsed,
             responseSchemaJson = responseSchemaJson,
-            sourceIndexSha256 = sourceIndexSha256
+            sourceIndexSha256 = sourceIndexSha256,
+            sourceType = QuestionSourceType.fromId(sourceType)
         )
     }
 
@@ -3068,7 +3064,8 @@ class EduMiniRepository(
         templateId = templateId,
         promptUsed = promptUsed,
         responseSchemaJson = responseSchemaJson,
-        sourceIndexSha256 = sourceIndexSha256
+        sourceIndexSha256 = sourceIndexSha256,
+        sourceType = sourceType.id
     )
 
     private fun QuestionAttemptEntity.toModel() = QuestionAttemptRecord(
