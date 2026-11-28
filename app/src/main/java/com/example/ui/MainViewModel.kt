@@ -3358,6 +3358,12 @@ class MainViewModel(
                 return
             }
             val hasPdfSource = snapshot.attachPdfPages && !lesson.pdfPath.isNullOrBlank()
+            if (snapshot.studioGenerationOperation != StudioGenerationOperation.GENERATE && snapshot.generatedResult.isBlank()) {
+                _uiState.update {
+                    it.copy(alert = AlertMessage("لا يوجد محتوى سابق", "حمّل مسودة أو ولّد محتوى أولاً قبل التحديث أو المراجعة."))
+                }
+                return
+            }
             if (snapshot.sourceText.trim().isEmpty() && !hasPdfSource) {
                 _uiState.update {
                     it.copy(alert = AlertMessage("أدخل نص المصدر", "اكتب نص الدرس أو فعّل إرفاق صفحات PDF."))
@@ -3492,8 +3498,8 @@ class MainViewModel(
                     questionLanguage = snapshot.questionLanguage,
                     attachPdfPages = snapshot.attachPdfPages,
                     questionStyleHint = snapshot.questionStyle.takeIf { effectiveTask == TaskType.QUESTIONS && it != "متنوعة" }.orEmpty(),
-                    difficultyHint = if (snapshot.task == TaskType.QUESTIONS) snapshot.questionDifficulty.id else "",
-                    template = promptTemplates.value.firstOrNull { it.id == snapshot.activePromptTemplateId }
+                    difficultyHint = if (effectiveTask == TaskType.QUESTIONS) snapshot.questionDifficulty.id else "",
+                    template = promptTemplates.value.firstOrNull { it.id == snapshot.activePromptTemplateId && it.task == effectiveTask }
                         ?: promptTemplates.value.firstOrNull { it.task == effectiveTask },
                     catalogModels = snapshot.aiModelCatalog,
                     onProgress = { percent, stage ->
@@ -3507,10 +3513,10 @@ class MainViewModel(
                     it.copy(
                         task = effectiveTask,
                         generatedResult = out.text,
-                        generatedDisplayResult = if (snapshot.task == TaskType.LESSON_TEXT) repository.extractLessonTextFromOutput(out.text) else out.text,
-                        generatedQuestionExpectedCount = if (snapshot.task == TaskType.QUESTIONS) snapshot.questionCount else null,
-                        generatedQuestionExpectedTypeIds = if (snapshot.task == TaskType.QUESTIONS) snapshot.selectedQuestionTypeIds else emptyList(),
-                        generatedQuestionExpectedDifficultyId = if (snapshot.task == TaskType.QUESTIONS) snapshot.questionDifficulty.id else "",
+                        generatedDisplayResult = if (effectiveTask == TaskType.LESSON_TEXT) repository.extractLessonTextFromOutput(out.text) else out.text,
+                        generatedQuestionExpectedCount = if (effectiveTask == TaskType.QUESTIONS) snapshot.questionCount else null,
+                        generatedQuestionExpectedTypeIds = if (effectiveTask == TaskType.QUESTIONS) snapshot.selectedQuestionTypeIds else emptyList(),
+                        generatedQuestionExpectedDifficultyId = if (effectiveTask == TaskType.QUESTIONS) snapshot.questionDifficulty.id else "",
                         activeDraftProvider = out.providerLabel,
                         activeDraftModel = out.model,
                         activeDraftTemplateId = out.templateId,
@@ -3529,7 +3535,7 @@ class MainViewModel(
                     repository.persistDraft(
                         workspaceId = wsId,
                         lesson = lesson,
-                        task = snapshot.task,
+                        task = effectiveTask,
                         providerLabel = out.providerLabel,
                         model = out.model,
                         text = out.text,
@@ -3572,19 +3578,19 @@ class MainViewModel(
                     success = true
                 )
                 _uiState.update { it.copy(providers = repository.loadProviders(), generationProgressPercent = 100, generationStage = "اكتمل التوليد والحفظ") }
-                val interactiveParsed = if (snapshot.task == TaskType.INTERACTIVE) {
+                val interactiveParsed = if (effectiveTask == TaskType.INTERACTIVE) {
                     InteractiveActivityParser.parseStrictJson(out.text, lesson.title)
                 } else {
                     null
                 }
                 val resultSummary = when {
-                    snapshot.task == TaskType.QUESTIONS ->
+                    effectiveTask == TaskType.QUESTIONS ->
                         "تم حفظ مسودة الأسئلة فقط. لن تُدرج في بنك الأسئلة أو اختبار الطالب قبل اعتمادها صراحةً."
-                    snapshot.task == TaskType.LESSON_TEXT ->
+                    effectiveTask == TaskType.LESSON_TEXT ->
                         "تم حفظ نص الدرس كمسودة. راجع النص واعتمده لحفظه في مصدر الدرس."
-                    snapshot.task == TaskType.INTERACTIVE && interactiveParsed != null ->
+                    effectiveTask == TaskType.INTERACTIVE && interactiveParsed != null ->
                         "تم حفظ النشاط التفاعلي (${interactiveParsed.steps.size} محطة) كمسودة قابلة للمعاينة في الاستوديو؛ لن يُنشر للطالب قبل الاعتماد."
-                    snapshot.task == TaskType.INTERACTIVE ->
+                    effectiveTask == TaskType.INTERACTIVE ->
                         "تم حفظ استجابة النشاط كمسودة، لكن بنيتها لا تجتاز التحقق الصارم بعد."
                     else ->
                         "تم استلام الاستجابة عبر ${out.providerLabel} (${out.model}) وحفظها كمسودة."
@@ -3601,9 +3607,9 @@ class MainViewModel(
                 _uiState.update {
                     it.copy(
                         generatedResult = out.text,
-                        generatedQuestionExpectedCount = if (snapshot.task == TaskType.QUESTIONS) snapshot.questionCount else null,
-                        generatedQuestionExpectedTypeIds = if (snapshot.task == TaskType.QUESTIONS) snapshot.selectedQuestionTypeIds else emptyList(),
-                        generatedQuestionExpectedDifficultyId = if (snapshot.task == TaskType.QUESTIONS) snapshot.questionDifficulty.id else "",
+                        generatedQuestionExpectedCount = if (effectiveTask == TaskType.QUESTIONS) snapshot.questionCount else null,
+                        generatedQuestionExpectedTypeIds = if (effectiveTask == TaskType.QUESTIONS) snapshot.selectedQuestionTypeIds else emptyList(),
+                        generatedQuestionExpectedDifficultyId = if (effectiveTask == TaskType.QUESTIONS) snapshot.questionDifficulty.id else "",
                         sourceText = it.sourceText,
                         activeDraftProvider = out.providerLabel,
                         activeDraftModel = out.model,
@@ -3626,7 +3632,7 @@ class MainViewModel(
             } catch (e: Exception) {
                 analyticsTracker?.trackAiExplanationGenerated(
                     providerId = snapshot.selectedProvider.id,
-                    taskType = snapshot.task.id,
+                    taskType = effectiveTask.id,
                     success = false
                 )
                 analyticsTracker?.trackLessonCreateCompleted(
