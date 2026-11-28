@@ -532,6 +532,7 @@ fun QuestionBankScreen(
             initialConcept = qToEdit.conceptTag.ifBlank { qToEdit.lessonTitle },
             initialReviewed = qToEdit.reviewed,
             showReviewedToggle = true,
+            preserveSourceText = qToEdit.sourceType == QuestionSourceType.BOOK_EXTRACTED,
             onDismiss = { editingQuestion = null },
             onSave = { type, prompt, options, correctAnswer, rationale, diff, conceptTag, reviewed ->
                 onUpdateQuestion(qToEdit.id, type, prompt, options, correctAnswer, rationale, diff, conceptTag, reviewed)
@@ -822,6 +823,7 @@ private fun QuestionEditorDialog(
     initialConcept: String = "",
     initialReviewed: Boolean = false,
     showReviewedToggle: Boolean = false,
+    preserveSourceText: Boolean = false,
     onDismiss: () -> Unit,
     onSave: (QuestionType, String, List<String>, String, String, QuestionDifficulty, String, Boolean) -> Unit
 ) {
@@ -845,14 +847,16 @@ private fun QuestionEditorDialog(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    QuestionType.entries.forEach { t ->
-                        EduPill(text = t.labelAr, active = type == t, onClick = {
-                            type = t
-                            if (t == QuestionType.TRUE_FALSE && correctAnswer.isBlank()) {
-                                correctAnswer = "صح"
-                            }
-                        })
+                if (preserveSourceText) {
+                    Text("نوع السؤال الأصلي: ${type.labelAr} • نص السؤال والخيارات محفوظان كما وردا في الكتاب.", style = MaterialTheme.typography.bodySmall, color = EduGreenDark)
+                } else {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        QuestionType.entries.forEach { t ->
+                            EduPill(text = t.labelAr, active = type == t, onClick = {
+                                type = t
+                                if (t == QuestionType.TRUE_FALSE && correctAnswer.isBlank()) correctAnswer = "صح"
+                            })
+                        }
                     }
                 }
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -863,6 +867,7 @@ private fun QuestionEditorDialog(
                 OutlinedTextField(
                     value = prompt,
                     onValueChange = { prompt = it },
+                    enabled = !preserveSourceText,
                     label = { Text("نص السؤال") },
                     minLines = 2,
                     modifier = Modifier.fillMaxWidth()
@@ -884,6 +889,7 @@ private fun QuestionEditorDialog(
                     OutlinedTextField(
                         value = optionsRaw,
                         onValueChange = { optionsRaw = it },
+                        enabled = !preserveSourceText,
                         label = { Text(optionsHint) },
                         minLines = 3,
                         modifier = Modifier.fillMaxWidth()
@@ -932,7 +938,7 @@ private fun QuestionEditorDialog(
             TextButton(
                 enabled = ready,
                 onClick = {
-                    val opts = when (type) {
+                    val opts = if (preserveSourceText) initialOptions else when (type) {
                         QuestionType.TRUE_FALSE -> listOf("صح", "خطأ")
                         QuestionType.MCQ, QuestionType.ORDERING, QuestionType.MATCHING -> rawLines
                         QuestionType.FILL_BLANK, QuestionType.SHORT_ANSWER -> emptyList()
@@ -942,7 +948,7 @@ private fun QuestionEditorDialog(
                         QuestionType.MATCHING -> rawLines.joinToString(";")
                         else -> correctAnswer.trim()
                     }
-                    onSave(type, prompt, opts, finalAnswer, rationale, difficulty, conceptTag.trim(), reviewed)
+                    onSave(type, if (preserveSourceText) initialPrompt else prompt, opts, finalAnswer, rationale, difficulty, conceptTag.trim(), reviewed)
                 }
             ) {
                 Text("حفظ", color = EduGreenDark, fontWeight = FontWeight.Bold)
