@@ -1037,13 +1037,15 @@ class EduMiniRepository(
             "لم يتم تجهيز نص أو ملف PDF صالح؛ تحقق من مسار ملف الدرس ثم أعد المحاولة."
         }
         // Question JSON is derived from the canonical question-content contract, not a second editable template schema.
-        val responseSchema = if (task == TaskType.QUESTIONS) {
-            QuestionResponseContract.schemaFor(questionTypeIds, difficultyHint)
-        } else {
-            activeTemplate?.responseSchemaJson.orEmpty()
+        val responseSchema = when (task) {
+            TaskType.QUESTIONS -> QuestionResponseContract.schemaFor(questionTypeIds, difficultyHint)
+            TaskType.SOURCE_QUESTIONS, TaskType.EDUCATIONAL_ACTIVITIES ->
+                activeTemplate?.responseSchemaJson?.takeIf { it.isNotBlank() }
+                    ?: BookIndexPromptRegistry.blueprintFor(task).schemaSnippet
+            else -> activeTemplate?.responseSchemaJson.orEmpty()
         }
         val responseMapping = if (task == TaskType.QUESTIONS) "" else activeTemplate?.responseMappingJson.orEmpty()
-        val responseFormat = if (task == TaskType.QUESTIONS) {
+        val responseFormat = if (task in setOf(TaskType.QUESTIONS, TaskType.SOURCE_QUESTIONS, TaskType.EDUCATIONAL_ACTIVITIES)) {
             "json"
         } else {
             activeTemplate?.responseFormat ?: if (responseSchema.isNotBlank()) "json" else "text"
