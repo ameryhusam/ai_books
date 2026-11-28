@@ -12,6 +12,7 @@ import com.example.model.QuestionDifficulty
 import com.example.model.QuestionItem
 import com.example.model.QuestionMasteryStats
 import com.example.model.QuestionType
+import com.example.model.QuestionSourceType
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
@@ -320,7 +321,8 @@ class QuestionBankService(
                 fingerprint = fp,
                 reviewed = true,
                 createdAt = now,
-                conceptTag = effectiveConcept
+                conceptTag = effectiveConcept,
+                sourceType = QuestionSourceType.INTERACTIVE_CHECKPOINT.id
             )
             dao.insertQuestions(listOf(newEntity))
             newId
@@ -366,7 +368,8 @@ class QuestionBankService(
             templateId = templateId,
             promptUsed = promptUsed,
             responseSchemaJson = responseSchemaJson,
-            sourceIndexSha256 = sourceIndexSha256
+            sourceIndexSha256 = sourceIndexSha256,
+            sourceType = QuestionSourceType.fromId(sourceType)
         )
     }
 
@@ -393,7 +396,8 @@ class QuestionBankService(
         templateId = templateId,
         promptUsed = promptUsed,
         responseSchemaJson = responseSchemaJson,
-        sourceIndexSha256 = sourceIndexSha256
+        sourceIndexSha256 = sourceIndexSha256,
+        sourceType = sourceType.id
     )
 
     private fun QuestionAttemptEntity.toModel() = QuestionAttemptRecord(
