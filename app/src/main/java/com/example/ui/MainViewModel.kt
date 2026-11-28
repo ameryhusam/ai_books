@@ -3884,6 +3884,7 @@ class MainViewModel(
                     " مهمة متجاوزة، " + failures.size + " إخفاق."
                 _uiState.update {
                     it.copy(
+                        task = lastVisibleTask ?: it.task,
                         generatedResult = lastVisibleResult.ifBlank { it.generatedResult },
                         generatedDisplayResult = if (lastVisibleResult.isBlank()) it.generatedDisplayResult else when (lastVisibleTask) {
                             TaskType.LESSON_TEXT -> repository.extractLessonTextFromOutput(lastVisibleResult)
