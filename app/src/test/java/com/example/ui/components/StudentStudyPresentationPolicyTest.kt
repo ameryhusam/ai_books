@@ -15,5 +15,4 @@ class StudentStudyPresentationPolicyTest {
         assertEquals(1, initialStudentStudyTab(hasPdf = false))
     }
 
-    @Test
 }
