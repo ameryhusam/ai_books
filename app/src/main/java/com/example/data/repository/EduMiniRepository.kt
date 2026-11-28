@@ -1558,6 +1558,18 @@ class EduMiniRepository(
         }
     }
 
+    suspend fun getLessonTextSnapshot(workspaceId: String, lesson: LessonRef): LessonTextRecord? {
+        val canonicalWs = workspaceId.ifBlank { lesson.workspaceId }.ifBlank { lesson.rootPath }
+        if (canonicalWs.isBlank()) return null
+        return dao.getLessonTextSnapshot(
+            workspaceId = canonicalWs,
+            legacyRootPath = lesson.rootPath,
+            bookKey = lesson.bookKey,
+            unitKey = lesson.unitKey,
+            lessonKey = lesson.lessonKey
+        )?.toModel()
+    }
+
     suspend fun saveLessonText(
         workspaceId: String,
         lesson: LessonRef,
