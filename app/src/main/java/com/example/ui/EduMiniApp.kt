@@ -118,6 +118,7 @@ import com.example.data.workspace.DirectWorkspaceBinder
 import com.example.data.workspace.WorkspaceImporter
 import com.example.model.AppPage
 import com.example.model.AuthRoleCheckState
+import com.example.model.QuestionSourceType
 import com.example.model.UserRole
 import com.example.ui.auth.AuthScreen
 import com.example.ui.auth.authStateFlow
@@ -963,6 +964,7 @@ private fun AuthenticatedEduMiniContent(
                                 it.unitKey == studyLesson.unitKey &&
                                 it.lessonKey == studyLesson.lessonKey &&
                                 it.reviewed &&
+                                it.sourceType != QuestionSourceType.INTERACTIVE_CHECKPOINT.id &&
                                 !it.id.startsWith("q-int-")
                         }
                     }
