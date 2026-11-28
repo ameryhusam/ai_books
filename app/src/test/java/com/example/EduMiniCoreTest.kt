@@ -1934,6 +1934,8 @@ class EduMiniCoreTest {
         assertTrue(BookIndexPromptRegistry.schemas.any { it.fileName.contains("index.json") })
         assertTrue(BookIndexPromptRegistry.schemas.any { it.fileName.contains("book_manifest.json") })
         assertTrue(BookIndexPromptRegistry.schemas.any { it.fileName.contains("educational_activities") })
+        assertTrue(BookIndexPromptRegistry.schemas.any { it.fileName.contains("book_extracted.json") })
+        assertTrue(BookIndexPromptRegistry.schemas.any { it.fileName.contains("interactive_lessons") })
         assertTrue(BookIndexPromptRegistry.schemas.any { it.fileName == "manifest.json" })
 
         val prompt = BookIndexPromptRegistry.assemblePrompt(
