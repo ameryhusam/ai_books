@@ -505,7 +505,8 @@ private fun StudioWorkbench(
     val clipboardManager = LocalClipboardManager.current
     val haptic = LocalHapticFeedback.current
     var workbenchTab by remember { mutableIntStateOf(0) } // 0: Compose, 1: Output & Drafts, 2: Source & Packages
-    var rawEditorMode by remember { mutableStateOf(false) }
+    var formattedEditMode by remember(task) { mutableStateOf(false) }
+    val canEditFormattedContent = task !in setOf(TaskType.QUESTIONS, TaskType.INTERACTIVE, TaskType.LESSON_TEXT)
     var promptPreviewExpanded by remember { mutableStateOf(false) }
     var lastResultSeen by remember(selectedLesson) { mutableStateOf(generatedResult) }
 
@@ -1268,15 +1269,17 @@ private fun StudioWorkbench(
                                 )
                                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                     EduPill(
-                                        text = if (rawEditorMode) "منسّق" else "منسّق ✓",
-                                        active = !rawEditorMode,
-                                        onClick = { rawEditorMode = false }
+                                        text = "معاينة",
+                                        active = !formattedEditMode,
+                                        onClick = { formattedEditMode = false }
                                     )
-                                    EduPill(
-                                        text = "تحرير نصي",
-                                        active = rawEditorMode,
-                                        onClick = { rawEditorMode = true }
-                                    )
+                                    if (canEditFormattedContent) {
+                                        EduPill(
+                                            text = "تحرير المحتوى",
+                                            active = formattedEditMode,
+                                            onClick = { formattedEditMode = true }
+                                        )
+                                    }
                                 }
                             }
 
@@ -1307,9 +1310,9 @@ private fun StudioWorkbench(
                                     }
                                 }
                             } else {
-                                if (rawEditorMode) {
+                                if (formattedEditMode && canEditFormattedContent) {
                                     OutlinedTextField(
-                                        value = generatedResult,
+                                        value = displayGeneratedResult,
                                         onValueChange = onGeneratedResultChange,
                                         minLines = 8,
                                         maxLines = 22,
@@ -1324,12 +1327,14 @@ private fun StudioWorkbench(
                                         ),
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .testTag("editable_draft_output")
+                                            .testTag("formatted_draft_editor")
                                     )
                                 } else {
                                     EduMarkdownReader(
                                         text = displayGeneratedResult,
-                                        onSwitchToEdit = { rawEditorMode = true }
+                                        onSwitchToEdit = if (canEditFormattedContent) {
+                                            { formattedEditMode = true }
+                                        } else null
                                     )
                                 }
 
