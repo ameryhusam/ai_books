@@ -72,6 +72,7 @@ import com.example.model.QuestionAttemptRecord
 import com.example.model.QuestionDifficulty
 import com.example.model.QuestionItem
 import com.example.model.QuestionType
+import com.example.model.QuestionSourceType
 import com.example.model.StagedWorkspacePreview
 import com.example.model.TaskType
 import com.example.model.UnitCompletionStatus
@@ -1321,7 +1322,8 @@ class EduMiniRepository(
             sourcePdfHash = generation?.sourcePdfHash.orEmpty(),
             promptUsed = generation?.promptUsed.orEmpty(),
             responseSchemaJson = generation?.responseSchemaJson.orEmpty(),
-            sourceIndexSha256 = sourceIndexSha256
+            sourceIndexSha256 = sourceIndexSha256,
+            sourceType = QuestionSourceType.fromId(sourceType)
         )
         dao.insertDraft(
             DraftEntity(
@@ -2490,7 +2492,8 @@ class EduMiniRepository(
                         templateId = q.templateId,
                         promptUsed = q.promptUsed,
                         responseSchemaJson = q.responseSchemaJson,
-                        sourceIndexSha256 = q.sourceIndexSha256
+                        sourceIndexSha256 = q.sourceIndexSha256,
+                        sourceType = q.sourceType
                     )
                 }
             )
@@ -2983,7 +2986,8 @@ class EduMiniRepository(
         sourcePdfHash = sourcePdfHash,
         promptUsed = promptUsed,
         responseSchemaJson = responseSchemaJson,
-        sourceIndexSha256 = sourceIndexSha256
+        sourceIndexSha256 = sourceIndexSha256,
+        sourceType = sourceType.id
     )
 
     private fun LessonTextEntity.toModel() = LessonTextRecord(
