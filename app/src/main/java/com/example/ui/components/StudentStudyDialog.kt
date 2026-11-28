@@ -52,7 +52,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -61,12 +60,9 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.data.repository.EduMiniRepository
 import com.example.data.repository.QuestionBankEngine
-import com.example.data.workspace.UriIO
 import com.example.model.DraftRecord
 import com.example.model.DraftStatus
 import com.example.model.InteractivePackageRecord
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import com.example.model.LessonQuizCompletionResult
 import com.example.model.LessonRef
 import com.example.model.QuestionItem
@@ -84,7 +80,6 @@ import com.example.ui.theme.EduPurple
 import com.example.ui.theme.EduRed
 import com.example.ui.theme.EduWhite
 import com.example.ui.theme.EduYellow
-import java.io.File
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -99,6 +94,7 @@ fun StudentStudyDialog(
     lastQuizResult: LessonQuizCompletionResult? = null,
     showAdminShortcuts: Boolean = false,
     storedLessonText: String? = null,
+    onLoadLessonSourceText: suspend (LessonRef) -> String?,
     onOpenGenerateQuestions: (() -> Unit)? = null,
     onSubmitLessonQuiz: (Map<String, String>) -> Unit,
     onOpenNextLesson: () -> Unit = {},
@@ -114,7 +110,6 @@ fun StudentStudyDialog(
     ) -> Unit = { _, _, _, _, _, _, _ -> },
     onDismiss: () -> Unit
 ) {
-    val context = LocalContext.current
     // 0: محتوى الدرس و PDF, 1: الدرس التفاعلي, 2: الشرح والملخص, 3: اختبار الدرس
     var activeTab by remember(lesson.lessonKey, lesson.bookKey, lesson.unitKey) {
         mutableIntStateOf(0)
@@ -123,26 +118,8 @@ fun StudentStudyDialog(
         mutableStateOf<String?>(storedLessonText?.takeIf { it.isNotBlank() })
     }
     LaunchedEffect(lesson.sourceTextPath, lesson.pdfPath, storedLessonText) {
-        if (!storedLessonText.isNullOrBlank()) {
-            lessonTextContent = storedLessonText
-            return@LaunchedEffect
-        }
-        val loadedText = withContext(Dispatchers.IO) {
-            val fromSource = lesson.sourceTextPath?.takeIf { it.isNotBlank() }?.let {
-                UriIO.readText(context, it)?.trim()?.takeIf { text -> text.isNotEmpty() }
-            }
-            if (!fromSource.isNullOrBlank()) return@withContext fromSource
-            val rawPdf = lesson.pdfPath?.takeIf { it.isNotBlank() && !UriIO.isContentUri(it) } ?: return@withContext null
-            val pdfFile = File(rawPdf)
-            val txtSibling = File(pdfFile.parentFile, pdfFile.nameWithoutExtension + ".txt")
-            val mdSibling = File(pdfFile.parentFile, pdfFile.nameWithoutExtension + ".md")
-            when {
-                txtSibling.isFile -> txtSibling.readText(Charsets.UTF_8).trim().takeIf { it.isNotEmpty() }
-                mdSibling.isFile -> mdSibling.readText(Charsets.UTF_8).trim().takeIf { it.isNotEmpty() }
-                else -> null
-            }
-        }
-        lessonTextContent = loadedText
+        val storedText = storedLessonText?.takeIf { it.isNotBlank() }
+        lessonTextContent = storedText ?: onLoadLessonSourceText(lesson)
     }
     val studyDrafts = remember(drafts) {
         drafts.filter {
