@@ -85,7 +85,8 @@ data class BackupQuestionDto(
     val templateId: String = "",
     val promptUsed: String = "",
     val responseSchemaJson: String = "",
-    val sourceIndexSha256: String = ""
+    val sourceIndexSha256: String = "",
+    val sourceType: String = "LEGACY_UNKNOWN"
 )
 
 @Serializable
@@ -409,6 +410,7 @@ object WorkspaceExporter {
                                 put("draftId", q.draftId)
                                 put("templateId", q.templateId)
                                 put("sourceIndexSha256", q.sourceIndexSha256)
+                                put("sourceType", q.sourceType.id)
                                 put("promptUsed", q.promptUsed)
                                 put("responseSchemaJson", q.responseSchemaJson)
                             })
@@ -612,7 +614,8 @@ object WorkspaceExporter {
                     templateId = it.templateId,
                     promptUsed = it.promptUsed,
                     responseSchemaJson = it.responseSchemaJson,
-                    sourceIndexSha256 = it.sourceIndexSha256
+                    sourceIndexSha256 = it.sourceIndexSha256,
+                    sourceType = it.sourceType
                 )
             },
             questionAttempts = questionAttempts.map {
