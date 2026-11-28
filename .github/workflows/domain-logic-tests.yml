@@ -1,0 +1,52 @@
+name: Domain Logic Tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'app/src/main/java/com/example/domain/progress/**'
+      - 'app/src/main/java/com/example/data/repository/ConceptMasteryEngine.kt'
+      - 'app/src/main/java/com/example/model/Models.kt'
+      - 'app/src/test/java/com/example/domain/progress/**'
+      - 'app/src/test/java/com/example/data/repository/ConceptMasteryEngineTest.kt'
+      - '.github/workflows/domain-logic-tests.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/src/main/java/com/example/domain/progress/**'
+      - 'app/src/main/java/com/example/data/repository/ConceptMasteryEngine.kt'
+      - 'app/src/main/java/com/example/model/Models.kt'
+      - 'app/src/test/java/com/example/domain/progress/**'
+      - 'app/src/test/java/com/example/data/repository/ConceptMasteryEngineTest.kt'
+      - '.github/workflows/domain-logic-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: domain-logic-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  domain-logic-unit-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+      - name: Run pure domain logic tests
+        run: >-
+          gradle :app:testDebugUnitTest
+          --tests com.example.domain.progress.LearningProgressCalculatorTest
+          --tests com.example.data.repository.ConceptMasteryEngineTest
+          -PallowMissingGoogleServices=true
