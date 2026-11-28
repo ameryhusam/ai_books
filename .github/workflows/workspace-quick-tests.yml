@@ -10,6 +10,7 @@ on:
       - 'app/src/main/java/com/example/data/repository/InteractiveActivityParser.kt'
       - 'app/src/main/java/com/example/data/repository/QuestionBankService.kt'
       - 'app/src/main/java/com/example/data/repository/QuestionBankEngine.kt'
+      - 'app/src/main/java/com/example/domain/progress/**'
       - 'app/src/main/java/com/example/model/Models.kt'
       - 'app/src/main/java/com/example/data/workspace/WorkspaceExporter.kt'
       - 'app/src/main/java/com/example/data/firebase/FirestoreSyncRepository.kt'
@@ -30,6 +31,7 @@ on:
       - 'app/src/test/java/com/example/data/workspace/**'
       - 'app/src/test/java/com/example/BookIndexIntakeWorkflowTest.kt'
       - 'app/src/test/java/com/example/EduMiniCoreTest.kt'
+      - 'app/src/test/java/com/example/domain/progress/**'
       - '.github/workflows/workspace-quick-tests.yml'
   pull_request:
     branches: [main]
@@ -68,6 +70,7 @@ jobs:
           --tests com.example.InteractiveActivityParserTest
           --tests com.example.data.local.QuestionSourceTypeMigration18To19Test
           --tests com.example.InteractiveCheckpointIsolationTest
+          --tests com.example.domain.progress.LearningProgressCalculatorTest
           --tests 'com.example.EduMiniCoreTest.canonicalQuestionPayloadMapsToRoomAndRejectsDuplicateBatchWithoutPartialWrites'
           --tests 'com.example.EduMiniCoreTest.strictGeneratedQuestionParserEnforcesExactCountAndTypeDistribution'
           --tests 'com.example.EduMiniCoreTest.strictGeneratedQuestionParserRejectsCountAndTypeMixMismatch'
