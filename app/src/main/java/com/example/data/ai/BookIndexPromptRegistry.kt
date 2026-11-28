@@ -79,40 +79,6 @@ object BookIndexPromptRegistry {
             quickInstructions = "أعد صياغة المفهوم الرئيسي في ثلاثة مستويات متدرجة مع نشاط قصير لكل مستوى."
         ),
         PromptBlueprintSpec(
-            id = "prompt_interactive",
-            task = TaskType.INTERACTIVE,
-            titleAr = "مخطط النشاط التفاعلي المترابط",
-            subtitleAr = "نشاط ممارسة تفاعلي بمحطات ونقاط تحقق وترتيب ومطابقة",
-            sourcePath = "prompts/book_indexing/interactive_activity.prompt.md",
-            roleInstruction = "نشاط ممارسة تعليمياً منظماً بصيغة JSON آمنة يتضمن خطوات تفاعلية وconceptTag ونقاط تحقق وعناصر ترتيب أو مطابقة وفق مخطط التطبيق",
-            outputContract = "JSON مطابق لمخطط النشاط: schemaVersion, title, objective, steps, ordering, matching",
-            schemaSnippet = """
-                {
-                  "schemaVersion": 1,
-                  "title": "عنوان النشاط التفاعلي",
-                  "objective": "الهدف التعليمي للنشاط",
-                  "steps": [
-                    {
-                      "title": "المحطة الأولى",
-                      "conceptTag": "المفهوم الأساسي المستهدف",
-                      "body": "شرح مختصر للمفهوم في هذه المحطة",
-                      "checkpoint": {
-                        "conceptTag": "المفهوم الأساسي المستهدف",
-                        "question": "سؤال تحقق سريع؟",
-                        "options": ["خيار أ", "خيار ب", "خيار ج"],
-                        "answer": "خيار أ"
-                      }
-                    }
-                  ],
-                  "ordering": ["الخطوة الأولى", "الخطوة الثانية", "الخطوة الثالثة"],
-                  "matching": [
-                    { "left": "المصطلح", "right": "التعريف المقابل" }
-                  ]
-                }
-            """.trimIndent(),
-            quickInstructions = "أخرج النشاط بصيغة JSON مع conceptTag صريح لكل محطة ونقطة تحقق متوافقة مع بنك الأسئلة ومشغّل JS/HTML الموحد."
-        ),
-        PromptBlueprintSpec(
             id = "prompt_questions",
             task = TaskType.QUESTIONS,
             titleAr = "مخطط بنك الأسئلة القياسي",
@@ -159,9 +125,34 @@ object BookIndexPromptRegistry {
             titleAr = "استخراج وابتكار الأنشطة",
             subtitleAr = "تمييز أنشطة الكتاب الأصلية عن الأنشطة الجديدة المصممة للتعلم",
             sourcePath = "prompts/book_indexing/educational_activities.prompt.md",
-            roleInstruction = "استخراج الأنشطة المصدرية وابتكار أنشطة آمنة ومرتبطة بالأهداف",
-            outputContract = "نوع المصدر، الهدف، المواد، الخطوات، دور المتعلم، المخرجات، السلامة وأسئلة التأمل",
-            quickInstructions = "استخرج الأنشطة والتجارب الموجودة في الدرس أولاً، ثم اقترح أنشطة إضافية بوسم واضح بأنها مبتكرة."
+            roleInstruction = "إنشاء أنشطة تعليمية منظمة بصيغة JSON آمنة تشمل التجارب والمحاكاة والألعاب والتطبيقات، مع تمييز المستخرج من الكتاب عن المبتكر",
+            outputContract = "JSON: schemaVersion, title, objective, steps, ordering, matching؛ وكل خطوة تصف نوع النشاط والمواد والإجراء والمخرج ومتطلبات السلامة داخل body",
+            schemaSnippet = """
+                {
+                  "schemaVersion": 1,
+                  "title": "أنشطة تعليمية للدرس",
+                  "objective": "الهدف العام",
+                  "steps": [
+                    {
+                      "title": "تجربة أو لعبة أو محاكاة",
+                      "activityType": "experiment|simulation|game|application|exploration",
+                      "sourceType": "BOOK_EXTRACTED|AI_CREATED",
+                      "sourcePages": "12",
+                      "conceptTag": "المفهوم المستهدف",
+                      "body": "المواد والأدوات، خطوات التنفيذ، دور المتعلم، المخرج المتوقع، وأسئلة التأمل. اذكر متطلبات السلامة بوضوح.",
+                      "checkpoint": {
+                        "conceptTag": "المفهوم المستهدف",
+                        "question": "سؤال تحقق مرتبط بالنشاط؟",
+                        "options": ["خيار أ", "خيار ب", "خيار ج"],
+                        "answer": "خيار أ"
+                      }
+                    }
+                  ],
+                  "ordering": [],
+                  "matching": []
+                }
+            """.trimIndent(),
+            quickInstructions = "استخرج أنشطة الكتاب كما هي مع الصفحة والمصدر، ثم اقترح أنشطة جديدة منفصلة بوسم AI_CREATED. أخرج JSON صالحاً وفق المخطط ولا تنشئ أسئلة بنك جديدة."
         ),
         PromptBlueprintSpec(
             id = "prompt_assessment",
@@ -309,11 +300,11 @@ object BookIndexPromptRegistry {
             schemaJson = QuestionResponseContract.schemaJson
         ),
         BookIndexSchemaSpec(
-            id = "schema_interactive",
-            fileName = "edu_mini_generated/<unit>/<lesson>/lesson.interactive.json",
-            titleAr = "مخطط النشاط التفاعلي الأصيل (lesson.interactive.json)",
-            descriptionAr = "مخطط JSON تصريحي مزوّد بـ conceptTag يشغّله مشغّل الأنشطة المدمج وباني حزمة JS+HTML.",
-            schemaJson = blueprints.first { it.task == TaskType.INTERACTIVE }.schemaSnippet
+            id = "schema_educational_activities",
+            fileName = "educational_activities/<unit>/<lesson>/activities.json",
+            titleAr = "مخطط الأنشطة التعليمية",
+            descriptionAr = "مخطط موحد للتجارب والمحاكاة والألعاب والتطبيقات التعليمية، مع تمييز مصدر النشاط.",
+            schemaJson = blueprints.first { it.task == TaskType.EDUCATIONAL_ACTIVITIES }.schemaSnippet
         ),
         BookIndexSchemaSpec(
             id = "schema_interactive_bundle",
@@ -420,8 +411,8 @@ object BookIndexPromptRegistry {
             }
             if (task == TaskType.QUESTIONS) {
                 append("العدد الإجمالي المطلوب من الأسئلة: $safeCount، وليس العدد لكل نوع.\n")
-            } else if (task == TaskType.INTERACTIVE) {
-                append("العدد المطلوب من العناصر التفاعلية: $safeCount.\n")
+            } else if (task == TaskType.EDUCATIONAL_ACTIVITIES) {
+                append("عدد الأنشطة المستهدف: $safeCount، مع تنويع الأنواع عند ملاءمتها للدرس.\n")
             }
             if (task == TaskType.QUESTIONS) {
                 append("لغة نص السؤال والخيارات والإجابة والتفسير: $languageInstruction.\n")
