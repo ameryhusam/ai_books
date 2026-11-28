@@ -51,3 +51,10 @@ The source PDF must remain intact; temporary working copies may be cleaned up on
 - Build debug APK: `gradle assembleDebug`
 - Run unit tests: `gradle :app:testDebugUnitTest`
 - Run Firestore Security Rules unit tests (with Firebase Emulator): `node --test firestore.test.js`
+
+## Architecture and learner content contracts
+
+- [Architecture refactoring report](docs/ARCHITECTURE_REFACTORING_REPORT.md)
+- [Learner content delivery contract](docs/LEARNER_CONTENT_DELIVERY_CONTRACT.md)
+- [Issue #9 — Clean Architecture boundaries](https://github.com/ameryhusam/ai_books/issues/9)
+- [Issue #10 — Complete interactive lesson and no-PDF fallback](https://github.com/ameryhusam/ai_books/issues/10)
