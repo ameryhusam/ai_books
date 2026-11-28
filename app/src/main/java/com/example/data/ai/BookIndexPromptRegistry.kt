@@ -106,8 +106,32 @@ object BookIndexPromptRegistry {
             subtitleAr = "حفظ نصوص الأسئلة والخيارات الأصلية مع الصفحات دون إعادة صياغة",
             sourcePath = "prompts/book_indexing/source_question_extraction.prompt.md",
             roleInstruction = "استخراج حرفي لأسئلة وتمارين المصدر",
-            outputContract = "الصفحة، الترقيم، نص السؤال، الفروع، الخيارات والإجابة فقط إذا وردت صراحة",
-            quickInstructions = "انقل أسئلة وتمارين الكتاب كما هي، وافصلها عن الأسئلة التي ينشئها الذكاء الاصطناعي."
+            outputContract = "JSON: questions[] مع type, prompt, options, correctAnswer, sourcePages؛ لا تضع إجابة غير ظاهرة في المصدر",
+            schemaSnippet = """
+                {
+                  "type": "OBJECT",
+                  "properties": {
+                    "questions": {
+                      "type": "ARRAY",
+                      "items": {
+                        "type": "OBJECT",
+                        "properties": {
+                          "type": { "type": "STRING" },
+                          "prompt": { "type": "STRING" },
+                          "options": { "type": "ARRAY", "items": { "type": "STRING" } },
+                          "correctAnswer": { "type": "STRING" },
+                          "sourcePages": { "type": "STRING" }
+                        },
+                        "required": ["prompt"],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": ["questions"],
+                  "additionalProperties": false
+                }
+            """.trimIndent(),
+            quickInstructions = "انقل نصوص الأسئلة والخيارات حرفياً وبالترتيب. لا تصحح ولا تعِد الصياغة ولا تضف إجابات أو خيارات. أخرج JSON فقط، وسجّل الصفحة إذا كانت معروفة."
         ),
         PromptBlueprintSpec(
             id = "prompt_interactive_lesson",
@@ -291,6 +315,13 @@ object BookIndexPromptRegistry {
                   }
                 }
             """.trimIndent()
+        ),
+        BookIndexSchemaSpec(
+            id = "schema_source_questions",
+            fileName = "questions/<unit>/<lesson>/book_extracted.json",
+            titleAr = "مخطط أسئلة الكتاب الأصلية",
+            descriptionAr = "نقل حرفي للأسئلة والخيارات مع الصفحة، دون توليد أو إعادة صياغة.",
+            schemaJson = blueprints.first { it.task == TaskType.SOURCE_QUESTIONS }.schemaSnippet
         ),
         BookIndexSchemaSpec(
             id = "schema_questions",
