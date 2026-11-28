@@ -113,8 +113,11 @@ object QuestionBankEngine {
                 payload.options.isNotEmpty() -> QuestionType.MCQ
                 else -> QuestionType.SHORT_ANSWER
             }
-            if (questionType == QuestionType.MCQ || questionType == QuestionType.TRUE_FALSE) {
+            if (questionType == QuestionType.MCQ) {
                 require(payload.options.size >= 2) { "سؤال الكتاب رقم ${index + 1} يحتاج خيارين على الأقل وفق نوعه." }
+            }
+            if (questionType == QuestionType.TRUE_FALSE) {
+                require(payload.options.isEmpty() || payload.options.size == 2) { "سؤال الصح والخطأ رقم ${index + 1} لا يقبل إلا خيارين إذا وردا في المصدر." }
             }
             val fingerprint = computeFingerprint(payload.prompt)
             require(seen.add(fingerprint)) { "يتضمن استخراج الكتاب سؤالاً مكرراً بالنص نفسه عند العنصر رقم ${index + 1}." }
