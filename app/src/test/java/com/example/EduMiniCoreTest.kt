@@ -763,6 +763,7 @@ class EduMiniCoreTest {
             assertEquals("easy", stored.difficulty)
             assertEquals(listOf("3", "4"), Json.decodeFromString<List<String>>(stored.optionsJson))
             assertEquals("الجمع", stored.conceptTag)
+            assertEquals("AI_GENERATED", stored.sourceType)
 
             val duplicateResult = service.saveQuestionsWithConceptTags(
                 workspaceId = "ws-contract",
