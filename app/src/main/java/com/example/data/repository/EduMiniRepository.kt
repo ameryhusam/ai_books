@@ -1379,6 +1379,26 @@ class EduMiniRepository(
                 pageRange = draft.sourcePages,
                 workspaceId = draft.workspaceId
             )
+        if (task == TaskType.SOURCE_QUESTIONS) {
+            val alreadyStored = dao.countQuestionsForDraft(draft.id)
+            val imported = if (alreadyStored > 0) emptyList() else saveQuestionsFromDraftText(
+                workspaceId = draft.workspaceId,
+                lesson = lessonRef,
+                rawText = draft.content,
+                draftId = draft.id,
+                templateId = draft.templateId,
+                promptUsed = draft.promptUsed,
+                responseSchemaJson = draft.responseSchemaJson,
+                sourceIndexSha256 = draft.sourceIndexSha256,
+                sourceType = QuestionSourceType.BOOK_EXTRACTED
+            )
+            if (alreadyStored == 0 && imported.isEmpty()) {
+                throw IllegalArgumentException("لم يتم استيراد أسئلة كتاب صالحة؛ لم تعتمد المسودة.")
+            }
+            // Source rows remain individually unreviewed until a teacher verifies them.
+            dao.updateDraftStatus(draftId, DraftStatus.APPROVED.id)
+            return maxOf(alreadyStored, imported.size)
+        }
         if (task == TaskType.LESSON_TEXT) {
             val extracted = extractLessonTextFromOutput(draft.content)
             if (extracted.isNotBlank()) {
@@ -2283,7 +2303,9 @@ class EduMiniRepository(
         sourceType: QuestionSourceType = QuestionSourceType.AI_GENERATED
     ): List<QuestionItem> {
         val canonicalWs = workspaceId.ifBlank { lesson.workspaceId }.ifBlank { lesson.rootPath }
-        val parsed = if (expectedQuestionCount != null) {
+        val parsed = if (sourceType == QuestionSourceType.BOOK_EXTRACTED) {
+            QuestionBankEngine.parseSourceQuestions(rawText, canonicalWs, lesson)
+        } else if (expectedQuestionCount != null) {
             QuestionBankEngine.parseGeneratedQuestions(
                 rawText = rawText,
                 workspaceId = canonicalWs,
