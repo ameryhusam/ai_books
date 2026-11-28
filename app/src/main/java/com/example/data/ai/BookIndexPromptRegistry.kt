@@ -411,10 +411,10 @@ object BookIndexPromptRegistry {
             schemaJson = blueprints.first { it.task == TaskType.EDUCATIONAL_ACTIVITIES }.schemaSnippet
         ),
         BookIndexSchemaSpec(
-            id = "schema_interactive_bundle",
-            fileName = "interactive/<book>/<unit>/<lesson>/{index.html, interactive-engine.js, lesson.interactive.json}",
-            titleAr = "مخطط تخزين حزمة الدرس التفاعلي المتكاملة (HTML + JS + JSON + Room DB)",
-            descriptionAr = "يخزّن الحزمة التفاعلية في 3 ملفات مترابطة (HTML عارض + محرك JavaScript + بيانات JSON) ويربط نقاط التحقق بجداول questions و question_attempts لكل متعلّم.",
+            id = "schema_educational_activities_bundle",
+            fileName = "educational_activities/<book>/<unit>/<lesson>/{index.html, interactive-engine.js, lesson.interactive.json}",
+            titleAr = "مخطط تخزين حزمة الأنشطة التعليمية (HTML + JS + JSON + Room DB)",
+            descriptionAr = "يخزّن مجموعة الأنشطة التعليمية في ملفات مترابطة (HTML عارض + محرك JavaScript + بيانات JSON) ويربط نقاط التحقق بسجل محاولات المتعلم.",
             schemaJson = """
                 {
                   "storageLayout": {
