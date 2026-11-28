@@ -124,6 +124,86 @@ object BookIndexPromptRegistry {
             quickInstructions = "نوّع الأسئلة بين اختيار من متعدد، صح أم خطأ، إكمال الفراغ، وترتيب مع تحديد conceptTag لكل سؤال."
         ),
         PromptBlueprintSpec(
+            id = "prompt_concepts",
+            task = TaskType.CONCEPTS,
+            titleAr = "استخراج المفاهيم والأهداف",
+            subtitleAr = "تحديد المفاهيم الفعلية وعلاقاتها وأدلتها من نص الدرس",
+            sourcePath = "prompts/book_indexing/concept_extraction.prompt.md",
+            roleInstruction = "استخراج مفاهيم تعليمية محددة ومستندة إلى المصدر",
+            outputContract = "قائمة مفاهيم: الاسم، التعريف، الخصائص، العلاقات، الهدف المرتبط، دليل المصدر والصفحة عند توفرها",
+            quickInstructions = "استخرج المفاهيم الأساسية والفرعية، وميّز المفهوم عن المثال والعملية والخاصية."
+        ),
+        PromptBlueprintSpec(
+            id = "prompt_source_questions",
+            task = TaskType.SOURCE_QUESTIONS,
+            titleAr = "استخراج أسئلة الكتاب",
+            subtitleAr = "حفظ نصوص الأسئلة والخيارات الأصلية مع الصفحات دون إعادة صياغة",
+            sourcePath = "prompts/book_indexing/source_question_extraction.prompt.md",
+            roleInstruction = "استخراج حرفي لأسئلة وتمارين المصدر",
+            outputContract = "الصفحة، الترقيم، نص السؤال، الفروع، الخيارات والإجابة فقط إذا وردت صراحة",
+            quickInstructions = "انقل أسئلة وتمارين الكتاب كما هي، وافصلها عن الأسئلة التي ينشئها الذكاء الاصطناعي."
+        ),
+        PromptBlueprintSpec(
+            id = "prompt_interactive_lesson",
+            task = TaskType.INTERACTIVE_LESSON,
+            titleAr = "تصميم درس تفاعلي شارح",
+            subtitleAr = "شرح مرئي متدرج باستخدام النصوص والمخططات والعمليات والمقارنات ونقاط التحقق",
+            sourcePath = "prompts/book_indexing/interactive_lesson.prompt.md",
+            roleInstruction = "بناء تجربة شرح تفاعلية تركز على أهم أفكار الدرس",
+            outputContract = "أقسام تعليمية مترابطة، ولكل قسم هدف ومفهوم ووسيط شرح مناسب",
+            quickInstructions = "حوّل أهم مفاهيم الدرس إلى شرح تفاعلي؛ استخدم المخطط أو العملية أو النموذج ثلاثي الأبعاد فقط عندما يضيف قيمة تعليمية."
+        ),
+        PromptBlueprintSpec(
+            id = "prompt_educational_activities",
+            task = TaskType.EDUCATIONAL_ACTIVITIES,
+            titleAr = "استخراج وابتكار الأنشطة",
+            subtitleAr = "تمييز أنشطة الكتاب الأصلية عن الأنشطة الجديدة المصممة للتعلم",
+            sourcePath = "prompts/book_indexing/educational_activities.prompt.md",
+            roleInstruction = "استخراج الأنشطة المصدرية وابتكار أنشطة آمنة ومرتبطة بالأهداف",
+            outputContract = "نوع المصدر، الهدف، المواد، الخطوات، دور المتعلم، المخرجات، السلامة وأسئلة التأمل",
+            quickInstructions = "استخرج الأنشطة والتجارب الموجودة في الدرس أولاً، ثم اقترح أنشطة إضافية بوسم واضح بأنها مبتكرة."
+        ),
+        PromptBlueprintSpec(
+            id = "prompt_assessment",
+            task = TaskType.ASSESSMENT,
+            titleAr = "بناء تقييم الدرس",
+            subtitleAr = "إعداد أداة تقييم مرتبطة بالمفاهيم والأهداف ومستويات الأداء",
+            sourcePath = "prompts/book_indexing/question_bank.prompt.md",
+            roleInstruction = "بناء أداة تقييم متوازنة مرتبطة بأهداف الدرس",
+            outputContract = "جدول مواصفات مبسط، أسئلة متنوعة، مفاتيح الإجابة ومعايير التصحيح",
+            quickInstructions = "أنشئ تقييماً يقيس الأهداف والمفاهيم ولا يختبر معلومات خارج الدرس."
+        ),
+        PromptBlueprintSpec(
+            id = "prompt_remediation",
+            task = TaskType.REMEDIATION,
+            titleAr = "إعداد موارد التقوية",
+            subtitleAr = "شرح بديل وأمثلة وتدريبات علاجية عامة مرتبطة بالمفاهيم",
+            sourcePath = "prompts/book_indexing/remediation_content.prompt.md",
+            roleInstruction = "إعداد موارد تقوية عامة لا تفترض وجود بيانات طالب",
+            outputContract = "المفهوم المستهدف، تفسير مبسط، مثال، تدريب متدرج وأسئلة تحقق",
+            quickInstructions = "جهّز موارد تقوية عامة للمفاهيم الصعبة، ولا تنسب ضعفاً أو خطأً إلى طالب بعينه."
+        ),
+        PromptBlueprintSpec(
+            id = "prompt_content_review",
+            task = TaskType.CONTENT_REVIEW,
+            titleAr = "مراجعة صحة المحتوى",
+            subtitleAr = "تدقيق علمي وتربوي ومصدري دون تعديل المحتوى الأصلي",
+            sourcePath = "prompts/book_indexing/content_review.prompt.md",
+            roleInstruction = "مراجع تربوي وعلمي يفحص المحتوى بالأدلة",
+            outputContract = "الملاحظة، الموضع، الدليل، الشدة، السبب والتصحيح المقترح",
+            quickInstructions = "راجع المحتوى الحالي مقابل مصدر الدرس، وسجّل الملاحظات دون إعادة كتابة الأصل."
+        ),
+        PromptBlueprintSpec(
+            id = "prompt_learner_report",
+            task = TaskType.LEARNER_REPORT,
+            titleAr = "تقرير حالة المتعلم",
+            subtitleAr = "تفسير بيانات المحاولات والإتقان ونقاط القوة والتوصيات",
+            sourcePath = "prompts/book_indexing/learner_report.prompt.md",
+            roleInstruction = "تحليل أدلة أداء المتعلم دون استنتاجات غير مدعومة",
+            outputContract = "الأدلة، نقاط القوة، المفاهيم التي تحتاج دعماً، التوصيات وحدود البيانات",
+            quickInstructions = "استخدم سجل محاولات حقيقياً فقط؛ لا تنشئ تقريراً شخصياً من محتوى الكتاب وحده."
+        ),
+        PromptBlueprintSpec(
             id = "prompt_lesson_text",
             task = TaskType.LESSON_TEXT,
             titleAr = "مخطط استخراج وحفظ المحتوى النصي للدرس",
