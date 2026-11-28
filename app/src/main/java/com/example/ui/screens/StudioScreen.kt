@@ -1,6 +1,8 @@
 package com.example.ui.screens
 
 import com.example.ui.components.QuestionGenerationOptions
+import com.example.ui.StudioGenerationMode
+import com.example.ui.StudioGenerationOperation
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
@@ -139,6 +141,12 @@ import com.example.ui.theme.EduYellow
 fun StudioScreen(
     selectedLesson: LessonRef?,
     workspaceBooks: List<BookRef> = emptyList(),
+    selectedBookKey: String = "",
+    studioGenerationMode: StudioGenerationMode = StudioGenerationMode.SINGLE_LESSON,
+    studioGenerationOperation: StudioGenerationOperation = StudioGenerationOperation.GENERATE,
+    onStudioGenerationModeChange: (StudioGenerationMode) -> Unit = {},
+    onStudioGenerationOperationChange: (StudioGenerationOperation) -> Unit = {},
+    onSelectBulkBook: (String) -> Unit = {},
     workspaceLessons: List<LessonRef> = emptyList(),
     task: TaskType,
     questionCount: Int,
@@ -251,6 +259,14 @@ fun StudioScreen(
                 StudioWorkbench(
                     selectedLesson = selectedLesson,
                     activeBook = activeBook,
+                    workspaceBooks = workspaceBooks,
+                    workspaceLessons = workspaceLessons,
+                    selectedBookKey = selectedBookKey,
+                    studioGenerationMode = studioGenerationMode,
+                    studioGenerationOperation = studioGenerationOperation,
+                    onStudioGenerationModeChange = onStudioGenerationModeChange,
+                    onStudioGenerationOperationChange = onStudioGenerationOperationChange,
+                    onSelectBulkBook = onSelectBulkBook,
                     hasWorkspaceLessons = workspaceLessons.isNotEmpty(),
                     showInlinePdf = false,
                     showBackLink = false,
@@ -408,6 +424,14 @@ fun StudioScreen(
 private fun StudioWorkbench(
     selectedLesson: LessonRef?,
     activeBook: BookRef?,
+    workspaceBooks: List<BookRef>,
+    workspaceLessons: List<LessonRef>,
+    selectedBookKey: String,
+    studioGenerationMode: StudioGenerationMode,
+    studioGenerationOperation: StudioGenerationOperation,
+    onStudioGenerationModeChange: (StudioGenerationMode) -> Unit,
+    onStudioGenerationOperationChange: (StudioGenerationOperation) -> Unit,
+    onSelectBulkBook: (String) -> Unit,
     hasWorkspaceLessons: Boolean,
     showInlinePdf: Boolean,
     showBackLink: Boolean,
@@ -678,6 +702,17 @@ private fun StudioWorkbench(
             ) { tab ->
                 when (tab) {
                     0 -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        StudioGenerationControlPanel(
+                            mode = studioGenerationMode,
+                            operation = studioGenerationOperation,
+                            books = workspaceBooks,
+                            lessons = workspaceLessons,
+                            selectedBookKey = selectedBookKey.ifBlank { selectedLesson?.bookKey.orEmpty() },
+                            onModeChange = onStudioGenerationModeChange,
+                            onOperationChange = onStudioGenerationOperationChange,
+                            onSelectBook = onSelectBulkBook
+                        )
+
                         // Task Blueprint Carousel
                         EduPanel(modifier = Modifier.fillMaxWidth()) {
                             Row(
@@ -1107,7 +1142,15 @@ private fun StudioWorkbench(
                                 text = if (isBusy) {
                                     stringResource(R.string.studio_generating_cta)
                                 } else {
-                                    stringResource(R.string.studio_generate_cta)
+                                    when (studioGenerationMode) {
+                                        StudioGenerationMode.SINGLE_LESSON -> when (studioGenerationOperation) {
+                                            StudioGenerationOperation.GENERATE -> "توليد محتوى الدرس"
+                                            StudioGenerationOperation.UPDATE -> "تحديث محتوى الدرس"
+                                            StudioGenerationOperation.REVIEW -> "مراجعة محتوى الدرس"
+                                        }
+                                        StudioGenerationMode.BULK_QUESTIONS -> "بدء توليد بنك الأسئلة للمادة"
+                                        StudioGenerationMode.BULK_FULL_CONTENT -> "بدء توليد كامل محتوى المادة"
+                                    }
                                 },
                                 onClick = {
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -2012,6 +2055,136 @@ private fun StudioBookQuickReferenceCard(
 }
 
 @OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun StudioGenerationControlPanel(
+    mode: StudioGenerationMode,
+    operation: StudioGenerationOperation,
+    books: List<BookRef>,
+    lessons: List<LessonRef>,
+    selectedBookKey: String,
+    onModeChange: (StudioGenerationMode) -> Unit,
+    onOperationChange: (StudioGenerationOperation) -> Unit,
+    onSelectBook: (String) -> Unit
+) {
+    val selectedBook = books.firstOrNull { it.bookKey == selectedBookKey }
+    val lessonCount = lessons.count { it.bookKey == selectedBookKey }
+    EduPanel(modifier = Modifier.fillMaxWidth()) {
+        Text("طريقة التوليد", style = MaterialTheme.typography.titleMedium, color = EduInk)
+        Text(
+            "اختر نطاق العمل. جميع الأنماط تستخدم مسار الذكاء الاصطناعي نفسه وتحفظ النتائج كمسودات.",
+            style = MaterialTheme.typography.bodySmall,
+            color = EduMuted
+        )
+        Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            StudioModeChoice(
+                title = "محتوى درس واحد",
+                description = "احتفظ بالتوليد الفردي الحالي واختر نوع المحتوى من قائمة المهام أدناه.",
+                selected = mode == StudioGenerationMode.SINGLE_LESSON,
+                onClick = { onModeChange(StudioGenerationMode.SINGLE_LESSON) }
+            )
+            StudioModeChoice(
+                title = "بنك أسئلة لجميع دروس المادة",
+                description = "ينشئ بنك الأسئلة لكل درس، ويستخرج المفاهيم داخلياً عند الحاجة لربط الأسئلة بها.",
+                selected = mode == StudioGenerationMode.BULK_QUESTIONS,
+                onClick = { onModeChange(StudioGenerationMode.BULK_QUESTIONS) }
+            )
+            StudioModeChoice(
+                title = "كامل محتوى المادة",
+                description = "يجهّز النص والمفاهيم والأهداف وأسئلة المصدر وبنك AI والشرح التفاعلي والأنشطة والتقييم والتقوية.",
+                selected = mode == StudioGenerationMode.BULK_FULL_CONTENT,
+                onClick = { onModeChange(StudioGenerationMode.BULK_FULL_CONTENT) }
+            )
+        }
+        if (mode != StudioGenerationMode.SINGLE_LESSON) {
+            Text("المادة المستهدفة", style = MaterialTheme.typography.labelLarge, color = EduInk)
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                items(books, key = { it.bookKey }) { book ->
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = if (book.bookKey == selectedBookKey) EduMint else EduFieldBg,
+                        border = BorderStroke(1.dp, if (book.bookKey == selectedBookKey) EduGreen else EduLine),
+                        modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable { onSelectBook(book.bookKey) }
+                    ) {
+                        Text(
+                            book.title,
+                            modifier = Modifier.padding(horizontal = 11.dp, vertical = 8.dp),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = if (book.bookKey == selectedBookKey) EduGreenDark else EduInk
+                        )
+                    }
+                }
+            }
+            Text(
+                text = if (selectedBook != null) {
+                    selectedBook.title + " • " + lessonCount + " درس"
+                } else {
+                    "اختر مادة من القائمة أعلاه"
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = EduMuted
+            )
+        }
+        Text("العملية", style = MaterialTheme.typography.labelLarge, color = EduInk)
+        Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            StudioModeChoiceCompact("إنشاء", operation == StudioGenerationOperation.GENERATE) {
+                onOperationChange(StudioGenerationOperation.GENERATE)
+            }
+            StudioModeChoiceCompact("تحديث", operation == StudioGenerationOperation.UPDATE) {
+                onOperationChange(StudioGenerationOperation.UPDATE)
+            }
+            StudioModeChoiceCompact("مراجعة", operation == StudioGenerationOperation.REVIEW) {
+                onOperationChange(StudioGenerationOperation.REVIEW)
+            }
+        }
+        Text(
+            text = when (operation) {
+                StudioGenerationOperation.GENERATE -> "الإنشاء يتجاوز العناصر التي لها مسودة سابقة؛ استخدم التحديث لإنشاء إصدار جديد."
+                StudioGenerationOperation.UPDATE -> "التحديث يستخدم المحتوى السابق كسياق ويحفظ إصداراً جديداً دون حذف النسخة القديمة."
+                StudioGenerationOperation.REVIEW -> "المراجعة تنتج تقرير تدقيق منفصلاً ولا تعدّل المحتوى الذي تتم مراجعته."
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = EduMuted
+        )
+    }
+}
+
+@Composable
+private fun StudioModeChoice(
+    title: String,
+    description: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = if (selected) EduMint else EduFieldBg,
+        border = BorderStroke(if (selected) 1.5.dp else 1.dp, if (selected) EduGreen else EduLine),
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick)
+    ) {
+        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(title, style = MaterialTheme.typography.titleSmall, color = if (selected) EduGreenDark else EduInk)
+            Text(description, style = MaterialTheme.typography.bodySmall, color = EduMuted)
+        }
+    }
+}
+
+@Composable
+private fun StudioModeChoiceCompact(label: String, selected: Boolean, onClick: () -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(9.dp),
+        color = if (selected) EduGreen else EduFieldBg,
+        border = BorderStroke(1.dp, if (selected) EduGreen else EduLine),
+        modifier = Modifier.clip(RoundedCornerShape(9.dp)).clickable(onClick = onClick)
+    ) {
+        Text(
+            label,
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+            style = MaterialTheme.typography.labelMedium,
+            color = if (selected) EduWhite else EduInk
+        )
+    }
+}
+
 @Composable
 private fun StudioLessonSwitcherDialog(
     books: List<BookRef>,
