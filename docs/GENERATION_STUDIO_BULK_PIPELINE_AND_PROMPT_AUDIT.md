@@ -113,7 +113,36 @@ The new prompt assets are not yet selectable in the app. They must not be expose
 5. Prompt/schema versions must be explicit. Prompt text alone cannot enforce JSON structure; provider schema plus local parser and domain validation remain authoritative.
 6. A generated content review must not be represented as approval. Approval remains an explicit teacher/admin action.
 
-## 8. Acceptance criteria
+## 8. Current implementation status (Android branch)
+
+The following application wiring has now been added on `feat/studio-bulk-pipeline-prompt-audit`:
+
+- Added TaskType entries and prompt blueprints for concepts, source questions, explanatory interactive lessons, educational activities, assessments, remediation resources, content review and learner reports.
+- Added built-in prompt templates for the new task types. Each template loads its Markdown asset through the existing `AiGenerationService.buildPrompt()` path; no new provider client or API route was introduced.
+- Added the three Studio modes: one lesson, question-bank batch, and full subject batch. Subject selection groups all lesson records for the selected subject/component across its book parts.
+- Added CREATE / UPDATE / REVIEW operation selection. Single UPDATE supplies the previous content as context and persists a new version. Single REVIEW creates a separate `CONTENT_REVIEW` draft.
+- Added sequential batch orchestration through `MainViewModel` and the existing `EduMiniRepository.generateContent()` method. Every provider call still reaches `executeAiTask()`.
+- Batch question mode may extract lesson text and concepts as internal prerequisites, but persists only the question-bank artifact (or its review report). It does not save prerequisite artifacts as extra visible drafts.
+- Full-content mode includes lesson text, concepts, objectives, source questions, explanation, summary, vocabulary, worked examples, lesson review, difficulty adaptation, AI questions, interactive lesson, activities, assessment and remediation resources. Learner-specific reports are intentionally excluded.
+- Every persisted batch artifact uses `DraftStatus.DRAFT`. Per-lesson failures do not roll back drafts from other lessons. Cancellation preserves completed drafts; rerunning CREATE skips tasks that already have drafts and retries missing tasks.
+- REVIEW uses the dedicated review prompt and stores a separate review draft; UPDATE preserves prior draft versions through the existing versioned `persistDraft()` path.
+- The Studio now shows mode, subject, and operation controls. The question-bank preview is rendered as readable question cards/Markdown, and the legacy interactive activity is rendered as structured step/checkpoint cards.
+- Raw text editing has been removed for JSON-backed question, legacy interactive activity and lesson-text outputs. Markdown-backed content types can be edited in the formatted content editor.
+
+### Remaining implementation boundaries
+
+This wiring is functional but does not yet constitute the final normalized curriculum-content platform:
+
+1. There is no durable batch/job table yet. Completed artifacts are durable drafts and can be skipped on a rerun, but there is no persistent batch dashboard, pause/resume cursor, or per-item retry state.
+2. Extracted concepts remain draft artifacts; question links still use the existing `conceptTag` string. Stable concept IDs and normalized many-to-many question/concept relations require a separate Room migration.
+3. Extracted source questions are saved as a source-question draft artifact. They are not yet imported into a dedicated source-question table or automatically added to the student question bank.
+4. Assessment instruments and remediation resources are saved as drafts; this batch does not automatically create rows in the operational assessments table.
+5. The explanatory interactive lesson prompt specifies diagrams, process visuals and optional 3D/simulation representations, but a renderer for those new block types and an actual glTF/3D asset pipeline are not implemented yet. The current preview is formatted Markdown. The legacy activity renderer is separate and functional for its existing schema.
+6. Learner reports require real attempts. The current guard requires recorded question attempts for the active learner; assessment-attempt integration and richer statistical confidence thresholds remain future work.
+7. Structured JSON outputs are no longer editable as raw text, but typed field-level editors for questions, lesson text and activity blocks are still needed to provide full in-place editing in their rendered form.
+
+## 9. Acceptance criteria
+
 
 - Existing single-task generation continues to work unchanged.
 - Bulk question bank and bulk full content use the same repository/provider path as single generation.
