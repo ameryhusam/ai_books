@@ -3670,7 +3670,7 @@ class MainViewModel(
                         "تم إنشاء درس تفاعلي من ${interactiveLessonParsed.sections.size} أقسام، وربط ${interactiveLessonParsed.bookQuestionIds.size} سؤالاً معتمداً من بنك أسئلة الكتاب. المسودة تنتظر مراجعة المعلم."
                     effectiveTask == TaskType.INTERACTIVE_LESSON ->
                         "تم حفظ الاستجابة كمسودة، لكن بنية الدرس أو مراجع الأسئلة تحتاج إلى تصحيح قبل الاعتماد."
-                    effectiveTask == TaskType.SOURCE_QUESTIONS && !sourceQuestionsParsed.isNullOrEmpty() ->
+                    effectiveTask == TaskType.SOURCE_QUESTIONS && sourceQuestionsParsed != null && sourceQuestionsParsed.isNotEmpty() ->
                         "تم استخراج ${sourceQuestionsParsed.size} سؤالاً من الكتاب كمسودة. عند اعتمادها ستضاف إلى بنك الأسئلة بالمصدر BOOK_EXTRACTED، وستبقى غير مراجعة حتى يتحقق المعلم من الإجابة النموذجية."
                     effectiveTask == TaskType.SOURCE_QUESTIONS ->
                         "استجابة استخراج أسئلة الكتاب غير صالحة أو لا تحتوي أسئلة؛ لن يتم استيرادها إلى البنك."
@@ -3685,12 +3685,14 @@ class MainViewModel(
                     else ->
                         "تم استلام الاستجابة عبر ${out.providerLabel} (${out.model}) وحفظها كمسودة."
                 }
-                val sourceQuestionValidationIssue = if (effectiveTask == TaskType.SOURCE_QUESTIONS && sourceQuestionsParsed.isNullOrEmpty())
+                val sourceQuestionValidationIssue = if (effectiveTask == TaskType.SOURCE_QUESTIONS && (sourceQuestionsParsed == null || sourceQuestionsParsed.isEmpty()))
                     "استخراج أسئلة الكتاب لا يطابق المخطط الحرفي أو لا يحتوي أسئلة قابلة للاستيراد." else null
+                val activityValidationIssue = if (effectiveTask == TaskType.EDUCATIONAL_ACTIVITIES && interactiveParsed == null)
+                    "بنية الأنشطة التعليمية لا تطابق مخطط الحزمة؛ لن يمكن نشرها." else null
                 val interactiveLessonValidationIssue = if (
                     effectiveTask == TaskType.INTERACTIVE_LESSON && interactiveLessonParsed == null
                 ) "بنية الدرس التفاعلي أو مراجع أسئلة الكتاب غير صالحة؛ لن يمكن اعتماد هذه المسودة." else null
-                val reviewIssues = (out.validationIssues + listOfNotNull(cloudSyncError, sourceQuestionValidationIssue, interactiveLessonValidationIssue))
+                val reviewIssues = (out.validationIssues + listOfNotNull(cloudSyncError, sourceQuestionValidationIssue, activityValidationIssue, interactiveLessonValidationIssue))
                     .filter { it.isNotBlank() }
                     .distinct()
                 val resultMessage = if (reviewIssues.isEmpty()) {
