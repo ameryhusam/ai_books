@@ -33,6 +33,7 @@ on:
       - 'app/src/test/java/com/example/EduMiniCoreTest.kt'
       - 'app/src/test/java/com/example/domain/progress/**'
       - 'app/src/test/java/com/example/data/repository/LessonSourceTextRepositoryTest.kt'
+      - 'app/src/test/java/com/example/ui/components/StudentStudyPresentationPolicyTest.kt'
       - '.github/workflows/workspace-quick-tests.yml'
   pull_request:
     branches: [main]
@@ -73,6 +74,7 @@ jobs:
           --tests com.example.InteractiveCheckpointIsolationTest
           --tests com.example.domain.progress.LearningProgressCalculatorTest
           --tests com.example.data.repository.LessonSourceTextRepositoryTest
+          --tests com.example.ui.components.StudentStudyPresentationPolicyTest
           --tests 'com.example.EduMiniCoreTest.canonicalQuestionPayloadMapsToRoomAndRejectsDuplicateBatchWithoutPartialWrites'
           --tests 'com.example.EduMiniCoreTest.strictGeneratedQuestionParserEnforcesExactCountAndTypeDistribution'
           --tests 'com.example.EduMiniCoreTest.strictGeneratedQuestionParserRejectsCountAndTypeMixMismatch'
