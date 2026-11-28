@@ -3809,23 +3809,28 @@ class MainViewModel(
                                     }
                                 }
                             )
-                            val persisted = repository.persistDraft(
-                                workspaceId = workspace.workspaceId,
-                                lesson = lesson,
-                                task = effectiveTask,
-                                providerLabel = output.providerLabel,
-                                model = output.model,
-                                text = output.text,
-                                title = if (operation == StudioGenerationOperation.REVIEW) "مراجعة " + originalTask.labelAr else lesson.title,
-                                sourceText = source.ifBlank { sourceForRequest },
-                                status = DraftStatus.DRAFT,
-                                generation = output
-                            )
-                            savedCount++
-                            lastVisibleResult = output.text
-                            if (isCloudAuthenticated) {
-                                runCatching { firestoreSync.upsertDraft(currentUserId, persisted) }
-                                    .onFailure { if (it is CancellationException) throw it }
+                            val isQuestionOnlyPrerequisite =
+                                snapshot.studioGenerationMode == StudioGenerationMode.BULK_QUESTIONS &&
+                                    originalTask != TaskType.QUESTIONS
+                            if (!isQuestionOnlyPrerequisite) {
+                                val persisted = repository.persistDraft(
+                                    workspaceId = workspace.workspaceId,
+                                    lesson = lesson,
+                                    task = effectiveTask,
+                                    providerLabel = output.providerLabel,
+                                    model = output.model,
+                                    text = output.text,
+                                    title = if (operation == StudioGenerationOperation.REVIEW) "مراجعة " + originalTask.labelAr else lesson.title,
+                                    sourceText = source.ifBlank { sourceForRequest },
+                                    status = DraftStatus.DRAFT,
+                                    generation = output
+                                )
+                                savedCount++
+                                lastVisibleResult = output.text
+                                if (isCloudAuthenticated) {
+                                    runCatching { firestoreSync.upsertDraft(currentUserId, persisted) }
+                                        .onFailure { if (it is CancellationException) throw it }
+                                }
                             }
                             if (originalTask == TaskType.LESSON_TEXT && operation != StudioGenerationOperation.REVIEW) {
                                 source = repository.extractLessonTextFromOutput(output.text)
