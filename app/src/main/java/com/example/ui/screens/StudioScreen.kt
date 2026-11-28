@@ -1414,7 +1414,7 @@ private fun StudioWorkbench(
                                     }
                                 }
 
-                                if (task == TaskType.INTERACTIVE) {
+                                if (studioTask == TaskType.INTERACTIVE) {
                                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                         Button(
                                             onClick = {
