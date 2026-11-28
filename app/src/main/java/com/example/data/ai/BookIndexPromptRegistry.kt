@@ -223,7 +223,7 @@ object BookIndexPromptRegistry {
                             "additionalProperties": false
                           }
                         },
-                        "required": ["title", "body"],
+                        "required": ["title", "body", "activityType", "sourceType", "sourcePages"],
                         "additionalProperties": false
                       }
                     },
