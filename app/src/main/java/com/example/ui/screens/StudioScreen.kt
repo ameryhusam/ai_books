@@ -106,6 +106,8 @@ import com.example.model.CloudDraft
 import com.example.model.DraftRecord
 import com.example.model.DraftStatus
 import com.example.model.InteractivePackageRecord
+import com.example.model.InteractiveActivityModel
+import com.example.data.repository.InteractiveActivityParser
 import com.example.model.LessonRef
 import com.example.model.PromptTemplateRecord
 import com.example.model.QuestionDifficulty
@@ -516,6 +518,12 @@ private fun StudioWorkbench(
             lastResultSeen = generatedResult
             workbenchTab = 1
         }
+    }
+
+    val interactiveActivityPreview = remember(task, generatedResult, selectedLesson) {
+        if (task == TaskType.INTERACTIVE) {
+            InteractiveActivityParser.parseStrictJson(generatedResult, selectedLesson?.title ?: "نشاط الدرس")
+        } else null
     }
 
     val activeBlueprint = remember(task) { BookIndexPromptRegistry.blueprintFor(task) }
@@ -1330,12 +1338,30 @@ private fun StudioWorkbench(
                                             .testTag("formatted_draft_editor")
                                     )
                                 } else {
-                                    EduMarkdownReader(
-                                        text = displayGeneratedResult,
-                                        onSwitchToEdit = if (canEditFormattedContent) {
-                                            { formattedEditMode = true }
-                                        } else null
-                                    )
+                                    when {
+                                        task == TaskType.INTERACTIVE && interactiveActivityPreview != null ->
+                                            InteractiveActivityFormattedPreview(interactiveActivityPreview)
+                                        task == TaskType.INTERACTIVE ->
+                                            Surface(
+                                                shape = RoundedCornerShape(12.dp),
+                                                color = EduFieldBg,
+                                                border = BorderStroke(1.dp, EduOrange),
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Text(
+                                                    "تعذر عرض النشاط بصيغته التفاعلية؛ لم تطابق الاستجابة مخطط النشاط المعتمد. يمكنك مراجعة المسودة أو إعادة التوليد.",
+                                                    modifier = Modifier.padding(14.dp),
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    color = EduInk
+                                                )
+                                            }
+                                        else -> EduMarkdownReader(
+                                            text = displayGeneratedResult,
+                                            onSwitchToEdit = if (canEditFormattedContent) {
+                                                { formattedEditMode = true }
+                                            } else null
+                                        )
+                                    }
                                 }
 
                                 FlowRow(
@@ -2068,6 +2094,54 @@ private fun StudioBookQuickReferenceCard(
 }
 
 @OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun InteractiveActivityFormattedPreview(activity: InteractiveActivityModel) {
+    EduPanel(modifier = Modifier.fillMaxWidth()) {
+        Text(activity.title, style = MaterialTheme.typography.titleMedium, color = EduInk)
+        if (activity.objective.isNotBlank()) {
+            Text("الهدف: " + activity.objective, style = MaterialTheme.typography.bodyMedium, color = EduMuted)
+        }
+        activity.steps.forEachIndexed { index, step ->
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = EduFieldBg,
+                border = BorderStroke(1.dp, EduLine),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("المحطة " + (index + 1) + " • " + step.title, style = MaterialTheme.typography.titleSmall, color = EduGreenDark)
+                    if (step.conceptTag.isNotBlank()) {
+                        Text("المفهوم: " + step.conceptTag, style = MaterialTheme.typography.labelSmall, color = EduPurple)
+                    }
+                    Text(step.body, style = MaterialTheme.typography.bodyMedium, color = EduInk)
+                    if (step.checkpointQuestion.isNotBlank()) {
+                        Text("تحقق من فهمك", style = MaterialTheme.typography.labelLarge, color = EduGreenDark)
+                        Text(step.checkpointQuestion, style = MaterialTheme.typography.bodyMedium, color = EduInk)
+                        step.checkpointOptions.forEachIndexed { optionIndex, option ->
+                            Text((" + ('أ' + optionIndex) + ") " + option, style = MaterialTheme.typography.bodySmall, color = EduMuted)
+                        }
+                        if (step.checkpointAnswer.isNotBlank()) {
+                            Text("الإجابة: " + step.checkpointAnswer, style = MaterialTheme.typography.bodySmall, color = EduGreenDark)
+                        }
+                    }
+                }
+            }
+        }
+        if (activity.orderingItems.isNotEmpty()) {
+            Text("مهمة الترتيب", style = MaterialTheme.typography.titleSmall, color = EduGreenDark)
+            activity.orderingItems.forEachIndexed { index, item ->
+                Text((index + 1).toString() + ". " + item, style = MaterialTheme.typography.bodyMedium, color = EduInk)
+            }
+        }
+        if (activity.matchingPairs.isNotEmpty()) {
+            Text("مهمة المطابقة", style = MaterialTheme.typography.titleSmall, color = EduGreenDark)
+            activity.matchingPairs.forEach { pair ->
+                Text(pair.left + "  ←  " + pair.right, style = MaterialTheme.typography.bodyMedium, color = EduInk)
+            }
+        }
+    }
+}
+
 @Composable
 private fun StudioGenerationControlPanel(
     mode: StudioGenerationMode,
