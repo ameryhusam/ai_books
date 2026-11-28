@@ -1322,8 +1322,7 @@ class EduMiniRepository(
             sourcePdfHash = generation?.sourcePdfHash.orEmpty(),
             promptUsed = generation?.promptUsed.orEmpty(),
             responseSchemaJson = generation?.responseSchemaJson.orEmpty(),
-            sourceIndexSha256 = sourceIndexSha256,
-            sourceType = QuestionSourceType.fromId(sourceType)
+            sourceIndexSha256 = sourceIndexSha256
         )
         dao.insertDraft(
             DraftEntity(
@@ -2304,7 +2303,8 @@ class EduMiniRepository(
             reviewed = true,
             createdAt = Instant.now().toString(),
             conceptTag = conceptTag.trim().ifBlank { lesson.title },
-            sourceIndexSha256 = indexSha
+            sourceIndexSha256 = indexSha,
+            sourceType = QuestionSourceType.MANUAL
         )
         dao.insertQuestions(listOf(item.toEntity()))
         return item
@@ -3035,7 +3035,8 @@ class EduMiniRepository(
             templateId = templateId,
             promptUsed = promptUsed,
             responseSchemaJson = responseSchemaJson,
-            sourceIndexSha256 = sourceIndexSha256
+            sourceIndexSha256 = sourceIndexSha256,
+            sourceType = QuestionSourceType.fromId(sourceType)
         )
     }
 
