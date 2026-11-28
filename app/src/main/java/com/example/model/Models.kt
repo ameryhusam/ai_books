@@ -13,7 +13,6 @@ enum class TaskType(val id: String, val labelAr: String) {
     WORKED_EXAMPLES("worked_examples", "أمثلة محلولة"),
     LESSON_REVIEW("lesson_review", "مراجعة الدرس"),
     DIFFICULTY_ADAPTER("difficulty_adapter", "تكييف الصعوبة"),
-    INTERACTIVE("interactive", "نشاط تفاعلي"),
     QUESTIONS("questions", "بنك الأسئلة"),
     LESSON_TEXT("lesson_text", "استخراج نص الدرس"),
     CONCEPTS("concepts", "استخراج المفاهيم"),
@@ -26,7 +25,10 @@ enum class TaskType(val id: String, val labelAr: String) {
     LEARNER_REPORT("learner_report", "تقرير المتعلم");
 
     companion object {
-        fun fromId(id: String): TaskType = entries.firstOrNull { it.id == id } ?: EXPLANATION
+        fun fromId(id: String): TaskType = when (id.trim()) {
+            "interactive" -> EDUCATIONAL_ACTIVITIES // Legacy persisted task alias.
+            else -> entries.firstOrNull { it.id == id.trim() } ?: EXPLANATION
+        }
     }
 }
 
