@@ -331,6 +331,9 @@ class MainViewModel(
             initialValue = null
         )
 
+    suspend fun readLessonSourceText(lesson: LessonRef): String? =
+        repository.readLessonSourceText(lesson)
+
     val promptTemplates: StateFlow<List<PromptTemplateRecord>> = repository
         .observePromptTemplates()
         .stateIn(
