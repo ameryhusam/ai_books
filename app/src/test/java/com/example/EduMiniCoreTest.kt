@@ -74,7 +74,7 @@ import com.example.model.ProviderConfig
 import com.example.model.ProviderType
 import com.example.model.ProviderApiKeyNames
 import com.example.model.UnitCompletionStatus
-import com.example.ui.components.LearningProgressCalculator
+import com.example.domain.progress.LearningProgressCalculator
 import kotlinx.coroutines.flow.first
 import kotlinx.serialization.decodeFromString
 import kotlinx.coroutines.async

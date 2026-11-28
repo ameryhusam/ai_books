@@ -5,7 +5,7 @@ import com.example.model.MasteryStatus
 import com.example.model.QuestionAttemptRecord
 import com.example.model.QuestionItem
 import com.example.model.QuestionMasteryStats
-import com.example.ui.components.LearningProgressCalculator
+import com.example.domain.progress.LearningProgressCalculator
 
 /**
  * Computes per-question answer history and concept-level mastery diagnostics.

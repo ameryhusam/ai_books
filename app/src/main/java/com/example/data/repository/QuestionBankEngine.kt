@@ -9,7 +9,7 @@ import com.example.model.QuestionType
 import com.example.model.QuestionSourceType
 import com.example.data.ai.QuestionResponseContract
 import com.example.data.ai.TemplateOutputValidator
-import com.example.ui.components.LearningProgressCalculator
+import com.example.domain.progress.LearningProgressCalculator
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
