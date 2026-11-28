@@ -195,27 +195,51 @@ object BookIndexPromptRegistry {
             outputContract = "JSON: schemaVersion, title, objective, steps, ordering, matching؛ وكل خطوة تصف نوع النشاط والمواد والإجراء والمخرج ومتطلبات السلامة داخل body",
             schemaSnippet = """
                 {
-                  "schemaVersion": 1,
-                  "title": "أنشطة تعليمية للدرس",
-                  "objective": "الهدف العام",
-                  "steps": [
-                    {
-                      "title": "تجربة أو لعبة أو محاكاة",
-                      "activityType": "experiment|simulation|game|application|exploration",
-                      "sourceType": "BOOK_EXTRACTED|AI_CREATED",
-                      "sourcePages": "12",
-                      "conceptTag": "المفهوم المستهدف",
-                      "body": "المواد والأدوات، خطوات التنفيذ، دور المتعلم، المخرج المتوقع، وأسئلة التأمل. اذكر متطلبات السلامة بوضوح.",
-                      "checkpoint": {
-                        "conceptTag": "المفهوم المستهدف",
-                        "question": "سؤال تحقق مرتبط بالنشاط؟",
-                        "options": ["خيار أ", "خيار ب", "خيار ج"],
-                        "answer": "خيار أ"
+                  "type": "OBJECT",
+                  "properties": {
+                    "schemaVersion": { "type": "INTEGER" },
+                    "title": { "type": "STRING" },
+                    "objective": { "type": "STRING" },
+                    "steps": {
+                      "type": "ARRAY",
+                      "items": {
+                        "type": "OBJECT",
+                        "properties": {
+                          "title": { "type": "STRING" },
+                          "activityType": { "type": "STRING", "enum": ["experiment", "simulation", "game", "application", "exploration"] },
+                          "sourceType": { "type": "STRING", "enum": ["BOOK_EXTRACTED", "AI_CREATED"] },
+                          "sourcePages": { "type": "STRING" },
+                          "conceptTag": { "type": "STRING" },
+                          "body": { "type": "STRING" },
+                          "checkpoint": {
+                            "type": "OBJECT",
+                            "properties": {
+                              "conceptTag": { "type": "STRING" },
+                              "question": { "type": "STRING" },
+                              "options": { "type": "ARRAY", "items": { "type": "STRING" } },
+                              "answer": { "type": "STRING" }
+                            },
+                            "required": ["question", "options", "answer"],
+                            "additionalProperties": false
+                          }
+                        },
+                        "required": ["title", "body"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "ordering": { "type": "ARRAY", "items": { "type": "STRING" } },
+                    "matching": {
+                      "type": "ARRAY",
+                      "items": {
+                        "type": "OBJECT",
+                        "properties": { "left": { "type": "STRING" }, "right": { "type": "STRING" } },
+                        "required": ["left", "right"],
+                        "additionalProperties": false
                       }
                     }
-                  ],
-                  "ordering": [],
-                  "matching": []
+                  },
+                  "required": ["title", "steps"],
+                  "additionalProperties": false
                 }
             """.trimIndent(),
             quickInstructions = "استخرج أنشطة الكتاب كما هي مع الصفحة والمصدر، ثم اقترح أنشطة جديدة منفصلة بوسم AI_CREATED. أخرج JSON صالحاً وفق المخطط ولا تنشئ أسئلة بنك جديدة."
