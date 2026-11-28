@@ -511,7 +511,7 @@ private fun StudioWorkbench(
     var workbenchTab by remember { mutableIntStateOf(0) } // 0: Compose, 1: Output & Drafts, 2: Source & Packages
     val studioTask = if (studioGenerationMode == StudioGenerationMode.BULK_QUESTIONS) TaskType.QUESTIONS else task
     var formattedEditMode by remember(studioTask) { mutableStateOf(false) }
-    val canEditFormattedContent = studioTask !in setOf(TaskType.EDUCATIONAL_ACTIVITIES, TaskType.LESSON_TEXT, TaskType.INTERACTIVE_LESSON)
+    val canEditFormattedContent = studioTask !in setOf(TaskType.EDUCATIONAL_ACTIVITIES, TaskType.LESSON_TEXT, TaskType.INTERACTIVE_LESSON, TaskType.SOURCE_QUESTIONS)
     var promptPreviewExpanded by remember { mutableStateOf(false) }
     var lastResultSeen by remember(selectedLesson) { mutableStateOf(generatedResult) }
 
