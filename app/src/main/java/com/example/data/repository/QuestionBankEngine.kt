@@ -300,7 +300,8 @@ object QuestionBankEngine {
                 fingerprint = computeFingerprint(prompt),
                 reviewed = false,
                 createdAt = now,
-                conceptTag = conceptTag
+                conceptTag = conceptTag,
+                sourceType = QuestionSourceType.AI_GENERATED
             )
         }
     }
@@ -406,7 +407,8 @@ object QuestionBankEngine {
                 fingerprint = computeFingerprint(prompt),
                 reviewed = false,
                 createdAt = now,
-                conceptTag = lesson.title
+                conceptTag = lesson.title,
+                sourceType = QuestionSourceType.AI_GENERATED
             )
         }
     }
