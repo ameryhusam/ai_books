@@ -60,7 +60,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.data.repository.EduMiniRepository
-import com.example.data.repository.InteractiveActivityParser
 import com.example.data.repository.QuestionBankEngine
 import com.example.data.workspace.UriIO
 import com.example.model.DraftRecord
@@ -170,20 +169,11 @@ fun StudentStudyDialog(
             if (f.isFile && f.parentFile != null) f.parentFile!!.absolutePath to f.name else null
         } else null
     }
-    val interactiveDraftActivity = remember(drafts, lesson) {
-        val interactiveDrafts = drafts.filter { it.task == TaskType.INTERACTIVE && it.status == DraftStatus.APPROVED.id }
-            .sortedWith(
-                compareByDescending<DraftRecord> { it.status == DraftStatus.APPROVED.id }
-                    .thenByDescending { it.version }
-            )
-        interactiveDrafts.firstNotNullOfOrNull { InteractiveActivityParser.parseStrictJson(it.content, lesson.title) }
-    }
+    // APPROVED drafts are editorial state, not publication state.
+    // Learners can access interactive content only through a published package
+    // or the supported legacy direct-file package.
     val hasWebPackage = publishedPkg != null || fallbackDirectFilePkg != null
-    val hasInteractive = hasWebPackage || interactiveDraftActivity != null
-    // 0 = HTML/3D package, 1 = AI interactive steps JSON
-    var interactiveSourceMode by remember(lesson.lessonKey, hasWebPackage, interactiveDraftActivity) {
-        mutableIntStateOf(if (hasWebPackage) 0 else 1)
-    }
+    val hasInteractive = hasWebPackage
     var interactiveCompletedXp by remember(lesson.lessonKey) { mutableStateOf<Int?>(null) }
 
     Dialog(
@@ -483,25 +473,6 @@ fun StudentStudyDialog(
                                         }
                                     }
 
-                                    if (hasWebPackage && interactiveDraftActivity != null) {
-                                        FlowRow(
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                                        ) {
-                                            EduPill(
-                                                text = "عرض HTML / 3D",
-                                                active = interactiveSourceMode == 0,
-                                                onClick = { interactiveSourceMode = 0 },
-                                                testTag = "interactive_source_web"
-                                            )
-                                            EduPill(
-                                                text = "النشاط التفاعلي المولّد (${interactiveDraftActivity.steps.size})",
-                                                active = interactiveSourceMode == 1,
-                                                onClick = { interactiveSourceMode = 1 },
-                                                testTag = "interactive_source_ai"
-                                            )
-                                        }
-                                    }
                                 }
                             }
 
@@ -541,7 +512,7 @@ fun StudentStudyDialog(
                             }
 
                             when {
-                                interactiveSourceMode == 0 && publishedPkg != null -> SandboxedPackageWebView(
+                                publishedPkg != null -> SandboxedPackageWebView(
                                     rootDir = publishedPkg.rootDir,
                                     entryFile = publishedPkg.entryFile,
                                     modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -561,7 +532,7 @@ fun StudentStudyDialog(
                                         onInteractiveXpEarned(earnedXp)
                                     }
                                 )
-                                interactiveSourceMode == 0 && fallbackDirectFilePkg != null -> SandboxedPackageWebView(
+                                fallbackDirectFilePkg != null -> SandboxedPackageWebView(
                                     rootDir = fallbackDirectFilePkg.first,
                                     entryFile = fallbackDirectFilePkg.second,
                                     modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -580,25 +551,6 @@ fun StudentStudyDialog(
                                         interactiveCompletedXp = earnedXp
                                         onInteractiveXpEarned(earnedXp)
                                     }
-                                )
-                                interactiveDraftActivity != null -> InteractiveJsonActivityPlayer(
-                                    activity = interactiveDraftActivity,
-                                    onCompleted = { xp ->
-                                        interactiveCompletedXp = xp
-                                        onInteractiveXpEarned(xp)
-                                    },
-                                    onCheckpointAnswered = { step, selectedOption, isCorrect ->
-                                        onInteractiveQuestionAnswered(
-                                            step.checkpointQuestion.ifBlank { step.title },
-                                            step.conceptTag.ifBlank { lesson.title },
-                                            selectedOption,
-                                            step.checkpointAnswer,
-                                            isCorrect,
-                                            step.checkpointOptions,
-                                            "interactive_json"
-                                        )
-                                    },
-                                    modifier = Modifier.weight(1f).fillMaxWidth()
                                 )
                                 else -> Column(
                                     modifier = Modifier
