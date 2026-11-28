@@ -635,13 +635,20 @@ private fun QuestionBankCard(
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                     )
                 }
-                Surface(shape = RoundedCornerShape(8.dp), color = EduBg) {
-                    Text(
-                        text = item.difficulty.labelAr,
+                if (item.sourceType == QuestionSourceType.BOOK_EXTRACTED) {
+                    Surface(shape = RoundedCornerShape(8.dp), color = EduMint) {
+                        Text("سؤال من الكتاب", style = MaterialTheme.typography.labelSmall, color = EduGreenDark, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp))
+                    }
+                }
+                if (item.sourceType != QuestionSourceType.BOOK_EXTRACTED) {
+                    Surface(shape = RoundedCornerShape(8.dp), color = EduBg) {
+                        Text(
+                            text = item.difficulty.labelAr,
                         style = MaterialTheme.typography.labelSmall,
                         color = EduBlue,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                    )
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                        )
+                    }
                 }
                 val conceptLabel = ConceptMasteryEngine.effectiveConceptTag(item)
                 if (conceptLabel.isNotBlank()) {
@@ -785,6 +792,7 @@ private fun QuestionBankCard(
 
         val meta = buildString {
             append(item.lessonTitle)
+            if (item.sourceType == QuestionSourceType.BOOK_EXTRACTED) append(" • المصدر: الكتاب")
             if (!item.sourcePages.isNullOrBlank()) append(" • ص ${item.sourcePages}")
             if (item.reviewed) append(" • مُراجَع ✓")
         }
