@@ -1396,11 +1396,11 @@ class EduMiniRepository(
             dao.updateDraftStatus(draftId, DraftStatus.APPROVED.id)
             return 0
         }
-        if (task != TaskType.QUESTIONS && task != TaskType.INTERACTIVE) {
+        if (task != TaskType.QUESTIONS && task != TaskType.EDUCATIONAL_ACTIVITIES) {
             dao.updateDraftStatus(draftId, DraftStatus.APPROVED.id)
             return 0
         }
-        if (task == TaskType.INTERACTIVE) {
+        if (task == TaskType.EDUCATIONAL_ACTIVITIES) {
             val activity = InteractiveActivityParser.parseStrictJson(draft.content, lessonRef.title)
                 ?: throw IllegalArgumentException("تعذر اعتماد النشاط: بنية النشاط التفاعلي غير صالحة.")
             buildAndPublishInteractiveBundle(
@@ -3317,95 +3317,12 @@ class EduMiniRepository(
                 responseSchemaJson = "",
                 responseFormat = "json"
             ),
-            PromptTemplateRecord(
-                id = "builtin_interactive_steps",
-                title = "درس تفاعلي متكامل (JSON + JS + HTML)",
-                task = TaskType.INTERACTIVE,
-                instructions = "أنشئ 3 محطات تفاعلية بصيغة JSON بحيث تحتوي كل محطة conceptTag صريحاً ونقطة تحقق اختيار من متعدد مرتبطة ببنك الأسئلة ومهمة ترتيب وتوصيل ليُعرض عبر محرك JS و HTML.",
-                isBuiltIn = true,
-                responseSchemaJson = """
-                    {
-                      "type": "OBJECT",
-                      "properties": {
-                        "schemaVersion": { "type": "INTEGER" },
-                        "title": { "type": "STRING" },
-                        "objective": { "type": "STRING" },
-                        "steps": {
-                          "type": "ARRAY",
-                          "items": {
-                            "type": "OBJECT",
-                            "properties": {
-                              "title": { "type": "STRING" },
-                              "conceptTag": { "type": "STRING" },
-                              "body": { "type": "STRING" },
-                              "checkpoint": {
-                                "type": "OBJECT",
-                                "properties": {
-                                  "conceptTag": { "type": "STRING" },
-                                  "question": { "type": "STRING" },
-                                  "options": { "type": "ARRAY", "items": { "type": "STRING" } },
-                                  "answer": { "type": "STRING" }
-                                },
-                                "required": ["question", "options", "answer"]
-                              }
-                            },
-                            "required": ["title", "conceptTag", "body"]
-                          }
-                        },
-                        "ordering": { "type": "ARRAY", "items": { "type": "STRING" } },
-                        "matching": {
-                          "type": "ARRAY",
-                          "items": {
-                            "type": "OBJECT",
-                            "properties": {
-                              "left": { "type": "STRING" },
-                              "right": { "type": "STRING" }
-                            },
-                            "required": ["left", "right"]
-                          }
-                        }
-                      },
-                      "required": ["title", "steps"]
-                    }
-                """.trimIndent(),
-                responseFormat = "json"
-            ),
-            PromptTemplateRecord(
-                id = "builtin_lesson_text",
-                title = "استخراج وحفظ المحتوى النصي للدرس",
-                task = TaskType.LESSON_TEXT,
-                instructions = BookIndexPromptRegistry.blueprintFor(TaskType.LESSON_TEXT).quickInstructions,
-                isBuiltIn = true,
-                responseSchemaJson = """
-                    {
-                      "type": "OBJECT",
-                      "properties": {
-                        "title": { "type": "STRING" },
-                        "sourcePages": { "type": "STRING" },
-                        "sections": {
-                          "type": "ARRAY",
-                          "items": {
-                            "type": "OBJECT",
-                            "properties": {
-                              "heading": { "type": "STRING" },
-                              "body": { "type": "STRING" }
-                            },
-                            "required": ["heading", "body"]
-                          }
-                        },
-                        "plainText": { "type": "STRING" }
-                      },
-                      "required": ["title", "sections", "plainText"]
-                    }
-                """.trimIndent(),
-                responseFormat = "json"
-            ),
             PromptTemplateRecord("builtin_concepts", "استخراج المفاهيم", TaskType.CONCEPTS,
                 BookIndexPromptRegistry.blueprintFor(TaskType.CONCEPTS).quickInstructions, true),
             PromptTemplateRecord("builtin_source_questions", "أسئلة الكتاب الأصلية", TaskType.SOURCE_QUESTIONS,
                 BookIndexPromptRegistry.blueprintFor(TaskType.SOURCE_QUESTIONS).quickInstructions, true),
-            PromptTemplateRecord("builtin_interactive_lesson", "درس تفاعلي شارح", TaskType.INTERACTIVE_LESSON,
-                BookIndexPromptRegistry.blueprintFor(TaskType.INTERACTIVE_LESSON).quickInstructions, true),
+            PromptTemplateRecord("builtin_interactive_lesson", "درس تفاعلي شارح", TaskType.EDUCATIONAL_ACTIVITIES_LESSON,
+                BookIndexPromptRegistry.blueprintFor(TaskType.EDUCATIONAL_ACTIVITIES_LESSON).quickInstructions, true),
             PromptTemplateRecord("builtin_educational_activities", "استخراج وابتكار الأنشطة", TaskType.EDUCATIONAL_ACTIVITIES,
                 BookIndexPromptRegistry.blueprintFor(TaskType.EDUCATIONAL_ACTIVITIES).quickInstructions, true),
             PromptTemplateRecord("builtin_assessment", "بناء تقييم الدرس", TaskType.ASSESSMENT,
