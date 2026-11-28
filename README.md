@@ -41,6 +41,11 @@ The PDF intake and splitting building blocks are not the same as a completed ind
 
 The source PDF must remain intact; temporary working copies may be cleaned up only after successful processing. The printed page number in the book, the physical page number in the original PDF, and the local page number inside a split lesson PDF are distinct coordinate systems.
 
+## Recent Generation Studio task reports
+
+- [Post-merge technical audit](docs/GENERATION_STUDIO_MAIN_BRANCH_AUDIT_2026-11-28.md)
+- [Task-by-task completion report](docs/GENERATION_STUDIO_TASK_REPORT_2026-11-28.md)
+
 ## Build & Test
 
 - Build debug APK: `gradle assembleDebug`
