@@ -282,8 +282,12 @@ class QuestionBankService(
 
         val fp = QuestionBankEngine.computeFingerprint(cleanPrompt)
         val existingQuestions = dao.observeQuestionsForWorkspace(canonicalWs).first()
+        // Checkpoint attempts must never attach to an official question merely
+        // because the prompt text happens to be identical. Keep checkpoint history
+        // on its own source row so learner quiz statistics remain uncontaminated.
         val matched = existingQuestions.firstOrNull { q ->
-            q.bookKey == lesson.bookKey &&
+            (q.sourceType == QuestionSourceType.INTERACTIVE_CHECKPOINT.id || q.id.startsWith("q-int-")) &&
+                q.bookKey == lesson.bookKey &&
                 q.unitKey == lesson.unitKey &&
                 q.lessonKey == lesson.lessonKey &&
                 (q.fingerprint.ifBlank { QuestionBankEngine.computeFingerprint(q.prompt) }) == fp
