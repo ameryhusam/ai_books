@@ -507,8 +507,9 @@ private fun StudioWorkbench(
     val clipboardManager = LocalClipboardManager.current
     val haptic = LocalHapticFeedback.current
     var workbenchTab by remember { mutableIntStateOf(0) } // 0: Compose, 1: Output & Drafts, 2: Source & Packages
-    var formattedEditMode by remember(task) { mutableStateOf(false) }
-    val canEditFormattedContent = task !in setOf(TaskType.QUESTIONS, TaskType.INTERACTIVE, TaskType.LESSON_TEXT)
+    val studioTask = if (studioGenerationMode == StudioGenerationMode.BULK_QUESTIONS) TaskType.QUESTIONS else task
+    var formattedEditMode by remember(studioTask) { mutableStateOf(false) }
+    val canEditFormattedContent = studioTask !in setOf(TaskType.QUESTIONS, TaskType.INTERACTIVE, TaskType.LESSON_TEXT)
     var promptPreviewExpanded by remember { mutableStateOf(false) }
     var lastResultSeen by remember(selectedLesson) { mutableStateOf(generatedResult) }
 
@@ -521,12 +522,12 @@ private fun StudioWorkbench(
     }
 
     val interactiveActivityPreview = remember(task, generatedResult, selectedLesson) {
-        if (task == TaskType.INTERACTIVE) {
+        if (studioTask == TaskType.INTERACTIVE) {
             InteractiveActivityParser.parseStrictJson(generatedResult, selectedLesson?.title ?: "نشاط الدرس")
         } else null
     }
 
-    val activeBlueprint = remember(task) { BookIndexPromptRegistry.blueprintFor(task) }
+    val activeBlueprint = remember(studioTask) { BookIndexPromptRegistry.blueprintFor(studioTask) }
     val context = LocalContext.current
     val promptTemplateContent = remember(context, activeBlueprint.sourcePath) {
         runCatching {
@@ -534,8 +535,8 @@ private fun StudioWorkbench(
         }.getOrDefault("")
     }
     val activePromptTemplate = remember(promptTemplates, activePromptTemplateId, task) {
-        promptTemplates.firstOrNull { it.id == activePromptTemplateId }
-            ?: promptTemplates.firstOrNull { it.task == task }
+        promptTemplates.firstOrNull { it.id == activePromptTemplateId && it.task == studioTask }
+            ?: promptTemplates.firstOrNull { it.task == studioTask }
     }
     val templateInstructions = activePromptTemplate?.instructions.orEmpty().trim()
     val effectivePreviewExtra = if (templateInstructions.isNotBlank() && extraInstructions.contains(templateInstructions)) {
@@ -545,7 +546,7 @@ private fun StudioWorkbench(
     }
     val livePromptPreview = remember(
         selectedLesson,
-        task,
+        studioTask,
         sourceText,
         extraInstructions,
         promptTemplates,
@@ -560,18 +561,18 @@ private fun StudioWorkbench(
         if (selectedLesson != null) {
             BookIndexPromptRegistry.assemblePrompt(
                 lesson = selectedLesson,
-                task = task,
+                task = studioTask,
                 source = sourceText,
                 extra = effectivePreviewExtra,
                 questionCount = questionCount,
                 questionTypeIds = selectedQuestionTypeIds,
                 questionLanguage = questionLanguage,
                 attachedPdfPagesCount = if (attachPdfPages && !selectedLesson.pdfPath.isNullOrBlank()) 1 else 0,
-                questionStyleHint = questionStyle.takeIf { task == TaskType.QUESTIONS && it != "متنوعة" }.orEmpty(),
-                difficultyHint = if (task == TaskType.QUESTIONS) questionDifficulty.id else "",
+                questionStyleHint = questionStyle.takeIf { studioTask == TaskType.QUESTIONS && it != "متنوعة" }.orEmpty(),
+                difficultyHint = if (studioTask == TaskType.QUESTIONS) questionDifficulty.id else "",
                 promptTemplate = promptTemplateContent,
-                responseSchemaJson = if (task == TaskType.QUESTIONS) QuestionResponseContract.schemaFor(selectedQuestionTypeIds, questionDifficulty.id) else activePromptTemplate?.responseSchemaJson.orEmpty(),
-                responseFormat = if (task == TaskType.QUESTIONS) "json" else activePromptTemplate?.responseFormat
+                responseSchemaJson = if (studioTask == TaskType.QUESTIONS) QuestionResponseContract.schemaFor(selectedQuestionTypeIds, questionDifficulty.id) else activePromptTemplate?.responseSchemaJson.orEmpty(),
+                responseFormat = if (studioTask == TaskType.QUESTIONS) "json" else activePromptTemplate?.responseFormat
                     ?: if (activePromptTemplate?.responseSchemaJson.isNullOrBlank()) "text" else "json"
             )
         } else {
@@ -847,9 +848,9 @@ private fun StudioWorkbench(
                                 }
                             }
 
-                            if (task == TaskType.QUESTIONS || task == TaskType.INTERACTIVE) {
+                            if (studioTask == TaskType.QUESTIONS || studioTask == TaskType.INTERACTIVE) {
                                 Text(
-                                    text = if (task == TaskType.INTERACTIVE) "عدد المحطات التفاعلية المطلوبة" else stringResource(R.string.studio_question_count_label),
+                                    text = if (studioTask == TaskType.INTERACTIVE) "عدد المحطات التفاعلية المطلوبة" else stringResource(R.string.studio_question_count_label),
                                     style = MaterialTheme.typography.labelMedium,
                                     color = EduInk,
                                     modifier = Modifier.padding(top = 4.dp)
@@ -860,7 +861,7 @@ private fun StudioWorkbench(
                                 ) {
                                     listOf(3, 5, 10, 15, 20).forEach { count ->
                                         EduPill(
-                                            text = if (task == TaskType.INTERACTIVE) "$count محطات" else "$count أسئلة",
+                                            text = if (studioTask == TaskType.INTERACTIVE) "$count محطات" else "$count أسئلة",
                                             active = questionCount == count,
                                             onClick = { onQuestionCountChange(count) },
                                             testTag = "question_count_$count"
@@ -869,7 +870,7 @@ private fun StudioWorkbench(
                                 }
                             }
 
-                            if (task == TaskType.QUESTIONS) {
+                            if (studioTask == TaskType.QUESTIONS) {
                                 Text(
                                     text = "إعدادات توليد الأسئلة",
                                     style = MaterialTheme.typography.labelMedium,
@@ -1339,9 +1340,9 @@ private fun StudioWorkbench(
                                     )
                                 } else {
                                     when {
-                                        task == TaskType.INTERACTIVE && interactiveActivityPreview != null ->
+                                        studioTask == TaskType.INTERACTIVE && interactiveActivityPreview != null ->
                                             InteractiveActivityFormattedPreview(interactiveActivityPreview)
-                                        task == TaskType.INTERACTIVE ->
+                                        studioTask == TaskType.INTERACTIVE ->
                                             Surface(
                                                 shape = RoundedCornerShape(12.dp),
                                                 color = EduFieldBg,
@@ -1397,7 +1398,7 @@ private fun StudioWorkbench(
                                         Spacer(modifier = Modifier.width(4.dp))
                                         Text("نسخ", color = EduInk, style = MaterialTheme.typography.labelMedium)
                                     }
-                                    if (task == TaskType.QUESTIONS) {
+                                    if (studioTask == TaskType.QUESTIONS) {
                                     OutlinedButton(
                                         onClick = onSaveToQuestionBank,
                                         shape = RoundedCornerShape(10.dp),
