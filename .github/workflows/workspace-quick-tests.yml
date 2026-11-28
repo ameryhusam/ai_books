@@ -72,4 +72,6 @@ jobs:
           --tests 'com.example.EduMiniCoreTest.strictGeneratedQuestionParserEnforcesExactCountAndTypeDistribution'
           --tests 'com.example.EduMiniCoreTest.strictGeneratedQuestionParserRejectsCountAndTypeMixMismatch'
           --tests 'com.example.EduMiniCoreTest.questionBankEngineParsesJsonAndArabicTextDetectsDuplicatesAndGradesQuiz'
+          --tests 'com.example.EduMiniCoreTest.pdfBookSplitterAutoSplitsAndCreatesWorkspaceWithLessonPdfs'
+          --tests 'com.example.EduMiniCoreTest.importerAllowsIndexHashMismatchOnlyAfterExplicitReviewConsent'
           -PallowMissingGoogleServices=true
