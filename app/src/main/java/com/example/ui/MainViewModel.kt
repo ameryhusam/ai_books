@@ -3578,9 +3578,6 @@ class MainViewModel(
                 )
                 val interactiveLessonParsed = if (effectiveTask == TaskType.INTERACTIVE_LESSON) {
                     InteractiveLessonParser.parseStrictJson(out.text, allowedBookQuestionIds)
-                        ?: throw IllegalArgumentException(
-                            "خرج الدرس التفاعلي لا يطابق مخطط الدرس أو يتضمن معرفات أسئلة غير معتمدة لهذا الدرس."
-                        )
                 } else null
                 val wsId = snapshot.workspace?.workspaceId.orEmpty()
                 // Surface the provider response immediately. Draft persistence and later
@@ -3667,6 +3664,8 @@ class MainViewModel(
                 val resultSummary = when {
                     effectiveTask == TaskType.INTERACTIVE_LESSON && interactiveLessonParsed != null ->
                         "تم إنشاء درس تفاعلي من ${interactiveLessonParsed.sections.size} أقسام، وربط ${interactiveLessonParsed.bookQuestionIds.size} سؤالاً معتمداً من بنك أسئلة الكتاب. المسودة تنتظر مراجعة المعلم."
+                    effectiveTask == TaskType.INTERACTIVE_LESSON ->
+                        "تم حفظ الاستجابة كمسودة، لكن بنية الدرس أو مراجع الأسئلة تحتاج إلى تصحيح قبل الاعتماد."
                     effectiveTask == TaskType.QUESTIONS ->
                         "تم حفظ مسودة الأسئلة فقط. لن تُدرج في بنك الأسئلة أو اختبار الطالب قبل اعتمادها صراحةً."
                     effectiveTask == TaskType.LESSON_TEXT ->
@@ -3678,7 +3677,10 @@ class MainViewModel(
                     else ->
                         "تم استلام الاستجابة عبر ${out.providerLabel} (${out.model}) وحفظها كمسودة."
                 }
-                val reviewIssues = (out.validationIssues + listOfNotNull(cloudSyncError))
+                val interactiveLessonValidationIssue = if (
+                    effectiveTask == TaskType.INTERACTIVE_LESSON && interactiveLessonParsed == null
+                ) "بنية الدرس التفاعلي أو مراجع أسئلة الكتاب غير صالحة؛ لن يمكن اعتماد هذه المسودة." else null
+                val reviewIssues = (out.validationIssues + listOfNotNull(cloudSyncError, interactiveLessonValidationIssue))
                     .filter { it.isNotBlank() }
                     .distinct()
                 val resultMessage = if (reviewIssues.isEmpty()) {
