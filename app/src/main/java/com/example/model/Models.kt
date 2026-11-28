@@ -394,8 +394,7 @@ data class DraftRecord(
     val sourcePdfHash: String = "",
     val promptUsed: String = "",
     val responseSchemaJson: String = "",
-    val sourceIndexSha256: String = "",
-    val sourceType: QuestionSourceType = QuestionSourceType.LEGACY_UNKNOWN
+    val sourceIndexSha256: String = ""
 )
 
 data class LessonTextRecord(
@@ -792,7 +791,8 @@ data class QuestionItem(
     val templateId: String = "",
     val promptUsed: String = "",
     val responseSchemaJson: String = "",
-    val sourceIndexSha256: String = ""
+    val sourceIndexSha256: String = "",
+    val sourceType: QuestionSourceType = QuestionSourceType.LEGACY_UNKNOWN
 )
 
 enum class AssessmentKind(val id: String, val labelAr: String) {
