@@ -2118,7 +2118,7 @@ private fun InteractiveActivityFormattedPreview(activity: InteractiveActivityMod
                         Text("تحقق من فهمك", style = MaterialTheme.typography.labelLarge, color = EduGreenDark)
                         Text(step.checkpointQuestion, style = MaterialTheme.typography.bodyMedium, color = EduInk)
                         step.checkpointOptions.forEachIndexed { optionIndex, option ->
-                            Text((" + ('أ' + optionIndex) + ") " + option, style = MaterialTheme.typography.bodySmall, color = EduMuted)
+                            Text(('أ'.code + optionIndex).toChar().toString() + ") " + option, style = MaterialTheme.typography.bodySmall, color = EduMuted)
                         }
                         if (step.checkpointAnswer.isNotBlank()) {
                             Text("الإجابة: " + step.checkpointAnswer, style = MaterialTheme.typography.bodySmall, color = EduGreenDark)
