@@ -1004,6 +1004,7 @@ private fun AuthenticatedEduMiniContent(
                         lastQuizResult = state.lastLessonQuizResult,
                         showAdminShortcuts = state.userRole == UserRole.ADMIN,
                         storedLessonText = studentStudyLessonText?.content,
+                        onLoadLessonSourceText = viewModel::readLessonSourceText,
                         onOpenGenerateQuestions = { viewModel.openLessonQuestionsInStudio(studyLesson) },
                         onSubmitLessonQuiz = { answers ->
                             viewModel.submitLessonQuiz(studyLesson, lessonQuestions, answers)
