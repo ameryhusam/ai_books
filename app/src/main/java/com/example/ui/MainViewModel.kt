@@ -2448,10 +2448,16 @@ class MainViewModel(
     }
 
     fun loadCloudDraftIntoEditor(cloudDraft: CloudDraft) {
+        val cloudTask = cloudDraft.taskTypeOrDefault()
         _uiState.update {
             it.copy(
-                task = cloudDraft.taskTypeOrDefault(),
+                task = cloudTask,
                 generatedResult = cloudDraft.content,
+                generatedDisplayResult = if (cloudTask == TaskType.LESSON_TEXT) {
+                    repository.extractLessonTextFromOutput(cloudDraft.content)
+                } else {
+                    cloudDraft.content
+                },
                 activeDraftId = "",
                 activeDraftProvider = cloudDraft.provider,
                 activeDraftModel = cloudDraft.model,
