@@ -6,6 +6,7 @@ import com.example.model.QuestionContentPayload
 import com.example.model.QuestionDifficulty
 import com.example.model.QuestionItem
 import com.example.model.QuestionType
+import com.example.model.QuestionSourceType
 import com.example.data.ai.QuestionResponseContract
 import com.example.data.ai.TemplateOutputValidator
 import com.example.ui.components.LearningProgressCalculator
@@ -185,7 +186,8 @@ object QuestionBankEngine {
                 fingerprint = computeFingerprint(payload.prompt),
                 reviewed = false,
                 createdAt = createdAt,
-                conceptTag = payload.conceptTag.ifBlank { lesson.title }
+                conceptTag = payload.conceptTag.ifBlank { lesson.title },
+                sourceType = QuestionSourceType.AI_GENERATED
             )
         }
         val expectedDistribution = QuestionResponseContract.expectedDistribution(expectedCount, selectedTypeIds)
