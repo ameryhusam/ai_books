@@ -2,6 +2,7 @@ package com.example
 
 import com.example.data.repository.InteractiveActivityParser
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
@@ -16,6 +17,27 @@ class InteractiveActivityParserTest {
         """.trimIndent()
 
         assertNull(InteractiveActivityParser.parseStrictJson(prose))
+    }
+
+    @Test
+    fun strictParserPreservesActivityTypeAndBookProvenance() {
+        val json = """
+            {
+              "title": "أنشطة الدرس",
+              "steps": [{
+                "title": "تجربة",
+                "body": "نفذ الخطوات مع المعلم.",
+                "activityType": "experiment",
+                "sourceType": "BOOK_EXTRACTED",
+                "sourcePages": "15"
+              }]
+            }
+        """.trimIndent()
+        val activity = InteractiveActivityParser.parseStrictJson(json)
+        assertNotNull(activity)
+        assertEquals("experiment", activity?.steps?.single()?.activityType)
+        assertEquals("BOOK_EXTRACTED", activity?.steps?.single()?.sourceType)
+        assertEquals("15", activity?.steps?.single()?.sourcePages)
     }
 
     @Test
