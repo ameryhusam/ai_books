@@ -318,18 +318,6 @@ class MainViewModel(
             initialValue = null
         )
 
-    @OptIn(ExperimentalCoroutinesApi::class)
-    val studentStudyLessonText: StateFlow<com.example.model.LessonTextRecord?> = _uiState
-        .map { (it.workspace?.workspaceId.orEmpty()) to it.studentStudyLesson }
-        .distinctUntilChanged()
-        .flatMapLatest { (wsId, lesson) ->
-            if (lesson == null) flowOf(null) else repository.observeLessonText(wsId, lesson)
-        }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = null
-        )
 
     suspend fun readLessonSourceText(lesson: LessonRef): String? =
         repository.readLessonSourceText(lesson)
