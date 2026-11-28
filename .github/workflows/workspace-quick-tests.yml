@@ -74,4 +74,6 @@ jobs:
           --tests 'com.example.EduMiniCoreTest.questionBankEngineParsesJsonAndArabicTextDetectsDuplicatesAndGradesQuiz'
           --tests 'com.example.EduMiniCoreTest.pdfBookSplitterAutoSplitsAndCreatesWorkspaceWithLessonPdfs'
           --tests 'com.example.EduMiniCoreTest.importerAllowsIndexHashMismatchOnlyAfterExplicitReviewConsent'
+          --tests 'com.example.EduMiniCoreTest.bookIndexPromptRegistryCoversAllTasksAndStandardSchemas'
+          --tests 'com.example.EduMiniCoreTest.generatedQuestionPreviewUsesReadableQuestionCardsInsteadOfRawJson'
           -PallowMissingGoogleServices=true
