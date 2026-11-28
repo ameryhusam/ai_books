@@ -3727,7 +3727,7 @@ class MainViewModel(
             StudioGenerationMode.BULK_FULL_CONTENT -> listOf(
                 TaskType.LESSON_TEXT, TaskType.CONCEPTS, TaskType.OBJECTIVES, TaskType.SOURCE_QUESTIONS,
                 TaskType.EXPLANATION, TaskType.SUMMARY, TaskType.VOCABULARY, TaskType.WORKED_EXAMPLES,
-                TaskType.LESSON_REVIEW, TaskType.QUESTIONS, TaskType.INTERACTIVE_LESSON,
+                TaskType.LESSON_REVIEW, TaskType.DIFFICULTY_ADAPTER, TaskType.QUESTIONS, TaskType.INTERACTIVE_LESSON,
                 TaskType.EDUCATIONAL_ACTIVITIES, TaskType.ASSESSMENT, TaskType.REMEDIATION
             )
             StudioGenerationMode.SINGLE_LESSON -> emptyList()
