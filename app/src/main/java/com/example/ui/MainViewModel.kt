@@ -3387,6 +3387,18 @@ class MainViewModel(
                 return
             }
         }
+        if (snapshot.studioGenerationMode == StudioGenerationMode.SINGLE_LESSON &&
+            snapshot.task == TaskType.LEARNER_REPORT &&
+            workspaceQuestionAttempts.value.none { it.userId == snapshot.activeLearner.userId }
+        ) {
+            _uiState.update {
+                it.copy(alert = AlertMessage(
+                    "لا توجد بيانات أداء كافية",
+                    "تقرير المتعلم يتطلب محاولات تقييم فعلية للمتعلم المحدد. لا يمكن توليد تقرير شخصي من نص الكتاب وحده."
+                ))
+            }
+            return
+        }
         val availableModels = snapshot.aiModelCatalog.filter {
             it.provider == snapshot.selectedProvider && it.isEnabled &&
                 it.supportsGenerateContent && it.lifecycleStatus != AiModelDefinition.STATUS_DEPRECATED
