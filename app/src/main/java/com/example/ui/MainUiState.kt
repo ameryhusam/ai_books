@@ -54,6 +54,18 @@ data class BookIndexReviewUiState(
     val isDiscovering: Boolean = false
 )
 
+enum class StudioGenerationMode(val labelAr: String) {
+    SINGLE_LESSON("محتوى درس واحد"),
+    BULK_QUESTIONS("بنك أسئلة لجميع الدروس"),
+    BULK_FULL_CONTENT("كامل محتوى المادة")
+}
+
+enum class StudioGenerationOperation(val labelAr: String) {
+    GENERATE("إنشاء"),
+    UPDATE("تحديث"),
+    REVIEW("مراجعة")
+}
+
 data class MainUiState(
     val userRole: UserRole = UserRole.ENTRY,
     val isCloudAuthenticated: Boolean = false,
@@ -69,6 +81,9 @@ data class MainUiState(
     val selectedBookKey: String = "",
     val selectedLesson: LessonRef? = null,
     val task: TaskType = TaskType.QUESTIONS,
+    val studioGenerationMode: StudioGenerationMode = StudioGenerationMode.SINGLE_LESSON,
+    val studioGenerationOperation: StudioGenerationOperation = StudioGenerationOperation.GENERATE,
+    val bulkGenerationSummary: String = "",
     val activePromptTemplateId: String = "",
     val questionCount: Int = 5,
     val selectedQuestionTypeIds: List<String> = QuestionType.DEFAULT_GENERATION_IDS,

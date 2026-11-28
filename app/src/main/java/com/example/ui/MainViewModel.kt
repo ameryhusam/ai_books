@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.firebase.AnalyticsTracker
 import com.example.data.ai.AiModelDefinition
+import com.example.data.ai.BookIndexPromptRegistry
 import com.example.data.ai.AiModelCatalogDefaults
 import com.example.data.ai.AiExecutionException
 import com.example.data.ai.AiExecutionFailureKind
@@ -72,6 +73,8 @@ import com.example.model.UserRoleResolution
 import com.example.model.WorkspaceSummary
 import com.google.firebase.firestore.FirebaseFirestoreException
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -1876,7 +1879,11 @@ class MainViewModel(
                         sourceText = evidence,
                         extraInstructions = taskInstructions,
                         generatedResult = output.text,
-                        generatedDisplayResult = if (task == TaskType.LESSON_TEXT) repository.extractLessonTextFromOutput(output.text) else output.text,
+                        generatedDisplayResult = when (task) {
+                            TaskType.LESSON_TEXT -> repository.extractLessonTextFromOutput(output.text)
+                            TaskType.QUESTIONS -> QuestionBankEngine.formatGeneratedQuestionsForPreview(output.text)
+                            else -> output.text
+                        },
                         activeDraftId = draft.id,
                         activeDraftProvider = output.providerLabel,
                         activeDraftModel = output.model,
@@ -2101,7 +2108,11 @@ class MainViewModel(
                 task = draft.task,
                 activeDraftId = draft.id,
                 generatedResult = draft.content,
-                generatedDisplayResult = if (draft.task == TaskType.LESSON_TEXT) repository.extractLessonTextFromOutput(draft.content) else draft.content,
+                generatedDisplayResult = when (draft.task) {
+                    TaskType.LESSON_TEXT -> repository.extractLessonTextFromOutput(draft.content)
+                    TaskType.QUESTIONS -> QuestionBankEngine.formatGeneratedQuestionsForPreview(draft.content)
+                    else -> draft.content
+                },
                 activeDraftProvider = draft.provider,
                 activeDraftModel = draft.model,
                 activeDraftTemplateId = draft.templateId,
@@ -2203,7 +2214,11 @@ class MainViewModel(
 
     fun updateGeneratedResult(value: String) {
         val snapshot = _uiState.value
-        val display = if (snapshot.task == TaskType.LESSON_TEXT) repository.extractLessonTextFromOutput(value) else value
+        val display = when (snapshot.task) {
+            TaskType.LESSON_TEXT -> repository.extractLessonTextFromOutput(value)
+            TaskType.QUESTIONS -> QuestionBankEngine.formatGeneratedQuestionsForPreview(value)
+            else -> value
+        }
         _uiState.update { it.copy(generatedResult = value, generatedDisplayResult = display) }
     }
 
@@ -2216,10 +2231,10 @@ class MainViewModel(
             it.copy(
                 task = draft.task,
                 generatedResult = draft.content,
-                generatedDisplayResult = if (draft.task == TaskType.LESSON_TEXT) {
-                    repository.extractLessonTextFromOutput(draft.content)
-                } else {
-                    draft.content
+                generatedDisplayResult = when (draft.task) {
+                    TaskType.LESSON_TEXT -> repository.extractLessonTextFromOutput(draft.content)
+                    TaskType.QUESTIONS -> QuestionBankEngine.formatGeneratedQuestionsForPreview(draft.content)
+                    else -> draft.content
                 },
                 activeDraftId = draft.id,
                 activeDraftProvider = draft.provider,
@@ -2275,7 +2290,11 @@ class MainViewModel(
                     sourcePdfHash = snapshot.activeDraftSourcePdfHash
                 )
             )
-            _uiState.update { it.copy(activeDraftId = savedDraft.id, activeDraftContentHash = savedDraft.contentHash, generatedDisplayResult = if (snapshot.task == TaskType.LESSON_TEXT) repository.extractLessonTextFromOutput(content) else content) }
+            _uiState.update { it.copy(activeDraftId = savedDraft.id, activeDraftContentHash = savedDraft.contentHash, generatedDisplayResult = when (snapshot.task) {
+                TaskType.LESSON_TEXT -> repository.extractLessonTextFromOutput(content)
+                TaskType.QUESTIONS -> QuestionBankEngine.formatGeneratedQuestionsForPreview(content)
+                else -> content
+            }) }
             val cloudSyncResult = if (isCloudAuthenticated) {
                 firestoreSync.upsertDraft(currentUserId, savedDraft)
             } else {
@@ -2453,10 +2472,10 @@ class MainViewModel(
             it.copy(
                 task = cloudTask,
                 generatedResult = cloudDraft.content,
-                generatedDisplayResult = if (cloudTask == TaskType.LESSON_TEXT) {
-                    repository.extractLessonTextFromOutput(cloudDraft.content)
-                } else {
-                    cloudDraft.content
+                generatedDisplayResult = when (cloudTask) {
+                    TaskType.LESSON_TEXT -> repository.extractLessonTextFromOutput(cloudDraft.content)
+                    TaskType.QUESTIONS -> QuestionBankEngine.formatGeneratedQuestionsForPreview(cloudDraft.content)
+                    else -> cloudDraft.content
                 },
                 activeDraftId = "",
                 activeDraftProvider = cloudDraft.provider,
@@ -3338,17 +3357,61 @@ class MainViewModel(
         }
     }
 
+    fun setStudioGenerationMode(mode: StudioGenerationMode) {
+        _uiState.update { it.copy(studioGenerationMode = mode, bulkGenerationSummary = "") }
+    }
+
+    fun setStudioGenerationOperation(operation: StudioGenerationOperation) {
+        _uiState.update { it.copy(studioGenerationOperation = operation) }
+    }
+
     fun generateContent() {
         val snapshot = _uiState.value
-        val lesson = snapshot.selectedLesson
-        if (lesson == null) {
-            _uiState.update { it.copy(alert = AlertMessage("حدد الدرس", "اختر درساً من المكتبة أولاً.")) }
-            return
+        if (snapshot.studioGenerationMode == StudioGenerationMode.SINGLE_LESSON) {
+            val lesson = snapshot.selectedLesson
+            if (lesson == null) {
+                _uiState.update { it.copy(alert = AlertMessage("حدد الدرس", "اختر درساً من المكتبة أولاً.")) }
+                return
+            }
+            val hasPdfSource = snapshot.attachPdfPages && !lesson.pdfPath.isNullOrBlank()
+            if (snapshot.studioGenerationOperation != StudioGenerationOperation.GENERATE && snapshot.generatedResult.isBlank()) {
+                _uiState.update {
+                    it.copy(alert = AlertMessage("لا يوجد محتوى سابق", "حمّل مسودة أو ولّد محتوى أولاً قبل التحديث أو المراجعة."))
+                }
+                return
+            }
+            if (snapshot.sourceText.trim().isEmpty() && !hasPdfSource) {
+                _uiState.update {
+                    it.copy(alert = AlertMessage("أدخل نص المصدر", "اكتب نص الدرس أو فعّل إرفاق صفحات PDF."))
+                }
+                return
+            }
+        } else {
+            val workspace = snapshot.workspace
+            if (workspace == null) {
+                _uiState.update { it.copy(alert = AlertMessage("لا توجد مساحة عمل", "اربط الكتاب أو المادة أولاً.")) }
+                return
+            }
+            val targetBookKey = snapshot.selectedBookKey.ifBlank { snapshot.selectedLesson?.bookKey.orEmpty() }
+            val targetBook = workspace.books.firstOrNull { it.bookKey == targetBookKey }
+            val targetLessons = workspace.lessons.filter { lesson ->
+                if (targetBook == null) lesson.bookKey == targetBookKey
+                else lesson.subjectKey == targetBook.subjectKey && lesson.componentKey == targetBook.componentKey
+            }
+            if (targetBookKey.isBlank() || targetLessons.isEmpty()) {
+                _uiState.update { it.copy(alert = AlertMessage("حدد المادة", "اختر كتاب المادة من المكتبة قبل بدء التوليد الجماعي.")) }
+                return
+            }
         }
-        val hasPdfSource = snapshot.attachPdfPages && !lesson.pdfPath.isNullOrBlank()
-        if (snapshot.sourceText.trim().isEmpty() && !hasPdfSource) {
+        if (snapshot.studioGenerationMode == StudioGenerationMode.SINGLE_LESSON &&
+            snapshot.task == TaskType.LEARNER_REPORT &&
+            workspaceQuestionAttempts.value.isEmpty() && workspaceAttempts.value.isEmpty()
+        ) {
             _uiState.update {
-                it.copy(alert = AlertMessage("أدخل نص المصدر", "اكتب مقتطف الدرس أو فعّل إرفاق صفحات PDF للدرس."))
+                it.copy(alert = AlertMessage(
+                    "لا توجد بيانات أداء كافية",
+                    "تقرير المتعلم يتطلب محاولات تقييم فعلية للمتعلم المحدد. لا يمكن توليد تقرير شخصي من نص الكتاب وحده."
+                ))
             }
             return
         }
@@ -3425,6 +3488,10 @@ class MainViewModel(
         snapshot: MainUiState,
         selectedModelId: String
     ) {
+        if (snapshot.studioGenerationMode != StudioGenerationMode.SINGLE_LESSON) {
+            startBulkGeneration(snapshot, selectedModelId)
+            return
+        }
         val selectedApiKey = snapshot.providers
             .filter { it.provider == snapshot.selectedProvider && it.enabled && it.apiKey.isNotBlank() }
             .minWithOrNull(compareBy<ProviderConfig> { it.priority }.thenBy { it.createdAt })
@@ -3436,6 +3503,38 @@ class MainViewModel(
             _uiState.update { it.copy(alert = AlertMessage("حدد الدرس", "اختر درساً من المكتبة أولاً.")) }
             return
         }
+        val operation = snapshot.studioGenerationOperation
+        val effectiveTask = if (operation == StudioGenerationOperation.REVIEW) TaskType.CONTENT_REVIEW else snapshot.task
+        val effectiveExtra = when (operation) {
+            StudioGenerationOperation.GENERATE -> snapshot.extraInstructions
+            StudioGenerationOperation.UPDATE -> snapshot.extraInstructions + "\n\nالمحتوى السابق المطلوب تحديثه مع الحفاظ على الحقائق الصحيحة:\n" + snapshot.generatedResult
+            StudioGenerationOperation.REVIEW -> snapshot.extraInstructions + "\n\nنوع المحتوى قيد المراجعة: " + snapshot.task.labelAr +
+                "\n\nالمحتوى الحالي المطلوب تدقيقه دون تعديله:\n" + snapshot.generatedResult
+        }
+        val learnerEvidence = if (effectiveTask == TaskType.LEARNER_REPORT) buildString {
+            val progress = learningProgressReport.value
+            append("\n\nبيانات أداء المتعلم المسجلة:")
+            append("\nعدد محاولات الأسئلة: ").append(progress.questionAttemptsCount)
+            append("\nعدد المفاهيم المرصودة: ").append(progress.conceptsObserved)
+            progress.firstTryAccuracyPercent?.let { append("\nدقة المحاولة الأولى: ").append(it).append("%") }
+            progress.latestAccuracyPercent?.let { append("\nالدقة الأحدث: ").append(it).append("%") }
+            progress.stableConceptsPercent?.let { append("\nنسبة المفاهيم المستقرة: ").append(it).append("%") }
+            append("\nعدد محاولات التقييم: ").append(workspaceAttempts.value.size)
+            workspaceAttempts.value.forEach { attempt ->
+                append("\n- ").append(attempt.assessmentTitle)
+                    .append(": ").append(attempt.scorePercent).append("%")
+                    .append(if (attempt.passed) " (اجتاز)" else " (لم يجتز)")
+                    .append(" • ").append(attempt.completedAt)
+            }
+            progress.recurringMistakes.forEach { mistake ->
+                append("\nخطأ متكرر في ").append(mistake.conceptTag)
+                    .append(": ").append(mistake.occurrences).append(" مرات")
+                    .append("؛ الإجابة المختارة: ").append(mistake.selectedAnswer)
+                    .append("؛ المتوقعة: ").append(mistake.expectedAnswer)
+            }
+            append("\n\nلا تستنتج نتائج تتجاوز هذه السجلات، واذكر نقص العينة عند الحاجة.")
+        } else ""
+        val requestExtra = effectiveExtra + learnerEvidence
         generationJob?.cancel()
         generationJob = viewModelScope.launch {
             _uiState.update { it.copy(isBusy = true, activeDraftId = "", generatedResult = "", generatedDisplayResult = "", generationProgressPercent = 2, generationStage = "بدء تجهيز الطلب") }
@@ -3443,9 +3542,9 @@ class MainViewModel(
                 val out = repository.generateContent(
                     workspaceId = snapshot.workspace?.workspaceId.orEmpty(),
                     lesson = lesson,
-                    task = snapshot.task,
+                    task = effectiveTask,
                     source = snapshot.sourceText,
-                    extra = snapshot.extraInstructions,
+                    extra = requestExtra,
                     providers = snapshot.providers,
                     selectedProvider = snapshot.selectedProvider,
                     selectedModelId = selectedModelId,
@@ -3454,10 +3553,10 @@ class MainViewModel(
                     questionTypeIds = snapshot.selectedQuestionTypeIds,
                     questionLanguage = snapshot.questionLanguage,
                     attachPdfPages = snapshot.attachPdfPages,
-                    questionStyleHint = snapshot.questionStyle.takeIf { snapshot.task == TaskType.QUESTIONS && it != "متنوعة" }.orEmpty(),
-                    difficultyHint = if (snapshot.task == TaskType.QUESTIONS) snapshot.questionDifficulty.id else "",
-                    template = promptTemplates.value.firstOrNull { it.id == snapshot.activePromptTemplateId }
-                        ?: promptTemplates.value.firstOrNull { it.task == snapshot.task },
+                    questionStyleHint = snapshot.questionStyle.takeIf { effectiveTask == TaskType.QUESTIONS && it != "متنوعة" }.orEmpty(),
+                    difficultyHint = if (effectiveTask == TaskType.QUESTIONS) snapshot.questionDifficulty.id else "",
+                    template = promptTemplates.value.firstOrNull { it.id == snapshot.activePromptTemplateId && it.task == effectiveTask }
+                        ?: promptTemplates.value.firstOrNull { it.task == effectiveTask },
                     catalogModels = snapshot.aiModelCatalog,
                     onProgress = { percent, stage ->
                         _uiState.update { it.copy(generationProgressPercent = percent, generationStage = stage) }
@@ -3468,11 +3567,16 @@ class MainViewModel(
                 // task/database validation must not hide content that the provider returned.
                 _uiState.update {
                     it.copy(
+                        task = effectiveTask,
                         generatedResult = out.text,
-                        generatedDisplayResult = if (snapshot.task == TaskType.LESSON_TEXT) repository.extractLessonTextFromOutput(out.text) else out.text,
-                        generatedQuestionExpectedCount = if (snapshot.task == TaskType.QUESTIONS) snapshot.questionCount else null,
-                        generatedQuestionExpectedTypeIds = if (snapshot.task == TaskType.QUESTIONS) snapshot.selectedQuestionTypeIds else emptyList(),
-                        generatedQuestionExpectedDifficultyId = if (snapshot.task == TaskType.QUESTIONS) snapshot.questionDifficulty.id else "",
+                        generatedDisplayResult = when (effectiveTask) {
+                            TaskType.LESSON_TEXT -> repository.extractLessonTextFromOutput(out.text)
+                            TaskType.QUESTIONS -> QuestionBankEngine.formatGeneratedQuestionsForPreview(out.text)
+                            else -> out.text
+                        },
+                        generatedQuestionExpectedCount = if (effectiveTask == TaskType.QUESTIONS) snapshot.questionCount else null,
+                        generatedQuestionExpectedTypeIds = if (effectiveTask == TaskType.QUESTIONS) snapshot.selectedQuestionTypeIds else emptyList(),
+                        generatedQuestionExpectedDifficultyId = if (effectiveTask == TaskType.QUESTIONS) snapshot.questionDifficulty.id else "",
                         activeDraftProvider = out.providerLabel,
                         activeDraftModel = out.model,
                         activeDraftTemplateId = out.templateId,
@@ -3491,11 +3595,11 @@ class MainViewModel(
                     repository.persistDraft(
                         workspaceId = wsId,
                         lesson = lesson,
-                        task = snapshot.task,
+                        task = effectiveTask,
                         providerLabel = out.providerLabel,
                         model = out.model,
                         text = out.text,
-                        title = lesson.title,
+                        title = if (operation == StudioGenerationOperation.REVIEW) "مراجعة " + snapshot.task.labelAr else lesson.title,
                         sourceText = snapshot.sourceText,
                         status = DraftStatus.DRAFT,
                         generation = out
@@ -3524,7 +3628,7 @@ class MainViewModel(
                 } else null
                 analyticsTracker?.trackAiExplanationGenerated(
                     providerId = out.providerLabel,
-                    taskType = snapshot.task.id,
+                    taskType = effectiveTask.id,
                     success = true
                 )
                 analyticsTracker?.trackLessonCreateCompleted(
@@ -3534,19 +3638,19 @@ class MainViewModel(
                     success = true
                 )
                 _uiState.update { it.copy(providers = repository.loadProviders(), generationProgressPercent = 100, generationStage = "اكتمل التوليد والحفظ") }
-                val interactiveParsed = if (snapshot.task == TaskType.INTERACTIVE) {
+                val interactiveParsed = if (effectiveTask == TaskType.INTERACTIVE) {
                     InteractiveActivityParser.parseStrictJson(out.text, lesson.title)
                 } else {
                     null
                 }
                 val resultSummary = when {
-                    snapshot.task == TaskType.QUESTIONS ->
+                    effectiveTask == TaskType.QUESTIONS ->
                         "تم حفظ مسودة الأسئلة فقط. لن تُدرج في بنك الأسئلة أو اختبار الطالب قبل اعتمادها صراحةً."
-                    snapshot.task == TaskType.LESSON_TEXT ->
+                    effectiveTask == TaskType.LESSON_TEXT ->
                         "تم حفظ نص الدرس كمسودة. راجع النص واعتمده لحفظه في مصدر الدرس."
-                    snapshot.task == TaskType.INTERACTIVE && interactiveParsed != null ->
+                    effectiveTask == TaskType.INTERACTIVE && interactiveParsed != null ->
                         "تم حفظ النشاط التفاعلي (${interactiveParsed.steps.size} محطة) كمسودة قابلة للمعاينة في الاستوديو؛ لن يُنشر للطالب قبل الاعتماد."
-                    snapshot.task == TaskType.INTERACTIVE ->
+                    effectiveTask == TaskType.INTERACTIVE ->
                         "تم حفظ استجابة النشاط كمسودة، لكن بنيتها لا تجتاز التحقق الصارم بعد."
                     else ->
                         "تم استلام الاستجابة عبر ${out.providerLabel} (${out.model}) وحفظها كمسودة."
@@ -3563,9 +3667,9 @@ class MainViewModel(
                 _uiState.update {
                     it.copy(
                         generatedResult = out.text,
-                        generatedQuestionExpectedCount = if (snapshot.task == TaskType.QUESTIONS) snapshot.questionCount else null,
-                        generatedQuestionExpectedTypeIds = if (snapshot.task == TaskType.QUESTIONS) snapshot.selectedQuestionTypeIds else emptyList(),
-                        generatedQuestionExpectedDifficultyId = if (snapshot.task == TaskType.QUESTIONS) snapshot.questionDifficulty.id else "",
+                        generatedQuestionExpectedCount = if (effectiveTask == TaskType.QUESTIONS) snapshot.questionCount else null,
+                        generatedQuestionExpectedTypeIds = if (effectiveTask == TaskType.QUESTIONS) snapshot.selectedQuestionTypeIds else emptyList(),
+                        generatedQuestionExpectedDifficultyId = if (effectiveTask == TaskType.QUESTIONS) snapshot.questionDifficulty.id else "",
                         sourceText = it.sourceText,
                         activeDraftProvider = out.providerLabel,
                         activeDraftModel = out.model,
@@ -3588,7 +3692,7 @@ class MainViewModel(
             } catch (e: Exception) {
                 analyticsTracker?.trackAiExplanationGenerated(
                     providerId = snapshot.selectedProvider.id,
-                    taskType = snapshot.task.id,
+                    taskType = effectiveTask.id,
                     success = false
                 )
                 analyticsTracker?.trackLessonCreateCompleted(
@@ -3614,6 +3718,220 @@ class MainViewModel(
                             title = failureTitle,
                             message = e.message ?: "حدث خطأ غير متوقع أثناء التوليد"
                         )
+                    )
+                }
+            } finally {
+                generationJob = null
+                val latestProviders = runCatching { repository.loadProviders() }.getOrDefault(_uiState.value.providers)
+                _uiState.update { it.copy(providers = latestProviders, isBusy = false, generationProgressPercent = null, generationStage = null) }
+            }
+        }
+    }
+
+    private fun startBulkGeneration(snapshot: MainUiState, selectedModelId: String) {
+        val workspace = snapshot.workspace ?: return
+        val bookKey = snapshot.selectedBookKey.ifBlank { snapshot.selectedLesson?.bookKey.orEmpty() }
+        val targetBook = workspace.books.firstOrNull { it.bookKey == bookKey }
+        val lessons = workspace.lessons
+            .filter { lesson ->
+                if (targetBook == null) lesson.bookKey == bookKey
+                else lesson.subjectKey == targetBook.subjectKey && lesson.componentKey == targetBook.componentKey
+            }
+            .sortedWith(compareBy<LessonRef> { it.sortOrder }.thenBy { it.bookKey }.thenBy { it.unitKey }.thenBy { it.lessonKey })
+        val apiKey = snapshot.providers
+            .filter { it.provider == snapshot.selectedProvider && it.enabled && it.apiKey.isNotBlank() }
+            .minWithOrNull(compareBy<ProviderConfig> { it.priority }.thenBy { it.createdAt })
+        if (lessons.isEmpty() || apiKey == null) {
+            _uiState.update { it.copy(alert = AlertMessage("تعذر بدء الدفعة", "تحقق من اختيار المادة ومفتاح API المفعّل.")) }
+            return
+        }
+
+        val plannedTasks = when (snapshot.studioGenerationMode) {
+            StudioGenerationMode.BULK_QUESTIONS -> listOf(TaskType.QUESTIONS)
+            StudioGenerationMode.BULK_FULL_CONTENT -> listOf(
+                TaskType.LESSON_TEXT, TaskType.CONCEPTS, TaskType.OBJECTIVES, TaskType.SOURCE_QUESTIONS,
+                TaskType.EXPLANATION, TaskType.SUMMARY, TaskType.VOCABULARY, TaskType.WORKED_EXAMPLES,
+                TaskType.LESSON_REVIEW, TaskType.DIFFICULTY_ADAPTER, TaskType.QUESTIONS, TaskType.INTERACTIVE_LESSON,
+                TaskType.EDUCATIONAL_ACTIVITIES, TaskType.ASSESSMENT, TaskType.REMEDIATION
+            )
+            StudioGenerationMode.SINGLE_LESSON -> emptyList()
+        }
+        val operation = snapshot.studioGenerationOperation
+        generationJob?.cancel()
+        generationJob = viewModelScope.launch {
+            _uiState.update {
+                it.copy(isBusy = true, bulkGenerationSummary = "", generationProgressPercent = 0,
+                    generationStage = "تهيئة دفعة " + lessons.size + " درساً")
+            }
+            var savedCount = 0
+            var skippedCount = 0
+            val failures = mutableListOf<String>()
+            var lastVisibleResult = ""
+            var lastVisibleTask: TaskType? = null
+            try {
+                val workspaceDrafts = repository.getWorkspaceDraftsSnapshot(workspace.workspaceId, workspace.rootPath)
+                lessons.forEachIndexed { lessonIndex, lesson ->
+                    kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                    val lessonDrafts = workspaceDrafts.filter {
+                        it.bookKey == lesson.bookKey && it.unitKey == lesson.unitKey && it.lessonKey == lesson.lessonKey
+                    }
+                    val latestByTask = lessonDrafts.groupBy { it.task }.mapValues { (_, values) ->
+                        values.maxByOrNull { it.version }
+                    }
+                    var source = repository.getLessonTextSnapshot(workspace.workspaceId, lesson)?.content.orEmpty()
+                    if (source.isBlank()) {
+                        source = latestByTask[TaskType.LESSON_TEXT]?.content
+                            ?.let(repository::extractLessonTextFromOutput).orEmpty()
+                    }
+                    val sourceWasStored = source.isNotBlank()
+                    var conceptContext = latestByTask[TaskType.CONCEPTS]?.content.orEmpty()
+                    val lessonTaskPlan = if (snapshot.studioGenerationMode == StudioGenerationMode.BULK_QUESTIONS) {
+                        buildList {
+                            if (source.isBlank()) add(TaskType.LESSON_TEXT)
+                            if (latestByTask[TaskType.CONCEPTS] == null) add(TaskType.CONCEPTS)
+                            add(TaskType.QUESTIONS)
+                        }
+                    } else plannedTasks
+
+                    if (source.isBlank() && lesson.pdfPath.isNullOrBlank()) {
+                        failures += lesson.title + ": لا يوجد نص محفوظ أو ملف PDF يمكن استخراج النص منه."
+                        return@forEachIndexed
+                    }
+
+                    for ((taskIndex, originalTask) in lessonTaskPlan.withIndex()) {
+                        kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                        val existing = latestByTask[originalTask]
+                        if (originalTask == TaskType.LESSON_TEXT && sourceWasStored && operation == StudioGenerationOperation.GENERATE) {
+                            skippedCount++
+                            continue
+                        }
+                        if (operation == StudioGenerationOperation.GENERATE && existing != null) {
+                            skippedCount++
+                            continue
+                        }
+                        if (operation == StudioGenerationOperation.REVIEW && existing == null) {
+                            skippedCount++
+                            continue
+                        }
+
+                        val effectiveTask = if (operation == StudioGenerationOperation.REVIEW) TaskType.CONTENT_REVIEW else originalTask
+                        val sourceForRequest = if (originalTask == TaskType.LESSON_TEXT && operation != StudioGenerationOperation.REVIEW && source.isBlank()) "" else source
+                        val extra = buildString {
+                            append(BookIndexPromptRegistry.blueprintFor(effectiveTask).quickInstructions)
+                            when (operation) {
+                                StudioGenerationOperation.GENERATE -> Unit
+                                StudioGenerationOperation.UPDATE -> if (existing != null) {
+                                    append("\n\nالمحتوى السابق المطلوب تطويره مع الحفاظ على الحقائق الصحيحة:\n")
+                                    append(existing.content)
+                                }
+                                StudioGenerationOperation.REVIEW -> {
+                                    append("\n\nنوع المحتوى قيد المراجعة: ").append(originalTask.labelAr)
+                                    append("\n\nالمحتوى الحالي المطلوب تدقيقه دون تعديله:\n")
+                                    append(existing?.content.orEmpty())
+                                }
+                            }
+                            if (originalTask == TaskType.QUESTIONS) {
+                                if (conceptContext.isNotBlank()) {
+                                    append("\nالمفاهيم المرشحة من الدرس:\n").append(conceptContext)
+                                }
+                            }
+                        }
+                        val requestAttachPdf = sourceForRequest.isBlank() && !lesson.pdfPath.isNullOrBlank()
+                        try {
+                            val output = repository.generateContent(
+                                workspaceId = workspace.workspaceId,
+                                lesson = lesson,
+                                task = effectiveTask,
+                                source = sourceForRequest,
+                                extra = extra,
+                                providers = snapshot.providers,
+                                selectedProvider = snapshot.selectedProvider,
+                                selectedModelId = selectedModelId,
+                                selectedProfileId = apiKey.id,
+                                questionCount = snapshot.questionCount,
+                                attachPdfPages = requestAttachPdf,
+                                questionTypeIds = snapshot.selectedQuestionTypeIds,
+                                questionLanguage = snapshot.questionLanguage,
+                                questionStyleHint = snapshot.questionStyle,
+                                difficultyHint = snapshot.questionDifficulty.id,
+                                template = promptTemplates.value.firstOrNull { it.task == effectiveTask },
+                                catalogModels = snapshot.aiModelCatalog,
+                                onProgress = { percent, stage ->
+                                    val totalSteps = (lessons.size * lessonTaskPlan.size).coerceAtLeast(1)
+                                    val completedSteps = lessonIndex * lessonTaskPlan.size + taskIndex
+                                    val overall = ((completedSteps * 100) / totalSteps) + (percent / totalSteps)
+                                    _uiState.update {
+                                        it.copy(generationProgressPercent = overall.coerceIn(0, 99),
+                                            generationStage = lesson.title + ": " + stage)
+                                    }
+                                }
+                            )
+                            val isQuestionOnlyPrerequisite =
+                                snapshot.studioGenerationMode == StudioGenerationMode.BULK_QUESTIONS &&
+                                    originalTask != TaskType.QUESTIONS
+                            if (!isQuestionOnlyPrerequisite) {
+                                val persisted = repository.persistDraft(
+                                    workspaceId = workspace.workspaceId,
+                                    lesson = lesson,
+                                    task = effectiveTask,
+                                    providerLabel = output.providerLabel,
+                                    model = output.model,
+                                    text = output.text,
+                                    title = if (operation == StudioGenerationOperation.REVIEW) "مراجعة " + originalTask.labelAr else lesson.title,
+                                    sourceText = source.ifBlank { sourceForRequest },
+                                    status = DraftStatus.DRAFT,
+                                    generation = output
+                                )
+                                savedCount++
+                                lastVisibleResult = output.text
+                                lastVisibleTask = effectiveTask
+                                if (isCloudAuthenticated) {
+                                    runCatching { firestoreSync.upsertDraft(currentUserId, persisted) }
+                                        .onFailure { if (it is CancellationException) throw it }
+                                }
+                            }
+                            if (originalTask == TaskType.LESSON_TEXT && operation != StudioGenerationOperation.REVIEW) {
+                                source = repository.extractLessonTextFromOutput(output.text)
+                            }
+                            if (originalTask == TaskType.CONCEPTS && operation != StudioGenerationOperation.REVIEW) {
+                                conceptContext = output.text
+                            }
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (error: Exception) {
+                            failures += lesson.title + " • " + effectiveTask.labelAr + ": " + (error.message ?: "فشل غير محدد")
+                            if (originalTask == TaskType.LESSON_TEXT) break
+                        }
+                    }
+                }
+                val summary = "اكتملت الدفعة: " + savedCount + " مسودة محفوظة، " + skippedCount +
+                    " مهمة متجاوزة، " + failures.size + " إخفاق."
+                _uiState.update {
+                    it.copy(
+                        task = lastVisibleTask ?: it.task,
+                        generatedResult = lastVisibleResult.ifBlank { it.generatedResult },
+                        generatedDisplayResult = if (lastVisibleResult.isBlank()) it.generatedDisplayResult else when (lastVisibleTask) {
+                            TaskType.LESSON_TEXT -> repository.extractLessonTextFromOutput(lastVisibleResult)
+                            TaskType.QUESTIONS -> QuestionBankEngine.formatGeneratedQuestionsForPreview(lastVisibleResult)
+                            else -> lastVisibleResult
+                        },
+                        bulkGenerationSummary = summary,
+                        generationProgressPercent = 100,
+                        generationStage = "انتهت معالجة الدفعة",
+                        alert = AlertMessage(
+                            if (failures.isEmpty()) "اكتمل التوليد الجماعي" else "اكتمل جزئياً",
+                            summary + if (failures.isEmpty()) "" else "\n\nتفاصيل الإخفاقات:\n" +
+                                failures.take(20).joinToString("\n") { "• " + it }
+                        ),
+                        toastMessage = "تم حفظ مخرجات الدفعة كمسودات؛ لم يتم اعتماد أي محتوى تلقائياً."
+                    )
+                }
+            } catch (cancelled: CancellationException) {
+                _uiState.update {
+                    it.copy(
+                        bulkGenerationSummary = "أُوقفت الدفعة بعد حفظ " + savedCount +
+                            " مسودة. يمكن تشغيلها مجدداً؛ ستُتجاوز العناصر الموجودة عند اختيار «إنشاء».",
+                        toastMessage = "تم إيقاف الدفعة مع الاحتفاظ بالمسودات المحفوظة."
                     )
                 }
             } finally {

@@ -16,6 +16,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.intOrNull
 import java.security.MessageDigest
 import java.time.Instant
@@ -61,6 +62,56 @@ object QuestionBankEngine {
             val dup = item.fingerprint.isNotBlank() && (counts[item.fingerprint] ?: 0) > 1
             item.copy(isDuplicate = dup)
         }
+    }
+
+    fun parseQuestionPayloads(rawText: String): List<QuestionContentPayload> {
+        val cleaned = rawText.trim()
+            .removePrefix("```json")
+            .removePrefix("```")
+            .removeSuffix("```")
+            .trim()
+        val root = runCatching { json.parseToJsonElement(cleaned) as? JsonObject }.getOrNull() ?: return emptyList()
+        val array = root["questions"] as? JsonArray ?: return emptyList()
+        return array.mapNotNull { element ->
+            runCatching { json.decodeFromJsonElement<QuestionContentPayload>(element) }.getOrNull()
+        }
+    }
+
+    fun serializeQuestionPayloads(payloads: List<QuestionContentPayload>): String {
+        return json.encodeToString(mapOf("questions" to payloads))
+    }
+
+    fun formatGeneratedQuestionsForPreview(rawText: String): String {
+        val cleaned = rawText.trim()
+            .removePrefix("```json")
+            .removePrefix("```")
+            .removeSuffix("```")
+            .trim()
+        val root = runCatching { json.parseToJsonElement(cleaned) as? JsonObject }.getOrNull() ?: return rawText
+        val array = root["questions"] as? JsonArray ?: return rawText
+        val payloads = array.map { element ->
+            runCatching { json.decodeFromJsonElement<QuestionContentPayload>(element) }.getOrNull()
+                ?: return rawText
+        }
+        if (payloads.isEmpty()) return "لم يتم إنشاء أسئلة."
+        return buildString {
+            payloads.forEachIndexed { index, question ->
+                append("### السؤال ").append(index + 1).append("\n\n")
+                append(question.prompt).append("\n\n")
+                if (question.conceptTag.isNotBlank()) append("**المفهوم:** ").append(question.conceptTag).append("\n\n")
+                if (question.options.isNotEmpty()) {
+                    question.options.forEachIndexed { optionIndex, option ->
+                        append("- ").append(('أ' + optionIndex)).append(") ").append(option).append("\n")
+                    }
+                    append("\n")
+                }
+                append("**الإجابة:** ").append(question.correctAnswer).append("\n\n")
+                if (question.rationale.isNotBlank()) append("**التفسير:** ").append(question.rationale).append("\n\n")
+                append("**النوع:** ").append(question.type).append(" • **الصعوبة:** ").append(question.difficulty)
+                if (question.sourcePages.isNotBlank()) append(" • **الصفحة:** ").append(question.sourcePages)
+                append("\n\n---\n\n")
+            }
+        }.trim()
     }
 
     fun parseQuestionsFromText(

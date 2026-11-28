@@ -1558,6 +1558,18 @@ class EduMiniRepository(
         }
     }
 
+    suspend fun getLessonTextSnapshot(workspaceId: String, lesson: LessonRef): LessonTextRecord? {
+        val canonicalWs = workspaceId.ifBlank { lesson.workspaceId }.ifBlank { lesson.rootPath }
+        if (canonicalWs.isBlank()) return null
+        return dao.getLessonTextSnapshot(
+            workspaceId = canonicalWs,
+            legacyRootPath = lesson.rootPath,
+            bookKey = lesson.bookKey,
+            unitKey = lesson.unitKey,
+            lessonKey = lesson.lessonKey
+        )?.toModel()
+    }
+
     suspend fun saveLessonText(
         workspaceId: String,
         lesson: LessonRef,
@@ -3359,7 +3371,23 @@ class EduMiniRepository(
                     }
                 """.trimIndent(),
                 responseFormat = "json"
-            )
+            ),
+            PromptTemplateRecord("builtin_concepts", "استخراج المفاهيم", TaskType.CONCEPTS,
+                BookIndexPromptRegistry.blueprintFor(TaskType.CONCEPTS).quickInstructions, true),
+            PromptTemplateRecord("builtin_source_questions", "أسئلة الكتاب الأصلية", TaskType.SOURCE_QUESTIONS,
+                BookIndexPromptRegistry.blueprintFor(TaskType.SOURCE_QUESTIONS).quickInstructions, true),
+            PromptTemplateRecord("builtin_interactive_lesson", "درس تفاعلي شارح", TaskType.INTERACTIVE_LESSON,
+                BookIndexPromptRegistry.blueprintFor(TaskType.INTERACTIVE_LESSON).quickInstructions, true),
+            PromptTemplateRecord("builtin_educational_activities", "استخراج وابتكار الأنشطة", TaskType.EDUCATIONAL_ACTIVITIES,
+                BookIndexPromptRegistry.blueprintFor(TaskType.EDUCATIONAL_ACTIVITIES).quickInstructions, true),
+            PromptTemplateRecord("builtin_assessment", "بناء تقييم الدرس", TaskType.ASSESSMENT,
+                BookIndexPromptRegistry.blueprintFor(TaskType.ASSESSMENT).quickInstructions, true),
+            PromptTemplateRecord("builtin_remediation", "موارد التقوية", TaskType.REMEDIATION,
+                BookIndexPromptRegistry.blueprintFor(TaskType.REMEDIATION).quickInstructions, true),
+            PromptTemplateRecord("builtin_content_review", "مراجعة صحة المحتوى", TaskType.CONTENT_REVIEW,
+                BookIndexPromptRegistry.blueprintFor(TaskType.CONTENT_REVIEW).quickInstructions, true),
+            PromptTemplateRecord("builtin_learner_report", "تقرير المتعلم", TaskType.LEARNER_REPORT,
+                BookIndexPromptRegistry.blueprintFor(TaskType.LEARNER_REPORT).quickInstructions, true)
         )
     }
 }

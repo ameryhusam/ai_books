@@ -1948,6 +1948,34 @@ class EduMiniCoreTest {
     }
 
     @Test
+    fun generatedQuestionPreviewUsesReadableQuestionCardsInsteadOfRawJson() {
+        val raw = """
+            {
+              "questions": [
+                {
+                  "type": "mcq",
+                  "conceptTag": "التبخر",
+                  "prompt": "ما المقصود بالتبخر؟",
+                  "options": ["تحول السائل إلى غاز", "تحول الغاز إلى سائل"],
+                  "correctAnswer": "تحول السائل إلى غاز",
+                  "rationale": "تكتسب جزيئات السائل طاقة وتغادر سطحه.",
+                  "difficulty": "medium",
+                  "sourcePages": "12"
+                }
+              ]
+            }
+        """.trimIndent()
+
+        val preview = QuestionBankEngine.formatGeneratedQuestionsForPreview(raw)
+
+        assertTrue(preview.contains("### السؤال 1"))
+        assertTrue(preview.contains("ما المقصود بالتبخر؟"))
+        assertTrue(preview.contains("المفهوم:** التبخر"))
+        assertTrue(preview.contains("الإجابة:** تحول السائل إلى غاز"))
+        assertFalse(preview.contains("\"questions\""))
+    }
+
+    @Test
     fun directWorkspaceBinderInspectsMultiGradeAndBindsSingleGradeInPlaceWithoutCopying() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val rootDir = File(context.cacheDir, "direct_ws_sample_${System.currentTimeMillis()}").apply {
