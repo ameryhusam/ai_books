@@ -714,6 +714,7 @@ private fun QuestionBankCard(
                 }
                 IconButton(
                     onClick = onToggleReviewed,
+                    enabled = item.reviewed || item.correctAnswer.isNotBlank(),
                     modifier = Modifier.minimumInteractiveComponentSize()
                 ) {
                     Icon(
@@ -779,6 +780,14 @@ private fun QuestionBankCard(
                 style = MaterialTheme.typography.bodySmall,
                 color = EduGreenDark,
                 fontWeight = FontWeight.Bold
+            )
+        }
+
+        if (item.sourceType == QuestionSourceType.BOOK_EXTRACTED && item.correctAnswer.isBlank()) {
+            Text(
+                text = "يلزم إدخال الإجابة النموذجية ومراجعتها قبل اعتماد السؤال للاختبارات.",
+                style = MaterialTheme.typography.bodySmall,
+                color = EduOrange
             )
         }
 
