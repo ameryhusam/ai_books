@@ -964,7 +964,7 @@ private fun AuthenticatedEduMiniContent(
                                 it.unitKey == studyLesson.unitKey &&
                                 it.lessonKey == studyLesson.lessonKey &&
                                 it.reviewed &&
-                                it.sourceType != QuestionSourceType.INTERACTIVE_CHECKPOINT.id &&
+                                it.sourceType != QuestionSourceType.INTERACTIVE_CHECKPOINT &&
                                 !it.id.startsWith("q-int-")
                         }
                     }
