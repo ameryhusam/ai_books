@@ -1930,7 +1930,7 @@ class EduMiniCoreTest {
             }
         }
 
-        assertEquals(7, BookIndexPromptRegistry.schemas.size)
+        assertEquals(8, BookIndexPromptRegistry.schemas.size)
         assertTrue(BookIndexPromptRegistry.schemas.any { it.fileName.contains("index.json") })
         assertTrue(BookIndexPromptRegistry.schemas.any { it.fileName.contains("book_manifest.json") })
         assertTrue(BookIndexPromptRegistry.schemas.any { it.fileName.contains("educational_activities") })
