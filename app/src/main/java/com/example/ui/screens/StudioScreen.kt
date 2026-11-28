@@ -2112,15 +2112,15 @@ private fun StudioGenerationControlPanel(
                 items(subjectBooks, key = { it.subjectKey + "|" + it.componentKey.orEmpty() }) { book ->
                     Surface(
                         shape = RoundedCornerShape(10.dp),
-                        color = if (book.bookKey == selectedBookKey) EduMint else EduFieldBg,
-                        border = BorderStroke(1.dp, if (book.bookKey == selectedBookKey) EduGreen else EduLine),
+                        color = if (selectedBook?.subjectKey == book.subjectKey && selectedBook?.componentKey == book.componentKey) EduMint else EduFieldBg,
+                        border = BorderStroke(1.dp, if (selectedBook?.subjectKey == book.subjectKey && selectedBook?.componentKey == book.componentKey) EduGreen else EduLine),
                         modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable { onSelectBook(book.bookKey) }
                     ) {
                         Text(
                             book.subjectName?.takeIf { it.isNotBlank() } ?: book.title,
                             modifier = Modifier.padding(horizontal = 11.dp, vertical = 8.dp),
                             style = MaterialTheme.typography.labelMedium,
-                            color = if (book.bookKey == selectedBookKey) EduGreenDark else EduInk
+                            color = if (selectedBook?.subjectKey == book.subjectKey && selectedBook?.componentKey == book.componentKey) EduGreenDark else EduInk
                         )
                     }
                 }
