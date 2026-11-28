@@ -365,7 +365,6 @@ private fun AuthenticatedEduMiniContent(
     val workspaceTeacherNotes by viewModel.workspaceTeacherNotes.collectAsStateWithLifecycle()
     val currentTeacherNote by viewModel.currentTeacherNote.collectAsStateWithLifecycle()
     val currentLessonText by viewModel.currentLessonText.collectAsStateWithLifecycle()
-    val studentStudyLessonText by viewModel.studentStudyLessonText.collectAsStateWithLifecycle()
     val promptTemplates by viewModel.promptTemplates.collectAsStateWithLifecycle()
     val questionStats by viewModel.questionMasteryStats.collectAsStateWithLifecycle()
     val conceptSummaries by viewModel.conceptMasterySummaries.collectAsStateWithLifecycle()
@@ -1003,8 +1002,6 @@ private fun AuthenticatedEduMiniContent(
                         hasNextLesson = hasNextLesson,
                         lastQuizResult = state.lastLessonQuizResult,
                         showAdminShortcuts = state.userRole == UserRole.ADMIN,
-                        storedLessonText = studentStudyLessonText?.content,
-                        onLoadLessonSourceText = viewModel::readLessonSourceText,
                         onOpenGenerateQuestions = { viewModel.openLessonQuestionsInStudio(studyLesson) },
                         onSubmitLessonQuiz = { answers ->
                             viewModel.submitLessonQuiz(studyLesson, lessonQuestions, answers)
