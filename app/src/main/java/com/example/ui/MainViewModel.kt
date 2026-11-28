@@ -3707,6 +3707,10 @@ class MainViewModel(
                         values.maxByOrNull { it.version }
                     }
                     var source = repository.getLessonTextSnapshot(workspace.workspaceId, lesson)?.content.orEmpty()
+                    if (source.isBlank()) {
+                        source = latestByTask[TaskType.LESSON_TEXT]?.content
+                            ?.let(repository::extractLessonTextFromOutput).orEmpty()
+                    }
                     val sourceWasStored = source.isNotBlank()
                     var conceptContext = latestByTask[TaskType.CONCEPTS]?.content.orEmpty()
                     val lessonTaskPlan = if (snapshot.studioGenerationMode == StudioGenerationMode.BULK_QUESTIONS) {
@@ -3739,7 +3743,7 @@ class MainViewModel(
                         }
 
                         val effectiveTask = if (operation == StudioGenerationOperation.REVIEW) TaskType.CONTENT_REVIEW else originalTask
-                        val sourceForRequest = if (originalTask == TaskType.LESSON_TEXT) "" else source
+                        val sourceForRequest = if (originalTask == TaskType.LESSON_TEXT && operation != StudioGenerationOperation.REVIEW && source.isBlank()) "" else source
                         val extra = buildString {
                             append(BookIndexPromptRegistry.blueprintFor(effectiveTask).quickInstructions)
                             when (operation) {
@@ -3760,7 +3764,7 @@ class MainViewModel(
                                 }
                             }
                         }
-                        val requestAttachPdf = (originalTask == TaskType.LESSON_TEXT || operation == StudioGenerationOperation.REVIEW) && source.isBlank()
+                        val requestAttachPdf = originalTask == TaskType.LESSON_TEXT && sourceForRequest.isBlank()
                         try {
                             val output = repository.generateContent(
                                 workspaceId = workspace.workspaceId,
