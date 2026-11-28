@@ -60,6 +60,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.data.repository.EduMiniRepository
 import com.example.data.repository.QuestionBankEngine
+import com.example.data.workspace.UriIO
 import com.example.model.DraftRecord
 import com.example.model.DraftStatus
 import com.example.model.InteractivePackageRecord
@@ -80,6 +81,7 @@ import com.example.ui.theme.EduPurple
 import com.example.ui.theme.EduRed
 import com.example.ui.theme.EduWhite
 import com.example.ui.theme.EduYellow
+import java.io.File
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
