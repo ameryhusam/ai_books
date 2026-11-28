@@ -2239,7 +2239,8 @@ class EduMiniRepository(
         sourceIndexSha256: String = "",
         expectedQuestionCount: Int? = null,
         expectedQuestionTypeIds: List<String> = emptyList(),
-        expectedQuestionDifficultyId: String? = null
+        expectedQuestionDifficultyId: String? = null,
+        sourceType: QuestionSourceType = QuestionSourceType.AI_GENERATED
     ): List<QuestionItem> {
         val canonicalWs = workspaceId.ifBlank { lesson.workspaceId }.ifBlank { lesson.rootPath }
         val parsed = if (expectedQuestionCount != null) {
@@ -2255,13 +2256,14 @@ class EduMiniRepository(
             QuestionBankEngine.parseQuestionsFromText(rawText, canonicalWs, lesson)
         }
         if (parsed.isEmpty()) return emptyList()
+        val classifiedQuestions = parsed.map { it.copy(sourceType = sourceType) }
         val effectiveIndexSha = sourceIndexSha256.ifBlank {
             dao.getWorkspaceIndexForBook(canonicalWs, lesson.bookKey)?.indexSha256.orEmpty()
         }
         return questionBankService.saveQuestionsWithConceptTags(
             workspaceId = canonicalWs,
             lesson = lesson,
-            parsedQuestions = parsed,
+            parsedQuestions = classifiedQuestions,
             draftId = draftId,
             templateId = templateId,
             promptUsed = promptUsed,
