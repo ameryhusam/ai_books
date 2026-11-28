@@ -61,6 +61,30 @@ object InteractiveLessonParser {
         )
     }
 
+    fun formatForPreview(rawText: String): String {
+        val model = parseStrictJson(rawText) ?: return rawText
+        return buildString {
+            append("# ").append(model.title).append("\n\n")
+            if (model.objective.isNotBlank()) append("**هدف الدرس:** ").append(model.objective).append("\n\n")
+            if (model.introduction.isNotBlank()) append(model.introduction).append("\n\n")
+            model.sections.forEachIndexed { index, section ->
+                append("## ").append(index + 1).append(". ").append(section.title).append("\n\n")
+                if (section.conceptTag.isNotBlank()) append("**المفهوم:** ").append(section.conceptTag).append("\n\n")
+                append(section.explanation).append("\n\n")
+                if (section.visualDescription.isNotBlank()) append("**وسيلة التوضيح (${section.visualType}):** ").append(section.visualDescription).append("\n\n")
+                if (section.workedExample.isNotBlank()) append("**مثال تطبيقي:**\n").append(section.workedExample).append("\n\n")
+                if (section.checkpointQuestion.isNotBlank()) append("**نقطة تحقق:** ").append(section.checkpointQuestion).append("\n\n")
+            }
+            if (model.keyPoints.isNotEmpty()) {
+                append("## أهم نقاط المذاكرة\n\n")
+                model.keyPoints.forEach { append("- ").append(it).append("\n") }
+                append("\n")
+            }
+            if (model.summary.isNotBlank()) append("## ملخص الدرس\n\n").append(model.summary).append("\n\n")
+            if (model.bookQuestionIds.isNotEmpty()) append("**أسئلة الكتاب المرتبطة:** ").append(model.bookQuestionIds.size).append(" سؤالاً من بنك الأسئلة.")
+        }.trim()
+    }
+
     private fun string(obj: JsonObject, key: String): String =
         (obj[key] as? JsonPrimitive)?.contentOrNull.orEmpty()
 
