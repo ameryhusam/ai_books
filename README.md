@@ -20,6 +20,12 @@ Generation outputs are retained as task-specific drafts. Question-bank extractio
 Draft version numbers are scoped by workspace, book, unit, lesson, and task. The Studio shows drafts for the selected task, clears the active editor context when the task or lesson changes, and exposes the saved lesson-text source actions. The learner view displays approved reading components and approved/published interactive content only.
 Interactive checkpoint rows (`q-int-*`) are recorded lazily when a learner answers a checkpoint, not pre-inserted when a package is generated. They are tagged with `source_type = INTERACTIVE_CHECKPOINT` and excluded from the official question-bank view and end-of-lesson quizzes, while their attempts remain available to concept-mastery analytics. The `q-int-*` ID prefix is retained as a compatibility fallback for legacy checkpoint rows. Room migration 18→19 adds `source_type`; existing rows remain `LEGACY_UNKNOWN` because their origin cannot be inferred safely.
 
+## Generation Studio pipeline and prompt quality
+
+The current `INTERACTIVE` task is an interactive practice activity (steps, checkpoints, ordering and matching), not yet the separate explanatory interactive-lesson experience. New source-grounded prompt assets have been added for concept extraction, verbatim source-question extraction, explanatory interactive lessons, educational activities, content review, remediation resources and learner reports. These new assets are not selectable at runtime until their task types, response schemas, parsers, validation and persistence paths are implemented.
+
+The target workflow defines three modes over one shared provider execution path: single-lesson/single-artifact generation, bulk question-bank generation, and bulk generation of reusable lesson-authoring content. Bulk outputs are intended to persist as `DRAFT` per lesson. Learner-specific reports and personalized remediation require actual learner attempts and are therefore post-assessment workflows, not fabricated outputs of a book-wide content batch. See [Generation Studio bulk pipeline and prompt audit](docs/GENERATION_STUDIO_BULK_PIPELINE_AND_PROMPT_AUDIT.md) for the design and current implementation boundary.
+
 ## Book PDF indexing status
 
 The PDF intake and splitting building blocks are not the same as a completed index-to-split user flow. The current implementation includes the intake draft/validation contract and PDF ingestion/splitting components, but the following integration work remains before claiming full automatic indexing:
