@@ -308,14 +308,14 @@ object InteractiveBundleBuilder {
 
   <div class="progress-wrap">
     <div class="progress-meta">
-      <span id="station-counter">جاري تحميل الدرس التفاعلي...</span>
+      <span id="station-counter">جاري تحميل الأنشطة التعليمية...</span>
       <span id="score-counter"></span>
     </div>
     <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
   </div>
 
   <div id="interactive-stage" class="station-card">
-    <p>جاري تجهيز المحطات التفاعلية...</p>
+    <p>جاري تجهيز الأنشطة التعليمية...</p>
   </div>
 
   <script src="./interactive-engine.js"></script>
@@ -408,7 +408,7 @@ object InteractiveBundleBuilder {
       counter.textContent = "اكتملت جميع المحطات";
       fill.style.width = "100%";
     } else {
-      counter.textContent = "المحطة " + current + " من " + total;
+      counter.textContent = "النشاط " + current + " من " + total;
       fill.style.width = Math.round((current / total) * 100) + "%";
     }
     if (state.totalCheckpoints > 0) {
@@ -429,7 +429,7 @@ object InteractiveBundleBuilder {
       row.appendChild(prevBtn);
     }
     var isLastContent = state.stationIndex >= state.stations.length - 2;
-    var nextBtn = el("button", "btn btn-primary", isLastContent ? "إنهاء النشاط التفاعلي" : "المحطة التالية");
+    var nextBtn = el("button", "btn btn-primary", isLastContent ? "إنهاء الأنشطة التعليمية" : "المحطة التالية");
     nextBtn.addEventListener("click", function () {
       state.stationIndex += 1;
       render();
@@ -626,8 +626,8 @@ object InteractiveBundleBuilder {
       ? Math.round((state.correctCheckpoints * 100) / state.totalCheckpoints)
       : 100;
     reportCompletionToHost(scorePct, 35);
-    stage.appendChild(el("div", "concept-badge", "اكتمل الدرس التفاعلي ✓"));
-    stage.appendChild(el("h2", "station-title", "أحسنت! أتممت جميع المحطات التفاعلية"));
+    stage.appendChild(el("div", "concept-badge", "اكتملت الأنشطة التعليمية ✓"));
+    stage.appendChild(el("h2", "station-title", "أحسنت! أتممت جميع الأنشطة التعليمية"));
     stage.appendChild(el("p", "station-body", "تم حفظ إجابات نقاط التحقق ومستوى إتقان المفاهيم في قاعدة بيانات التطبيق. يمكنك الآن الانتقال لاختبار نهاية الدرس."));
     var restartBtn = el("button", "btn btn-outline", "إعادة استعراض المحطات");
     restartBtn.addEventListener("click", function () {
@@ -653,14 +653,14 @@ object InteractiveBundleBuilder {
     .then(function (resp) { return resp.json(); })
     .then(function (data) {
       state.data = data;
-      document.getElementById("lesson-title").textContent = data.title || "الدرس التفاعلي";
+      document.getElementById("lesson-title").textContent = data.title || "أنشطة تعليمية";
       document.getElementById("lesson-objective").textContent = data.objective || "";
       buildStations(data);
       render();
     })
     .catch(function (err) {
       var stage = document.getElementById("interactive-stage");
-      stage.textContent = "تعذر تحميل ملف الدرس التفاعلي JSON: " + err;
+      stage.textContent = "تعذر تحميل ملف الأنشطة التعليمية JSON: " + err;
     });
 })();
         """.trimIndent()
