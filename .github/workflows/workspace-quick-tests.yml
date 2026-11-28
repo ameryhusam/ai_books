@@ -66,4 +66,8 @@ jobs:
           --tests com.example.GenerationDraftTaskIsolationTest
           --tests com.example.InteractiveActivityParserTest
           --tests com.example.data.local.QuestionSourceTypeMigration18To19Test
+          --tests 'com.example.EduMiniCoreTest.canonicalQuestionPayloadMapsToRoomAndRejectsDuplicateBatchWithoutPartialWrites'
+          --tests 'com.example.EduMiniCoreTest.strictGeneratedQuestionParserEnforcesExactCountAndTypeDistribution'
+          --tests 'com.example.EduMiniCoreTest.strictGeneratedQuestionParserRejectsCountAndTypeMixMismatch'
+          --tests 'com.example.EduMiniCoreTest.questionBankEngineParsesJsonAndArabicTextDetectsDuplicatesAndGradesQuiz'
           -PallowMissingGoogleServices=true
