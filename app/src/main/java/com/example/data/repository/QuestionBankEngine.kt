@@ -3,6 +3,7 @@ package com.example.data.repository
 import com.example.model.AssessmentRecord
 import com.example.model.LessonRef
 import com.example.model.QuestionContentPayload
+import com.example.model.SourceQuestionPayload
 import com.example.model.QuestionDifficulty
 import com.example.model.QuestionItem
 import com.example.model.QuestionType
@@ -79,6 +80,66 @@ object QuestionBankEngine {
 
     fun serializeQuestionPayloads(payloads: List<QuestionContentPayload>): String {
         return json.encodeToString(mapOf("questions" to payloads))
+    }
+    /**
+     * Parses textbook questions without rewriting their prompt or option text.
+     * Missing answers remain blank; the teacher must review/complete them before
+     * the question can be used in a graded learner quiz.
+     */
+    fun parseSourceQuestions(rawText: String, workspaceId: String, lesson: LessonRef): List<QuestionItem> {
+        val cleaned = rawText.trim().removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
+        val root = runCatching { json.parseToJsonElement(cleaned) as? JsonObject }.getOrNull()
+            ?: throw IllegalArgumentException("استجابة أسئلة الكتاب ليست JSON صالحاً.")
+        require(root.keys == setOf("questions")) { "يجب أن يحتوي خرج استخراج أسئلة الكتاب على الحقل questions فقط." }
+        val array = root["questions"] as? JsonArray
+            ?: throw IllegalArgumentException("مصفوفة questions غير موجودة في استجابة أسئلة الكتاب.")
+        require(array.isNotEmpty()) { "لم يتم العثور على أسئلة في صفحات المصدر." }
+        val canonicalWs = workspaceId.ifBlank { lesson.workspaceId }.ifBlank { lesson.rootPath }
+        val now = Instant.now().toString()
+        val seen = mutableSetOf<String>()
+        return array.mapIndexed { index, element ->
+            val obj = element as? JsonObject ?: throw IllegalArgumentException("سؤال الكتاب رقم ${index + 1} ليس كائن JSON.")
+            val descriptor = SourceQuestionPayload.serializer().descriptor
+            val allowed = (0 until descriptor.elementsCount).map(descriptor::getElementName).toSet()
+            val unexpected = obj.keys - allowed
+            require(unexpected.isEmpty()) { "حقول غير مسموحة في سؤال الكتاب رقم ${index + 1}: ${unexpected.joinToString()}." }
+            val payload = runCatching { json.decodeFromJsonElement<SourceQuestionPayload>(obj) }.getOrElse {
+                throw IllegalArgumentException("تعذر قراءة سؤال الكتاب رقم ${index + 1}: ${it.message ?: "خطأ حقول"}.")
+            }
+            require(payload.prompt.isNotBlank()) { "نص سؤال الكتاب رقم ${index + 1} فارغ." }
+            val questionType = when {
+                payload.type.isNotBlank() -> QuestionType.entries.firstOrNull { it.id.equals(payload.type, ignoreCase = true) }
+                    ?: throw IllegalArgumentException("نوع سؤال الكتاب رقم ${index + 1} غير مدعوم.")
+                payload.options.isNotEmpty() -> QuestionType.MCQ
+                else -> QuestionType.SHORT_ANSWER
+            }
+            if (questionType == QuestionType.MCQ || questionType == QuestionType.TRUE_FALSE) {
+                require(payload.options.size >= 2) { "سؤال الكتاب رقم ${index + 1} يحتاج خيارين على الأقل وفق نوعه." }
+            }
+            val fingerprint = computeFingerprint(payload.prompt)
+            require(seen.add(fingerprint)) { "يتضمن استخراج الكتاب سؤالاً مكرراً بالنص نفسه عند العنصر رقم ${index + 1}." }
+            QuestionItem(
+                id = "q-book-${System.currentTimeMillis()}-${UUID.randomUUID().toString().take(6)}",
+                workspaceId = canonicalWs,
+                gradeKey = lesson.grade,
+                bookKey = lesson.bookKey,
+                unitKey = lesson.unitKey,
+                lessonKey = lesson.lessonKey,
+                lessonTitle = lesson.title,
+                type = questionType,
+                prompt = payload.prompt,
+                options = payload.options,
+                correctAnswer = payload.correctAnswer,
+                rationale = "",
+                difficulty = QuestionDifficulty.MEDIUM,
+                sourcePages = payload.sourcePages.takeIf { it.isNotBlank() },
+                fingerprint = fingerprint,
+                reviewed = false,
+                createdAt = now,
+                conceptTag = "",
+                sourceType = QuestionSourceType.BOOK_EXTRACTED
+            )
+        }
     }
 
     fun formatGeneratedQuestionsForPreview(rawText: String): String {
