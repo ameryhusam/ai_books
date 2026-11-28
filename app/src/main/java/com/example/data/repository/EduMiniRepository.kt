@@ -1039,13 +1039,13 @@ class EduMiniRepository(
         // Question JSON is derived from the canonical question-content contract, not a second editable template schema.
         val responseSchema = when (task) {
             TaskType.QUESTIONS -> QuestionResponseContract.schemaFor(questionTypeIds, difficultyHint)
-            TaskType.SOURCE_QUESTIONS, TaskType.EDUCATIONAL_ACTIVITIES ->
+            TaskType.SOURCE_QUESTIONS, TaskType.EDUCATIONAL_ACTIVITIES, TaskType.INTERACTIVE_LESSON ->
                 activeTemplate?.responseSchemaJson?.takeIf { it.isNotBlank() }
                     ?: BookIndexPromptRegistry.blueprintFor(task).schemaSnippet
             else -> activeTemplate?.responseSchemaJson.orEmpty()
         }
         val responseMapping = if (task == TaskType.QUESTIONS) "" else activeTemplate?.responseMappingJson.orEmpty()
-        val responseFormat = if (task in setOf(TaskType.QUESTIONS, TaskType.SOURCE_QUESTIONS, TaskType.EDUCATIONAL_ACTIVITIES)) {
+        val responseFormat = if (task in setOf(TaskType.QUESTIONS, TaskType.SOURCE_QUESTIONS, TaskType.EDUCATIONAL_ACTIVITIES, TaskType.INTERACTIVE_LESSON)) {
             "json"
         } else {
             activeTemplate?.responseFormat ?: if (responseSchema.isNotBlank()) "json" else "text"
