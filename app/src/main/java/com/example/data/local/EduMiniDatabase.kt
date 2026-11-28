@@ -176,7 +176,8 @@ data class DraftEntity(
     @ColumnInfo(name = "source_pdf_hash", defaultValue = "''") val sourcePdfHash: String = "",
     @ColumnInfo(name = "prompt_used", defaultValue = "''") val promptUsed: String = "",
     @ColumnInfo(name = "response_schema_json", defaultValue = "''") val responseSchemaJson: String = "",
-    @ColumnInfo(name = "source_index_sha256", defaultValue = "''") val sourceIndexSha256: String = ""
+    @ColumnInfo(name = "source_index_sha256", defaultValue = "''") val sourceIndexSha256: String = "",
+    @ColumnInfo(name = "source_type", defaultValue = "'LEGACY_UNKNOWN'") val sourceType: String = "LEGACY_UNKNOWN"
 )
 
 @Entity(
@@ -1028,7 +1029,7 @@ interface EduMiniDao {
         TeacherNoteEntity::class,
         PromptTemplateEntity::class
     ],
-    version = 18,
+    version = 19,
     exportSchema = true
 )
 abstract class EduMiniDatabase : RoomDatabase() {
@@ -1541,6 +1542,13 @@ abstract class EduMiniDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_18_19 = object : Migration(18, 19) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Existing questions have no reliable source evidence; preserve that uncertainty.
+                db.execSQL("ALTER TABLE questions ADD COLUMN source_type TEXT NOT NULL DEFAULT 'LEGACY_UNKNOWN'")
+            }
+        }
+
         fun getInstance(context: Context): EduMiniDatabase {
             return instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -1565,7 +1573,8 @@ abstract class EduMiniDatabase : RoomDatabase() {
                         MIGRATION_14_15,
                         MIGRATION_15_16,
                         MIGRATION_16_17,
-                        MIGRATION_17_18
+                        MIGRATION_17_18,
+                        MIGRATION_18_19
                     )
                     .build()
                     .also { instance = it }
