@@ -78,7 +78,10 @@ service cloud.firestore {
                'worked_examples',
                'lesson_review',
                'difficulty_adapter',
-               'interactive',
+               'source_questions',
+               'interactive_lesson',
+               'educational_activities',
+               'interactive', // legacy task identifier retained for existing cloud drafts
                'questions'
              ] &&
              data.title is string && data.title.size() >= 1 && data.title.size() <= 200 &&
