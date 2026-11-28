@@ -349,7 +349,7 @@ object WorkspaceExporter {
                 }
                 latestByTask.forEach { (_, latest) ->
                     val legacyName = when (latest.task) {
-                        "interactive" -> "interactive-lesson-draft.json"
+                        "interactive", "educational_activities" -> "educational-activities-draft.json"
                         "questions" -> "ai-question-drafts.json"
                         else -> "${latest.task.replace('_', '-')}-draft.json"
                     }
