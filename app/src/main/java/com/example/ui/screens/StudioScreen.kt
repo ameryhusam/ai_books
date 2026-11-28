@@ -2075,7 +2075,10 @@ private fun StudioGenerationControlPanel(
     onSelectBook: (String) -> Unit
 ) {
     val selectedBook = books.firstOrNull { it.bookKey == selectedBookKey }
-    val lessonCount = lessons.count { it.bookKey == selectedBookKey }
+    val subjectBooks = books.distinctBy { it.subjectKey + "|" + it.componentKey.orEmpty() }
+    val lessonCount = selectedBook?.let { selected ->
+        lessons.count { it.subjectKey == selected.subjectKey && it.componentKey == selected.componentKey }
+    } ?: 0
     EduPanel(modifier = Modifier.fillMaxWidth()) {
         Text("طريقة التوليد", style = MaterialTheme.typography.titleMedium, color = EduInk)
         Text(
@@ -2106,7 +2109,7 @@ private fun StudioGenerationControlPanel(
         if (mode != StudioGenerationMode.SINGLE_LESSON) {
             Text("المادة المستهدفة", style = MaterialTheme.typography.labelLarge, color = EduInk)
             LazyRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                items(books, key = { it.bookKey }) { book ->
+                items(subjectBooks, key = { it.subjectKey + "|" + it.componentKey.orEmpty() }) { book ->
                     Surface(
                         shape = RoundedCornerShape(10.dp),
                         color = if (book.bookKey == selectedBookKey) EduMint else EduFieldBg,
@@ -2114,7 +2117,7 @@ private fun StudioGenerationControlPanel(
                         modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable { onSelectBook(book.bookKey) }
                     ) {
                         Text(
-                            book.title,
+                            book.subjectName?.takeIf { it.isNotBlank() } ?: book.title,
                             modifier = Modifier.padding(horizontal = 11.dp, vertical = 8.dp),
                             style = MaterialTheme.typography.labelMedium,
                             color = if (book.bookKey == selectedBookKey) EduGreenDark else EduInk
@@ -2124,7 +2127,7 @@ private fun StudioGenerationControlPanel(
             }
             Text(
                 text = if (selectedBook != null) {
-                    selectedBook.title + " • " + lessonCount + " درس"
+                    (selectedBook.subjectName?.takeIf { it.isNotBlank() } ?: selectedBook.title) + " • " + lessonCount + " درس"
                 } else {
                     "اختر مادة من القائمة أعلاه"
                 },
