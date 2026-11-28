@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.firebase.AnalyticsTracker
 import com.example.data.ai.AiModelDefinition
+import com.example.data.ai.BookIndexPromptRegistry
 import com.example.data.ai.AiModelCatalogDefaults
 import com.example.data.ai.AiExecutionException
 import com.example.data.ai.AiExecutionFailureKind
@@ -3764,7 +3765,7 @@ class MainViewModel(
                                 }
                             }
                         }
-                        val requestAttachPdf = originalTask == TaskType.LESSON_TEXT && sourceForRequest.isBlank()
+                        val requestAttachPdf = sourceForRequest.isBlank() && !lesson.pdfPath.isNullOrBlank()
                         try {
                             val output = repository.generateContent(
                                 workspaceId = workspace.workspaceId,
