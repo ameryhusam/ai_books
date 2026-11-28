@@ -25,6 +25,7 @@ on:
       - 'app/src/main/java/com/example/ui/screens/QuestionBankScreen.kt'
       - 'app/src/test/java/com/example/GenerationDraftTaskIsolationTest.kt'
       - 'app/src/test/java/com/example/InteractiveActivityParserTest.kt'
+      - 'app/src/test/java/com/example/data/repository/SourceQuestionExtractionTest.kt'
       - 'app/src/test/java/com/example/QuestionSourceTypeMigration18To19Test.kt'
       - 'app/src/test/java/com/example/InteractiveCheckpointIsolationTest.kt'
       - 'app/src/main/assets/prompts/book_indexing/book_index_discovery.prompt.md'
@@ -70,6 +71,7 @@ jobs:
           --tests com.example.BookIndexIntakeWorkflowTest
           --tests com.example.GenerationDraftTaskIsolationTest
           --tests com.example.InteractiveActivityParserTest
+          --tests com.example.data.repository.SourceQuestionExtractionTest
           --tests com.example.data.local.QuestionSourceTypeMigration18To19Test
           --tests com.example.InteractiveCheckpointIsolationTest
           --tests com.example.domain.progress.LearningProgressCalculatorTest
