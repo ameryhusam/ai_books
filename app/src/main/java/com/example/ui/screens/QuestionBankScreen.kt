@@ -899,7 +899,7 @@ private fun QuestionEditorDialog(
                     OutlinedTextField(
                         value = correctAnswer,
                         onValueChange = { correctAnswer = it },
-                        label = { Text(if (type == QuestionType.TRUE_FALSE) "الإجابة (صح أو خطأ)" else "الإجابة الصحيحة") },
+                        label = { Text(if (type == QuestionType.TRUE_FALSE) "مفتاح التصحيح (صح أو خطأ)" else "مفتاح التصحيح / الإجابة النموذجية") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -907,6 +907,7 @@ private fun QuestionEditorDialog(
                 OutlinedTextField(
                     value = rationale,
                     onValueChange = { rationale = it },
+                    enabled = !preserveSourceText,
                     label = { Text("التفسير (اختياري)") },
                     minLines = 2,
                     modifier = Modifier.fillMaxWidth()
