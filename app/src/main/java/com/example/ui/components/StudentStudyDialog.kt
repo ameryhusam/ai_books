@@ -99,7 +99,7 @@ fun StudentStudyDialog(
     lastQuizResult: LessonQuizCompletionResult? = null,
     showAdminShortcuts: Boolean = false,
     onOpenGenerateQuestions: (() -> Unit)? = null,
-    onSubmitLessonQuiz: (Map<String, String>) -> Unit,
+    onSubmitLessonQuiz: (List<QuestionItem>, Map<String, String>) -> Unit,
     onOpenNextLesson: () -> Unit = {},
     onInteractiveXpEarned: (Int) -> Unit = {},
     onInteractiveQuestionAnswered: (
@@ -138,6 +138,9 @@ fun StudentStudyDialog(
     val linkedBookQuestions = remember(lessonQuestions, interactiveLesson) {
         val linkedIds = interactiveLesson?.bookQuestionIds.orEmpty().toSet()
         lessonQuestions.filter { it.id in linkedIds && it.sourceType == QuestionSourceType.BOOK_EXTRACTED && it.reviewed }
+    }
+    val lessonQuizQuestions = remember(lessonQuestions, linkedBookQuestions) {
+        linkedBookQuestions.takeIf { it.isNotEmpty() } ?: lessonQuestions
     }
     // Published activity packages are supplementary learning activities, not the lesson explanation.
     val publishedActivitiesPkg = remember(packages) { packages.firstOrNull { it.publishedForStudents } }
@@ -540,13 +543,13 @@ fun StudentStudyDialog(
 
                         else -> StudentLessonQuizTab(
                             lesson = lesson,
-                            questions = lessonQuestions,
+                            questions = lessonQuizQuestions,
                             questionStats = questionStats,
                             lastQuizResult = lastQuizResult,
                             hasNextLesson = hasNextLesson,
                             showAdminShortcuts = showAdminShortcuts,
                             onOpenGenerateQuestions = onOpenGenerateQuestions,
-                            onSubmitQuiz = onSubmitLessonQuiz,
+                            onSubmitQuiz = { answers -> onSubmitLessonQuiz(lessonQuizQuestions, answers) },
                             onOpenNextLesson = onOpenNextLesson,
                             modifier = Modifier.fillMaxSize()
                         )
