@@ -81,11 +81,11 @@ object BookIndexPromptRegistry {
         PromptBlueprintSpec(
             id = "prompt_interactive",
             task = TaskType.INTERACTIVE,
-            titleAr = "مخطط الدرس التفاعلي المترابط (JSON + JS + HTML)",
-            subtitleAr = "محطات تعلم تفاعلية + conceptTag + نقاط تحقق مرتبطة ببنك الأسئلة ومشغل HTML/JS",
+            titleAr = "مخطط النشاط التفاعلي المترابط",
+            subtitleAr = "نشاط ممارسة تفاعلي بمحطات ونقاط تحقق وترتيب ومطابقة",
             sourcePath = "prompts/book_indexing/interactive_activity.prompt.md",
-            roleInstruction = "نشاطاً تعليمياً تفاعلياً منظماً بصيغة JSON آمنة تتضمن خطوات تفاعلية، وconceptTag لكل محطة، ونقاط تحقق مرتبطة ببنك الأسئلة، ومهمة ترتيب أو توصيل ليتم تصديره وتشغيله عبر JSON + JS + HTML",
-            outputContract = "JSON صريح يحتوي schemaVersion, title, objective, steps[](conceptTag, checkpoint), ordering[], matching[]",
+            roleInstruction = "نشاط ممارسة تعليمياً منظماً بصيغة JSON آمنة يتضمن خطوات تفاعلية وconceptTag ونقاط تحقق وعناصر ترتيب أو مطابقة وفق مخطط التطبيق",
+            outputContract = "JSON مطابق لمخطط النشاط: schemaVersion, title, objective, steps, ordering, matching",
             schemaSnippet = """
                 {
                   "schemaVersion": 1,
