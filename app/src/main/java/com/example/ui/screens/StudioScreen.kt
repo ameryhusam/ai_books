@@ -108,6 +108,8 @@ import com.example.model.DraftStatus
 import com.example.model.InteractivePackageRecord
 import com.example.model.InteractiveActivityModel
 import com.example.data.repository.InteractiveActivityParser
+import com.example.data.repository.QuestionBankEngine
+import com.example.model.QuestionContentPayload
 import com.example.model.LessonRef
 import com.example.model.PromptTemplateRecord
 import com.example.model.QuestionDifficulty
@@ -509,7 +511,7 @@ private fun StudioWorkbench(
     var workbenchTab by remember { mutableIntStateOf(0) } // 0: Compose, 1: Output & Drafts, 2: Source & Packages
     val studioTask = if (studioGenerationMode == StudioGenerationMode.BULK_QUESTIONS) TaskType.QUESTIONS else task
     var formattedEditMode by remember(studioTask) { mutableStateOf(false) }
-    val canEditFormattedContent = studioTask !in setOf(TaskType.QUESTIONS, TaskType.INTERACTIVE, TaskType.LESSON_TEXT)
+    val canEditFormattedContent = studioTask !in setOf(TaskType.INTERACTIVE, TaskType.LESSON_TEXT)
     var promptPreviewExpanded by remember { mutableStateOf(false) }
     var lastResultSeen by remember(selectedLesson) { mutableStateOf(generatedResult) }
 
@@ -1319,7 +1321,12 @@ private fun StudioWorkbench(
                                     }
                                 }
                             } else {
-                                if (formattedEditMode && canEditFormattedContent) {
+                                if (formattedEditMode && canEditFormattedContent && studioTask == TaskType.QUESTIONS) {
+                                    QuestionBankStructuredEditor(
+                                        rawContent = generatedResult,
+                                        onRawContentChange = onGeneratedResultChange
+                                    )
+                                } else if (formattedEditMode && canEditFormattedContent) {
                                     OutlinedTextField(
                                         value = displayGeneratedResult,
                                         onValueChange = onGeneratedResultChange,
@@ -2089,6 +2096,105 @@ private fun StudioBookQuickReferenceCard(
                 Icon(Icons.Rounded.Terminal, contentDescription = null, tint = EduPurple, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(4.dp))
                 Text("مصادر البرومبت", color = EduPurple, style = MaterialTheme.typography.labelSmall)
+            }
+        }
+    }
+}
+
+@Composable
+private fun QuestionBankStructuredEditor(
+    rawContent: String,
+    onRawContentChange: (String) -> Unit
+) {
+    var questions by remember(rawContent) {
+        mutableStateOf(QuestionBankEngine.parseQuestionPayloads(rawContent))
+    }
+    fun updateQuestion(index: Int, transform: (QuestionContentPayload) -> QuestionContentPayload) {
+        val updated = questions.toMutableList()
+        updated[index] = transform(updated[index])
+        questions = updated
+        onRawContentChange(QuestionBankEngine.serializeQuestionPayloads(updated))
+    }
+
+    if (questions.isEmpty()) {
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = EduFieldBg,
+            border = BorderStroke(1.dp, EduOrange),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(
+                "تعذر تحويل استجابة بنك الأسئلة إلى محرر الأسئلة المنظم. لن يتم فتح JSON للتحرير.",
+                modifier = Modifier.padding(14.dp),
+                color = EduInk,
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+        return
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(
+            "محرر الأسئلة",
+            style = MaterialTheme.typography.titleSmall,
+            color = EduGreenDark
+        )
+        questions.forEachIndexed { index, question ->
+            EduPanel(modifier = Modifier.fillMaxWidth()) {
+                Text("السؤال " + (index + 1), style = MaterialTheme.typography.titleSmall, color = EduInk)
+                Text(
+                    question.type + " • " + question.difficulty,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = EduMuted
+                )
+                OutlinedTextField(
+                    value = question.prompt,
+                    onValueChange = { value -> updateQuestion(index) { it.copy(prompt = value) } },
+                    label = { Text("نص السؤال") },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 2,
+                    maxLines = 5
+                )
+                OutlinedTextField(
+                    value = question.conceptTag,
+                    onValueChange = { value -> updateQuestion(index) { it.copy(conceptTag = value) } },
+                    label = { Text("المفهوم المرتبط") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+                question.options.forEachIndexed { optionIndex, option ->
+                    OutlinedTextField(
+                        value = option,
+                        onValueChange = { value ->
+                            updateQuestion(index) { current ->
+                                current.copy(options = current.options.toMutableList().also { it[optionIndex] = value })
+                            }
+                        },
+                        label = { Text("الخيار " + (optionIndex + 1)) },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                }
+                OutlinedTextField(
+                    value = question.correctAnswer,
+                    onValueChange = { value -> updateQuestion(index) { it.copy(correctAnswer = value) } },
+                    label = { Text("الإجابة الصحيحة") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+                Text(
+                    "يجب أن تطابق الإجابة الصحيحة أحد الخيارات حرفياً.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = EduMuted
+                )
+                OutlinedTextField(
+                    value = question.rationale,
+                    onValueChange = { value -> updateQuestion(index) { it.copy(rationale = value) } },
+                    label = { Text("التفسير") },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 2,
+                    maxLines = 4
+                )
             }
         }
     }
