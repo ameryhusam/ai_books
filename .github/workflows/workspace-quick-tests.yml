@@ -30,6 +30,9 @@ on:
       - 'app/src/test/java/com/example/BookIndexIntakeWorkflowTest.kt'
       - 'app/src/test/java/com/example/EduMiniCoreTest.kt'
       - '.github/workflows/workspace-quick-tests.yml'
+  pull_request:
+    branches: [main]
+    types: [synchronize]
   workflow_dispatch:
 
 permissions:
