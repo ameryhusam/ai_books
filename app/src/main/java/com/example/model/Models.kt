@@ -924,7 +924,10 @@ data class InteractiveStepItem(
     val checkpointQuestion: String = "",
     val checkpointOptions: List<String> = emptyList(),
     val checkpointAnswer: String = "",
-    val conceptTag: String = ""
+    val conceptTag: String = "",
+    val activityType: String = "practice",
+    val sourceType: String = "AI_CREATED",
+    val sourcePages: String = ""
 )
 
 data class InteractiveMatchPair(
