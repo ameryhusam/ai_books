@@ -139,9 +139,51 @@ object BookIndexPromptRegistry {
             titleAr = "تصميم درس تفاعلي شارح",
             subtitleAr = "شرح مرئي متدرج باستخدام النصوص والمخططات والعمليات والمقارنات ونقاط التحقق",
             sourcePath = "prompts/book_indexing/interactive_lesson.prompt.md",
-            roleInstruction = "بناء تجربة شرح تفاعلية تركز على أهم أفكار الدرس",
-            outputContract = "أقسام تعليمية مترابطة، ولكل قسم هدف ومفهوم ووسيط شرح مناسب",
-            quickInstructions = "حوّل أهم مفاهيم الدرس إلى شرح تفاعلي؛ استخدم المخطط أو العملية أو النموذج ثلاثي الأبعاد فقط عندما يضيف قيمة تعليمية."
+            roleInstruction = "بناء درس تعليمي تفاعلي كامل بصيغة JSON: شرح متدرج، أمثلة، وسائل توضيح، نقاط مذاكرة وملخص، وربط أسئلة الكتاب المعتمدة بمعرفاتها دون نسخها",
+            outputContract = "JSON: title, objective, introduction, sections[], keyPoints[], summary, bookQuestionIds[]؛ كل قسم يتضمن explanation وvisualDescription وworkedExample ونقطة تحقق اختيارية",
+            schemaSnippet = """
+                {
+                  "type": "OBJECT",
+                  "properties": {
+                    "schemaVersion": { "type": "INTEGER" },
+                    "title": { "type": "STRING" },
+                    "objective": { "type": "STRING" },
+                    "introduction": { "type": "STRING" },
+                    "sections": {
+                      "type": "ARRAY",
+                      "items": {
+                        "type": "OBJECT",
+                        "properties": {
+                          "title": { "type": "STRING" },
+                          "conceptTag": { "type": "STRING" },
+                          "explanation": { "type": "STRING" },
+                          "visualType": { "type": "STRING" },
+                          "visualDescription": { "type": "STRING" },
+                          "workedExample": { "type": "STRING" },
+                          "checkpoint": {
+                            "type": "OBJECT",
+                            "properties": {
+                              "question": { "type": "STRING" },
+                              "options": { "type": "ARRAY", "items": { "type": "STRING" } },
+                              "answer": { "type": "STRING" }
+                            },
+                            "required": ["question", "options", "answer"],
+                            "additionalProperties": false
+                          }
+                        },
+                        "required": ["title", "explanation"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "keyPoints": { "type": "ARRAY", "items": { "type": "STRING" } },
+                    "summary": { "type": "STRING" },
+                    "bookQuestionIds": { "type": "ARRAY", "items": { "type": "STRING" } }
+                  },
+                  "required": ["title", "sections", "keyPoints", "summary", "bookQuestionIds"],
+                  "additionalProperties": false
+                }
+            """.trimIndent(),
+            quickInstructions = "اشرح الدرس من البداية إلى النهاية بلغة مناسبة للصف، قسّمه إلى أقسام مترابطة، استخدم مثالاً عملياً ووسيلة توضيح مناسبة، ثم أبرز نقاط المذاكرة والملخص. أدرج معرفات أسئلة الكتاب المعتمدة في bookQuestionIds فقط ولا تنسخ نصوصها."
         ),
         PromptBlueprintSpec(
             id = "prompt_educational_activities",
@@ -329,6 +371,13 @@ object BookIndexPromptRegistry {
             titleAr = "مخطط بنك الأسئلة التفاعلي (questions.json)",
             descriptionAr = "يدعم 6 أنماط: mcq, true_false, fill_blank, ordering, matching, short_answer مع تصنيف المفهوم conceptTag.",
             schemaJson = QuestionResponseContract.schemaJson
+        ),
+        BookIndexSchemaSpec(
+            id = "schema_interactive_lesson",
+            fileName = "interactive_lessons/<unit>/<lesson>/lesson.json",
+            titleAr = "مخطط الدرس التفاعلي الكامل",
+            descriptionAr = "شرح الدرس وأمثلته ونقاط المذاكرة والملخص ومراجع أسئلة الكتاب المعتمدة.",
+            schemaJson = blueprints.first { it.task == TaskType.INTERACTIVE_LESSON }.schemaSnippet
         ),
         BookIndexSchemaSpec(
             id = "schema_educational_activities",
