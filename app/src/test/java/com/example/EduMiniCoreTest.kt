@@ -618,6 +618,8 @@ class EduMiniCoreTest {
         assertTrue(prompt.contains("الدرس الأول"))
         assertTrue(prompt.contains("نص تجريبي"))
         assertTrue(prompt.contains("ملف PDF الأصلي للدرس مرفق"))
+        assertEquals(TaskType.EDUCATIONAL_ACTIVITIES, TaskType.fromId("interactive"))
+        assertFalse(TaskType.entries.any { it.id == "interactive" })
         assertTrue(prompt.contains("التزم بالمصدر ولا تخترع معلومات أو صفحات."))
     }
 
@@ -1852,7 +1854,7 @@ class EduMiniCoreTest {
 
         val interactivePrompt = service.buildPrompt(
             lesson,
-            TaskType.INTERACTIVE,
+            TaskType.EDUCATIONAL_ACTIVITIES,
             "نص",
             "",
             questionCount = 3,
@@ -1931,7 +1933,7 @@ class EduMiniCoreTest {
         assertEquals(6, BookIndexPromptRegistry.schemas.size)
         assertTrue(BookIndexPromptRegistry.schemas.any { it.fileName.contains("index.json") })
         assertTrue(BookIndexPromptRegistry.schemas.any { it.fileName.contains("book_manifest.json") })
-        assertTrue(BookIndexPromptRegistry.schemas.any { it.fileName.contains("interactive.json") })
+        assertTrue(BookIndexPromptRegistry.schemas.any { it.fileName.contains("educational_activities") })
         assertTrue(BookIndexPromptRegistry.schemas.any { it.fileName == "manifest.json" })
 
         val prompt = BookIndexPromptRegistry.assemblePrompt(
